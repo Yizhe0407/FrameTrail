@@ -2,21 +2,53 @@ import type { Bounds } from './db';
 
 // Highlight geometry in CSS px, scaled by the screenshot pixel ratio.
 export const HIGHLIGHT_PADDING = 6;
+// Floor for the adaptive per-single padding below. Below this, a shrunk
+// frame reads as "no highlight" rather than a tight one.
+const MIN_PADDING = 1;
 export const HIGHLIGHT_RADIUS = 8;
 export const HIGHLIGHT_LINE_WIDTH = 3;
 export const HIGHLIGHT_COLOR = '#ef4444';
 
-// Order-number badge (single-image mode): filled circle straddling whichever
-// corner or edge of its own frame clears the neighboring annotations.
+// Order-number badge: a filled circle. A single target's badge straddles its
+// own frame's perimeter; a coincident group's badges sit in a side lane, each
+// tied to its marker by a leader line.
 export const BADGE_RADIUS = 11;
-export const BADGE_FONT_SIZE = 13;
+// Digit size as a fraction of the badge diameter (BADGE_RADIUS * 2). Both the
+// CSS preview and the canvas export derive the font size from this so they can
+// never drift.
+export const BADGE_FONT_RATIO = 0.55;
 export const BADGE_TEXT_COLOR = '#ffffff';
-const COMPACT_PADDING = 2;
+// The stack the editor page renders with (Tailwind v4 default `font-sans`); the
+// canvas badge must name it explicitly since it has no inherited CSS font.
+export const BADGE_FONT_FAMILY =
+  'ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"';
+
+// Leader line from a marker to its side-lane badge.
+export const LEADER_LINE_WIDTH = 1.5;
+
 const CALLOUT_GAP = 14;
 const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
-// Minimum gap kept between a perimeter badge and a neighboring frame or
-// another badge, so circles never touch even when list rows are packed tight.
+// Minimum gap kept between a badge and a neighboring frame, marker or other
+// badge, so circles never touch even when targets are packed tight.
 const BADGE_CLEARANCE = 4;
+// The dot drawn at a coincident target's anchor. Leaders leave from its edge
+// rather than the target centre, so the line never sits under its own dot.
+// Exported so the CSS preview and canvas export size the marker identically.
+export const MARKER_RADIUS = 6;
+// White ring around the marker dot, and the filled inner dot's radius. The
+// inner radius is 0.4 * MARKER_RADIUS, matching the preview's `inset: 30%`
+// (a child inset 30% per side is 40% of the parent → 0.4 of the radius).
+export const MARKER_RING_WIDTH = 2;
+export const MARKER_INNER_RADIUS = MARKER_RADIUS * 0.4;
+
+// Two targets merge into one coincident group only when their intersection
+// covers most of the smaller one. A boolean "do the boxes touch" test chained
+// adjacent list rows — each sharing a hairline border with the next — into one
+// runaway cluster; requiring near-containment instead keeps merely-adjacent
+// rows as separate framed singles and merges only genuinely stacked or
+// duplicate targets. 0.4 sits below the ratio a row overlapping its neighbor
+// by a few px produces, yet well under the ~1.0 of truly coincident boxes.
+const MERGE_OVERLAP_RATIO = 0.4;
 
 export interface AnnotationPoint {
   x: number;
@@ -29,22 +61,25 @@ export interface Annotation {
   order: number;
 }
 
-/** The exact layout shared by the live preview and exported image. */
+/** The exact layout shared by the live preview and exported image. It is a
+ * pure function of the annotations and viewport, so preview and export always
+ * agree and each renders in a single pass. */
 export interface AnnotationLayout {
   order: number;
   frame: Bounds;
   anchor: AnnotationPoint;
-  /** True when the actual targets overlap and a full frame would be ambiguous. */
+  /** True for a member of a coincident group: it renders as a marker dot at
+   * its anchor instead of a frame, because full frames would coincide. */
   markerOnly: boolean;
-  /** Where the order badge renders when there is no collision callout: a point
-   * on this frame's own perimeter (corner or edge) that clears its neighbors. */
+  /** Where the order badge renders when there is no leader callout: a point on
+   * this frame's own perimeter (corner or edge) that clears its neighbors. */
   badgeAnchor: AnnotationPoint;
-  /** Present only for a genuine collision group (targets that actually
-   * overlap). When set, the badge always renders here with a leader line —
-   * regardless of `numbered` — because the frame itself is hidden/ambiguous
-   * and the badge is the only way to identify the target. */
+  /** Present only for a coincident-group member. When set, the badge always
+   * renders here with a leader line — regardless of `numbered` — because the
+   * marker alone cannot carry the order number. */
   callout: AnnotationPoint | null;
-  /** Orthogonal leader path from the target to its callout. */
+  /** Orthogonal (or, as a last resort, diagonal) leader path from the marker
+   * to its callout badge. */
   leader: AnnotationPoint[];
 }
 
@@ -57,31 +92,51 @@ function inflateBounds(bounds: Bounds, padding: number): Bounds {
   };
 }
 
-function overlaps(a: Bounds, b: Bounds): boolean {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+/**
+ * Two clicked elements can sit just a few px apart even though the targets
+ * themselves don't overlap; inflating both by the flat HIGHLIGHT_PADDING then
+ * makes their frames visually collide. Each single instead gets only as much
+ * padding as fits before its frame would cross its nearest neighbor's.
+ *
+ * For raw bounds a, b the axis separations are
+ * `dx = max(0, a.x-(b.x+b.width), b.x-(a.x+a.width))` (dy likewise). Inflating
+ * both by padding p keeps them apart iff `2p < max(dx, dy)` — they only
+ * collide once *both* axes overlap. The `-1` keeps a visible gap once the
+ * stroke width is drawn on top. Compared only against other singles' raw
+ * bounds: group members render as marker dots, never frames, so they can't
+ * collide with anything and would only make this over-conservative.
+ */
+function adaptivePadding(rawBounds: Bounds[], index: number): number {
+  const a = rawBounds[index];
+  let tightest = HIGHLIGHT_PADDING;
+  for (let other = 0; other < rawBounds.length; other++) {
+    if (other === index) continue;
+    const b = rawBounds[other];
+    const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
+    const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
+    tightest = Math.min(tightest, Math.max(dx, dy) / 2 - 1);
+  }
+  // Genuinely overlapping raw bounds (below the coincident-group threshold)
+  // produce max(dx,dy) === 0: clamp to MIN_PADDING and accept the small
+  // residual frame overlap rather than collapsing the highlight entirely.
+  return Math.min(HIGHLIGHT_PADDING, Math.max(MIN_PADDING, tightest));
 }
 
-// Many list/menu components render adjacent rows with a shared 1px border
-// (a collapsed-border or negative-margin technique), so their raw
-// getBoundingClientRect() values can overlap by a hairline even though the
-// rows are visually and semantically distinct. Eroding each side by this much
-// before testing overlap ignores that incidental sliver while still catching
-// a real overlap (an icon sitting on a button, a badge covering part of a tab).
-const GROUPING_TOLERANCE = 3;
-
-function erodeBounds(bounds: Bounds, amount: number): Bounds {
-  const width = Math.max(0, bounds.width - amount * 2);
-  const height = Math.max(0, bounds.height - amount * 2);
-  return {
-    x: bounds.x + (bounds.width - width) / 2,
-    y: bounds.y + (bounds.height - height) / 2,
-    width,
-    height,
-  };
+function pointBounds(point: AnnotationPoint, radius: number): Bounds {
+  return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
 }
 
-function meaningfullyOverlaps(a: Bounds, b: Bounds): boolean {
-  return overlaps(erodeBounds(a, GROUPING_TOLERANCE), erodeBounds(b, GROUPING_TOLERANCE));
+function intersectionArea(a: Bounds, b: Bounds): number {
+  const width = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const height = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  return width * height;
+}
+
+function coincident(a: Bounds, b: Bounds): boolean {
+  const inter = intersectionArea(a, b);
+  if (inter === 0) return false;
+  const minArea = Math.min(a.width * a.height, b.width * b.height);
+  return minArea > 0 && inter / minArea > MERGE_OVERLAP_RATIO;
 }
 
 function unionBounds(bounds: Bounds[]): Bounds {
@@ -98,127 +153,98 @@ function distanceToBounds(point: AnnotationPoint, bounds: Bounds): number {
   return Math.hypot(point.x - x, point.y - y);
 }
 
-function segmentCrossesBounds(start: AnnotationPoint, end: AnnotationPoint, bounds: Bounds): boolean {
-  if (start.x === end.x) {
-    return start.x > bounds.x && start.x < bounds.x + bounds.width && Math.max(start.y, end.y) > bounds.y && Math.min(start.y, end.y) < bounds.y + bounds.height;
+/**
+ * Liang–Barsky segment/rectangle clip, reduced to a boolean intersection test.
+ * Works for any orientation — an honest answer for diagonal leaders, where the
+ * old axis-only test silently reported "no crossing" and let diagonals cut
+ * straight through frames.
+ */
+function segmentIntersectsBounds(start: AnnotationPoint, end: AnnotationPoint, bounds: Bounds): boolean {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const p = [-dx, dx, -dy, dy];
+  const q = [start.x - bounds.x, bounds.x + bounds.width - start.x, start.y - bounds.y, bounds.y + bounds.height - start.y];
+  let t0 = 0;
+  let t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return false; // parallel to this edge and wholly outside it
+      continue;
+    }
+    const t = q[i] / p[i];
+    if (p[i] < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
   }
-  if (start.y === end.y) {
-    return start.y > bounds.y && start.y < bounds.y + bounds.height && Math.max(start.x, end.x) > bounds.x && Math.min(start.x, end.x) < bounds.x + bounds.width;
-  }
-  return false;
+  return t0 < t1;
 }
 
-function routeCrossingCount(points: AnnotationPoint[], obstacles: Bounds[]): number {
-  return points.slice(1).reduce(
-    (count, point, index) => count + obstacles.filter((bounds) => segmentCrossesBounds(points[index], point, bounds)).length,
-    0,
-  );
+// Proper segment/segment crossing: true only when the two segments straddle
+// each other's interior, so leaders that merely share their origin cluster or
+// touch end-to-end are not counted.
+function segmentsCross(a1: AnnotationPoint, a2: AnnotationPoint, b1: AnnotationPoint, b2: AnnotationPoint): boolean {
+  const orient = (p: AnnotationPoint, q: AnnotationPoint, r: AnnotationPoint) =>
+    Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const d1 = orient(b1, b2, a1);
+  const d2 = orient(b1, b2, a2);
+  const d3 = orient(a1, a2, b1);
+  const d4 = orient(a1, a2, b2);
+  return d1 !== d2 && d3 !== d4 && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
 }
 
-function buildLeader(anchor: AnnotationPoint, callout: AnnotationPoint, obstacles: Bounds[]): AnnotationPoint[] {
-  if (Math.abs(anchor.x - callout.x) < 4 || Math.abs(anchor.y - callout.y) < 4) return [anchor, callout];
-
-  const horizontalFirst = [anchor, { x: callout.x, y: anchor.y }, callout];
-  const verticalFirst = [anchor, { x: anchor.x, y: callout.y }, callout];
-  const horizontalCrossings = routeCrossingCount(horizontalFirst, obstacles);
-  const verticalCrossings = routeCrossingCount(verticalFirst, obstacles);
-  if (horizontalCrossings === 0 || verticalCrossings === 0) {
-    return horizontalCrossings <= verticalCrossings ? horizontalFirst : verticalFirst;
+function routeCrossings(points: AnnotationPoint[], obstacles: Bounds[], siblings: AnnotationPoint[][]): number {
+  let count = 0;
+  for (let i = 1; i < points.length; i++) {
+    for (const obstacle of obstacles) {
+      if (segmentIntersectsBounds(points[i - 1], points[i], obstacle)) count++;
+    }
+    for (const sibling of siblings) {
+      for (let j = 1; j < sibling.length; j++) {
+        if (segmentsCross(points[i - 1], points[i], sibling[j - 1], sibling[j])) count++;
+      }
+    }
   }
-
-  // In a packed cluster both elbow routes can cross another marker. A short
-  // diagonal is clearer than an orthogonal line that falsely points through it.
-  return [anchor, callout];
+  return count;
 }
 
 /**
- * Finds visually quiet points for callouts. It samples the captured image in
- * CSS-pixel cells and accepts only pale, low-contrast cells, then removes any
- * point too close to an annotation. This lets the layout prefer real blank
- * margins instead of blindly choosing the closest left/right edge.
+ * Routes a leader from a marker's edge to a badge's edge. Prefers an orthogonal
+ * elbow (reads as a deliberate connector), picking horizontal-first over
+ * vertical-first on a tie, and only falls back to a straight diagonal when both
+ * elbows would cut through strictly more obstacles or previously-drawn sibling
+ * leaders. Passing the group's already-placed leaders as `siblings` lets each
+ * leader steer clear of them — the sorted-slot invariant fixes vertical order,
+ * this keeps the connecting lines from crossing when badges straddle the
+ * anchor cluster.
  */
-export function findQuietCalloutSlots(
-  imageData: ImageData,
-  viewportWidth: number,
-  viewportHeight: number,
-  annotations: Annotation[],
+function buildLeader(
+  start: AnnotationPoint,
+  end: AnnotationPoint,
+  obstacles: Bounds[],
+  siblings: AnnotationPoint[][],
 ): AnnotationPoint[] {
-  const cellSize = 28;
-  const radius = BADGE_RADIUS + 4;
-  const scaleX = imageData.width / viewportWidth;
-  const scaleY = imageData.height / viewportHeight;
-  const columns = Math.floor(viewportWidth / cellSize) - 1;
-  const rows = Math.floor(viewportHeight / cellSize) - 1;
-  if (columns < 3 || rows < 3) return [];
-  const quietCells = Array.from({ length: rows }, () => Array<boolean>(columns).fill(false));
-  const slots: AnnotationPoint[] = [];
-
-  for (let row = 0; row < rows; row++) {
-    for (let column = 0; column < columns; column++) {
-      const x = cellSize * (column + 1);
-      const y = cellSize * (row + 1);
-      let minLuma = 255;
-      let maxLuma = 0;
-      let lumaTotal = 0;
-      let samples = 0;
-
-      // A 7x7 probe catches text, borders and filled controls without reading
-      // the full screenshot pixel-by-pixel.
-      for (let sampleY = -3; sampleY <= 3; sampleY++) {
-        for (let sampleX = -3; sampleX <= 3; sampleX++) {
-          const px = Math.min(imageData.width - 1, Math.max(0, Math.round((x + (sampleX * cellSize) / 7) * scaleX)));
-          const py = Math.min(imageData.height - 1, Math.max(0, Math.round((y + (sampleY * cellSize) / 7) * scaleY)));
-          const offset = (py * imageData.width + px) * 4;
-          const luma = imageData.data[offset] * 0.2126 + imageData.data[offset + 1] * 0.7152 + imageData.data[offset + 2] * 0.0722;
-          minLuma = Math.min(minLuma, luma);
-          maxLuma = Math.max(maxLuma, luma);
-          lumaTotal += luma;
-          samples++;
-        }
-      }
-
-      quietCells[row][column] = lumaTotal / samples > 238 && maxLuma - minLuma < 26;
+  const routes =
+    Math.abs(start.x - end.x) < 1 || Math.abs(start.y - end.y) < 1
+      ? [[start, end]]
+      : [
+          [start, { x: end.x, y: start.y }, end],
+          [start, { x: start.x, y: end.y }, end],
+          [start, end],
+        ];
+  let best = routes[0];
+  let bestCrossings = routeCrossings(routes[0], obstacles, siblings);
+  for (const route of routes.slice(1)) {
+    const crossings = routeCrossings(route, obstacles, siblings);
+    if (crossings < bestCrossings) {
+      best = route;
+      bestCrossings = crossings;
     }
   }
-
-  for (let row = 1; row < rows - 1; row++) {
-    for (let column = 1; column < columns - 1; column++) {
-      // A 3x3 quiet neighborhood filters out the small white holes inside
-      // tables and forms, retaining genuinely open margins and gutters.
-      const hasQuietNeighborhood = [-1, 0, 1].every((rowOffset) =>
-        [-1, 0, 1].every((columnOffset) => quietCells[row + rowOffset][column + columnOffset]),
-      );
-      if (!hasQuietNeighborhood) continue;
-
-      const point = { x: cellSize * (column + 1), y: cellSize * (row + 1) };
-      const clearOfAnnotations = annotations.every(({ bounds }) => distanceToBounds(point, inflateBounds(bounds, radius)) > radius);
-      if (clearOfAnnotations) slots.push(point);
-    }
-  }
-
-  return slots;
-}
-
-function pickQuietCallouts(
-  candidates: AnnotationPoint[] | undefined,
-  groupBounds: Bounds,
-  count: number,
-): AnnotationPoint[] | null {
-  if (!candidates?.length) return null;
-
-  const selected: AnnotationPoint[] = [];
-  const ranked = candidates
-    .filter((point) => distanceToBounds(point, groupBounds) > BADGE_RADIUS + CALLOUT_GAP)
-    .sort((a, b) => distanceToBounds(a, groupBounds) - distanceToBounds(b, groupBounds));
-
-  for (const point of ranked) {
-    if (selected.every((other) => Math.hypot(point.x - other.x, point.y - other.y) >= CALLOUT_SPACING)) {
-      selected.push(point);
-      if (selected.length === count) return selected;
-    }
-  }
-
-  return null;
+  return best;
 }
 
 /**
@@ -257,27 +283,27 @@ function clampToViewport(point: AnnotationPoint, viewportWidth: number, viewport
   };
 }
 
+function badgeOverlaps(point: AnnotationPoint, badges: AnnotationPoint[], rects: Bounds[]): boolean {
+  if (badges.some((badge) => Math.hypot(point.x - badge.x, point.y - badge.y) < BADGE_RADIUS * 2 + BADGE_CLEARANCE)) return true;
+  return rects.some((rect) => distanceToBounds(point, rect) < BADGE_RADIUS + BADGE_CLEARANCE);
+}
+
 /**
- * Places a badge on its own frame's perimeter, picking whichever corner/edge
- * clears every other frame and already-placed badge. This keeps the badge
- * attached to the box it labels instead of exiling it to a shared lane —
- * that lane is reserved for annotations whose actual targets overlap.
+ * Places a single target's badge on its own frame's perimeter, picking the
+ * first corner/edge that clears every already-drawn frame and marker and every
+ * globally-placed badge. This keeps the badge attached to the box it labels
+ * instead of exiling it to the group lane.
  */
 function pickPerimeterBadge(
   frame: Bounds,
-  otherFrames: Bounds[],
+  obstacleRects: Bounds[],
   placedBadges: AnnotationPoint[],
   viewportWidth: number,
   viewportHeight: number,
 ): AnnotationPoint {
   const candidates = perimeterCandidates(frame).filter((point) => fitsInViewport(point, viewportWidth, viewportHeight));
-
   for (const point of candidates) {
-    const clearOfFrames = otherFrames.every((other) => distanceToBounds(point, other) >= BADGE_RADIUS + BADGE_CLEARANCE);
-    const clearOfBadges = placedBadges.every(
-      (badge) => Math.hypot(point.x - badge.x, point.y - badge.y) >= BADGE_RADIUS * 2 + BADGE_CLEARANCE,
-    );
-    if (clearOfFrames && clearOfBadges) return point;
+    if (!badgeOverlaps(point, placedBadges, obstacleRects)) return point;
   }
 
   // Every perimeter point is crowded (dense cluster) — the familiar top-right
@@ -286,20 +312,23 @@ function pickPerimeterBadge(
 }
 
 /**
- * Places each annotation's frame and order badge. Annotations are grouped
- * together only when their actual click targets overlap — elements that are
- * merely close (e.g. adjacent sidebar rows) are never merged into one
- * cluster. A genuine collision group gets a compact frame (or, if the
- * targets fully coincide, a marker) plus a badge moved to a quiet lane with a
- * leader line. Every other annotation keeps its own frame and gets a badge
- * that straddles whichever corner or edge of that frame clears its
- * neighbors, so the badge never has to be pulled away from what it labels.
+ * Places each annotation's frame and order badge as a pure function of the
+ * targets and viewport — no image sampling, so the live preview and the
+ * exported image are byte-for-byte identical in geometry.
+ *
+ * Targets whose boxes genuinely coincide (see {@link coincident}) collapse into
+ * a group: every member becomes a marker dot, and its badge moves to a side
+ * lane joined by a leader. Members are sorted by anchor.y and assigned lane
+ * slots top-to-bottom in that same order — the one-sided boundary-labeling
+ * invariant that keeps orthogonal leaders from crossing. Every other target
+ * keeps its own frame with a perimeter badge. A global badge registry lets
+ * every badge — lane or perimeter — steer clear of every badge placed before
+ * it, across groups and singles alike.
  */
 export function layoutAnnotations(
   annotations: Annotation[],
   viewportWidth: number,
   viewportHeight: number,
-  quietSlots?: AnnotationPoint[],
 ): AnnotationLayout[] {
   const count = annotations.length;
   const parent = Array.from({ length: count }, (_, index) => index);
@@ -316,120 +345,187 @@ export function layoutAnnotations(
     if (rootA !== rootB) parent[rootB] = rootA;
   };
 
-  // Join only on genuine overlap of the actual click targets. The visual
-  // padding used for drawing must not make merely-adjacent list rows chain
-  // transitively into one giant cluster (row A touches B touches C ... Z).
   for (let a = 0; a < count; a++) {
     for (let b = a + 1; b < count; b++) {
-      if (meaningfullyOverlaps(annotations[a].bounds, annotations[b].bounds)) join(a, b);
+      if (coincident(annotations[a].bounds, annotations[b].bounds)) join(a, b);
     }
   }
 
-  const groups = new Map<number, number[]>();
+  const grouped = new Map<number, number[]>();
   for (let index = 0; index < count; index++) {
     const root = find(index);
-    const group = groups.get(root) ?? [];
-    group.push(index);
-    groups.set(root, group);
+    (grouped.get(root) ?? grouped.set(root, []).get(root)!).push(index);
   }
 
-  const frames = annotations.map(({ bounds }) => inflateBounds(bounds, HIGHLIGHT_PADDING));
+  // Stable ordering keeps the output deterministic for identical input.
+  const singles: number[] = [];
+  const groups: number[][] = [];
+  for (const indexes of grouped.values()) {
+    if (indexes.length === 1) singles.push(indexes[0]);
+    else groups.push(indexes.slice().sort((a, b) => a - b));
+  }
+  singles.sort((a, b) => a - b);
+  groups.sort((a, b) => a[0] - b[0]);
+
+  const anchorOf = (index: number): AnnotationPoint => {
+    const { x, y, width, height } = annotations[index].bounds;
+    return { x: x + width / 2, y: y + height / 2 };
+  };
+
+  // Geometry that will actually be drawn, known before any badge is placed so
+  // every badge can be tested against all of it. Padding is adaptive (see
+  // adaptivePadding) so two frames for near-but-non-overlapping targets never
+  // visually collide.
+  const singleRawBounds = singles.map((index) => annotations[index].bounds);
+  const singleFrames = singleRawBounds.map((bounds, position) =>
+    inflateBounds(bounds, adaptivePadding(singleRawBounds, position)),
+  );
+  const groupMembers = groups.flat();
+  const markerRectOf = (index: number): Bounds => pointBounds(anchorOf(index), MARKER_RADIUS);
+
   const placedBadges: AnnotationPoint[] = [];
   const layouts: AnnotationLayout[] = [];
-  for (const indexes of groups.values()) {
-    if (indexes.length === 1) {
-      const index = indexes[0];
-      const annotation = annotations[index];
-      const frame = frames[index];
-      const otherFrames = frames.filter((_, otherIndex) => otherIndex !== index);
-      const badgeAnchor = pickPerimeterBadge(frame, otherFrames, placedBadges, viewportWidth, viewportHeight);
-      placedBadges.push(badgeAnchor);
-      layouts.push({
-        order: annotation.order,
-        frame,
-        anchor: { x: annotation.bounds.x + annotation.bounds.width / 2, y: annotation.bounds.y + annotation.bounds.height / 2 },
-        markerOnly: false,
-        badgeAnchor,
-        callout: null,
-        leader: [],
-      });
-      continue;
-    }
 
-    const compactFrames = indexes.map((index) => inflateBounds(annotations[index].bounds, COMPACT_PADDING));
-    const groupBounds = unionBounds(compactFrames);
-    const quietCallouts = pickQuietCallouts(quietSlots, groupBounds, indexes.length);
+  // Groups first, so a single's perimeter badge can dodge the lane badges.
+  for (const group of groups) {
+    const groupSet = new Set(group);
+    const foreignMarkers = groupMembers.filter((index) => !groupSet.has(index)).map(markerRectOf);
+    const groupBounds = unionBounds(group.map((index) => annotations[index].bounds));
+
     const leftSpace = groupBounds.x;
     const rightSpace = viewportWidth - (groupBounds.x + groupBounds.width);
     const laneOnRight = rightSpace >= leftSpace;
     const laneX = laneOnRight
       ? Math.min(viewportWidth - BADGE_RADIUS, groupBounds.x + groupBounds.width + CALLOUT_GAP + BADGE_RADIUS)
       : Math.max(BADGE_RADIUS, groupBounds.x - CALLOUT_GAP - BADGE_RADIUS);
-    const spacing = indexes.length > 1
-      ? Math.min(CALLOUT_SPACING, Math.max(BADGE_RADIUS * 2 + 2, (viewportHeight - BADGE_RADIUS * 2) / (indexes.length - 1)))
-      : 0;
+
+    const ordered = group.slice().sort((a, b) => anchorOf(a).y - anchorOf(b).y);
     const startY = Math.max(
       BADGE_RADIUS,
-      Math.min(groupBounds.y + BADGE_RADIUS, viewportHeight - BADGE_RADIUS - spacing * (indexes.length - 1)),
+      Math.min(groupBounds.y + BADGE_RADIUS, viewportHeight - BADGE_RADIUS - CALLOUT_SPACING * (ordered.length - 1)),
     );
 
-    indexes.forEach((index, position) => {
-      const annotation = annotations[index];
-      const overlapsTarget = indexes.some((otherIndex) => otherIndex !== index && meaningfullyOverlaps(annotation.bounds, annotations[otherIndex].bounds));
-      const anchor = { x: annotation.bounds.x + annotation.bounds.width / 2, y: annotation.bounds.y + annotation.bounds.height / 2 };
-      const callout = quietCallouts?.[position] ?? { x: laneX, y: startY + position * spacing };
-      placedBadges.push(callout);
+    // Lane badges placed strictly top-to-bottom with monotonically increasing
+    // y — the property that, combined with the anchor.y sort above, forbids
+    // any two of this group's leaders from crossing. Badges placed by earlier
+    // groups count as obstacles to nudge past; this group's own not-yet-placed
+    // badges never do, keeping the monotonic slot order intact.
+    const foreignBadges = placedBadges.slice();
+    const slots: AnnotationPoint[] = [];
+    let cursorY = startY;
+    ordered.forEach((_, position) => {
+      let y = Math.max(cursorY, startY + position * CALLOUT_SPACING);
+      while (
+        y < viewportHeight - BADGE_RADIUS &&
+        badgeOverlaps({ x: laneX, y }, foreignBadges, [...singleFrames, ...foreignMarkers])
+      ) {
+        y += BADGE_RADIUS;
+      }
+      y = Math.min(y, viewportHeight - BADGE_RADIUS);
+      const slot = { x: laneX, y };
+      slots.push(slot);
+      placedBadges.push(slot);
+      cursorY = y + CALLOUT_SPACING;
+    });
+
+    // Own-group markers are excluded from the obstacle set: they share one
+    // cluster every leader must leave from, so counting them would penalise all
+    // routes equally. Sibling leaders are fed in incrementally so each new one
+    // routes around those already drawn.
+    const siblingLeaders: AnnotationPoint[][] = [];
+    ordered.forEach((index, position) => {
+      const anchor = anchorOf(index);
+      const badge = slots[position];
+      const dx = badge.x - anchor.x;
+      const dy = badge.y - anchor.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const start = { x: anchor.x + (dx / length) * MARKER_RADIUS, y: anchor.y + (dy / length) * MARKER_RADIUS };
+      const end = { x: badge.x - (dx / length) * BADGE_RADIUS, y: badge.y - (dy / length) * BADGE_RADIUS };
+      const siblingBadges = slots.filter((_, other) => other !== position).map((point) => pointBounds(point, BADGE_RADIUS));
+      const obstacles = [
+        ...singleFrames,
+        ...foreignMarkers,
+        ...foreignBadges.map((point) => pointBounds(point, BADGE_RADIUS)),
+        ...siblingBadges,
+      ];
+      const leader = buildLeader(start, end, obstacles, siblingLeaders);
+      siblingLeaders.push(leader);
       layouts.push({
-        order: annotation.order,
-        frame: compactFrames[position],
+        order: annotations[index].order,
+        frame: inflateBounds(annotations[index].bounds, HIGHLIGHT_PADDING),
         anchor,
-        markerOnly: overlapsTarget,
-        badgeAnchor: callout,
-        callout,
-        leader: buildLeader(
-          anchor,
-          callout,
-          annotations
-            .filter((_, otherIndex) => otherIndex !== index)
-            .map(({ bounds }) => inflateBounds(bounds, COMPACT_PADDING)),
-        ),
+        markerOnly: true,
+        badgeAnchor: badge,
+        callout: badge,
+        leader,
       });
     });
   }
 
+  const groupMarkerRects = groupMembers.map(markerRectOf);
+  singles.forEach((index, position) => {
+    const frame = singleFrames[position];
+    const obstacleRects = [...singleFrames.filter((_, other) => other !== position), ...groupMarkerRects];
+    const badgeAnchor = pickPerimeterBadge(frame, obstacleRects, placedBadges, viewportWidth, viewportHeight);
+    placedBadges.push(badgeAnchor);
+    layouts.push({
+      order: annotations[index].order,
+      frame,
+      anchor: anchorOf(index),
+      markerOnly: false,
+      badgeAnchor,
+      callout: null,
+      leader: [],
+    });
+  });
+
   return layouts.sort((a, b) => a.order - b.order);
 }
 
+/**
+ * Draws the frame as an *inside* stroke, matching the CSS overlay's
+ * `box-border` border: the whole line width sits inside `bounds`, and
+ * HIGHLIGHT_RADIUS is the outer corner radius. A plain centered `ctx.stroke()`
+ * would straddle the path — making the frame a half-line-width larger and the
+ * corner read tighter than the preview. So inset the path by lineWidth/2 and
+ * use the outer radius minus lineWidth/2 for the centerline radius.
+ */
 function strokeBox(ctx: OffscreenCanvasRenderingContext2D, bounds: Bounds, dpr: number) {
-  const x = bounds.x * dpr;
-  const y = bounds.y * dpr;
-  const w = bounds.width * dpr;
-  const h = bounds.height * dpr;
-  const radius = Math.max(Math.min(HIGHLIGHT_RADIUS * dpr, w / 2, h / 2), 0);
+  const lineWidth = HIGHLIGHT_LINE_WIDTH * dpr;
+  const outerWidth = bounds.width * dpr;
+  const outerHeight = bounds.height * dpr;
+  // CSS clamps border-radius to half the box; do the same before insetting.
+  const outerRadius = Math.max(Math.min(HIGHLIGHT_RADIUS * dpr, outerWidth / 2, outerHeight / 2), 0);
+  const x = bounds.x * dpr + lineWidth / 2;
+  const y = bounds.y * dpr + lineWidth / 2;
+  const w = outerWidth - lineWidth;
+  const h = outerHeight - lineWidth;
+  const radius = Math.max(outerRadius - lineWidth / 2, 0);
 
   ctx.strokeStyle = HIGHLIGHT_COLOR;
-  ctx.lineWidth = HIGHLIGHT_LINE_WIDTH * dpr;
+  ctx.lineWidth = lineWidth;
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, radius);
   ctx.stroke();
-
-  return { x, y, w, h };
 }
 
 function strokeTarget(ctx: OffscreenCanvasRenderingContext2D, anchor: AnnotationPoint, dpr: number) {
   const x = anchor.x * dpr;
   const y = anchor.y * dpr;
-  const radius = 6 * dpr;
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.arc(x, y, MARKER_RADIUS * dpr, 0, Math.PI * 2);
   ctx.fill();
+  // The preview's ring is a box-border CSS border: it sits entirely inside the
+  // MARKER_RADIUS outer edge. Stroke the ring's centerline accordingly.
   ctx.strokeStyle = HIGHLIGHT_COLOR;
-  ctx.lineWidth = 2 * dpr;
+  ctx.lineWidth = MARKER_RING_WIDTH * dpr;
+  ctx.beginPath();
+  ctx.arc(x, y, (MARKER_RADIUS - MARKER_RING_WIDTH / 2) * dpr, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = HIGHLIGHT_COLOR;
   ctx.beginPath();
-  ctx.arc(x, y, 2.5 * dpr, 0, Math.PI * 2);
+  ctx.arc(x, y, MARKER_INNER_RADIUS * dpr, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -437,21 +533,38 @@ function drawBadge(ctx: OffscreenCanvasRenderingContext2D, point: AnnotationPoin
   const r = BADGE_RADIUS * dpr;
   const cx = point.x * dpr;
   const cy = point.y * dpr;
+
+  // Subtle elevation matching the preview badge's Tailwind `shadow`
+  // (0 1px 3px rgb(0 0 0 / 0.1)). Reset before the digit so it stays crisp.
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+  ctx.shadowBlur = 3 * dpr;
+  ctx.shadowOffsetY = 1 * dpr;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = HIGHLIGHT_COLOR;
   ctx.fill();
+  ctx.restore();
+
   ctx.fillStyle = BADGE_TEXT_COLOR;
-  ctx.font = `600 ${BADGE_FONT_SIZE * dpr}px sans-serif`;
+  ctx.font = `600 ${BADGE_RADIUS * 2 * BADGE_FONT_RATIO * dpr}px ${BADGE_FONT_FAMILY}`;
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(order), cx, cy);
+  // Center the digit glyphs by their actual bounding box rather than the font's
+  // full line box, so they sit optically centered like the preview's flexbox.
+  ctx.textBaseline = 'alphabetic';
+  const text = String(order);
+  const metrics = ctx.measureText(text);
+  const textY = cy + (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+  ctx.fillText(text, cx, textY);
 }
 
 function drawLeader(ctx: OffscreenCanvasRenderingContext2D, points: AnnotationPoint[], dpr: number) {
   if (points.length < 2) return;
   ctx.strokeStyle = HIGHLIGHT_COLOR;
-  ctx.lineWidth = 1.5 * dpr;
+  ctx.lineWidth = LEADER_LINE_WIDTH * dpr;
+  // Match the SVG polyline defaults the preview uses (butt caps, miter joins).
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'miter';
   ctx.beginPath();
   ctx.moveTo(points[0].x * dpr, points[0].y * dpr);
   for (const point of points.slice(1)) ctx.lineTo(point.x * dpr, point.y * dpr);
@@ -498,10 +611,7 @@ export async function compositeMultiHighlight(
   ctx.drawImage(bitmap, 0, 0);
 
   const dpr = screenshotScale || 1;
-  const viewportWidth = bitmap.width / dpr;
-  const viewportHeight = bitmap.height / dpr;
-  const quietSlots = findQuietCalloutSlots(ctx.getImageData(0, 0, bitmap.width, bitmap.height), viewportWidth, viewportHeight, annotations);
-  const layouts = layoutAnnotations(annotations, viewportWidth, viewportHeight, quietSlots);
+  const layouts = layoutAnnotations(annotations, bitmap.width / dpr, bitmap.height / dpr);
   bitmap.close();
   for (const layout of layouts) {
     if (layout.markerOnly) {

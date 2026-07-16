@@ -1,27 +1,44 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, MousePointerClick } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { MousePointerClick } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { buildStepEntries, flattenEntries, reorderSteps, type Step, type StepEntry } from '@/lib/db';
-import { Button } from '@/components/ui/button';
 import StepItem from './StepItem';
 import StepGroupBlock from './StepGroupBlock';
+import SortableItem from './SortableItem';
 import Lightbox from './Lightbox';
 
 interface Props {
   steps: Step[];
   sessionId: string | null;
   onChange: () => void;
-  large?: boolean;
 }
 
-export default function StepList({ steps, sessionId, onChange, large = false }: Props) {
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+/** Stable id for a timeline entry — an ordinary step's own id, or a group's
+ * anchor id — used as the @dnd-kit sortable key. */
+function entryId(entry: StepEntry): string {
+  return entry.kind === 'single' ? entry.step.id : entry.anchor.id;
+}
+
+export default function StepList({ steps, sessionId, onChange }: Props) {
   const [zoomIndex, setZoomIndex] = useState<number | null>(null);
 
   const entries = buildStepEntries(steps);
-  // Zoom/lightbox only navigates ordinary steps — a group's combined image has
-  // its own self-contained zoom dialog (see StepGroupBlock), so mixing the two
-  // into one prev/next sequence isn't worth the complexity.
-  const singleSteps = entries.flatMap((e) => (e.kind === 'single' ? [e.step] : []));
+
+  const sensors = useSensors(
+    // Small activation distance so a click on a button/input inside a row
+    // isn't swallowed as the start of a drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   async function persistEntries(newEntries: StepEntry[]) {
     if (!sessionId) return;
@@ -29,21 +46,13 @@ export default function StepList({ steps, sessionId, onChange, large = false }: 
     onChange();
   }
 
-  function handleDrop(targetIndex: number) {
-    if (dragIndex === null || dragIndex === targetIndex) return;
-    const reordered = [...entries];
-    const [moved] = reordered.splice(dragIndex, 1);
-    reordered.splice(targetIndex, 0, moved);
-    setDragIndex(null);
-    void persistEntries(reordered);
-  }
-
-  function moveEntry(index: number, direction: -1 | 1) {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= entries.length) return;
-    const reordered = [...entries];
-    [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
-    void persistEntries(reordered);
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = entries.findIndex((e) => entryId(e) === active.id);
+    const newIndex = entries.findIndex((e) => entryId(e) === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    void persistEntries(arrayMove(entries, oldIndex, newIndex));
   }
 
   function reorderGroupAnnotations(anchorId: string, reorderedAnnotations: Step[]) {
@@ -53,94 +62,53 @@ export default function StepList({ steps, sessionId, onChange, large = false }: 
 
   if (entries.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
-        <MousePointerClick className="text-muted-foreground size-8" />
-        <p className="text-muted-foreground text-sm">尚未錄製任何步驟。點「開始錄製」後在頁面上點擊，步驟會顯示在這裡。</p>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-16 text-center">
+        <div className="bg-muted flex size-12 items-center justify-center rounded-full">
+          <MousePointerClick className="text-muted-foreground size-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-medium">尚未錄製任何步驟</p>
+          <p className="text-muted-foreground mx-auto max-w-sm text-xs leading-relaxed">
+            開啟要教學的頁面，點工具列的 FrameTrail 圖示，按「開始錄製」後在頁面上點擊，步驟就會顯示在這裡。
+          </p>
+        </div>
       </div>
     );
   }
 
-  if (large) {
+  function renderEntry(entry: StepEntry, index: number, dragHandle: ReactNode) {
+    if (entry.kind === 'single') {
+      return (
+        <StepItem step={entry.step} index={index} onChange={onChange} onZoom={() => setZoomIndex(index)} dragHandle={dragHandle} />
+      );
+    }
     return (
-      <>
-        <ul className="space-y-6">
-          {entries.map((entry, index) => (
-            <li
-              key={entry.kind === 'single' ? entry.step.id : entry.anchor.id}
-              draggable
-              onDragStart={() => setDragIndex(index)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => handleDrop(index)}
-            >
-              {entry.kind === 'single' ? (
-                <StepItem
-                  step={entry.step}
-                  index={index}
-                  onChange={onChange}
-                  large
-                  onMoveUp={() => moveEntry(index, -1)}
-                  onMoveDown={() => moveEntry(index, 1)}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < entries.length - 1}
-                  onZoom={() => setZoomIndex(singleSteps.indexOf(entry.step))}
-                />
-              ) : (
-                <StepGroupBlock
-                  anchor={entry.anchor}
-                  annotations={entry.annotations}
-                  index={index}
-                  onChange={onChange}
-                  onReorderAnnotations={(reordered) => reorderGroupAnnotations(entry.anchor.id, reordered)}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-        <Lightbox steps={singleSteps} index={zoomIndex} onClose={() => setZoomIndex(null)} onNavigate={setZoomIndex} />
-      </>
+      <StepGroupBlock
+        anchor={entry.anchor}
+        annotations={entry.annotations}
+        index={index}
+        onChange={onChange}
+        onReorderAnnotations={(reordered) => reorderGroupAnnotations(entry.anchor.id, reordered)}
+        onZoom={() => setZoomIndex(index)}
+        dragHandle={dragHandle}
+      />
     );
   }
 
   return (
-    <ul className="divide-y">
-      {entries.map((entry, index) => (
-        <li
-          key={entry.kind === 'single' ? entry.step.id : entry.anchor.id}
-          draggable
-          onDragStart={() => setDragIndex(index)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => handleDrop(index)}
-          className="flex items-start gap-1"
-        >
-          <div className="flex flex-col gap-0.5 shrink-0">
-            <Button variant="outline" size="icon" onClick={() => moveEntry(index, -1)} disabled={index === 0} aria-label="上移">
-              <ChevronUp />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => moveEntry(index, 1)}
-              disabled={index === entries.length - 1}
-              aria-label="下移"
-            >
-              <ChevronDown />
-            </Button>
-          </div>
-          <div className="flex-1">
-            {entry.kind === 'single' ? (
-              <StepItem step={entry.step} index={index} onChange={onChange} />
-            ) : (
-              <StepGroupBlock
-                anchor={entry.anchor}
-                annotations={entry.annotations}
-                index={index}
-                onChange={onChange}
-                onReorderAnnotations={(reordered) => reorderGroupAnnotations(entry.anchor.id, reordered)}
-              />
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={entries.map(entryId)} strategy={verticalListSortingStrategy}>
+          <ul className="space-y-6">
+            {entries.map((entry, index) => (
+              <SortableItem key={entryId(entry)} id={entryId(entry)}>
+                {(handle) => renderEntry(entry, index, handle)}
+              </SortableItem>
+            ))}
+          </ul>
+        </SortableContext>
+      </DndContext>
+      <Lightbox entries={entries} index={zoomIndex} onClose={() => setZoomIndex(null)} onNavigate={setZoomIndex} />
+    </>
   );
 }

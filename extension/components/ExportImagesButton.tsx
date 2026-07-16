@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { Images, Loader2 } from 'lucide-react';
 import { exportImagesAsZip } from '@/lib/export-images';
 import { Button } from '@/components/ui/button';
@@ -7,9 +7,10 @@ import type { Step } from '@/lib/db';
 interface Props {
   steps: Step[];
   className?: string;
+  variant?: ComponentProps<typeof Button>['variant'];
 }
 
-export default function ExportImagesButton({ steps, className }: Props) {
+export default function ExportImagesButton({ steps, className, variant = 'outline' }: Props) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const busy = progress !== null;
 
@@ -24,9 +25,9 @@ export default function ExportImagesButton({ steps, className }: Props) {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={handleClick} disabled={steps.length === 0 || busy} className={className}>
+    <Button variant={variant} onClick={handleClick} disabled={steps.length === 0 || busy} className={className}>
       {progress ? <Loader2 className="animate-spin" /> : <Images />}
-      {progress ? `${Math.round((progress.done / progress.total) * 100)}%` : '匯出圖片'}
+      {progress ? `匯出中 ${Math.round((progress.done / progress.total) * 100)}%` : '匯出圖片'}
     </Button>
   );
 }

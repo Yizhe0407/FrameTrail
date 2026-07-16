@@ -28,9 +28,9 @@ export interface Step {
    * bounds is null — it's just the shared base image, not a clicked box.
    * A session can freely mix ordinary steps (groupId undefined, own
    * screenshot) and any number of these groups; each "start recording" in
-   * single-image mode begins a brand-new group rather than resuming an old one. */
+   * snapshot mode begins a brand-new group rather than resuming an old one. */
   groupId?: string;
-  /** Single-image mode only: whether the group renders order-number badges.
+  /** Snapshot mode only: whether the group renders order-number badges.
    * Same value denormalized across every step sharing a groupId. */
   numbered?: boolean;
 }
@@ -77,12 +77,6 @@ export function flattenEntries(entries: StepEntry[]): string[] {
   return entries.flatMap((entry) =>
     entry.kind === 'single' ? [entry.step.id] : [entry.anchor.id, ...entry.annotations.map((s) => s.id)],
   );
-}
-
-/** User-facing step count: each ordinary step and each group annotation counts
- * as one recorded click; a group's anchor (the shared base image) doesn't. */
-export function countSteps(steps: Step[]): number {
-  return buildStepEntries(steps).reduce((n, entry) => n + (entry.kind === 'single' ? 1 : entry.annotations.length), 0);
 }
 
 interface FrameTrailDB extends DBSchema {

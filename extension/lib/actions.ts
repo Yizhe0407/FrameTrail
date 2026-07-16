@@ -16,7 +16,7 @@ export async function resetSession(): Promise<void> {
     sessionId: null,
     tabId: null,
     error: null,
-    mode: 'multi',
+    mode: 'steps',
     numbered: true,
     groupAnchorId: null,
   });

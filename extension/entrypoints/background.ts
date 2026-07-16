@@ -1,9 +1,12 @@
 import { browser, type Browser } from 'wxt/browser';
 import { addStep, getSteps } from '@/lib/db';
 import { getRecordingState, setRecordingState } from '@/lib/storage';
-import type { BackgroundMessage, ClickCapture, RecordingState, StartRecordingMessage } from '@/lib/messages';
+import type { BackgroundMessage, ClickCapture, FrameTrailStopMessage, RecordingState, StartRecordingMessage } from '@/lib/messages';
 
 const CONTENT_SCRIPT_FILE = '/content-scripts/content.js';
+
+// Matches the name content.ts opens on browser.runtime.connect.
+const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 
 // Chrome hard-blocks scripting on these regardless of permissions (Web Store,
 // internal chrome:// pages, other extensions' pages, etc.) — check up front
@@ -26,15 +29,24 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Chrome allows ~2 captureVisibleTab calls/sec per tab. Serialize calls and
-// space them out so rapid clicking doesn't blow through the quota; retry with
-// backoff as a safety net for whatever bursts still slip through.
-const MIN_CAPTURE_INTERVAL_MS = 600;
+// throttle by elapsed time since the last capture (not a flat sleep after
+// every one) so a burst of clicks doesn't pile up idle wait time on top of
+// idle wait time; retry with backoff as a safety net for whatever bursts
+// still slip through.
+const MIN_CAPTURE_INTERVAL_MS = 500;
+let lastCaptureAt = 0;
 let captureChain: Promise<unknown> = Promise.resolve();
 function queueCapture<T>(task: () => Promise<T>): Promise<T> {
-  const result = captureChain.then(task, task);
+  const run = async () => {
+    const wait = MIN_CAPTURE_INTERVAL_MS - (Date.now() - lastCaptureAt);
+    if (wait > 0) await sleep(wait);
+    lastCaptureAt = Date.now();
+    return task();
+  };
+  const result = captureChain.then(run, run);
   captureChain = result.then(
-    () => sleep(MIN_CAPTURE_INTERVAL_MS),
-    () => sleep(MIN_CAPTURE_INTERVAL_MS),
+    () => undefined,
+    () => undefined,
   );
   return result;
 }
@@ -96,9 +108,9 @@ async function handleStartRecording(message: StartRecordingMessage): Promise<voi
 
   // Reuse the existing session (if any) rather than generating a new one —
   // steps must only disappear from the editor on an explicit Reset, and
-  // ordinary steps + single-image groups can freely coexist in one session
+  // ordinary steps + snapshot groups can freely coexist in one session
   // (see buildStepEntries). groupAnchorId always resets to null here so a
-  // fresh single-image-mode run starts its own new shared image instead of
+  // fresh snapshot-mode run starts its own new shared image instead of
   // resuming an earlier group's.
   const prevState = await getRecordingState();
   const sessionId = prevState.sessionId ?? crypto.randomUUID();
@@ -150,9 +162,23 @@ async function handleStopRecording(): Promise<void> {
   const state = await getRecordingState();
   await setRecordingState({ ...state, isRecording: false });
   console.log('[frametrail] STOP_RECORDING, session', state.sessionId);
+
+  // Tell the recorder in the recorded tab to tear itself down — otherwise its
+  // keep-alive port + 20s heartbeat keep running for as long as the tab stays
+  // open, which holds this service worker alive indefinitely. The tab may
+  // already be closed or never had the recorder injected (restricted page,
+  // injection failure); either way there's nothing to clean up there.
+  if (state.tabId != null) {
+    try {
+      const stopMessage: FrameTrailStopMessage = { type: 'FRAME_TRAIL_STOP' };
+      await browser.tabs.sendMessage(state.tabId, stopMessage);
+    } catch (err) {
+      console.warn('[frametrail] failed to send stop message to tab', state.tabId, err);
+    }
+  }
 }
 
-/** Single-image mode: every click in the current recording run shares one
+/** Snapshot mode: every click in the current recording run shares one
  * screenshot — only the run's first click actually captures it (as a fresh
  * anchor step with bounds=null, self-referencing groupId); every later click
  * just records its own box against that same blob, no further
@@ -203,7 +229,7 @@ async function handleSingleImageClick(
     bounds: message.rect,
     devicePixelRatio: anchor.devicePixelRatio,
     screenshotScale: anchor.screenshotScale,
-    description: `Click "${message.text || message.tagName}"`,
+    description: `點擊 ${message.text || message.tagName}`,
     url: message.url,
     timestamp: message.timestamp,
     groupId: anchorId,
@@ -217,11 +243,22 @@ async function handleClick(message: ClickCapture, sender: Browser.runtime.Messag
   if (sender.tab?.id !== state.tabId) return;
 
   const windowId = sender.tab?.windowId;
-  if (windowId == null) return;
+  const tabId = sender.tab?.id;
+  if (windowId == null || tabId == null) return;
   const sessionId = state.sessionId;
 
+  // The click's tab may no longer be the front tab by the time this message
+  // arrives (fast tab switch, alt-tab away). captureVisibleTab has no tab
+  // targeting of its own — it always shoots the window's active tab — so
+  // capturing here would silently save a screenshot of the wrong page.
+  const [activeTab] = await browser.tabs.query({ active: true, windowId });
+  if (activeTab?.id !== tabId) {
+    console.warn('[frametrail] tab no longer active, skipping step', tabId);
+    return;
+  }
+
   try {
-    if (state.mode === 'single') {
+    if (state.mode === 'snapshot') {
       await handleSingleImageClick(message, sessionId, windowId, state);
       return;
     }
@@ -240,7 +277,7 @@ async function handleClick(message: ClickCapture, sender: Browser.runtime.Messag
         bounds: message.rect,
         devicePixelRatio: message.devicePixelRatio,
         screenshotScale,
-        description: `Click "${message.text || message.tagName}"`,
+        description: `點擊 ${message.text || message.tagName}`,
         url: message.url,
         timestamp: message.timestamp,
       });
@@ -260,6 +297,14 @@ export default defineBackground(() => {
       case 'FRAME_TRAIL_CLICK':
         return handleClick(message, sender);
     }
+  });
+
+  // An open port with periodic traffic keeps this worker alive for the whole
+  // recording session; without it MV3 reclaims an idle worker and the next
+  // click pays a 100-500ms cold-start before its capture fires.
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== KEEPALIVE_PORT_NAME) return;
+    port.onMessage.addListener(() => {});
   });
 
   // Re-inject the recorder after each navigation on the tab being recorded (a

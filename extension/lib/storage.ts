@@ -6,14 +6,21 @@ const DEFAULT_STATE: RecordingState = {
   sessionId: null,
   tabId: null,
   error: null,
-  mode: 'multi',
+  mode: 'steps',
   numbered: true,
   groupAnchorId: null,
 };
 
 export async function getRecordingState(): Promise<RecordingState> {
   const result = await browser.storage.local.get(RECORDING_STATE_KEY);
-  return (result[RECORDING_STATE_KEY] as RecordingState | undefined) ?? DEFAULT_STATE;
+  const stored = result[RECORDING_STATE_KEY] as RecordingState | undefined;
+  if (!stored) return DEFAULT_STATE;
+  // A state persisted before the mode rename can hold a legacy value
+  // ('multi'/'single'); normalize anything unrecognized back to the default.
+  if (stored.mode !== 'steps' && stored.mode !== 'snapshot') {
+    return { ...stored, mode: DEFAULT_STATE.mode };
+  }
+  return stored;
 }
 
 export async function setRecordingState(state: RecordingState): Promise<void> {

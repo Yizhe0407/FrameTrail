@@ -16,19 +16,27 @@ export interface ClickCapture {
   timestamp: number;
 }
 
-/** 'multi': one screenshot per click (default). 'single': every click in the
+/** 'steps': one screenshot per click (default). 'snapshot': every click in the
  *  session is annotated onto one shared screenshot instead. */
-export type RecordingMode = 'multi' | 'single';
+export type RecordingMode = 'steps' | 'snapshot';
 
 export interface StartRecordingMessage {
   type: 'START_RECORDING';
   mode: RecordingMode;
-  /** Single-image mode only: whether boxes get a numbered order badge. */
+  /** Snapshot mode only: whether boxes get a numbered order badge. */
   numbered: boolean;
 }
 
 export interface StopRecordingMessage {
   type: 'STOP_RECORDING';
+}
+
+/** Sent background -> content script (not through the BackgroundMessage
+ *  union) telling the recorder in a specific tab to tear itself down —
+ *  removes its listeners and closes the keep-alive port so the tab stops
+ *  holding the service worker alive after recording stops. */
+export interface FrameTrailStopMessage {
+  type: 'FRAME_TRAIL_STOP';
 }
 
 export type BackgroundMessage = ClickCapture | StartRecordingMessage | StopRecordingMessage;
@@ -40,7 +48,7 @@ export interface RecordingState {
   error: string | null;
   mode: RecordingMode;
   numbered: boolean;
-  /** Single-image mode: id of the current recording run's shared-image anchor
+  /** Snapshot mode: id of the current recording run's shared-image anchor
    * step, or null if this run hasn't captured its first click yet. Reset to
    * null on every START_RECORDING so each run gets its own fresh image instead
    * of resuming an older group. */

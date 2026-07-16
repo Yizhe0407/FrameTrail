@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { buildCssSelector, buildXPath, findInteractiveTarget, getHighlightBounds } from '@/lib/selector-utils';
-import type { ClickCapture } from '@/lib/messages';
+import { getRecordingState } from '@/lib/storage';
+import type { ClickCapture, FrameTrailStopMessage } from '@/lib/messages';
 
 // Dispatched on (re)injection so any previous instance in this same isolated
 // world tears down its listener before we add a new one — prevents duplicate
@@ -8,13 +9,25 @@ import type { ClickCapture } from '@/lib/messages';
 // navigation). Mirrors Mimik's cleanup-event pattern.
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
 
-// Ignore a repeat click on the same element within this window (double-clicks,
-// event bubbling quirks) so one user action becomes one step.
+// Ignore a repeat pointerdown on the same element within this window
+// (double-clicks, event bubbling quirks) so one user action becomes one step.
 const DEDUP_MS = 400;
 
-// Wait a few frames after the click so the page has painted its reaction
-// (menu opened, active state, etc.) before the background grabs a screenshot.
-const PAINT_FRAMES = 2;
+// Matches the name background.ts listens for on runtime.onConnect.
+const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
+
+// Well under the ~30s MV3 service-worker idle timeout, so the port never goes
+// quiet long enough for Chrome to reclaim the worker mid-recording.
+const KEEPALIVE_INTERVAL_MS = 20_000;
+
+// Snapshot mode annotates every click onto one screenshot taken at the first
+// click, so the page must not react to any of them (navigation, SPA route
+// changes, menus, form submits) or later boxes point at a stale screenshot.
+// preventDefault + stopImmediatePropagation on every event a click/tap can
+// produce blocks default actions and the page's own listeners in one pass;
+// Enter/Space activation and form-submit-on-Enter are covered for free since
+// browsers synthesize 'click'/'submit' for those.
+const FREEZE_EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'submit'] as const;
 
 function isOutOfViewport(rect: { x: number; y: number; width: number; height: number }): boolean {
   const right = rect.x + rect.width;
@@ -22,12 +35,8 @@ function isOutOfViewport(rect: { x: number; y: number; width: number; height: nu
   return rect.y < 0 || rect.x < 0 || bottom > window.innerHeight || right > window.innerWidth;
 }
 
-function waitForPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    let remaining = PAINT_FRAMES;
-    const tick = () => (--remaining <= 0 ? resolve() : requestAnimationFrame(tick));
-    requestAnimationFrame(tick);
-  });
+function waitForNextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 /**
@@ -67,28 +76,30 @@ function describeElement(el: HTMLElement): string {
   ).slice(0, 200);
 }
 
-/** Plain in-page anchor that will navigate away and destroy this document. */
-function getNavigatingAnchor(el: Element): HTMLAnchorElement | null {
-  const anchor = el.closest('a[href]') as HTMLAnchorElement | null;
-  if (!anchor) return null;
-  if (anchor.target === '_blank') return null;
-  const href = anchor.getAttribute('href') ?? '';
-  if (href.startsWith('#') || href.startsWith('javascript:')) return null;
-  return anchor;
-}
-
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
-  main() {
+  async main() {
     // Tear down any prior instance living in this isolated world.
     document.dispatchEvent(new CustomEvent(CLEANUP_EVENT));
+
+    // Read once per injection: background re-injects this script on every
+    // recording start and every navigation, so the stored state is always
+    // current for this instance's lifetime.
+    const recordingState = await getRecordingState();
+    const shouldFreeze = recordingState.isRecording && recordingState.mode === 'snapshot';
 
     let lastTarget: Element | null = null;
     let lastTime = 0;
 
-    const onClick = async (e: Event) => {
-      const me = e as MouseEvent;
+    // pointerdown fires before the page reacts to the click (menu open,
+    // navigation, SPA route change, ...), so the screenshot always shows the
+    // state the red box refers to — no waiting on, or racing against, the
+    // page's own click handling.
+    const onPointerDown = async (e: Event) => {
+      const pe = e as PointerEvent;
+      if (pe.button !== 0 || !pe.isPrimary) return;
+
       const el = findInteractiveTarget(e);
       if (!el) return;
 
@@ -97,37 +108,28 @@ export default defineContentScript({
       lastTarget = el;
       lastTime = now;
 
-      // If this click navigates away, hold the navigation until the screenshot
-      // is taken — otherwise captureVisibleTab grabs the *next* page.
-      const anchor = getNavigatingAnchor(el);
-      if (anchor) {
-        me.preventDefault();
-        me.stopImmediatePropagation();
-      }
-
-      let clientX = me.clientX;
-      let clientY = me.clientY;
+      let clientX = pe.clientX;
+      let clientY = pe.clientY;
 
       let rect = getHighlightBounds(el, clientX, clientY);
       if (!rect) return;
 
       if (isOutOfViewport(rect)) {
-        // The click point is fixed relative to the element, so scrolling moves
-        // it by the same delta. Without this translation the stale coordinates
-        // land outside every post-scroll rect and getHighlightBounds silently
-        // falls back to the smallest fragment of a multi-rect element.
+        // The pointer point is fixed relative to the element, so scrolling
+        // moves it by the same delta. Without this translation the stale
+        // coordinates land outside every post-scroll rect and
+        // getHighlightBounds silently falls back to the smallest fragment of
+        // a multi-rect element.
         const before = el.getBoundingClientRect();
         el.scrollIntoView({ block: 'center', behavior: 'instant' });
-        await waitForPaint();
+        await waitForNextFrame();
         const after = el.getBoundingClientRect();
         clientX += after.left - before.left;
         clientY += after.top - before.top;
-      } else {
-        await waitForPaint();
-      }
 
-      rect = getHighlightBounds(el, clientX, clientY);
-      if (!rect) return;
+        rect = getHighlightBounds(el, clientX, clientY);
+        if (!rect) return;
+      }
 
       const payload: ClickCapture = {
         type: 'FRAME_TRAIL_CLICK',
@@ -149,17 +151,73 @@ export default defineContentScript({
       } catch (err) {
         console.error('[frametrail] sendMessage failed', err);
       }
-
-      if (anchor) window.location.href = anchor.href;
     };
 
-    document.addEventListener('click', onClick, { capture: true });
+    document.addEventListener('pointerdown', onPointerDown, { capture: true });
+
+    // Registered after onPointerDown above so the recorder always observes
+    // the click before stopImmediatePropagation cuts off everything else
+    // (including the page's own listeners) on the same event.
+    const onFreeze = (e: Event) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    if (shouldFreeze) {
+      for (const type of FREEZE_EVENTS) {
+        document.addEventListener(type, onFreeze, { capture: true });
+      }
+    }
+    // Known limitation: this only blocks the DOM event chain. Page JS
+    // reacting to a window-level capture listener that ran before ours, or
+    // to an unrelated timer, can still mutate the page — not something a
+    // content script can prevent. Accepted per product decision.
+
+    // The background service worker can be reclaimed mid-recording if it goes
+    // ~30s without activity; an open port with a periodic message keeps it
+    // alive for the whole session instead of only while messages happen to
+    // arrive from clicks.
+    let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
+    let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+    let keepAliveStopped = false;
+
+    const connectKeepAlive = () => {
+      const port = browser.runtime.connect({ name: KEEPALIVE_PORT_NAME });
+      keepAlivePort = port;
+      keepAliveTimer = setInterval(() => port.postMessage({ type: 'heartbeat' }), KEEPALIVE_INTERVAL_MS);
+      port.onDisconnect.addListener(() => {
+        if (keepAliveTimer) clearInterval(keepAliveTimer);
+        // A worker restart disconnects the port; reconnect unless this
+        // instance has been torn down deliberately.
+        if (!keepAliveStopped) connectKeepAlive();
+      });
+    };
+    connectKeepAlive();
+
+    // Background sends this to the recorded tab once recording stops, so the
+    // keep-alive port (and its 20s heartbeat) closes instead of running for
+    // as long as the tab stays open — otherwise it holds the MV3 service
+    // worker alive indefinitely, well past the end of the recording.
+    const onStopMessage = (message: FrameTrailStopMessage) => {
+      if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+    };
 
     const cleanup = () => {
-      document.removeEventListener('click', onClick, { capture: true });
+      document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      if (shouldFreeze) {
+        for (const type of FREEZE_EVENTS) {
+          document.removeEventListener(type, onFreeze, { capture: true });
+        }
+      }
       document.removeEventListener(CLEANUP_EVENT, cleanup);
+      browser.runtime.onMessage.removeListener(onStopMessage);
+      // Set before disconnecting so the port's onDisconnect handler sees
+      // keepAliveStopped=true and does not reconnect.
+      keepAliveStopped = true;
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      keepAlivePort?.disconnect();
     };
     document.addEventListener(CLEANUP_EVENT, cleanup);
+    browser.runtime.onMessage.addListener(onStopMessage);
 
     console.log('[frametrail] recorder ready on', location.href);
   },
