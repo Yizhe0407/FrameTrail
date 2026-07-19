@@ -324,6 +324,21 @@ export async function stopRecording(popup: Page): Promise<void> {
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(false);
 }
 
+export async function sendRecordingControl(
+  page: Page,
+  type: string,
+  undoToken?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  return page.evaluate(async ({ type, undoToken }) => {
+    const result = await chrome.storage.local.get('scribe:recordingState');
+    const runId = (result['scribe:recordingState'] as { runId?: string } | undefined)?.runId;
+    return chrome.runtime.sendMessage({ type, runId, ...(undoToken ? { undoToken } : {}) }) as Promise<{
+      ok: boolean;
+      error?: string;
+    }>;
+  }, { type, undoToken });
+}
+
 export async function hoverTarget(page: Page, locator: Parameters<Page['locator']>[0]): Promise<void> {
   const target = page.locator(locator);
   const box = await target.boundingBox();

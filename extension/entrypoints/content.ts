@@ -502,9 +502,11 @@ export default defineContentScript({
     if (!recordingState.isRecording || !recordingState.runId) return;
 
     const runId = recordingState.runId;
-    const shouldFreezeSnapshot = recordingState.mode === 'snapshot';
-    if (shouldFreezeSnapshot && window.top !== window) {
-      installSnapshotFrameProbe(runId);
+    const isSnapshotMode = recordingState.mode === 'snapshot';
+    const isStepMode = recordingState.mode === 'steps';
+    const shouldFreezeSnapshot = isSnapshotMode && recordingState.phase !== 'preparing-next';
+    if (isSnapshotMode && window.top !== window) {
+      if (shouldFreezeSnapshot) installSnapshotFrameProbe(runId);
       return;
     }
     const snapshotOrigin = {
@@ -763,7 +765,7 @@ export default defineContentScript({
         let rect = getHighlightBounds(el, clientX, clientY);
         if (!rect) return false;
 
-        if (!shouldFreezeSnapshot && isOutOfViewport(rect)) {
+        if (isStepMode && isOutOfViewport(rect)) {
           const before = el.getBoundingClientRect();
           el.scrollIntoView({ block: 'center', behavior: 'instant' });
           await waitForNextFrame();
@@ -963,7 +965,7 @@ export default defineContentScript({
       return result;
     };
 
-    if (!shouldFreezeSnapshot) {
+    if (isStepMode) {
       stepPreview = createStepPreview();
       window.addEventListener('pointermove', onStepPointerMove, { capture: true, passive: true });
       window.addEventListener('pointerout', onStepPointerOut, { capture: true, passive: true });
@@ -996,7 +998,7 @@ export default defineContentScript({
       event.stopImmediatePropagation();
       if (event.type === 'pointercancel') stepGesture.cancel();
     };
-    if (!shouldFreezeSnapshot) {
+    if (isStepMode) {
       for (const type of STEP_FOLLOWUP_EVENTS) {
         document.addEventListener(type, onStepFollowup, { capture: true });
       }
@@ -1037,7 +1039,7 @@ export default defineContentScript({
     };
 
     let recordingToolbar: MountedRecordingToolbar | null = null;
-    if (!shouldFreezeSnapshot) {
+    if (isStepMode || recordingState.phase === 'preparing-next') {
       recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
         onCommand: sendToolbarCommand,
       });
@@ -1078,8 +1080,8 @@ export default defineContentScript({
     };
 
     const cleanup = () => {
-      if (!shouldFreezeSnapshot) document.removeEventListener('pointerdown', onPointerDown, { capture: true });
-      if (!shouldFreezeSnapshot) {
+      if (isStepMode) document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      if (isStepMode) {
         window.removeEventListener('pointermove', onStepPointerMove, { capture: true });
         window.removeEventListener('pointerout', onStepPointerOut, { capture: true });
         window.removeEventListener('pointerleave', onStepPointerLeave, { capture: true });
@@ -1167,7 +1169,7 @@ export default defineContentScript({
       cleanup();
       return;
     }
-    if (!shouldFreezeSnapshot) snapshotInteractionsActive = true;
+    if (isStepMode) snapshotInteractionsActive = true;
 
     console.log('[frametrail] recorder ready on', location.href);
   },

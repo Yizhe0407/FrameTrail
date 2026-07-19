@@ -5,6 +5,7 @@ import {
   readRecordingState,
   readSteps,
   resetExtensionData,
+  sendRecordingControl,
   startRecording,
   stopRecording,
   targetCenter,
@@ -102,6 +103,58 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
     expect(editor.url()).toContain('groupId=');
     await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  test('creates independent snapshot groups after releasing the page for navigation', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    const firstShield = await getSnapshotFrame(appPage);
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+
+    await firstShield.getByRole('button', { name: '完成並新增快照' }).click();
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('preparing-next');
+    await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
+    await expect(appPage.locator('[data-frametrail-recording-toolbar]')).toHaveCount(1);
+
+    await appPage.goto('http://127.0.0.1:4175/navigated.html');
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('preparing-next');
+    await expect.poll(() => appPage.locator('[data-frametrail-recording-toolbar]').count()).toBe(1);
+
+    const createResults = await Promise.all([
+      sendRecordingControl(popupPage, 'CREATE_NEXT_SNAPSHOT'),
+      sendRecordingControl(popupPage, 'CREATE_NEXT_SNAPSHOT'),
+    ]);
+    expect(createResults.filter((result) => result.ok)).toHaveLength(1);
+    expect(createResults.filter((result) => !result.ok)).toHaveLength(1);
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('recording');
+
+    const secondShield = await getSnapshotFrame(appPage);
+    await clickSnapshotTarget(
+      appPage,
+      await targetCenter(appPage, 'h1'),
+    );
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+
+    const steps = await readSteps(popupPage);
+    const anchors = steps.filter((step) => step.bounds === null);
+    const annotations = steps.filter((step) => step.bounds !== null);
+    expect(anchors).toHaveLength(2);
+    expect(annotations).toHaveLength(2);
+    expect(new Set(anchors.map((anchor) => anchor.id)).size).toBe(2);
+    expect(new Set(annotations.map((annotation) => annotation.groupId))).toEqual(
+      new Set(anchors.map((anchor) => anchor.id)),
+    );
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    await secondShield.getByRole('button', { name: '完成快照' }).click();
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    await expect(editor.getByRole('button', { name: /選取步驟/ })).toHaveCount(2);
   });
 
   test('reuses committed SVG nodes while relayout moves existing annotations', async ({

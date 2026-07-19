@@ -98,7 +98,7 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前基準包含 21 個 Vitest 測試檔、99 項 unit/integration 測試，以及 6 個 Playwright spec、28 項真實 Chromium E2E；合計 127 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+目前基準包含 21 個 Vitest 測試檔、100 項 unit/integration 測試，以及 6 個 Playwright spec、29 項真實 Chromium E2E；合計 129 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
 
 Unit 與 integration 覆蓋：
 

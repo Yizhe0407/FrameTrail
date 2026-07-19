@@ -5,6 +5,7 @@ import {
   Loader2,
   Pause,
   Play,
+  Plus,
   Undo2,
 } from 'lucide-react';
 import type {
@@ -58,7 +59,7 @@ const styles = `
   }
   .ft-button:hover:not(:disabled) { background: #f5f5f4; color: var(--ft-text); }
   .ft-button:disabled { opacity: .42; cursor: default; }
-  .ft-button:focus-visible, .ft-finish:focus-visible, .ft-snackbar button:focus-visible {
+  .ft-button:focus-visible, .ft-finish:focus-visible, .ft-secondary:focus-visible, .ft-snackbar button:focus-visible {
     outline: 2px solid var(--ft-focus); outline-offset: 2px;
   }
   .ft-button svg, .ft-finish svg { width: 17px; height: 17px; }
@@ -68,6 +69,13 @@ const styles = `
     color: var(--ft-primary-text); font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .ft-finish:disabled { opacity: .68; cursor: wait; }
+  .ft-secondary {
+    height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ft-muted);
+    font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .ft-secondary:hover:not(:disabled) { background: #f5f5f4; color: var(--ft-text); }
+  .ft-secondary:disabled { opacity: .5; cursor: wait; }
   .ft-collapsed {
     position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--ft-border); border-radius: 50%; background: var(--ft-surface); color: var(--ft-text);
@@ -89,6 +97,7 @@ const styles = `
   @media (prefers-color-scheme: dark) {
     .ft-layer { --ft-surface: #292524; --ft-text: #fafaf9; --ft-muted: #d6d3d1; --ft-border: #57534e; --ft-primary: #a3e635; --ft-primary-text: #1c1917; --ft-recording: #fb7185; --ft-focus: #60a5fa; }
     .ft-button:hover:not(:disabled) { background: #44403c; }
+    .ft-secondary:hover:not(:disabled) { background: #44403c; }
     .ft-message[data-kind="error"] { color: #fda4af; }
   }
   @media (prefers-reduced-motion: reduce) { .ft-layer * { animation: none !important; transition: none !important; } }
@@ -158,6 +167,7 @@ export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRe
 
   const modeLabel = state.mode === 'steps' ? '操作流程' : '單頁標註';
   const paused = state.phase === 'paused';
+  const preparingNext = state.mode === 'snapshot' && state.phase === 'preparing-next';
   const busy = pending !== null || state.phase === 'finishing';
 
   if (state.phase === 'starting') return null;
@@ -195,21 +205,28 @@ export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRe
             </button>
           ) : (
             <div className="ft-toolbar" role="toolbar" aria-label="錄製控制">
-              <div className="ft-status" aria-label={`${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆`}>
-                <span className="ft-dot" aria-hidden="true" />
-                <span className="ft-status-text">{paused ? '已暫停' : modeLabel} · {state.itemCount}</span>
-              </div>
-              <button
-                type="button"
-                className="ft-button"
-                aria-label="復原上一個"
-                title="復原上一個"
-                disabled={busy || state.itemCount === 0}
-                onClick={handleUndo}
+              <div
+                className="ft-status"
+                aria-label={preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆`}
               >
-                {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 />}
-              </button>
-              {state.mode === 'steps' && (
+                <span className="ft-dot" aria-hidden="true" />
+                <span className="ft-status-text">
+                  {preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : modeLabel} · ${state.itemCount}`}
+                </span>
+              </div>
+              {!preparingNext && (
+                <button
+                  type="button"
+                  className="ft-button"
+                  aria-label="復原上一個"
+                  title="復原上一個"
+                  disabled={busy || state.itemCount === 0}
+                  onClick={handleUndo}
+                >
+                  {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 />}
+                </button>
+              )}
+              {state.mode === 'steps' && !preparingNext && (
                 <button
                   type="button"
                   className="ft-button"
@@ -223,24 +240,52 @@ export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRe
                     : paused ? <Play /> : <Pause />}
                 </button>
               )}
-              <button
-                type="button"
-                className="ft-button"
-                aria-label="收合錄製控制"
-                title="收合"
-                disabled={busy}
-                onClick={() => setCollapsed(true)}
-              >
-                <ChevronDown />
-              </button>
+              {state.mode === 'snapshot' && !preparingNext && (
+                <button
+                  type="button"
+                  className="ft-button"
+                  aria-label="完成並新增快照"
+                  title="完成並新增快照"
+                  disabled={busy}
+                  onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
+                >
+                  {pending === 'PREPARE_NEXT_SNAPSHOT' ? <Loader2 /> : <Plus />}
+                </button>
+              )}
+              {!preparingNext && (
+                <button
+                  type="button"
+                  className="ft-button"
+                  aria-label="收合錄製控制"
+                  title="收合"
+                  disabled={busy}
+                  onClick={() => setCollapsed(true)}
+                >
+                  <ChevronDown />
+                </button>
+              )}
+              {preparingNext && (
+                <button
+                  type="button"
+                  className="ft-secondary"
+                  disabled={busy}
+                  onClick={() => void run('FINISH_RECORDING')}
+                >
+                  {pending === 'FINISH_RECORDING' ? '整理中' : '完成錄製'}
+                </button>
+              )}
               <button
                 type="button"
                 className="ft-finish"
                 disabled={busy}
-                onClick={() => void run('FINISH_RECORDING')}
+                onClick={() => void run(preparingNext ? 'CREATE_NEXT_SNAPSHOT' : 'FINISH_RECORDING')}
               >
-                {pending === 'FINISH_RECORDING' || state.phase === 'finishing' ? <Loader2 /> : <Check />}
-                {state.phase === 'finishing' ? '整理中' : state.mode === 'steps' ? '完成' : '完成快照'}
+                {pending === 'FINISH_RECORDING' || pending === 'CREATE_NEXT_SNAPSHOT' || state.phase === 'finishing'
+                  ? <Loader2 />
+                  : preparingNext ? <Plus /> : <Check />}
+                {preparingNext
+                  ? pending === 'CREATE_NEXT_SNAPSHOT' ? '建立中' : '建立新快照'
+                  : state.phase === 'finishing' ? '整理中' : state.mode === 'steps' ? '完成' : '完成快照'}
               </button>
             </div>
           )}

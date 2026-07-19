@@ -611,20 +611,22 @@ interface FinishResult {
 
 #### 實作進度（2026-07-19）
 
-本輪已完成 Phase 1，並提前完成部分 Phase 3 項目：
+本輪已完成 Phase 1、Phase 2 的多快照核心流程，並提前完成部分 Phase 3 項目：
 
 - 背景程序成為錄製狀態真相來源，加入 `phase`、`mode`、`itemCount`、`runId` 與 recoverable error。
 - 加入 `PAUSE_RECORDING`、`RESUME_RECORDING`、`UNDO_LAST_CAPTURE`、`RESTORE_LAST_CAPTURE`、`FINISH_RECORDING` 控制指令；復原只處理本輪內容，並提供 5 秒還原。
 - 操作流程以 closed shadow root 掛載頁面控制器，支援計數、暫停／繼續、復原、還原、收合與完成。
 - 單頁標註將同一套控制器放在 shield iframe，支援計數、復原、還原與完成快照。
+- 加入 `PREPARE_NEXT_SNAPSHOT` 與 `CREATE_NEXT_SNAPSHOT`：封存目前群組後進入 `preparing-next`、移除 shield 並恢復頁面操作，再以全新 anchor、viewport 契約與歸零計數建立下一張。
+- `preparing-next` 可跨頁導覽並重新掛載輕量控制器；快速重複建立只允許一個指令取得狀態轉移，不會建立重複 anchor 或混用 `groupId`。
 - 截圖前會隱藏控制器、hover preview 與 shield UI，避免擴充功能介面進入成品。
 - Popup 已改用「操作流程／單頁標註」名稱、漸進式跨頁權限及錄製中摘要；完成後會開啟或聚焦單一 Editor tab，並選中本輪最新步驟或群組。
-- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 99 項 Vitest 與 28 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
+- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 100 項 Vitest 與 29 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
 
 本輪尚未實作：
 
 - Phase 0 的量測基線與桌面錄影。
-- Phase 2 的多快照、`preparing-next`、完整 viewport invalidation 恢復與 race tests。
+- Phase 2 的完整 viewport invalidation 恢復、分頁關閉／Editor 開啟失敗等 recoverable error，以及其餘舊 `runId`／finish race tests。
 - Phase 3 的 Editor debounced autosave、儲存狀態、刪除／排序 Undo、responsive rail/drawer、空狀態與匯出進度。
 - 控制器拖曳／四角 snap、位置保存、更多選單與放棄本輪流程。
 - 快照鍵盤候選巡覽、browser commands，以及 Phase 4／5 的完整無障礙、視覺與可選 Side Panel 工作。

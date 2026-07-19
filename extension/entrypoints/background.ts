@@ -285,6 +285,86 @@ async function assertCaptureContext(
   if (failure === 'changed-url') throw new Error('Step skipped because the page changed before the screenshot could be taken.');
 }
 
+type SnapshotCaptureContext = NonNullable<
+  Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext']
+>;
+
+async function createAndActivateSnapshotAnchor(
+  state: RecordingState,
+  tabId: number,
+  windowId: number,
+  context: SnapshotCaptureContext,
+  version: number,
+): Promise<string> {
+  if (!state.sessionId || !state.runId) throw new StaleCaptureError('Snapshot recording is no longer active.');
+  const { sessionId, runId } = state;
+  const captureId = crypto.randomUUID();
+  let anchorId: string | null = null;
+
+  try {
+    const captured = await captureScreenshot(
+      { runId, captureId, ...context },
+      sessionId,
+      tabId,
+      windowId,
+      version,
+    );
+    anchorId = crypto.randomUUID();
+    const existingSteps = await getSteps(sessionId);
+    await addStep({
+      id: anchorId,
+      sessionId,
+      runId,
+      order: existingSteps.length,
+      screenshotBlob: captured.blob,
+      bounds: null,
+      devicePixelRatio: context.devicePixelRatio,
+      screenshotScale: captured.scale,
+      description: '',
+      url: context.url,
+      timestamp: context.timestamp,
+      groupId: anchorId,
+      numbered: state.numbered,
+    });
+    const updated = await updateRunState(
+      runId,
+      (current) => ({
+        ...current,
+        groupAnchorId: anchorId,
+        snapshotViewport: context.viewport,
+        snapshotDevicePixelRatio: context.devicePixelRatio,
+        error: null,
+        recoverableError: null,
+      }),
+      version,
+    );
+    if (!updated) throw new StaleCaptureError('Recording changed while saving the snapshot.');
+
+    acceptingClicks = true;
+    const activateMessage: FrameTrailSnapshotActiveMessage = {
+      type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE',
+      runId,
+    };
+    const activated = await browser.tabs.sendMessage(tabId, activateMessage, { frameId: 0 });
+    if (activated !== true) {
+      throw new Error('Snapshot recorder could not be activated after saving its base image.');
+    }
+    return anchorId;
+  } catch (error) {
+    acceptingClicks = false;
+    if (anchorId) {
+      try {
+        await deleteStep(anchorId);
+      } catch (cleanupError) {
+        console.error('[frametrail] failed to remove incomplete snapshot', cleanupError);
+      }
+    }
+    throw error;
+  } finally {
+    cancelledCaptureIds.delete(captureId);
+  }
+}
+
 function startRecording(message: StartRecordingMessage): Promise<void> {
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
@@ -387,67 +467,13 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       const context = pendingSnapshotContext;
       if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
       if (!startedState.sessionId || tab.windowId == null) throw new Error('Snapshot capture context is incomplete.');
-
-      const startupCaptureId = crypto.randomUUID();
-      let captured: { blob: Blob; scale: number };
-      try {
-        captured = await captureScreenshot(
-          { runId, captureId: startupCaptureId, ...context },
-          startedState.sessionId,
-          tab.id,
-          tab.windowId,
-          version,
-        );
-      } finally {
-        cancelledCaptureIds.delete(startupCaptureId);
-      }
-      const anchorId = crypto.randomUUID();
-      startupAnchorId = anchorId;
-      const existingSteps = await getSteps(startedState.sessionId);
-      await addStep({
-        id: anchorId,
-        sessionId: startedState.sessionId,
-        runId,
-        order: existingSteps.length,
-        screenshotBlob: captured.blob,
-        bounds: null,
-        devicePixelRatio: context.devicePixelRatio,
-        screenshotScale: captured.scale,
-        description: '',
-        url: context.url,
-        timestamp: context.timestamp,
-        groupId: anchorId,
-        numbered: message.numbered,
-      });
-      const updated = await updateRunState(
-        runId,
-        (current) => ({
-          ...current,
-          groupAnchorId: anchorId,
-          snapshotViewport: context.viewport,
-          snapshotDevicePixelRatio: context.devicePixelRatio,
-          error: null,
-          recoverableError: null,
-        }),
+      startupAnchorId = await createAndActivateSnapshotAnchor(
+        startedState,
+        tab.id,
+        tab.windowId,
+        context,
         version,
       );
-      if (!updated) {
-        await deleteStep(anchorId);
-        startupAnchorId = null;
-        throw new StaleCaptureError('Recording changed while saving the snapshot.');
-      }
-      // The anchor and its coordinate contract are now durable. Accept before
-      // revealing the shield's interactive UI so its first visible click can
-      // never land in a background-not-ready gap.
-      acceptingClicks = true;
-      const activateMessage: FrameTrailSnapshotActiveMessage = {
-        type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE',
-        runId,
-      };
-      const activated = await browser.tabs.sendMessage(tab.id, activateMessage, { frameId: 0 });
-      if (activated !== true) {
-        throw new Error('Snapshot recorder could not be activated after saving its base image.');
-      }
     }
     await updateRunState(
       runId,
@@ -513,7 +539,13 @@ async function handleRecorderReady(
 
   // Re-injections after navigation have no startup gate; the current run is
   // already accepting clicks and only needs its new listener set validated.
-  return matchesPendingStartup || signaled === true || state.phase === 'paused' || acceptingClicks;
+  return (
+    matchesPendingStartup ||
+    signaled === true ||
+    state.phase === 'paused' ||
+    state.phase === 'preparing-next' ||
+    acceptingClicks
+  );
 }
 
 async function handleStopRecording(version: number): Promise<void> {
@@ -665,6 +697,157 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
   });
 }
 
+async function prepareNextSnapshot(message: RecordingControlMessage): Promise<RecordingControlResult> {
+  const initial = await getRecordingState();
+  if (
+    !initial.isRecording ||
+    !initial.sessionId ||
+    initial.runId !== message.runId ||
+    initial.mode !== 'snapshot' ||
+    initial.phase !== 'recording'
+  ) {
+    return controlFailure('目前無法建立下一張快照。');
+  }
+
+  acceptingClicks = false;
+  pendingUndo = null;
+  await clickChain;
+
+  const previous = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (
+      !current.isRecording ||
+      current.runId !== message.runId ||
+      current.mode !== 'snapshot' ||
+      current.phase !== 'recording'
+    ) {
+      return null;
+    }
+    await setRecordingState({
+      ...current,
+      phase: 'preparing-next',
+      itemCount: 0,
+      groupAnchorId: null,
+      snapshotViewport: null,
+      snapshotDevicePixelRatio: null,
+      error: null,
+      recoverableError: null,
+    });
+    return current;
+  });
+  if (!previous) return controlFailure('錄製狀態已改變，未建立下一張快照。');
+
+  await deleteEmptySnapshotAnchor(previous);
+  try {
+    if (previous.tabId == null) throw new Error('Recorded tab is no longer available.');
+    // Re-injection tears down the shield instance and mounts the lightweight
+    // preparing-next toolbar without installing step-capture listeners.
+    await injectRecorder(previous.tabId);
+  } catch (error) {
+    console.error('[frametrail] failed to enter snapshot preparation state', error);
+    await setRunError(message.runId, '無法顯示下一張快照控制，請重新載入一般網站後再試一次。');
+    return controlFailure('無法準備下一張快照，已保留目前內容。');
+  }
+  return { ok: true };
+}
+
+async function createNextSnapshot(message: RecordingControlMessage): Promise<RecordingControlResult> {
+  const claimed = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (
+      !current.isRecording ||
+      !current.sessionId ||
+      current.tabId == null ||
+      current.runId !== message.runId ||
+      current.mode !== 'snapshot' ||
+      current.phase !== 'preparing-next'
+    ) {
+      return null;
+    }
+    const version = ++controlVersion;
+    const next: RecordingState = {
+      ...current,
+      phase: 'starting',
+      itemCount: 0,
+      groupAnchorId: null,
+      snapshotViewport: null,
+      snapshotDevicePixelRatio: null,
+      error: null,
+      recoverableError: null,
+    };
+    await setRecordingState(next);
+    return { state: next, version };
+  });
+  if (!claimed) return controlFailure('目前無法建立下一張快照。');
+
+  acceptingClicks = false;
+  pendingUndo = null;
+  pendingSnapshotContext = undefined;
+  const { state, version } = claimed;
+  const readyGate = new RecorderReadyGate(
+    { runId: message.runId, tabId: state.tabId!, controlVersion: version },
+    RECORDER_READY_TIMEOUT_MS,
+  );
+  pendingRecorderReady?.cancel();
+  pendingRecorderReady = readyGate;
+
+  try {
+    const tab = await browser.tabs.get(state.tabId!);
+    if (tab.windowId == null || isRestrictedUrl(tab.url)) throw new Error('Snapshot tab cannot be captured.');
+    const [, recorderReady] = await Promise.all([
+      injectRecorder(state.tabId!, true),
+      readyGate.promise,
+    ]);
+    if (!recorderReady || version !== controlVersion) {
+      throw new StaleCaptureError('Snapshot recorder did not become ready.');
+    }
+    const context = pendingSnapshotContext;
+    if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
+
+    await createAndActivateSnapshotAnchor(state, state.tabId!, tab.windowId, context, version);
+    const updated = await updateRunState(
+      message.runId,
+      (current) => ({ ...current, phase: 'recording', error: null, recoverableError: null }),
+      version,
+    );
+    if (!updated) throw new StaleCaptureError('Recording changed while activating the next snapshot.');
+    acceptingClicks = true;
+    return { ok: true };
+  } catch (error) {
+    console.error('[frametrail] failed to create next snapshot', error);
+    acceptingClicks = false;
+    if (version === controlVersion) {
+      await updateRunState(
+        message.runId,
+        (current) => ({
+          ...current,
+          phase: 'preparing-next',
+          itemCount: 0,
+          groupAnchorId: null,
+          snapshotViewport: null,
+          snapshotDevicePixelRatio: null,
+          error: '無法建立新快照，請重試。',
+          recoverableError: {
+            code: 'CREATE_SNAPSHOT_FAILED',
+            message: '無法建立新快照，請重試。',
+          },
+        }),
+        version,
+      );
+      try {
+        await injectRecorder(state.tabId!);
+      } catch (reinjectionError) {
+        console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
+      }
+    }
+    return controlFailure('無法建立新快照，請重試。');
+  } finally {
+    if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
+    pendingSnapshotContext = undefined;
+    readyGate.cancel();
+  }
+}
+
 async function openOrFocusEditor(result: FinishResult): Promise<void> {
   const editorBase = browser.runtime.getURL('/editor.html');
   const editorUrl = new URL(editorBase);
@@ -687,18 +870,26 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   if (
     !initial.isRecording ||
     initial.runId !== message.runId ||
-    (initial.phase !== 'recording' && initial.phase !== 'paused')
+    (initial.phase !== 'recording' && initial.phase !== 'paused' && initial.phase !== 'preparing-next')
   ) {
     return controlFailure(initial.phase === 'finishing' ? '正在完成錄製。' : '這次錄製已經結束。');
   }
 
   acceptingClicks = false;
   pendingUndo = null;
-  const markedFinishing = await updateRunState(
-    message.runId,
-    (current) => ({ ...current, phase: 'finishing', error: null, recoverableError: null }),
-    startedAtControlVersion,
-  );
+  const markedFinishing = await queueStateMutation(async () => {
+    if (startedAtControlVersion !== controlVersion) return false;
+    const current = await getRecordingState();
+    if (
+      !current.isRecording ||
+      current.runId !== message.runId ||
+      (current.phase !== 'recording' && current.phase !== 'paused' && current.phase !== 'preparing-next')
+    ) {
+      return false;
+    }
+    await setRecordingState({ ...current, phase: 'finishing', error: null, recoverableError: null });
+    return true;
+  });
   if (!markedFinishing) return controlFailure('錄製狀態已改變，請再試一次。');
 
   await clickChain;
@@ -716,7 +907,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     sessionId: state.sessionId,
     entryId: lastItem?.groupId ?? lastItem?.id ?? null,
     groupId: lastItem?.groupId ?? null,
-    itemCount: state.itemCount,
+    itemCount: runItems.length,
   };
 
   const version = ++controlVersion;
@@ -755,6 +946,10 @@ function handleRecordingControl(message: RecordingControlMessage): Promise<Recor
       return undoLastCapture(message);
     case 'RESTORE_LAST_CAPTURE':
       return restoreLastCapture(message);
+    case 'PREPARE_NEXT_SNAPSHOT':
+      return prepareNextSnapshot(message);
+    case 'CREATE_NEXT_SNAPSHOT':
+      return createNextSnapshot(message);
     case 'FINISH_RECORDING':
       return finishRecording(message);
   }
@@ -939,6 +1134,8 @@ export default defineBackground(() => {
       case 'RESUME_RECORDING':
       case 'UNDO_LAST_CAPTURE':
       case 'RESTORE_LAST_CAPTURE':
+      case 'PREPARE_NEXT_SNAPSHOT':
+      case 'CREATE_NEXT_SNAPSHOT':
       case 'FINISH_RECORDING':
         return handleRecordingControl(message);
       case 'FRAME_TRAIL_CLICK':
@@ -973,6 +1170,21 @@ export default defineBackground(() => {
       return;
     }
     const runId = state.runId;
+
+    if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
+      if (changeInfo.status !== 'complete') return;
+      if (isRestrictedUrl(tab.url)) {
+        await setRunError(runId, '此頁面無法建立快照；請返回一般網站或完成錄製。');
+        return;
+      }
+      try {
+        await injectRecorder(tabId);
+      } catch (err) {
+        console.error('[frametrail] failed to restore snapshot preparation toolbar after navigation', err);
+        await setRunError(runId, '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。');
+      }
+      return;
+    }
 
     const updateAction = getRecordingTabUpdateAction(state.mode, changeInfo);
     // A snapshot's coordinates belong to one immutable document. Fail closed

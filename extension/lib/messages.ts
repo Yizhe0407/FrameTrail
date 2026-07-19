@@ -57,6 +57,8 @@ export interface RecordingControlMessage {
     | 'RESUME_RECORDING'
     | 'UNDO_LAST_CAPTURE'
     | 'RESTORE_LAST_CAPTURE'
+    | 'PREPARE_NEXT_SNAPSHOT'
+    | 'CREATE_NEXT_SNAPSHOT'
     | 'FINISH_RECORDING';
   runId: string;
   undoToken?: string;

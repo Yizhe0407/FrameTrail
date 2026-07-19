@@ -5,6 +5,7 @@ import {
   isSnapshotShieldPortMessage,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
+  SNAPSHOT_SHIELD_CONTROL,
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
@@ -111,6 +112,23 @@ describe('snapshot shield protocol', () => {
           rect: { ...rect, width: -1 },
           candidateOffset: 0,
         },
+        token,
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts the multi-snapshot controls and rejects unknown actions', () => {
+    for (const action of ['PREPARE_NEXT_SNAPSHOT', 'CREATE_NEXT_SNAPSHOT']) {
+      expect(
+        isSnapshotShieldPortMessage(
+          { type: SNAPSHOT_SHIELD_CONTROL, token, requestId: 8, action },
+          token,
+        ),
+      ).toBe(true);
+    }
+    expect(
+      isSnapshotShieldPortMessage(
+        { type: SNAPSHOT_SHIELD_CONTROL, token, requestId: 8, action: 'REPLACE_SNAPSHOT' },
         token,
       ),
     ).toBe(false);
