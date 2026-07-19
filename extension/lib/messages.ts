@@ -1,23 +1,25 @@
 /** Shared message contracts between content script, background, and popup. */
 
+export type CaptureIntent = 'click' | 'mark';
+
 export interface ClickCapture {
   type: 'FRAME_TRAIL_CLICK';
-  selector: string;
-  xpath: string;
+  /** Identifies the exact recording run that injected the sender. */
+  runId: string;
   rect: { x: number; y: number; width: number; height: number };
   devicePixelRatio: number;
   /** CSS viewport occupied by the screenshot, used to derive its real pixel scale. */
-  viewport: { width: number; height: number };
+  viewport: { width: number; height: number; scrollX: number; scrollY: number };
   text: string;
   tagName: string;
-  role: string | null;
+  /** Controls the generated description; generic visible targets are marks. */
+  intent: CaptureIntent;
   url: string;
-  pageTitle: string;
   timestamp: number;
 }
 
-/** 'steps': one screenshot per click (default). 'snapshot': every click in the
- *  session is annotated onto one shared screenshot instead. */
+/** 'steps': one screenshot per selection (default). 'snapshot': every
+ * selection in the session is annotated onto one shared screenshot instead. */
 export type RecordingMode = 'steps' | 'snapshot';
 
 export interface StartRecordingMessage {
@@ -39,7 +41,24 @@ export interface FrameTrailStopMessage {
   type: 'FRAME_TRAIL_STOP';
 }
 
-export type BackgroundMessage = ClickCapture | StartRecordingMessage | StopRecordingMessage;
+export interface ClickCaptureResult {
+  ok: boolean;
+}
+
+export interface RecorderReadyMessage {
+  type: 'FRAME_TRAIL_READY';
+  runId: string;
+  /** Snapshot mode captures its clean base image during START, before the
+   * user can create any live annotations. */
+  snapshotContext?: {
+    viewport: ClickCapture['viewport'];
+    devicePixelRatio: number;
+    url: string;
+    timestamp: number;
+  };
+}
+
+export type BackgroundMessage = ClickCapture | StartRecordingMessage | StopRecordingMessage | RecorderReadyMessage;
 
 export interface RecordingState {
   isRecording: boolean;
@@ -49,10 +68,16 @@ export interface RecordingState {
   mode: RecordingMode;
   numbered: boolean;
   /** Snapshot mode: id of the current recording run's shared-image anchor
-   * step, or null if this run hasn't captured its first click yet. Reset to
-   * null on every START_RECORDING so each run gets its own fresh image instead
-   * of resuming an older group. */
+   * step. START_RECORDING captures and creates it before accepting clicks;
+   * null means startup has not completed or this is not a snapshot run. */
   groupAnchorId: string | null;
+  /** Changes on every START and is cleared by STOP, invalidating messages and
+   * async work left behind by an older content-script instance. */
+  runId: string | null;
+  /** Viewport used by the current snapshot anchor. Later annotations must
+   * match it or their coordinates would be drawn onto the wrong pixels. */
+  snapshotViewport: ClickCapture['viewport'] | null;
+  snapshotDevicePixelRatio: number | null;
 }
 
 // Preserve the existing key so renaming the product does not discard an

@@ -20,8 +20,13 @@ function App() {
   }
 
   return (
-    <div className="w-[320px] space-y-3 p-4">
-      <h1 className="text-base font-semibold tracking-tight">FrameTrail</h1>
+    <div className="flex w-80 flex-col gap-5 bg-stone-50 px-5 py-6 dark:bg-stone-900">
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-sm font-semibold tracking-[.02em] text-stone-800 dark:text-stone-100">FrameTrail</h1>
+        <span className="text-[11px] tracking-[.14em] text-stone-400 dark:text-stone-500">
+          {isRecording ? '錄製中' : '待命'}
+        </span>
+      </div>
 
       {error && (
         <Alert variant="destructive">
@@ -32,16 +37,23 @@ function App() {
 
       <RecordControls isRecording={isRecording} onStarted={handleStarted} />
 
-      <Separator />
+      <Separator className="bg-stone-200 dark:bg-stone-700" />
 
-      <div className="space-y-2">
-        <Button variant="outline" className="w-full" onClick={openEditor}>
+      <div className="flex flex-col gap-2">
+        <Button
+          variant="outline"
+          className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
+          onClick={openEditor}
+        >
           <PencilLine />
-          編輯器
+          開啟編輯器
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <ExportImagesButton steps={steps} className="w-full" />
-          <ResetButton hasSteps={steps.length > 0} className="w-full" />
+          <ExportImagesButton
+            steps={steps}
+            className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
+          />
+          <ResetButton hasSteps={steps.length > 0} variant="outline" className="w-full" />
         </div>
       </div>
     </div>

@@ -1,10 +1,42 @@
-import { zip } from 'fflate';
+import { Zip, ZipPassThrough } from 'fflate';
 import { browser } from 'wxt/browser';
 import { compositeHighlight, compositeMultiHighlight } from './annotate';
-import { buildStepEntries, type Step } from './db';
+import { buildStepEntries, getOrderedAnnotations, type Step } from './db';
 
-function todayStamp(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+export function localDateStamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function createStreamingZip() {
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  let resolveZip!: (value: Uint8Array) => void;
+  let rejectZip!: (reason: unknown) => void;
+  const result = new Promise<Uint8Array>((resolve, reject) => {
+    resolveZip = resolve;
+    rejectZip = reject;
+  });
+
+  const archive = new Zip((error, chunk, final) => {
+    if (error) {
+      rejectZip(error);
+      return;
+    }
+    chunks.push(chunk);
+    byteLength += chunk.byteLength;
+    if (!final) return;
+
+    const output = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const part of chunks) {
+      output.set(part, offset);
+      offset += part.byteLength;
+    }
+    resolveZip(output);
+  });
+
+  return { archive, result };
 }
 
 /**
@@ -21,12 +53,16 @@ export async function exportImagesAsZip(
   if (steps.length === 0) return;
 
   const entries = buildStepEntries(steps);
-  const files: Record<string, Uint8Array> = {};
+  if (entries.length === 0) return;
   const pad = String(entries.length).length;
   let done = 0;
+  const { archive, result } = createStreamingZip();
 
-  await Promise.all(
-    entries.map(async (entry, index) => {
+  try {
+    // Process one bitmap/canvas at a time. The ZIP stream can release each
+    // annotated JPEG as soon as it has emitted the corresponding archive
+    // chunks, avoiding a decoded image for every step at once.
+    for (const [index, entry] of entries.entries()) {
       const annotated =
         entry.kind === 'single'
           ? await compositeHighlight(
@@ -36,21 +72,29 @@ export async function exportImagesAsZip(
             )
           : await compositeMultiHighlight(
               entry.anchor.screenshotBlob,
-              entry.annotations.map((s, i) => ({ bounds: s.bounds!, order: i + 1 })),
+              getOrderedAnnotations(entry.annotations),
               entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio,
               entry.anchor.numbered ?? false,
             );
       const bytes = new Uint8Array(await annotated.arrayBuffer());
-      files[`${String(index + 1).padStart(pad, '0')}.jpg`] = bytes;
+      const file = new ZipPassThrough(`${String(index + 1).padStart(pad, '0')}.jpg`);
+      archive.add(file);
+      file.push(bytes, true);
       onProgress?.(++done, entries.length);
-    }),
-  );
+    }
+    archive.end();
+  } catch (error) {
+    archive.terminate();
+    throw error;
+  }
 
-  const zipped = await new Promise<Uint8Array>((resolve, reject) => {
-    zip(files, { level: 0 }, (err, data) => (err ? reject(err) : resolve(data)));
-  });
+  const zipped = await result;
 
   const blob = new Blob([zipped.slice()], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
-  await browser.downloads.download({ url, filename: `frame-trail-images-${todayStamp()}.zip`, saveAs: true });
+  try {
+    await browser.downloads.download({ url, filename: `frame-trail-images-${localDateStamp()}.zip`, saveAs: true });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

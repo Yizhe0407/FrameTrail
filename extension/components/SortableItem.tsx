@@ -12,6 +12,7 @@ interface Props {
   children: (handle: ReactNode) => ReactNode;
   /** Extra classes for the row's <li> element. */
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -25,9 +26,9 @@ interface Props {
  * also applies dnd-kit's scaleX/scaleY, which visually squashes the dragged
  * row when list items have different heights.
  */
-export default function SortableItem({ id, children, className }: Props) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const style = { transform: CSS.Translate.toString(transform), transition };
+export default function SortableItem({ id, children, className, disabled = false }: Props) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+  const style = { transform: CSS.Translate.toString(transform), transition: isDragging ? undefined : transition };
 
   const handle = (
     <button
@@ -35,14 +36,15 @@ export default function SortableItem({ id, children, className }: Props) {
       {...attributes}
       {...listeners}
       aria-label="拖曳排序"
-      className="text-muted-foreground hover:text-foreground shrink-0 cursor-grab touch-none rounded-md p-1.5"
+      disabled={disabled}
+      className="text-muted-foreground hover:text-foreground shrink-0 cursor-grab touch-none rounded-md p-1.5 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <GripVertical className="size-4" />
     </button>
   );
 
   return (
-    <li ref={setNodeRef} style={style} className={cn(isDragging && 'relative z-10 opacity-80', className)}>
+    <li ref={setNodeRef} style={style} className={cn(isDragging && 'relative z-10', className)}>
       {children(handle)}
     </li>
   );

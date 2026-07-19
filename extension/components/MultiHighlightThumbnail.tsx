@@ -1,19 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BADGE_FONT_RATIO,
   BADGE_RADIUS,
   BADGE_TEXT_COLOR,
   HIGHLIGHT_COLOR,
+  HIGHLIGHT_FILL_COLOR,
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_RADIUS,
   LEADER_LINE_WIDTH,
   MARKER_INNER_RADIUS,
   MARKER_RADIUS,
   MARKER_RING_WIDTH,
+  getBadgeFontSize,
   layoutAnnotations,
   type Annotation,
 } from '@/lib/annotate';
 import { cn } from '@/lib/utils';
+import { useObjectUrl } from '@/lib/useObjectUrl';
 
 interface Props {
   blob: Blob;
@@ -31,16 +33,16 @@ interface Props {
 interface BoxStyle {
   order: number;
   markerOnly: boolean;
-  left: string;
-  top: string;
-  width: string;
-  height: string;
-  anchorLeft: string;
-  anchorTop: string;
-  badgeAnchorLeft: string;
-  badgeAnchorTop: string;
-  calloutLeft: string | null;
-  calloutTop: string | null;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  anchorLeft: number;
+  anchorTop: number;
+  badgeAnchorLeft: number;
+  badgeAnchorTop: number;
+  calloutLeft: number | null;
+  calloutTop: number | null;
   borderWidth: number;
   borderRadius: number;
   badgeSize: number;
@@ -67,17 +69,20 @@ export default function MultiHighlightThumbnail({
   imgClassName,
   fit = 'cover',
 }: Props) {
-  const [url, setUrl] = useState('');
+  const url = useObjectUrl(blob);
   const [boxes, setBoxes] = useState<BoxStyle[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
+  const annotationSignature = useMemo(
+    () =>
+      annotations
+        .map(({ bounds, order }) => `${order}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`)
+        .join('|'),
+    [annotations],
+  );
 
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(blob);
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [blob]);
-
-  function computeBoxes() {
+  const computeBoxes = useCallback(() => {
     const img = imgRef.current;
     if (!img || !img.naturalWidth || !img.naturalHeight) {
       setBoxes([]);
@@ -86,45 +91,47 @@ export default function MultiHighlightThumbnail({
     const dpr = screenshotScale || 1;
     const nw = img.naturalWidth;
     const nh = img.naturalHeight;
-    const renderedWidth = img.getBoundingClientRect().width || nw;
-    const scale = renderedWidth / nw;
+    const renderedBox = img.getBoundingClientRect();
+    const boxWidth = renderedBox.width || nw;
+    const boxHeight = renderedBox.height || nh;
+    const scale = fit === 'cover' ? Math.max(boxWidth / nw, boxHeight / nh) : Math.min(boxWidth / nw, boxHeight / nh);
+    const offsetLeft = img.offsetLeft + (boxWidth - nw * scale) / 2;
+    const offsetTop = img.offsetTop + (boxHeight - nh * scale) / 2;
+    const mapX = (x: number) => offsetLeft + x * dpr * scale;
+    const mapY = (y: number) => offsetTop + y * dpr * scale;
 
-    const layouts = layoutAnnotations(annotations, nw / dpr, nh / dpr);
+    const layouts = layoutAnnotations(annotationsRef.current, nw / dpr, nh / dpr);
     setBoxes(
       layouts.map((layout) => {
-        const left = (layout.frame.x * dpr) / nw;
-        const top = (layout.frame.y * dpr) / nh;
-        const width = (layout.frame.width * dpr) / nw;
-        const height = (layout.frame.height * dpr) / nh;
         const badgeSize = Math.max(BADGE_RADIUS * 2 * dpr * scale, 14);
 
         return {
           order: layout.order,
           markerOnly: layout.markerOnly,
-          left: `${left * 100}%`,
-          top: `${top * 100}%`,
-          width: `${width * 100}%`,
-          height: `${height * 100}%`,
-          anchorLeft: `${(layout.anchor.x * dpr * 100) / nw}%`,
-          anchorTop: `${(layout.anchor.y * dpr * 100) / nh}%`,
-          badgeAnchorLeft: `${(layout.badgeAnchor.x * dpr * 100) / nw}%`,
-          badgeAnchorTop: `${(layout.badgeAnchor.y * dpr * 100) / nh}%`,
-          calloutLeft: layout.callout ? `${(layout.callout.x * dpr * 100) / nw}%` : null,
-          calloutTop: layout.callout ? `${(layout.callout.y * dpr * 100) / nh}%` : null,
+          left: mapX(layout.frame.x),
+          top: mapY(layout.frame.y),
+          width: layout.frame.width * dpr * scale,
+          height: layout.frame.height * dpr * scale,
+          anchorLeft: mapX(layout.anchor.x),
+          anchorTop: mapY(layout.anchor.y),
+          badgeAnchorLeft: mapX(layout.badgeAnchor.x),
+          badgeAnchorTop: mapY(layout.badgeAnchor.y),
+          calloutLeft: layout.callout ? mapX(layout.callout.x) : null,
+          calloutTop: layout.callout ? mapY(layout.callout.y) : null,
           borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
           borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
           badgeSize,
-          badgeFontSize: Math.max(badgeSize * BADGE_FONT_RATIO, 9),
+          badgeFontSize: Math.max(getBadgeFontSize(layout.order, badgeSize), 7),
           markerSize: Math.max(MARKER_RADIUS * 2 * dpr * scale, 10),
           markerRingWidth: Math.max(MARKER_RING_WIDTH * dpr * scale, 1),
-          leaderWidth: Math.max((LEADER_LINE_WIDTH * dpr * 100) / nw, 0.2),
+          leaderWidth: Math.max(LEADER_LINE_WIDTH * dpr * scale, 1),
           leaderPoints: layout.leader
-            .map((point) => `${(point.x * dpr * 100) / nw},${(point.y * dpr * 100) / nh}`)
+            .map((point) => `${mapX(point.x)},${mapY(point.y)}`)
             .join(' '),
         };
       }),
     );
-  }
+  }, [annotationSignature, fit, screenshotScale]);
 
   useEffect(() => {
     const img = imgRef.current;
@@ -132,9 +139,7 @@ export default function MultiHighlightThumbnail({
     const observer = new ResizeObserver(() => computeBoxes());
     observer.observe(img);
     return () => observer.disconnect();
-    // computeBoxes reads current props via closure; re-run whenever inputs change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, annotations, screenshotScale]);
+  }, [url, computeBoxes]);
 
   const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
 
@@ -147,13 +152,13 @@ export default function MultiHighlightThumbnail({
           alt={alt}
           onLoad={() => computeBoxes()}
           className={cn('block', imgClassName ?? defaultImgClass)}
-          style={{ objectFit: fit }}
+          style={imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : undefined}
         />
       )}
-      <svg className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
         {boxes.map(
           (box) =>
-            box.calloutLeft && box.calloutTop && (
+            box.calloutLeft !== null && box.calloutTop !== null && (
               <polyline
                 key={`leader-${box.order}`}
                 points={box.leaderPoints}
@@ -199,6 +204,7 @@ export default function MultiHighlightThumbnail({
                 height: box.height,
                 border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
                 borderRadius: `${box.borderRadius}px`,
+                backgroundColor: HIGHLIGHT_FILL_COLOR,
               }}
             />
           )}

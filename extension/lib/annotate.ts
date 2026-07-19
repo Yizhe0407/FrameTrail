@@ -5,9 +5,11 @@ export const HIGHLIGHT_PADDING = 6;
 // Floor for the adaptive per-single padding below. Below this, a shrunk
 // frame reads as "no highlight" rather than a tight one.
 const MIN_PADDING = 1;
-export const HIGHLIGHT_RADIUS = 8;
-export const HIGHLIGHT_LINE_WIDTH = 3;
-export const HIGHLIGHT_COLOR = '#ef4444';
+export const HIGHLIGHT_RADIUS = 6;
+export const HIGHLIGHT_LINE_WIDTH = 2;
+export const HIGHLIGHT_COLOR = '#f43f5e';
+export const HIGHLIGHT_FILL_COLOR = 'rgba(244, 63, 94, 0.055)';
+export const HIGHLIGHT_PREVIEW_FILL_COLOR = 'rgba(244, 63, 94, 0.09)';
 
 // Order-number badge: a filled circle. A single target's badge straddles its
 // own frame's perimeter; a coincident group's badges sit in a side lane, each
@@ -31,6 +33,10 @@ const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
 // Minimum gap kept between a badge and a neighboring frame, marker or other
 // badge, so circles never touch even when targets are packed tight.
 const BADGE_CLEARANCE = 4;
+// Full collision-aware leader routing is deliberately bounded. Above this
+// point the density is already too high for individual obstacle avoidance to
+// remain legible, so a direct leader keeps layout work linear and predictable.
+const MAX_COLLISION_ROUTED_GROUP_SIZE = 100;
 // The dot drawn at a coincident target's anchor. Leaders leave from its edge
 // rather than the target centre, so the line never sits under its own dot.
 // Exported so the CSS preview and canvas export size the marker identically.
@@ -83,6 +89,14 @@ export interface AnnotationLayout {
   leader: AnnotationPoint[];
 }
 
+/** Keeps multi-digit labels inside the fixed badge diameter. */
+export function getBadgeFontSize(order: number, diameter = BADGE_RADIUS * 2): number {
+  const characters = Math.max(1, String(order).length);
+  const base = diameter * BADGE_FONT_RATIO;
+  const horizontalFit = (diameter - 4) / (characters * 0.62);
+  return Math.max(Math.min(base, horizontalFit), Math.min(7, base));
+}
+
 function inflateBounds(bounds: Bounds, padding: number): Bounds {
   return {
     x: bounds.x - padding,
@@ -106,20 +120,61 @@ function inflateBounds(bounds: Bounds, padding: number): Bounds {
  * bounds: group members render as marker dots, never frames, so they can't
  * collide with anything and would only make this over-conservative.
  */
-function adaptivePadding(rawBounds: Bounds[], index: number): number {
-  const a = rawBounds[index];
-  let tightest = HIGHLIGHT_PADDING;
-  for (let other = 0; other < rawBounds.length; other++) {
-    if (other === index) continue;
-    const b = rawBounds[other];
+function forEachNearbyPair(
+  bounds: Bounds[],
+  maxGap: number,
+  visit: (first: number, second: number) => void,
+): void {
+  if (bounds.length < 2) return;
+
+  // Sweep along the less-congested axis. A fixed x-axis sweep still becomes
+  // quadratic for a long vertical list because every item shares the same x
+  // interval even though none are near each other in y.
+  const minX = Math.min(...bounds.map((rect) => rect.x));
+  const minY = Math.min(...bounds.map((rect) => rect.y));
+  const maxX = Math.max(...bounds.map((rect) => rect.x + rect.width));
+  const maxY = Math.max(...bounds.map((rect) => rect.y + rect.height));
+  const xSpan = Math.max(maxX - minX, 1);
+  const ySpan = Math.max(maxY - minY, 1);
+  const xCongestion = bounds.reduce((sum, rect) => sum + Math.max(rect.width, 0), 0) / xSpan;
+  const yCongestion = bounds.reduce((sum, rect) => sum + Math.max(rect.height, 0), 0) / ySpan;
+  const primaryIsX = xCongestion <= yCongestion;
+  const primaryStart = (rect: Bounds) => (primaryIsX ? rect.x : rect.y);
+  const primaryEnd = (rect: Bounds) => primaryStart(rect) + (primaryIsX ? rect.width : rect.height);
+  const secondaryGap = (a: Bounds, b: Bounds) =>
+    primaryIsX
+      ? Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height))
+      : Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
+
+  const ordered = bounds.map((_, index) => index).sort((a, b) => primaryStart(bounds[a]) - primaryStart(bounds[b]));
+  for (let position = 0; position < ordered.length; position++) {
+    const first = ordered[position];
+    const a = bounds[first];
+    const maxPrimary = primaryEnd(a) + maxGap;
+    for (let next = position + 1; next < ordered.length; next++) {
+      const second = ordered[next];
+      const b = bounds[second];
+      if (primaryStart(b) > maxPrimary) break;
+      if (secondaryGap(a, b) <= maxGap) visit(first, second);
+    }
+  }
+}
+
+function adaptivePaddings(rawBounds: Bounds[]): number[] {
+  const paddings = rawBounds.map(() => HIGHLIGHT_PADDING);
+  forEachNearbyPair(rawBounds, HIGHLIGHT_PADDING * 2 + 2, (first, second) => {
+    const a = rawBounds[first];
+    const b = rawBounds[second];
     const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
     const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
-    tightest = Math.min(tightest, Math.max(dx, dy) / 2 - 1);
-  }
+    const padding = Math.max(dx, dy) / 2 - 1;
+    paddings[first] = Math.min(paddings[first], padding);
+    paddings[second] = Math.min(paddings[second], padding);
+  });
   // Genuinely overlapping raw bounds (below the coincident-group threshold)
   // produce max(dx,dy) === 0: clamp to MIN_PADDING and accept the small
   // residual frame overlap rather than collapsing the highlight entirely.
-  return Math.min(HIGHLIGHT_PADDING, Math.max(MIN_PADDING, tightest));
+  return paddings.map((padding) => Math.min(HIGHLIGHT_PADDING, Math.max(MIN_PADDING, padding)));
 }
 
 function pointBounds(point: AnnotationPoint, radius: number): Bounds {
@@ -277,15 +332,189 @@ function fitsInViewport(point: AnnotationPoint, viewportWidth: number, viewportH
 }
 
 function clampToViewport(point: AnnotationPoint, viewportWidth: number, viewportHeight: number): AnnotationPoint {
+  const clampAxis = (value: number, extent: number) =>
+    extent <= BADGE_RADIUS * 2
+      ? Math.max(extent, 0) / 2
+      : Math.min(Math.max(value, BADGE_RADIUS), extent - BADGE_RADIUS);
   return {
-    x: Math.min(Math.max(point.x, BADGE_RADIUS), viewportWidth - BADGE_RADIUS),
-    y: Math.min(Math.max(point.y, BADGE_RADIUS), viewportHeight - BADGE_RADIUS),
+    x: clampAxis(point.x, viewportWidth),
+    y: clampAxis(point.y, viewportHeight),
   };
 }
 
-function badgeOverlaps(point: AnnotationPoint, badges: AnnotationPoint[], rects: Bounds[]): boolean {
-  if (badges.some((badge) => Math.hypot(point.x - badge.x, point.y - badge.y) < BADGE_RADIUS * 2 + BADGE_CLEARANCE)) return true;
-  return rects.some((rect) => distanceToBounds(point, rect) < BADGE_RADIUS + BADGE_CLEARANCE);
+class BoundsSpatialIndex {
+  private readonly cells = new Map<string, Bounds[]>();
+  private readonly columns: number;
+  private readonly rows: number;
+
+  constructor(
+    private readonly width: number,
+    private readonly height: number,
+    private readonly cellSize = 64,
+  ) {
+    this.columns = Math.max(1, Math.ceil(Math.max(width, 0) / cellSize));
+    this.rows = Math.max(1, Math.ceil(Math.max(height, 0) / cellSize));
+  }
+
+  add(rect: Bounds): void {
+    const left = Math.max(0, rect.x);
+    const top = Math.max(0, rect.y);
+    const right = Math.min(this.width, rect.x + rect.width);
+    const bottom = Math.min(this.height, rect.y + rect.height);
+    if (right < left || bottom < top) return;
+    const minColumn = this.cell(left, this.columns);
+    const maxColumn = this.cell(right, this.columns);
+    const minRow = this.cell(top, this.rows);
+    const maxRow = this.cell(bottom, this.rows);
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let column = minColumn; column <= maxColumn; column++) {
+        const key = `${column}:${row}`;
+        const entries = this.cells.get(key);
+        if (entries) entries.push(rect);
+        else this.cells.set(key, [rect]);
+      }
+    }
+  }
+
+  near(point: AnnotationPoint, radius: number): Bounds[] {
+    const minColumn = this.cell(point.x - radius, this.columns);
+    const maxColumn = this.cell(point.x + radius, this.columns);
+    const minRow = this.cell(point.y - radius, this.rows);
+    const maxRow = this.cell(point.y + radius, this.rows);
+    const matches = new Set<Bounds>();
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let column = minColumn; column <= maxColumn; column++) {
+        for (const rect of this.cells.get(`${column}:${row}`) ?? []) matches.add(rect);
+      }
+    }
+    return [...matches];
+  }
+
+  private cell(value: number, count: number): number {
+    return Math.max(0, Math.min(count - 1, Math.floor(value / this.cellSize)));
+  }
+}
+
+class PointSpatialIndex {
+  private readonly cells = new Map<string, AnnotationPoint[]>();
+
+  constructor(private readonly cellSize = BADGE_RADIUS * 2 + BADGE_CLEARANCE) {}
+
+  add(point: AnnotationPoint): void {
+    const key = this.key(point.x, point.y);
+    const entries = this.cells.get(key);
+    if (entries) entries.push(point);
+    else this.cells.set(key, [point]);
+  }
+
+  near(point: AnnotationPoint, radius: number): AnnotationPoint[] {
+    const minX = Math.floor((point.x - radius) / this.cellSize);
+    const maxX = Math.floor((point.x + radius) / this.cellSize);
+    const minY = Math.floor((point.y - radius) / this.cellSize);
+    const maxY = Math.floor((point.y + radius) / this.cellSize);
+    const matches: AnnotationPoint[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) matches.push(...(this.cells.get(`${x}:${y}`) ?? []));
+    }
+    return matches;
+  }
+
+  private key(x: number, y: number): string {
+    return `${Math.floor(x / this.cellSize)}:${Math.floor(y / this.cellSize)}`;
+  }
+}
+
+function badgeOverlaps(
+  point: AnnotationPoint,
+  badges: PointSpatialIndex,
+  rects: BoundsSpatialIndex,
+  ignoredRects?: Set<Bounds>,
+): boolean {
+  const badgeDistance = BADGE_RADIUS * 2 + BADGE_CLEARANCE;
+  if (badges.near(point, badgeDistance).some((badge) => Math.hypot(point.x - badge.x, point.y - badge.y) < badgeDistance)) {
+    return true;
+  }
+  const rectDistance = BADGE_RADIUS + BADGE_CLEARANCE;
+  return rects
+    .near(point, rectDistance)
+    .some((rect) => !ignoredRects?.has(rect) && distanceToBounds(point, rect) < rectDistance);
+}
+
+function calloutAxes(
+  preferredX: number,
+  preferredStartY: number,
+  count: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  laneOnRight: boolean,
+): { xs: number[]; ys: number[] } {
+  const clamped = clampToViewport({ x: preferredX, y: preferredStartY }, viewportWidth, viewportHeight);
+  if (viewportWidth <= BADGE_RADIUS * 2 || viewportHeight <= BADGE_RADIUS * 2) {
+    return { xs: [clamped.x], ys: [clamped.y] };
+  }
+
+  const minX = BADGE_RADIUS;
+  const maxX = viewportWidth - BADGE_RADIUS;
+  const xs = [clamped.x];
+  const preferredDirection = laneOnRight ? 1 : -1;
+  for (let distance = CALLOUT_SPACING; distance <= viewportWidth + CALLOUT_SPACING; distance += CALLOUT_SPACING) {
+    const x = clamped.x + distance * preferredDirection;
+    if (x >= minX && x <= maxX) xs.push(x);
+  }
+  for (let distance = CALLOUT_SPACING; distance <= viewportWidth + CALLOUT_SPACING; distance += CALLOUT_SPACING) {
+    const x = clamped.x - distance * preferredDirection;
+    if (x >= minX && x <= maxX) xs.push(x);
+  }
+
+  const minY = BADGE_RADIUS;
+  const maxY = viewportHeight - BADGE_RADIUS;
+  const rowCapacity = Math.floor((maxY - minY) / CALLOUT_SPACING) + 1;
+  const startY = count > rowCapacity ? minY : clamped.y;
+  const ys: number[] = [];
+  for (let y = startY; y <= maxY; y += CALLOUT_SPACING) ys.push(y);
+  for (let y = startY - CALLOUT_SPACING; y >= minY; y -= CALLOUT_SPACING) ys.push(y);
+  return { xs, ys };
+}
+
+function placeGroupCallouts(
+  count: number,
+  preferredX: number,
+  preferredStartY: number,
+  laneOnRight: boolean,
+  obstacleRects: BoundsSpatialIndex,
+  placedBadges: PointSpatialIndex,
+  ignoredRects: Set<Bounds>,
+  viewportWidth: number,
+  viewportHeight: number,
+): AnnotationPoint[] {
+  const { xs, ys } = calloutAxes(
+    preferredX,
+    preferredStartY,
+    count,
+    viewportWidth,
+    viewportHeight,
+    laneOnRight,
+  );
+  const candidates = xs.flatMap((x) => ys.map((y) => ({ x, y })));
+  const slots: AnnotationPoint[] = [];
+  let candidateIndex = 0;
+
+  for (let position = 0; position < count; position++) {
+    while (
+      candidateIndex < candidates.length &&
+      badgeOverlaps(candidates[candidateIndex], placedBadges, obstacleRects, ignoredRects)
+    ) {
+      candidateIndex++;
+    }
+    // More annotations than physically fit in the viewport is unsatisfiable.
+    // Reuse the deterministic grid only after every collision-free slot has
+    // been exhausted, keeping all geometry finite and inside the screenshot.
+    const slot = candidates[candidateIndex] ?? candidates[position % candidates.length] ?? { x: 0, y: 0 };
+    if (candidateIndex < candidates.length) candidateIndex++;
+    slots.push(slot);
+    placedBadges.add(slot);
+  }
+  return slots;
 }
 
 /**
@@ -296,14 +525,15 @@ function badgeOverlaps(point: AnnotationPoint, badges: AnnotationPoint[], rects:
  */
 function pickPerimeterBadge(
   frame: Bounds,
-  obstacleRects: Bounds[],
-  placedBadges: AnnotationPoint[],
+  obstacleRects: BoundsSpatialIndex,
+  placedBadges: PointSpatialIndex,
   viewportWidth: number,
   viewportHeight: number,
 ): AnnotationPoint {
   const candidates = perimeterCandidates(frame).filter((point) => fitsInViewport(point, viewportWidth, viewportHeight));
+  const ignored = new Set([frame]);
   for (const point of candidates) {
-    if (!badgeOverlaps(point, placedBadges, obstacleRects)) return point;
+    if (!badgeOverlaps(point, placedBadges, obstacleRects, ignored)) return point;
   }
 
   // Every perimeter point is crowded (dense cluster) — the familiar top-right
@@ -345,11 +575,24 @@ export function layoutAnnotations(
     if (rootA !== rootB) parent[rootB] = rootA;
   };
 
-  for (let a = 0; a < count; a++) {
-    for (let b = a + 1; b < count; b++) {
-      if (coincident(annotations[a].bounds, annotations[b].bounds)) join(a, b);
+  const rawBounds = annotations.map((annotation) => annotation.bounds);
+  const representativeByBounds = new Map<string, number>();
+  const representatives: number[] = [];
+  for (let index = 0; index < rawBounds.length; index++) {
+    const rect = rawBounds[index];
+    const key = `${rect.x}:${rect.y}:${rect.width}:${rect.height}`;
+    const representative = representativeByBounds.get(key);
+    if (representative === undefined) {
+      representativeByBounds.set(key, index);
+      representatives.push(index);
+    } else {
+      join(representative, index);
     }
   }
+  const representativeBounds = representatives.map((index) => rawBounds[index]);
+  forEachNearbyPair(representativeBounds, 0, (a, b) => {
+    if (coincident(representativeBounds[a], representativeBounds[b])) join(representatives[a], representatives[b]);
+  });
 
   const grouped = new Map<number, number[]>();
   for (let index = 0; index < count; index++) {
@@ -377,19 +620,28 @@ export function layoutAnnotations(
   // adaptivePadding) so two frames for near-but-non-overlapping targets never
   // visually collide.
   const singleRawBounds = singles.map((index) => annotations[index].bounds);
-  const singleFrames = singleRawBounds.map((bounds, position) =>
-    inflateBounds(bounds, adaptivePadding(singleRawBounds, position)),
-  );
+  const singlePaddings = adaptivePaddings(singleRawBounds);
+  const singleFrames = singleRawBounds.map((bounds, position) => inflateBounds(bounds, singlePaddings[position]));
   const groupMembers = groups.flat();
   const markerRectOf = (index: number): Bounds => pointBounds(anchorOf(index), MARKER_RADIUS);
+  const markerRects = new Map(groupMembers.map((index) => [index, markerRectOf(index)]));
+  // A group's markers substantially overlap by definition. One union obstacle
+  // prevents thousands of coincident marker rectangles from turning every
+  // nearby badge query into a linear scan.
+  const groupMarkerObstacles = groups.map((group) => unionBounds(group.map((index) => markerRects.get(index)!)));
 
   const placedBadges: AnnotationPoint[] = [];
+  const badgeIndex = new PointSpatialIndex();
+  const obstacleIndex = new BoundsSpatialIndex(viewportWidth, viewportHeight);
+  for (const frame of singleFrames) obstacleIndex.add(frame);
+  for (const marker of groupMarkerObstacles) obstacleIndex.add(marker);
   const layouts: AnnotationLayout[] = [];
 
   // Groups first, so a single's perimeter badge can dodge the lane badges.
-  for (const group of groups) {
-    const groupSet = new Set(group);
-    const foreignMarkers = groupMembers.filter((index) => !groupSet.has(index)).map(markerRectOf);
+  groups.forEach((group, groupPosition) => {
+    const ownMarker = groupMarkerObstacles[groupPosition];
+    const foreignMarkers = groupMarkerObstacles.filter((_, position) => position !== groupPosition);
+    const ownMarkers = new Set([ownMarker]);
     const groupBounds = unionBounds(group.map((index) => annotations[index].bounds));
 
     const leftSpace = groupBounds.x;
@@ -411,22 +663,18 @@ export function layoutAnnotations(
     // groups count as obstacles to nudge past; this group's own not-yet-placed
     // badges never do, keeping the monotonic slot order intact.
     const foreignBadges = placedBadges.slice();
-    const slots: AnnotationPoint[] = [];
-    let cursorY = startY;
-    ordered.forEach((_, position) => {
-      let y = Math.max(cursorY, startY + position * CALLOUT_SPACING);
-      while (
-        y < viewportHeight - BADGE_RADIUS &&
-        badgeOverlaps({ x: laneX, y }, foreignBadges, [...singleFrames, ...foreignMarkers])
-      ) {
-        y += BADGE_RADIUS;
-      }
-      y = Math.min(y, viewportHeight - BADGE_RADIUS);
-      const slot = { x: laneX, y };
-      slots.push(slot);
-      placedBadges.push(slot);
-      cursorY = y + CALLOUT_SPACING;
-    });
+    const slots = placeGroupCallouts(
+      ordered.length,
+      laneX,
+      startY,
+      laneOnRight,
+      obstacleIndex,
+      badgeIndex,
+      ownMarkers,
+      viewportWidth,
+      viewportHeight,
+    );
+    placedBadges.push(...slots);
 
     // Own-group markers are excluded from the obstacle set: they share one
     // cluster every leader must leave from, so counting them would penalise all
@@ -441,14 +689,22 @@ export function layoutAnnotations(
       const length = Math.hypot(dx, dy) || 1;
       const start = { x: anchor.x + (dx / length) * MARKER_RADIUS, y: anchor.y + (dy / length) * MARKER_RADIUS };
       const end = { x: badge.x - (dx / length) * BADGE_RADIUS, y: badge.y - (dy / length) * BADGE_RADIUS };
-      const siblingBadges = slots.filter((_, other) => other !== position).map((point) => pointBounds(point, BADGE_RADIUS));
-      const obstacles = [
-        ...singleFrames,
-        ...foreignMarkers,
-        ...foreignBadges.map((point) => pointBounds(point, BADGE_RADIUS)),
-        ...siblingBadges,
-      ];
-      const leader = buildLeader(start, end, obstacles, siblingLeaders);
+      const routeWithCollisionAvoidance = ordered.length <= MAX_COLLISION_ROUTED_GROUP_SIZE;
+      const leader = routeWithCollisionAvoidance
+        ? buildLeader(
+            start,
+            end,
+            [
+              ...singleFrames,
+              ...foreignMarkers,
+              ...foreignBadges.map((point) => pointBounds(point, BADGE_RADIUS)),
+              ...slots
+                .filter((_, other) => other !== position)
+                .map((point) => pointBounds(point, BADGE_RADIUS)),
+            ],
+            siblingLeaders,
+          )
+        : [start, end];
       siblingLeaders.push(leader);
       layouts.push({
         order: annotations[index].order,
@@ -460,14 +716,13 @@ export function layoutAnnotations(
         leader,
       });
     });
-  }
+  });
 
-  const groupMarkerRects = groupMembers.map(markerRectOf);
   singles.forEach((index, position) => {
     const frame = singleFrames[position];
-    const obstacleRects = [...singleFrames.filter((_, other) => other !== position), ...groupMarkerRects];
-    const badgeAnchor = pickPerimeterBadge(frame, obstacleRects, placedBadges, viewportWidth, viewportHeight);
+    const badgeAnchor = pickPerimeterBadge(frame, obstacleIndex, badgeIndex, viewportWidth, viewportHeight);
     placedBadges.push(badgeAnchor);
+    badgeIndex.add(badgeAnchor);
     layouts.push({
       order: annotations[index].order,
       frame,
@@ -492,6 +747,8 @@ export function layoutAnnotations(
  */
 function strokeBox(ctx: OffscreenCanvasRenderingContext2D, bounds: Bounds, dpr: number) {
   const lineWidth = HIGHLIGHT_LINE_WIDTH * dpr;
+  const outerX = bounds.x * dpr;
+  const outerY = bounds.y * dpr;
   const outerWidth = bounds.width * dpr;
   const outerHeight = bounds.height * dpr;
   // CSS clamps border-radius to half the box; do the same before insetting.
@@ -501,6 +758,11 @@ function strokeBox(ctx: OffscreenCanvasRenderingContext2D, bounds: Bounds, dpr: 
   const w = outerWidth - lineWidth;
   const h = outerHeight - lineWidth;
   const radius = Math.max(outerRadius - lineWidth / 2, 0);
+
+  ctx.fillStyle = HIGHLIGHT_FILL_COLOR;
+  ctx.beginPath();
+  ctx.roundRect(outerX, outerY, outerWidth, outerHeight, outerRadius);
+  ctx.fill();
 
   ctx.strokeStyle = HIGHLIGHT_COLOR;
   ctx.lineWidth = lineWidth;
@@ -547,7 +809,7 @@ function drawBadge(ctx: OffscreenCanvasRenderingContext2D, point: AnnotationPoin
   ctx.restore();
 
   ctx.fillStyle = BADGE_TEXT_COLOR;
-  ctx.font = `600 ${BADGE_RADIUS * 2 * BADGE_FONT_RATIO * dpr}px ${BADGE_FONT_FAMILY}`;
+  ctx.font = `600 ${getBadgeFontSize(order) * dpr}px ${BADGE_FONT_FAMILY}`;
   ctx.textAlign = 'center';
   // Center the digit glyphs by their actual bounding box rather than the font's
   // full line box, so they sit optically centered like the preview's flexbox.
@@ -580,6 +842,7 @@ export async function compositeHighlight(
   screenshot: Blob,
   bounds: Bounds | null,
   screenshotScale: number,
+  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
 ): Promise<Blob> {
   const bitmap = await createImageBitmap(screenshot);
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
@@ -591,7 +854,7 @@ export async function compositeHighlight(
     strokeBox(ctx, inflateBounds(bounds, HIGHLIGHT_PADDING), screenshotScale || 1);
   }
 
-  return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+  return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
 }
 
 /**
@@ -604,6 +867,7 @@ export async function compositeMultiHighlight(
   annotations: Annotation[],
   screenshotScale: number,
   numbered: boolean,
+  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
 ): Promise<Blob> {
   const bitmap = await createImageBitmap(screenshot);
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
@@ -628,5 +892,5 @@ export async function compositeMultiHighlight(
     }
   }
 
-  return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+  return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
 }

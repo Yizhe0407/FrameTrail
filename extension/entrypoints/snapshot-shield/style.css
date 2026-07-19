@@ -1,0 +1,75 @@
+:root,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+body.has-preview-target {
+  cursor: crosshair;
+}
+
+.snapshot-overlay,
+.snapshot-overlay__committed {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.snapshot-box {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.snapshot-box[hidden] {
+  display: none;
+}
+
+.snapshot-box--preview {
+  border: 2px solid rgb(244 63 94 / 0.96);
+  background: rgb(244 63 94 / 0.09);
+  box-shadow: none;
+}
+
+.snapshot-annotation__leader {
+  fill: none;
+  stroke: #f43f5e;
+}
+
+.snapshot-annotation__frame {
+  fill: rgb(244 63 94 / 0.055);
+  stroke: #f43f5e;
+}
+
+.snapshot-annotation__marker {
+  fill: #fff;
+  stroke: #f43f5e;
+}
+
+.snapshot-annotation__marker-inner,
+.snapshot-annotation__badge {
+  fill: #f43f5e;
+}
+
+.snapshot-annotation__badge {
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.14));
+}
+
+.snapshot-annotation__badge-label {
+  fill: #fff;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  dominant-baseline: central;
+  text-anchor: middle;
+  letter-spacing: 0;
+}

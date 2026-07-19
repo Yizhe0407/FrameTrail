@@ -1,33 +1,70 @@
 import { browser } from 'wxt/browser';
-import { buildCssSelector, buildXPath, findInteractiveTarget, getHighlightBounds } from '@/lib/selector-utils';
+import {
+  buildSnapshotTargetIdentity,
+  deepElementFromPoint,
+  findVisualTargetCandidates,
+  getHighlightBounds,
+  getVisibleHighlightBounds,
+  intersectBounds,
+  isInteractiveElement,
+  isElementVisuallyUnavailable,
+  selectVisualTargetCandidate,
+} from '@/lib/selector-utils';
+import { createSnapshotShield, type SnapshotShield } from '@/lib/snapshot-shield';
+import { createStepPreview, type StepPreview } from '@/lib/step-preview';
+import {
+  SNAPSHOT_TARGET_OFFSET_LIMIT,
+  type SnapshotShieldPointerDownMessage,
+  type SnapshotShieldPointerMoveMessage,
+  type SnapshotShieldPreviewResult,
+  type SnapshotShieldRect,
+  type SnapshotShieldSelection,
+} from '@/lib/snapshot-shield-protocol';
 import { getRecordingState } from '@/lib/storage';
-import type { ClickCapture, FrameTrailStopMessage } from '@/lib/messages';
+import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
+import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
+import { createImageCoordinateMapper } from '@/lib/image-geometry';
+import type { ClickCapture, ClickCaptureResult, FrameTrailStopMessage } from '@/lib/messages';
 
-// Dispatched on (re)injection so any previous instance in this same isolated
-// world tears down its listener before we add a new one — prevents duplicate
-// captures when the recorder is injected more than once (e.g. re-inject after
-// navigation). Mirrors Mimik's cleanup-event pattern.
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
-
-// Ignore a repeat pointerdown on the same element within this window
-// (double-clicks, event bubbling quirks) so one user action becomes one step.
+const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 const DEDUP_MS = 400;
-
-// Matches the name background.ts listens for on runtime.onConnect.
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
-
-// Well under the ~30s MV3 service-worker idle timeout, so the port never goes
-// quiet long enough for Chrome to reclaim the worker mid-recording.
 const KEEPALIVE_INTERVAL_MS = 20_000;
+const FRAME_PROBE_MESSAGE = `frame_trail_snapshot_probe_${browser.runtime.id}`;
+const FRAME_PROBE_TIMEOUT_MS = 120;
+const FRAME_PROBE_CHILD_BUDGET_MS = 20;
+const FRAME_PROBE_RETRY_DELAY_MS = 2_000;
+const timedOutFrameProbes = new WeakMap<HTMLIFrameElement, { runId: string; retryAt: number }>();
 
-// Snapshot mode annotates every click onto one screenshot taken at the first
-// click, so the page must not react to any of them (navigation, SPA route
-// changes, menus, form submits) or later boxes point at a stale screenshot.
-// preventDefault + stopImmediatePropagation on every event a click/tap can
-// produce blocks default actions and the page's own listeners in one pass;
-// Enter/Space activation and form-submit-on-Enter are covered for free since
-// browsers synthesize 'click'/'submit' for those.
-const FREEZE_EVENTS = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'auxclick', 'submit'] as const;
+const SNAPSHOT_FREEZE_EVENTS = [
+  'pointerdown',
+  'pointerup',
+  'pointercancel',
+  'mousedown',
+  'mouseup',
+  'click',
+  'dblclick',
+  'auxclick',
+  'contextmenu',
+  'submit',
+  'keydown',
+  'keyup',
+  'beforeinput',
+  'wheel',
+  'touchmove',
+] as const;
+
+const STEP_FOLLOWUP_EVENTS = [
+  'pointerup',
+  'pointercancel',
+  'mousedown',
+  'mouseup',
+  'click',
+  'dblclick',
+  'auxclick',
+  'contextmenu',
+] as const;
 
 function isOutOfViewport(rect: { x: number; y: number; width: number; height: number }): boolean {
   const right = rect.x + rect.width;
@@ -35,37 +72,38 @@ function isOutOfViewport(rect: { x: number; y: number; width: number; height: nu
   return rect.y < 0 || rect.x < 0 || bottom > window.innerHeight || right > window.innerWidth;
 }
 
+function snapshotRectKey(rect: SnapshotShieldRect): string {
+  return [rect.x, rect.y, rect.width, rect.height]
+    .map((value) => Math.round(value * 2))
+    .join(':');
+}
+
+function getSnapshotTargetBounds(
+  el: Element,
+  clientX: number,
+  clientY: number,
+): SnapshotShieldRect | null {
+  return getVisibleHighlightBounds(el, clientX, clientY);
+}
+
 function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-/**
- * First non-empty line of rendered text, capped. innerText (not textContent)
- * so CSS-hidden content stays out; only the first line because a control's
- * accessible label is its lead text — trailing lines are badges, hints, etc.
- */
-function getVisibleText(el: HTMLElement): string {
-  const lines = el.innerText?.split('\n') ?? [];
+function getVisibleText(el: Element): string {
+  const text = el instanceof HTMLElement ? el.innerText : el.textContent;
+  const lines = text?.split('\n') ?? [];
   return (lines.find((line) => line.trim().length > 0)?.trim() ?? '').slice(0, 80);
 }
 
-/** Form controls carry no innerText; their name lives on the label or placeholder. */
-function getFieldLabel(el: HTMLElement): string {
-  if (
-    !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)
-  ) {
+function getFieldLabel(el: Element): string {
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
     return '';
   }
-  // .labels covers both label[for=id] and an ancestor <label>.
   return el.labels?.[0]?.innerText?.trim() || el.getAttribute('placeholder')?.trim() || '';
 }
 
-/**
- * aria-label outranks visible text: icon-only controls (a "×" on a tag chip)
- * render a glyph that is meaningless in a written step, and their real name is
- * only in the label.
- */
-function describeElement(el: HTMLElement): string {
+function describeElement(el: Element): string {
   return (
     el.getAttribute('aria-label')?.trim() ||
     getFieldLabel(el) ||
@@ -76,106 +114,647 @@ function describeElement(el: HTMLElement): string {
   ).slice(0, 200);
 }
 
+function replayElementClick(el: Element): void {
+  const focus = (el as Element & { focus?: (options?: FocusOptions) => void }).focus;
+  focus?.call(el, { preventScroll: true });
+  const click = (el as Element & { click?: () => void }).click;
+  if (typeof click === 'function') {
+    click.call(el);
+    return;
+  }
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: window }));
+}
+
+interface SnapshotProbeResult {
+  rect: SnapshotShieldRect;
+  identity: string;
+  text: string;
+  tagName: string;
+  candidateOffset: number;
+}
+
+interface ResolvedSnapshotTarget extends SnapshotProbeResult {
+  element?: Element;
+}
+
+interface SnapshotProbeRequest {
+  type: typeof FRAME_PROBE_MESSAGE;
+  runId: string;
+  timeoutMs: number;
+  clientX: number;
+  clientY: number;
+  candidateOffset: number;
+}
+
+function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Partial<SnapshotProbeResult>;
+  const rect = result.rect;
+  return (
+    Boolean(rect) &&
+    Number.isFinite(rect!.x) &&
+    Number.isFinite(rect!.y) &&
+    Number.isFinite(rect!.width) &&
+    Number.isFinite(rect!.height) &&
+    rect!.width > 0 &&
+    rect!.height > 0 &&
+    typeof result.identity === 'string' &&
+    result.identity.length > 0 &&
+    result.identity.length <= 4_096 &&
+    typeof result.text === 'string' &&
+    result.text.length <= 200 &&
+    typeof result.tagName === 'string' &&
+    result.tagName.length > 0 &&
+    result.tagName.length <= 100 &&
+    Number.isSafeInteger(result.candidateOffset) &&
+    Math.abs(result.candidateOffset!) <= SNAPSHOT_TARGET_OFFSET_LIMIT
+  );
+}
+
+function resolvedElement(
+  el: Element,
+  rect: SnapshotShieldRect | null,
+  candidateOffset = 0,
+): ResolvedSnapshotTarget | null {
+  if (!rect) return null;
+  return {
+    element: el,
+    rect,
+    identity: buildSnapshotTargetIdentity(el),
+    text: describeElement(el),
+    tagName: el.tagName.toLowerCase(),
+    candidateOffset,
+  };
+}
+
+function pointInPolygon(x: number, y: number, points: Array<[number, number]>): boolean {
+  let inside = false;
+  for (let i = 0, previous = points.length - 1; i < points.length; previous = i++) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[previous];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi || 1) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function resolveImageMapTarget(
+  image: HTMLImageElement,
+  clientX: number,
+  clientY: number,
+): ResolvedSnapshotTarget | null {
+  const mapName = image.useMap.replace(/^#/, '');
+  if (!mapName) return null;
+  const map = Array.from(document.querySelectorAll('map')).find(
+    (candidate) => (candidate as HTMLMapElement).name === mapName,
+  ) as HTMLMapElement | undefined;
+  const imageRect = image.getBoundingClientRect();
+  if (!map || imageRect.width <= 0 || imageRect.height <= 0) return null;
+  const sourceWidth = image.naturalWidth || imageRect.width;
+  const sourceHeight = image.naturalHeight || imageRect.height;
+  const mapper = createImageCoordinateMapper(image, sourceWidth, sourceHeight);
+  if (!mapper) return null;
+  const { x, y } = mapper.toSourcePoint(clientX, clientY);
+  if (x < 0 || y < 0 || x > sourceWidth || y > sourceHeight) return null;
+
+  for (const area of Array.from(map.areas) as HTMLAreaElement[]) {
+    if (!isInteractiveElement(area)) continue;
+    const coords = area.coords.split(',').map(Number).filter(Number.isFinite);
+    const shape = area.shape.toLowerCase();
+    let contains = shape === 'default';
+    let sourceBounds = { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
+    if (shape === 'rect' && coords.length >= 4) {
+      const [left, top, right, bottom] = coords;
+      contains = x >= left && x <= right && y >= top && y <= bottom;
+      sourceBounds = { x: left, y: top, width: right - left, height: bottom - top };
+    } else if (shape === 'circle' && coords.length >= 3) {
+      const [cx, cy, radius] = coords;
+      contains = Math.hypot(x - cx, y - cy) <= radius;
+      sourceBounds = { x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 };
+    } else if (shape === 'poly' && coords.length >= 6) {
+      const points = Array.from({ length: Math.floor(coords.length / 2) }, (_, index) => [
+        coords[index * 2],
+        coords[index * 2 + 1],
+      ] as [number, number]);
+      contains = pointInPolygon(x, y, points);
+      const xs = points.map(([pointX]) => pointX);
+      const ys = points.map(([, pointY]) => pointY);
+      const left = Math.min(...xs);
+      const top = Math.min(...ys);
+      sourceBounds = { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+    }
+    if (!contains || sourceBounds.width <= 0 || sourceBounds.height <= 0) continue;
+
+    const areaBounds = mapper.toViewportBounds(sourceBounds);
+    const visibleImage = getVisibleHighlightBounds(image, clientX, clientY);
+    const visibleContent = visibleImage && intersectBounds(mapper.contentBounds, visibleImage);
+    const visibleArea = visibleContent && intersectBounds(areaBounds, visibleContent);
+    return visibleArea ? resolvedElement(area, visibleArea) : null;
+  }
+  return null;
+}
+
+function imageForArea(area: HTMLAreaElement): HTMLImageElement | null {
+  const map = area.closest('map');
+  const mapName = map?.getAttribute('name');
+  if (!mapName) return null;
+  const normalizedName = mapName.toLowerCase();
+  return (
+    Array.from(document.images).find(
+      (image) => image.useMap.replace(/^#/, '').toLowerCase() === normalizedName,
+    ) ?? null
+  );
+}
+
+async function probeChildFrame(
+  frame: HTMLIFrameElement,
+  runId: string,
+  clientX: number,
+  clientY: number,
+  timeoutMs: number,
+  candidateOffset: number,
+): Promise<ResolvedSnapshotTarget | null> {
+  if (!frame.contentWindow || isElementVisuallyUnavailable(frame)) return null;
+  const visibleFrame = getVisibleHighlightBounds(frame, clientX, clientY);
+  const mapper = createFrameCoordinateMapper(frame);
+  if (!visibleFrame || !mapper) return null;
+  const timedOutProbe = timedOutFrameProbes.get(frame);
+  if (timedOutProbe?.runId === runId && timedOutProbe.retryAt > Date.now()) {
+    return resolvedElement(frame, visibleFrame);
+  }
+
+  const channel = new MessageChannel();
+  let responseTimeout: ReturnType<typeof setTimeout> | null = null;
+  let settleResponse = (_result: { child: SnapshotProbeResult | null; timedOut: boolean }): void => {};
+  const response = new Promise<{ child: SnapshotProbeResult | null; timedOut: boolean }>((resolve) => {
+    settleResponse = resolve;
+    responseTimeout = setTimeout(() => {
+      channel.port1.close();
+      resolve({ child: null, timedOut: true });
+    }, timeoutMs);
+    channel.port1.onmessage = (event) => {
+      if (responseTimeout) clearTimeout(responseTimeout);
+      channel.port1.close();
+      resolve({ child: isSnapshotProbeResult(event.data) ? event.data : null, timedOut: false });
+    };
+    channel.port1.start();
+  });
+  const childPoint = mapper.toChildPoint({ x: clientX, y: clientY });
+  const request: SnapshotProbeRequest = {
+    type: FRAME_PROBE_MESSAGE,
+    runId,
+    timeoutMs: Math.max(0, timeoutMs - FRAME_PROBE_CHILD_BUDGET_MS),
+    clientX: childPoint.x,
+    clientY: childPoint.y,
+    candidateOffset,
+  };
+  try {
+    frame.contentWindow.postMessage(request, '*', [channel.port2]);
+  } catch {
+    if (responseTimeout) clearTimeout(responseTimeout);
+    channel.port1.close();
+    settleResponse({ child: null, timedOut: true });
+    timedOutFrameProbes.set(frame, { runId, retryAt: Date.now() + FRAME_PROBE_RETRY_DELAY_MS });
+    return resolvedElement(frame, visibleFrame);
+  }
+  const { child: probeTarget, timedOut } = await response;
+  const outcome = classifyFrameProbeOutcome(probeTarget, timedOut);
+  if (outcome.kind === 'fallback') {
+    timedOutFrameProbes.set(frame, { runId, retryAt: Date.now() + FRAME_PROBE_RETRY_DELAY_MS });
+    return resolvedElement(frame, visibleFrame);
+  }
+  timedOutFrameProbes.delete(frame);
+  if (outcome.kind === 'empty') return null;
+
+  const child = outcome.target;
+  const mapped = mapper.toParentBounds(child.rect);
+  const rect = intersectBounds(mapped, visibleFrame);
+  return rect
+    ? {
+        rect,
+        identity: `${buildSnapshotTargetIdentity(frame)}::frame::${child.identity}`,
+        text: child.text,
+        tagName: child.tagName,
+        candidateOffset: child.candidateOffset,
+      }
+    : null;
+}
+
+async function resolveSnapshotTargetAtPoint(
+  runId: string,
+  clientX: number,
+  clientY: number,
+  candidateOffset = 0,
+  frameProbeTimeoutMs = FRAME_PROBE_TIMEOUT_MS,
+): Promise<ResolvedSnapshotTarget | null> {
+  if (clientX < 0 || clientY < 0 || clientX >= window.innerWidth || clientY >= window.innerHeight) return null;
+  const hit = deepElementFromPoint(clientX, clientY);
+  if (!hit) return null;
+  if (hit instanceof HTMLIFrameElement) {
+    return probeChildFrame(hit, runId, clientX, clientY, frameProbeTimeoutMs, candidateOffset);
+  }
+  if (hit instanceof HTMLAreaElement) {
+    const image = imageForArea(hit);
+    if (image) return resolveImageMapTarget(image, clientX, clientY);
+  }
+  if (hit instanceof HTMLImageElement && hit.useMap) {
+    const area = resolveImageMapTarget(hit, clientX, clientY);
+    if (area) return area;
+  }
+
+  const targets = findVisualTargetCandidates(hit, clientX, clientY);
+  const selected = selectVisualTargetCandidate(targets, candidateOffset);
+  return selected
+    ? resolvedElement(
+        selected.element,
+        getSnapshotTargetBounds(selected.element, clientX, clientY),
+        selected.candidateOffset,
+      )
+    : null;
+}
+
+function installSnapshotFrameProbe(runId: string): void {
+  const onMessage = (event: MessageEvent) => {
+    const request = event.data as Partial<SnapshotProbeRequest> | null;
+    const port = event.ports[0];
+    if (
+      event.source !== parent ||
+      !port ||
+      request?.type !== FRAME_PROBE_MESSAGE ||
+      request.runId !== runId ||
+      !Number.isFinite(request.timeoutMs) ||
+      request.timeoutMs! < 0 ||
+      request.timeoutMs! > FRAME_PROBE_TIMEOUT_MS ||
+      !Number.isFinite(request.clientX) ||
+      !Number.isFinite(request.clientY) ||
+      !Number.isSafeInteger(request.candidateOffset) ||
+      Math.abs(request.candidateOffset!) > SNAPSHOT_TARGET_OFFSET_LIMIT
+    ) {
+      return;
+    }
+    void resolveSnapshotTargetAtPoint(
+      runId,
+      request.clientX!,
+      request.clientY!,
+      request.candidateOffset!,
+      request.timeoutMs!,
+    )
+      .then((target) => {
+        port.postMessage(
+          target
+            ? {
+                rect: target.rect,
+                identity: target.identity,
+                text: target.text,
+                tagName: target.tagName,
+                candidateOffset: target.candidateOffset,
+              }
+            : null,
+        );
+      })
+      .catch((error) => {
+        console.error('[frametrail] child frame probe failed', error);
+        port.postMessage(null);
+      })
+      .finally(() => port.close());
+  };
+  const cleanup = () => {
+    window.removeEventListener('message', onMessage);
+    document.removeEventListener(CLEANUP_EVENT, cleanup);
+    browser.runtime.onMessage.removeListener(onStop);
+  };
+  const onStop = (message: FrameTrailStopMessage) => {
+    if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+  };
+  window.addEventListener('message', onMessage);
+  document.addEventListener(CLEANUP_EVENT, cleanup);
+  browser.runtime.onMessage.addListener(onStop);
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
   async main() {
-    // Tear down any prior instance living in this isolated world.
+    // Concurrent executeScript calls can both dispatch cleanup before either
+    // reaches its first await. The instance token makes only the latest one
+    // eligible to install listeners after reading storage.
     document.dispatchEvent(new CustomEvent(CLEANUP_EVENT));
+    const instanceId = crypto.randomUUID();
+    const instanceHost = globalThis as unknown as Record<string, unknown>;
+    instanceHost[INSTANCE_KEY] = instanceId;
 
-    // Read once per injection: background re-injects this script on every
-    // recording start and every navigation, so the stored state is always
-    // current for this instance's lifetime.
     const recordingState = await getRecordingState();
-    const shouldFreeze = recordingState.isRecording && recordingState.mode === 'snapshot';
+    if (instanceHost[INSTANCE_KEY] !== instanceId) return;
+    if (!recordingState.isRecording || !recordingState.runId) return;
+
+    const runId = recordingState.runId;
+    const shouldFreezeSnapshot = recordingState.mode === 'snapshot';
+    if (shouldFreezeSnapshot && window.top !== window) {
+      installSnapshotFrameProbe(runId);
+      return;
+    }
+    const snapshotOrigin = {
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    };
 
     let lastTarget: Element | null = null;
     let lastTime = 0;
+    let stepGesture: {
+      target: Element;
+      settle: (shouldReplay: boolean) => void;
+      settled: Promise<boolean>;
+      timeout: ReturnType<typeof setTimeout>;
+    } | null = null;
+    let suppressLateClickTarget: Element | null = null;
+    let suppressLateClickUntil = 0;
+    let snapshotAnnotationNumber = 0;
+    let snapshotShield: SnapshotShield | null = null;
+    let snapshotInteractionsActive = false;
+    let stepPreview: StepPreview | null = null;
+    let stepPreviewFrame: number | null = null;
+    let stepPreviewPoint: { clientX: number; clientY: number } | null = null;
+    const selectedSnapshotTargets = new Set<string>();
+    const selectedSnapshotElements = new WeakSet<Element>();
+    const selectedSnapshotRects = new Set<string>();
 
-    // pointerdown fires before the page reacts to the click (menu open,
-    // navigation, SPA route change, ...), so the screenshot always shows the
-    // state the red box refers to — no waiting on, or racing against, the
-    // page's own click handling.
-    const onPointerDown = async (e: Event) => {
-      const pe = e as PointerEvent;
-      if (pe.button !== 0 || !pe.isPrimary) return;
+    const beginStepGesture = (target: Element) => {
+      let settle!: (shouldReplay: boolean) => void;
+      const settled = new Promise<boolean>((resolve) => {
+        settle = resolve;
+      });
+      const timeout = setTimeout(() => {
+        suppressLateClickTarget = target;
+        suppressLateClickUntil = Date.now() + 2_000;
+        settle(true);
+      }, 1_500);
+      stepGesture = { target, settle, settled, timeout };
+      return stepGesture;
+    };
 
-      const el = findInteractiveTarget(e);
-      if (!el) return;
-
-      const now = Date.now();
+    const shouldCaptureTarget = (el: Element, now: number) => {
       if (el === lastTarget && now - lastTime < DEDUP_MS) return;
       lastTarget = el;
       lastTime = now;
+      return true;
+    };
 
-      let clientX = pe.clientX;
-      let clientY = pe.clientY;
+    const resolvePrimaryVisualTarget = (clientX: number, clientY: number): Element | null => {
+      const hit = deepElementFromPoint(clientX, clientY);
+      return hit
+        ? selectVisualTargetCandidate(findVisualTargetCandidates(hit, clientX, clientY), 0)?.element ?? null
+        : null;
+    };
 
-      let rect = getHighlightBounds(el, clientX, clientY);
-      if (!rect) return;
-
-      if (isOutOfViewport(rect)) {
-        // The pointer point is fixed relative to the element, so scrolling
-        // moves it by the same delta. Without this translation the stale
-        // coordinates land outside every post-scroll rect and
-        // getHighlightBounds silently falls back to the smallest fragment of
-        // a multi-rect element.
-        const before = el.getBoundingClientRect();
-        el.scrollIntoView({ block: 'center', behavior: 'instant' });
-        await waitForNextFrame();
-        const after = el.getBoundingClientRect();
-        clientX += after.left - before.left;
-        clientY += after.top - before.top;
-
-        rect = getHighlightBounds(el, clientX, clientY);
-        if (!rect) return;
+    const renderStepPreview = () => {
+      stepPreviewFrame = null;
+      if (!stepPreview || !stepPreviewPoint || stepGesture) {
+        stepPreview?.hide();
+        return;
       }
+      const { clientX, clientY } = stepPreviewPoint;
+      const target = resolvePrimaryVisualTarget(clientX, clientY);
+      const bounds = target ? getVisibleHighlightBounds(target, clientX, clientY) : null;
+      if (bounds) stepPreview.show(bounds);
+      else stepPreview.hide();
+    };
 
+    const scheduleStepPreview = () => {
+      if (!stepPreview || stepPreviewFrame !== null) return;
+      stepPreviewFrame = requestAnimationFrame(renderStepPreview);
+    };
+
+    const suspendStepPreview = () => {
+      if (stepPreviewFrame !== null) cancelAnimationFrame(stepPreviewFrame);
+      stepPreviewFrame = null;
+      stepPreview?.hide();
+    };
+
+    const onStepPointerMove = (event: PointerEvent) => {
+      stepPreviewPoint = { clientX: event.clientX, clientY: event.clientY };
+      scheduleStepPreview();
+    };
+
+    const onStepPointerOut = (event: PointerEvent) => {
+      if (event.relatedTarget) return;
+      stepPreviewPoint = null;
+      suspendStepPreview();
+    };
+
+    const sendCapture = async (
+      rect: SnapshotShieldRect,
+      target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
+      intent: ClickCapture['intent'],
+      now: number,
+    ): Promise<boolean> => {
       const payload: ClickCapture = {
         type: 'FRAME_TRAIL_CLICK',
-        selector: buildCssSelector(el),
-        xpath: buildXPath(el),
+        runId,
         rect,
         devicePixelRatio: window.devicePixelRatio,
-        viewport: { width: window.innerWidth, height: window.innerHeight },
-        text: describeElement(el),
-        tagName: el.tagName.toLowerCase(),
-        role: el.getAttribute('role'),
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        text: target.text,
+        tagName: target.tagName,
+        intent,
         url: location.href,
-        pageTitle: document.title,
         timestamp: now,
       };
+      const result = (await browser.runtime.sendMessage(payload)) as ClickCaptureResult | undefined;
+      if (result?.ok) return true;
+      console.warn('[frametrail] step was not captured');
+      return false;
+    };
 
+    const captureElement = async (
+      el: Element,
+      initialClientX: number,
+      initialClientY: number,
+      intent: ClickCapture['intent'],
+      now: number,
+    ): Promise<SnapshotShieldRect | null> => {
       try {
-        await browser.runtime.sendMessage(payload);
+        let clientX = initialClientX;
+        let clientY = initialClientY;
+        let rect = getHighlightBounds(el, clientX, clientY);
+        if (!rect) return null;
+
+        if (!shouldFreezeSnapshot && isOutOfViewport(rect)) {
+          const before = el.getBoundingClientRect();
+          el.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await waitForNextFrame();
+          const after = el.getBoundingClientRect();
+          clientX += after.left - before.left;
+          clientY += after.top - before.top;
+          rect = getHighlightBounds(el, clientX, clientY);
+          if (!rect) return null;
+        }
+        rect = getVisibleHighlightBounds(el, clientX, clientY);
+        if (!rect) return null;
+
+        return (await sendCapture(
+          rect,
+          { text: describeElement(el), tagName: el.tagName.toLowerCase() },
+          intent,
+          now,
+        ))
+          ? rect
+          : null;
       } catch (err) {
         console.error('[frametrail] sendMessage failed', err);
+        return null;
       }
     };
 
-    document.addEventListener('pointerdown', onPointerDown, { capture: true });
+    const onPointerDown = async (event: Event) => {
+      const pe = event as PointerEvent;
+      if (pe.button !== 0 || !pe.isPrimary) return;
 
-    // Registered after onPointerDown above so the recorder always observes
-    // the click before stopImmediatePropagation cuts off everything else
-    // (including the page's own listeners) on the same event.
-    const onFreeze = (e: Event) => {
-      e.preventDefault();
-      e.stopImmediatePropagation();
+      const el = resolvePrimaryVisualTarget(pe.clientX, pe.clientY);
+      if (!el) return;
+      if (stepGesture) {
+        pe.preventDefault();
+        pe.stopImmediatePropagation();
+        return;
+      }
+
+      const now = Date.now();
+      if (!shouldCaptureTarget(el, now)) return;
+      suspendStepPreview();
+
+      // Event dispatch never waits for an async listener. Stop the original
+      // gesture synchronously; it is replayed only after capture finishes.
+      pe.preventDefault();
+      pe.stopImmediatePropagation();
+      const gesture = beginStepGesture(el);
+
+      try {
+        await stepPreview?.prepareForCapture();
+        await captureElement(
+          el,
+          pe.clientX,
+          pe.clientY,
+          isInteractiveElement(el) ? 'click' : 'mark',
+          now,
+        );
+      } finally {
+        const shouldReplay = await gesture.settled;
+        clearTimeout(gesture.timeout);
+        if (stepGesture === gesture) stepGesture = null;
+        if (shouldReplay && el.isConnected) {
+          // click() preserves control/default behavior and bubbling page click
+          // handlers, but intentionally runs after the screenshot.
+          replayElementClick(el);
+        }
+        scheduleStepPreview();
+      }
     };
-    if (shouldFreeze) {
-      for (const type of FREEZE_EVENTS) {
-        document.addEventListener(type, onFreeze, { capture: true });
+
+    const onSnapshotHover = async (
+      point: SnapshotShieldPointerMoveMessage,
+    ): Promise<SnapshotShieldPreviewResult> => {
+      const shield = snapshotShield;
+      if (!shield || !snapshotInteractionsActive) {
+        return { rect: null, candidateOffset: point.candidateOffset };
+      }
+      const target = await shield.runWithoutShield(() =>
+        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
+      );
+      if (
+        !target ||
+        (target.element ? selectedSnapshotElements.has(target.element) : false) ||
+        selectedSnapshotTargets.has(target.identity) ||
+        selectedSnapshotRects.has(snapshotRectKey(target.rect))
+      ) {
+        return {
+          rect: null,
+          candidateOffset: target?.candidateOffset ?? point.candidateOffset,
+        };
+      }
+      return { rect: target.rect, candidateOffset: target.candidateOffset };
+    };
+
+    const onSnapshotPoint = async (
+      point: SnapshotShieldPointerDownMessage,
+    ): Promise<SnapshotShieldSelection | null> => {
+      const shield = snapshotShield;
+      if (!shield || !snapshotInteractionsActive) return null;
+      const target = await shield.runWithoutShield(() =>
+        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
+      );
+      const now = Date.now();
+      if (!target) return null;
+      if (
+        (target.element ? selectedSnapshotElements.has(target.element) : false) ||
+        selectedSnapshotTargets.has(target.identity) ||
+        selectedSnapshotRects.has(snapshotRectKey(target.rect))
+      ) {
+        return null;
+      }
+      if (!(await sendCapture(target.rect, target, 'mark', now))) return null;
+      selectedSnapshotTargets.add(target.identity);
+      if (target.element) selectedSnapshotElements.add(target.element);
+      selectedSnapshotRects.add(snapshotRectKey(target.rect));
+      snapshotAnnotationNumber += 1;
+      return {
+        rect: target.rect,
+        label: recordingState.numbered ? snapshotAnnotationNumber : null,
+      };
+    };
+
+    if (!shouldFreezeSnapshot) {
+      stepPreview = createStepPreview();
+      window.addEventListener('pointermove', onStepPointerMove, { capture: true, passive: true });
+      window.addEventListener('pointerout', onStepPointerOut, { capture: true, passive: true });
+      window.addEventListener('scroll', scheduleStepPreview, { capture: true, passive: true });
+      window.addEventListener('resize', scheduleStepPreview, { passive: true });
+      document.addEventListener('pointerdown', onPointerDown, { capture: true });
+    }
+
+    const onStepFollowup = (event: Event) => {
+      if (
+        event.type === 'click' &&
+        event.isTrusted &&
+        suppressLateClickTarget &&
+        Date.now() < suppressLateClickUntil &&
+        (event.target === suppressLateClickTarget || suppressLateClickTarget.contains(event.target as Node))
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        suppressLateClickTarget = null;
+        return;
+      }
+      if (!stepGesture) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.type === 'click') stepGesture.settle(true);
+      if (event.type === 'pointercancel') stepGesture.settle(false);
+    };
+    if (!shouldFreezeSnapshot) {
+      for (const type of STEP_FOLLOWUP_EVENTS) {
+        document.addEventListener(type, onStepFollowup, { capture: true });
       }
     }
-    // Known limitation: this only blocks the DOM event chain. Page JS
-    // reacting to a window-level capture listener that ran before ours, or
-    // to an unrelated timer, can still mutate the page — not something a
-    // content script can prevent. Accepted per product decision.
 
-    // The background service worker can be reclaimed mid-recording if it goes
-    // ~30s without activity; an open port with a periodic message keeps it
-    // alive for the whole session instead of only while messages happen to
-    // arrive from clicks.
+    const onSnapshotFreeze = (event: Event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const onSnapshotScroll = () => {
+      if (window.scrollX !== snapshotOrigin.scrollX || window.scrollY !== snapshotOrigin.scrollY) {
+        window.scrollTo(snapshotOrigin.scrollX, snapshotOrigin.scrollY);
+      }
+    };
+    if (shouldFreezeSnapshot) {
+      for (const type of SNAPSHOT_FREEZE_EVENTS) {
+        window.addEventListener(type, onSnapshotFreeze, { capture: true, passive: false });
+      }
+      window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
+    }
+
     let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
     let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let keepAliveStopped = false;
@@ -186,38 +765,97 @@ export default defineContentScript({
       keepAliveTimer = setInterval(() => port.postMessage({ type: 'heartbeat' }), KEEPALIVE_INTERVAL_MS);
       port.onDisconnect.addListener(() => {
         if (keepAliveTimer) clearInterval(keepAliveTimer);
-        // A worker restart disconnects the port; reconnect unless this
-        // instance has been torn down deliberately.
         if (!keepAliveStopped) connectKeepAlive();
       });
     };
     connectKeepAlive();
 
-    // Background sends this to the recorded tab once recording stops, so the
-    // keep-alive port (and its 20s heartbeat) closes instead of running for
-    // as long as the tab stays open — otherwise it holds the MV3 service
-    // worker alive indefinitely, well past the end of the recording.
     const onStopMessage = (message: FrameTrailStopMessage) => {
       if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
     };
 
     const cleanup = () => {
-      document.removeEventListener('pointerdown', onPointerDown, { capture: true });
-      if (shouldFreeze) {
-        for (const type of FREEZE_EVENTS) {
-          document.removeEventListener(type, onFreeze, { capture: true });
+      if (!shouldFreezeSnapshot) document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      if (!shouldFreezeSnapshot) {
+        window.removeEventListener('pointermove', onStepPointerMove, { capture: true });
+        window.removeEventListener('pointerout', onStepPointerOut, { capture: true });
+        window.removeEventListener('scroll', scheduleStepPreview, { capture: true });
+        window.removeEventListener('resize', scheduleStepPreview);
+        for (const type of STEP_FOLLOWUP_EVENTS) {
+          document.removeEventListener(type, onStepFollowup, { capture: true });
         }
+      }
+      if (shouldFreezeSnapshot) {
+        for (const type of SNAPSHOT_FREEZE_EVENTS) {
+          window.removeEventListener(type, onSnapshotFreeze, { capture: true });
+        }
+        window.removeEventListener('scroll', onSnapshotScroll, { capture: true });
+      }
+      snapshotShield?.remove();
+      snapshotShield = null;
+      if (stepPreviewFrame !== null) cancelAnimationFrame(stepPreviewFrame);
+      stepPreviewFrame = null;
+      stepPreview?.remove();
+      stepPreview = null;
+      if (stepGesture) {
+        clearTimeout(stepGesture.timeout);
+        stepGesture.settle(false);
+        stepGesture = null;
       }
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onStopMessage);
-      // Set before disconnecting so the port's onDisconnect handler sees
-      // keepAliveStopped=true and does not reconnect.
       keepAliveStopped = true;
       if (keepAliveTimer) clearInterval(keepAliveTimer);
       keepAlivePort?.disconnect();
     };
     document.addEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.addListener(onStopMessage);
+
+    if (shouldFreezeSnapshot) {
+      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover);
+      try {
+        await snapshotShield.ready;
+        await waitForNextFrame();
+        await waitForNextFrame();
+      } catch (err) {
+        cleanup();
+        if (instanceHost[INSTANCE_KEY] !== instanceId) return;
+        throw err;
+      }
+    }
+
+    // START_RECORDING must not resolve until every listener above is active.
+    // Otherwise the popup can close while early page clicks still reach JS.
+    let isCurrentRecordedTab = false;
+    try {
+      const readyMessage: import('@/lib/messages').RecorderReadyMessage = {
+        type: 'FRAME_TRAIL_READY',
+        runId,
+        ...(shouldFreezeSnapshot
+          ? {
+              snapshotContext: {
+                viewport: {
+                  width: window.innerWidth,
+                  height: window.innerHeight,
+                  scrollX: window.scrollX,
+                  scrollY: window.scrollY,
+                },
+                devicePixelRatio: window.devicePixelRatio,
+                url: location.href,
+                timestamp: Date.now(),
+              },
+            }
+          : {}),
+      };
+      isCurrentRecordedTab = (await browser.runtime.sendMessage(readyMessage)) as boolean;
+    } catch (err) {
+      console.error('[frametrail] recorder readiness check failed', err);
+    }
+    if (!isCurrentRecordedTab || instanceHost[INSTANCE_KEY] !== instanceId) {
+      cleanup();
+      return;
+    }
+    snapshotInteractionsActive = true;
 
     console.log('[frametrail] recorder ready on', location.href);
   },

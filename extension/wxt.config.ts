@@ -10,6 +10,33 @@ export default defineConfig({
   manifest: {
     name: 'FrameTrail',
     description: 'Record clicks and auto-generate a step-by-step annotated image guide',
-    permissions: ['storage', 'unlimitedStorage', 'activeTab', 'scripting', 'downloads'],
+    permissions: ['storage', 'unlimitedStorage', 'activeTab', 'scripting', 'downloads', 'clipboardWrite'],
+    optional_host_permissions: ['<all_urls>'],
+    web_accessible_resources: [
+      {
+        resources: ['snapshot-shield.html'],
+        matches: ['<all_urls>'],
+      },
+    ],
+    browser_specific_settings: {
+      gecko: {
+        id: 'frametrail@local',
+        data_collection_permissions: {
+          required: ['none'],
+        },
+      },
+    },
+  },
+  hooks: {
+    // Runtime content scripts make WXT infer a required host permission. The
+    // recorder only needs it after an explicit Start action, so keep it optional.
+    'build:manifestGenerated': (_, manifest) => {
+      manifest.host_permissions = manifest.host_permissions?.filter((permission: string) => permission !== '<all_urls>');
+      if (manifest.host_permissions?.length === 0) delete manifest.host_permissions;
+      if (manifest.manifest_version === 2) {
+        manifest.optional_permissions ??= [];
+        if (!manifest.optional_permissions.includes('<all_urls>')) manifest.optional_permissions.push('<all_urls>');
+      }
+    },
   },
 });

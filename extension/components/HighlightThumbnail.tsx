@@ -1,5 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PADDING, HIGHLIGHT_RADIUS } from '@/lib/annotate';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  HIGHLIGHT_COLOR,
+  HIGHLIGHT_FILL_COLOR,
+  HIGHLIGHT_LINE_WIDTH,
+  HIGHLIGHT_PADDING,
+  HIGHLIGHT_RADIUS,
+} from '@/lib/annotate';
+import { useObjectUrl } from '@/lib/useObjectUrl';
 import { cn } from '@/lib/utils';
 import type { Bounds } from '@/lib/db';
 
@@ -16,10 +23,10 @@ interface Props {
 }
 
 interface BoxStyle {
-  left: string;
-  top: string;
-  width: string;
-  height: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
   borderWidth: number;
   borderRadius: number;
 }
@@ -42,17 +49,11 @@ export default function HighlightThumbnail({
   imgClassName,
   fit = 'cover',
 }: Props) {
-  const [url, setUrl] = useState('');
+  const url = useObjectUrl(blob);
   const [box, setBox] = useState<BoxStyle | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(blob);
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [blob]);
-
-  function computeBox() {
+  const computeBox = useCallback(() => {
     const img = imgRef.current;
     if (!img || !bounds || !img.naturalWidth || !img.naturalHeight) {
       setBox(null);
@@ -61,23 +62,24 @@ export default function HighlightThumbnail({
     const dpr = screenshotScale || 1;
     const nw = img.naturalWidth;
     const nh = img.naturalHeight;
-    const renderedWidth = img.getBoundingClientRect().width || nw;
-    const scale = renderedWidth / nw;
-
-    const left = ((bounds.x - HIGHLIGHT_PADDING) * dpr) / nw;
-    const top = ((bounds.y - HIGHLIGHT_PADDING) * dpr) / nh;
-    const width = ((bounds.width + HIGHLIGHT_PADDING * 2) * dpr) / nw;
-    const height = ((bounds.height + HIGHLIGHT_PADDING * 2) * dpr) / nh;
+    const renderedBox = img.getBoundingClientRect();
+    const boxWidth = renderedBox.width || nw;
+    const boxHeight = renderedBox.height || nh;
+    const scale = fit === 'cover' ? Math.max(boxWidth / nw, boxHeight / nh) : Math.min(boxWidth / nw, boxHeight / nh);
+    const contentWidth = nw * scale;
+    const contentHeight = nh * scale;
+    const offsetLeft = img.offsetLeft + (boxWidth - contentWidth) / 2;
+    const offsetTop = img.offsetTop + (boxHeight - contentHeight) / 2;
 
     setBox({
-      left: `${left * 100}%`,
-      top: `${top * 100}%`,
-      width: `${width * 100}%`,
-      height: `${height * 100}%`,
+      left: offsetLeft + (bounds.x - HIGHLIGHT_PADDING) * dpr * scale,
+      top: offsetTop + (bounds.y - HIGHLIGHT_PADDING) * dpr * scale,
+      width: (bounds.width + HIGHLIGHT_PADDING * 2) * dpr * scale,
+      height: (bounds.height + HIGHLIGHT_PADDING * 2) * dpr * scale,
       borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
       borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
     });
-  }
+  }, [bounds, fit, screenshotScale]);
 
   useEffect(() => {
     const img = imgRef.current;
@@ -85,9 +87,7 @@ export default function HighlightThumbnail({
     const observer = new ResizeObserver(() => computeBox());
     observer.observe(img);
     return () => observer.disconnect();
-    // computeBox reads current props via closure; re-run whenever inputs change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, bounds, screenshotScale]);
+  }, [url, computeBox]);
 
   const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
 
@@ -100,7 +100,7 @@ export default function HighlightThumbnail({
           alt={alt}
           onLoad={computeBox}
           className={cn('block', imgClassName ?? defaultImgClass)}
-          style={{ objectFit: fit }}
+          style={fit === 'cover' ? { objectFit: 'cover' } : undefined}
         />
       )}
       {box && (
@@ -113,6 +113,7 @@ export default function HighlightThumbnail({
             height: box.height,
             border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
             borderRadius: `${box.borderRadius}px`,
+            backgroundColor: HIGHLIGHT_FILL_COLOR,
           }}
         />
       )}

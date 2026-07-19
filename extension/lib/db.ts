@@ -7,12 +7,31 @@ export interface Bounds {
   height: number;
 }
 
+export function isValidBounds(bounds: Bounds): boolean {
+  return (
+    Number.isFinite(bounds.x) &&
+    Number.isFinite(bounds.y) &&
+    Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height) &&
+    bounds.width > 0 &&
+    bounds.height > 0
+  );
+}
+
+export interface OrderedAnnotation {
+  bounds: Bounds;
+  order: number;
+}
+
 export interface Step {
   id: string;
   sessionId: string;
   order: number;
   /** Raw (un-annotated) screenshot — the highlight box is drawn at render/export time. */
-  screenshotBlob: Blob;
+  /** Only ordinary steps and snapshot anchors own image data. Snapshot
+   * annotations refer to their anchor through groupId. Older recordings may
+   * still contain a duplicate blob on annotations; writes strip it. */
+  screenshotBlob?: Blob;
   /** Clicked element rect in CSS px, relative to the viewport at capture time. */
   bounds: Bounds | null;
   devicePixelRatio: number;
@@ -38,7 +57,11 @@ export interface Step {
 /** One renderable unit in a session's timeline: either an ordinary per-click
  * step, or a whole single-image group collapsed into its shared image plus
  * the ordered list of click annotations on it. */
-export type StepEntry = { kind: 'single'; step: Step } | { kind: 'group'; anchor: Step; annotations: Step[] };
+export type ScreenshotStep = Step & { screenshotBlob: Blob };
+
+export type StepEntry =
+  | { kind: 'single'; step: ScreenshotStep }
+  | { kind: 'group'; anchor: ScreenshotStep; annotations: Step[] };
 
 /**
  * Groups a session's flat, order-sorted step list into displayable entries.
@@ -50,23 +73,53 @@ export type StepEntry = { kind: 'single'; step: Step } | { kind: 'group'; anchor
 export function buildStepEntries(steps: Step[]): StepEntry[] {
   const entries: StepEntry[] = [];
   const seenGroups = new Set<string>();
+  const groups = new Map<string, Step[]>();
+
+  for (const step of steps) {
+    if (!step.groupId) continue;
+    const members = groups.get(step.groupId);
+    if (members) members.push(step);
+    else groups.set(step.groupId, [step]);
+  }
 
   for (const step of steps) {
     if (!step.groupId) {
-      entries.push({ kind: 'single', step });
+      // A partially-written/corrupt record without image data cannot be
+      // rendered. Ignoring it keeps the rest of the session usable.
+      if (step.screenshotBlob) entries.push({ kind: 'single', step: step as ScreenshotStep });
       continue;
     }
     if (seenGroups.has(step.groupId)) continue;
     seenGroups.add(step.groupId);
-    const groupSteps = steps.filter((s) => s.groupId === step.groupId);
-    entries.push({
-      kind: 'group',
-      anchor: groupSteps.find((s) => s.id === step.groupId)!,
-      annotations: groupSteps.filter((s) => s.id !== step.groupId),
-    });
+    const groupSteps = groups.get(step.groupId) ?? [];
+    const anchor = groupSteps.find(
+      (candidate): candidate is ScreenshotStep =>
+        candidate.id === step.groupId && candidate.screenshotBlob !== undefined,
+    );
+
+    if (anchor) {
+      entries.push({
+        kind: 'group',
+        anchor,
+        annotations: groupSteps.filter((candidate) => candidate.id !== step.groupId && candidate.bounds !== null),
+      });
+      continue;
+    }
+
+    // Salvage legacy members with their own screenshots when an anchor is
+    // missing. New annotations have no blob and are safely omitted.
+    for (const member of groupSteps) {
+      if (member.screenshotBlob) entries.push({ kind: 'single', step: member as ScreenshotStep });
+    }
   }
 
   return entries;
+}
+
+/** Stable id for a timeline entry — an ordinary step's own id, or a group's
+ * anchor id — used as the @dnd-kit sortable key and as a selection key. */
+export function entryId(entry: StepEntry): string {
+  return entry.kind === 'single' ? entry.step.id : entry.anchor.id;
 }
 
 /** Flattens entries back into the complete, order-sorted list of step ids —
@@ -77,6 +130,19 @@ export function flattenEntries(entries: StepEntry[]): string[] {
   return entries.flatMap((entry) =>
     entry.kind === 'single' ? [entry.step.id] : [entry.anchor.id, ...entry.annotations.map((s) => s.id)],
   );
+}
+
+/** Converts persisted annotation steps into the geometry contract shared by
+ * previews, clipboard compositing, and exports. Invalid legacy rows are
+ * skipped instead of leaking non-null assertions into every caller. */
+export function getOrderedAnnotations(steps: Step[]): OrderedAnnotation[] {
+  const annotations: OrderedAnnotation[] = [];
+  for (const step of steps) {
+    if (step.bounds && isValidBounds(step.bounds)) {
+      annotations.push({ bounds: step.bounds, order: annotations.length + 1 });
+    }
+  }
+  return annotations;
 }
 
 interface FrameTrailDB extends DBSchema {
@@ -104,6 +170,11 @@ const dbPromise = openDB<FrameTrailDB>('scribe', 3, {
 
 export async function addStep(step: Step): Promise<void> {
   const db = await dbPromise;
+  if (step.groupId && step.id !== step.groupId) {
+    const { screenshotBlob: _duplicateScreenshot, ...annotation } = step;
+    await db.put('steps', annotation);
+    return;
+  }
   await db.put('steps', step);
 }
 
@@ -115,9 +186,16 @@ export async function getSteps(sessionId: string): Promise<Step[]> {
 
 export async function updateStep(id: string, changes: Partial<Step>): Promise<void> {
   const db = await dbPromise;
-  const existing = await db.get('steps', id);
-  if (!existing) return;
-  await db.put('steps', { ...existing, ...changes });
+  const tx = db.transaction('steps', 'readwrite');
+  const existing = await tx.store.get(id);
+  if (!existing) {
+    await tx.done;
+    return;
+  }
+  const updated = { ...existing, ...changes };
+  if (updated.groupId && updated.id !== updated.groupId) delete updated.screenshotBlob;
+  await tx.store.put(updated);
+  await tx.done;
 }
 
 export async function deleteStep(id: string): Promise<void> {
@@ -136,19 +214,51 @@ export async function deleteStepsForSession(sessionId: string): Promise<void> {
   await tx.done;
 }
 
+function sortSessionSteps(sessionSteps: Step[], orderedIds: string[]): Step[] {
+  const byId = new Map(sessionSteps.map((step) => [step.id, step]));
+  const seen = new Set<string>();
+  const reordered: Step[] = [];
+
+  for (const id of orderedIds) {
+    const step = byId.get(id);
+    if (step && !seen.has(id)) {
+      reordered.push(step);
+      seen.add(id);
+    }
+  }
+
+  // A recorder can append a step while the editor holds an older list. Keep
+  // such steps after the requested order so every order remains unique.
+  for (const step of sessionSteps.sort((a, b) => a.order - b.order)) {
+    if (!seen.has(step.id)) reordered.push(step);
+  }
+  return reordered;
+}
+
 /** Persists a new step order for a session. orderedIds must be every step id in
  * the session (e.g. via flattenEntries) — any id left out keeps its old order
  * value and can collide with the ones renumbered here. */
 export async function reorderSteps(sessionId: string, orderedIds: string[]): Promise<void> {
   const db = await dbPromise;
   const tx = db.transaction('steps', 'readwrite');
-  await Promise.all(
-    orderedIds.map(async (id, index) => {
-      const existing = await tx.store.get(id);
-      if (existing && existing.sessionId === sessionId) {
-        await tx.store.put({ ...existing, order: index });
-      }
-    }),
-  );
+  const sessionSteps = await tx.store.index('by-session').getAll(sessionId);
+  const reordered = sortSessionSteps(sessionSteps, orderedIds);
+  await Promise.all(reordered.map((step, order) => tx.store.put({ ...step, order })));
+  await tx.done;
+}
+
+/** Atomically removes editor-selected rows and closes every remaining order
+ * gap. A failed transaction cannot leave half a snapshot group deleted. */
+export async function deleteStepsAndReorder(
+  sessionId: string,
+  deletedIds: string[],
+  orderedIds: string[],
+): Promise<void> {
+  const db = await dbPromise;
+  const tx = db.transaction('steps', 'readwrite');
+  await Promise.all(deletedIds.map((id) => tx.store.delete(id)));
+  const remaining = await tx.store.index('by-session').getAll(sessionId);
+  const reordered = sortSessionSteps(remaining, orderedIds);
+  await Promise.all(reordered.map((step, order) => tx.store.put({ ...step, order })));
   await tx.done;
 }

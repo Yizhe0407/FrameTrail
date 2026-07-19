@@ -1,0 +1,174 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
+  SNAPSHOT_SHIELD_COMMIT,
+  SNAPSHOT_SHIELD_POINTER_DOWN,
+  SNAPSHOT_SHIELD_POINTER_MOVE,
+  SNAPSHOT_SHIELD_PREVIEW,
+  SNAPSHOT_SHIELD_READY,
+} from './snapshot-shield-protocol';
+
+const mocks = vi.hoisted(() => ({
+  getURL: vi.fn((path: string) => `https://extension.test${path}`),
+}));
+
+vi.mock('wxt/browser', () => ({ browser: { runtime: { getURL: mocks.getURL } } }));
+
+import { createSnapshotShield } from './snapshot-shield';
+
+afterEach(() => {
+  document.documentElement.querySelectorAll('[data-frametrail-snapshot-shield]').forEach((element) => element.remove());
+  vi.restoreAllMocks();
+});
+
+describe('createSnapshotShield', () => {
+  it('waits for the private channel and becomes click-blind only during hit testing', async () => {
+    let shadowRoot: ShadowRoot | null = null;
+    const originalAttachShadow = Element.prototype.attachShadow;
+    vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(function (this: Element, init) {
+      shadowRoot = originalAttachShadow.call(this, { ...init, mode: 'open' });
+      return shadowRoot;
+    });
+    const originalMatches = Element.prototype.matches;
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, selector: string) {
+      if (selector === ':modal') return this instanceof HTMLDialogElement && this.hasAttribute('open');
+      if (selector === ':popover-open') return false;
+      return originalMatches.call(this, selector);
+    });
+    let activeModal: HTMLDialogElement | null = null;
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => activeModal),
+    });
+    const postMessage = vi.fn();
+    vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue({ postMessage } as unknown as Window);
+    const selection = { rect: { x: 20, y: 30, width: 100, height: 40 }, label: 1 };
+    const onPoint = vi.fn().mockResolvedValue(selection);
+    const onHover = vi.fn(() => ({ rect: selection.rect, candidateOffset: 1 }));
+    const shield = createSnapshotShield(onPoint, onHover);
+    const frame = shadowRoot!.querySelector('iframe')!;
+
+    frame.dispatchEvent(new Event('load'));
+    const [initMessage, , transfer] = postMessage.mock.calls[0] as unknown as [
+      { token: string },
+      string,
+      Transferable[],
+    ];
+    const framePort = transfer![0] as MessagePort;
+    const frameMessages: Array<{ type?: string; requestId?: number; selection?: { id: number } | null }> = [];
+    framePort.onmessage = (event) => frameMessages.push(event.data);
+    framePort.start();
+    framePort.postMessage({ type: SNAPSHOT_SHIELD_READY, token: initMessage.token });
+    await shield.ready;
+
+    const host = shadowRoot!.host as HTMLElement;
+    expect(shield.runWithoutShield(() => ({
+      host: host.style.getPropertyValue('pointer-events'),
+      frame: frame.style.getPropertyValue('pointer-events'),
+    }))).toEqual({ host: 'none', frame: 'none' });
+    expect(host.style.getPropertyValue('pointer-events')).toBe('auto');
+    expect(frame.style.getPropertyValue('pointer-events')).toBe('auto');
+    expect(() =>
+      shield.runWithoutShield(() => {
+        throw new Error('hit-test failed');
+      }),
+    ).toThrow('hit-test failed');
+    expect(host.style.getPropertyValue('pointer-events')).toBe('auto');
+    expect(frame.style.getPropertyValue('pointer-events')).toBe('auto');
+
+    framePort.postMessage({
+      type: SNAPSHOT_SHIELD_POINTER_MOVE,
+      token: initMessage.token,
+      requestId: 7,
+      clientX: 50,
+      clientY: 70,
+      candidateOffset: 1,
+    });
+    await vi.waitFor(() => expect(onHover).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(frameMessages).toContainEqual(
+        expect.objectContaining({
+          type: SNAPSHOT_SHIELD_PREVIEW,
+          requestId: 7,
+          rect: selection.rect,
+          candidateOffset: 1,
+        }),
+      ),
+    );
+
+    framePort.postMessage({
+      type: SNAPSHOT_SHIELD_POINTER_DOWN,
+      token: initMessage.token,
+      clientX: 50,
+      clientY: 70,
+      candidateOffset: 1,
+    });
+    await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
+    expect(onPoint).toHaveBeenCalledWith(expect.objectContaining({ candidateOffset: 1 }));
+    await vi.waitFor(() =>
+      expect(frameMessages).toContainEqual(
+        expect.objectContaining({
+          type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
+          selection: expect.objectContaining({ id: 1, ...selection }),
+        }),
+      ),
+    );
+
+    const modal = document.createElement('dialog');
+    modal.setAttribute('open', '');
+    activeModal = modal;
+    document.body.append(modal);
+    await vi.waitFor(() => expect(host.parentElement).toBe(modal));
+    modal.removeAttribute('open');
+    activeModal = null;
+    await vi.waitFor(() => expect(host.parentElement).toBe(document.documentElement));
+    modal.remove();
+
+    onPoint.mockClear();
+    host.remove();
+    await vi.waitFor(() => expect(host.isConnected).toBe(true));
+    frame.dispatchEvent(new Event('load'));
+    const [, , replacementTransfer] = postMessage.mock.calls[1] as unknown as [
+      { token: string },
+      string,
+      Transferable[],
+    ];
+    const replacementPort = replacementTransfer![0] as MessagePort;
+    const replacementMessages: Array<{ type?: string; selection?: { id: number } }> = [];
+    replacementPort.onmessage = (event) => replacementMessages.push(event.data);
+    replacementPort.start();
+    replacementPort.postMessage({ type: SNAPSHOT_SHIELD_READY, token: initMessage.token });
+    await vi.waitFor(() =>
+      expect(replacementMessages).toContainEqual(
+        expect.objectContaining({
+          type: SNAPSHOT_SHIELD_COMMIT,
+          selection: expect.objectContaining({ id: 1, ...selection }),
+        }),
+      ),
+    );
+    replacementPort.postMessage({
+      type: SNAPSHOT_SHIELD_POINTER_DOWN,
+      token: initMessage.token,
+      clientX: 90,
+      clientY: 110,
+      candidateOffset: 0,
+    });
+    await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
+
+    onPoint.mockClear();
+    shield.remove();
+    framePort.postMessage({
+      type: SNAPSHOT_SHIELD_POINTER_DOWN,
+      token: initMessage.token,
+      clientX: 50,
+      clientY: 70,
+      candidateOffset: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onPoint).not.toHaveBeenCalled();
+    framePort.close();
+    replacementPort.close();
+    expect(host.isConnected).toBe(false);
+  });
+});

@@ -4,7 +4,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import HighlightThumbnail from './HighlightThumbnail';
 import MultiHighlightThumbnail from './MultiHighlightThumbnail';
-import type { StepEntry } from '@/lib/db';
+import { getOrderedAnnotations, type StepEntry } from '@/lib/db';
 
 interface Props {
   entries: StepEntry[];
@@ -48,7 +48,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         ) : (
           <MultiHighlightThumbnail
             blob={entry.anchor.screenshotBlob}
-            annotations={entry.annotations.map((s, i) => ({ bounds: s.bounds!, order: i + 1 }))}
+            annotations={getOrderedAnnotations(entry.annotations)}
             screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
             numbered={entry.anchor.numbered ?? false}
             alt={`Step ${index + 1} 放大`}
