@@ -105,7 +105,7 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
           fit="cover"
           className="size-full"
         />
-        <span className="absolute right-1 bottom-1 rounded border border-stone-200 bg-stone-50 px-1 py-px text-[10px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
+        <span className="absolute right-1 bottom-1 rounded border border-stone-200 bg-stone-50 px-1 py-px text-[11px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
           快照
         </span>
       </>

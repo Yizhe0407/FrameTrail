@@ -44,7 +44,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
   return (
     <div className="px-4 py-3">
       <div className="flex items-center gap-3">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-red-500 text-[11px] font-semibold text-white">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-semibold text-white">
           {index + 1}
         </span>
         <Textarea

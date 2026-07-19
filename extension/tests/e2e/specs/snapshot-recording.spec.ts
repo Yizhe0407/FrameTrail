@@ -367,6 +367,36 @@ test.describe('snapshot recording', () => {
 
     await stopRecording(popupPage);
   });
+
+  test('commits and undoes an annotation with the keyboard only', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    const shield = await getSnapshotFrame(appPage);
+    await expect(shield.getByRole('button', { name: '完成快照' })).toBeVisible();
+
+    // Focus the skip link to enter the shield, then Tab to the first candidate
+    // (the enabled action button, first in reading order). No pointer is used.
+    await shield.locator('.snapshot-skip-link').focus();
+    await appPage.keyboard.press('Tab');
+    await expect(shield.locator('.snapshot-box--preview')).toBeVisible({ timeout: 10_000 });
+
+    await appPage.keyboard.press('Enter');
+    await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(1);
+    await expect(shield.locator('.snapshot-annotation__badge-label')).toHaveText('1');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+
+    await appPage.keyboard.press('Delete');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(0);
+
+    // The page underneath never received the activation.
+    expect(await appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(0);
+
+    await stopRecording(popupPage);
+  });
 });
 
 declare global {

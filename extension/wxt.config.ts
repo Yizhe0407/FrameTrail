@@ -12,6 +12,13 @@ export default defineConfig({
     description: 'Record clicks and auto-generate a step-by-step annotated image guide',
     permissions: ['storage', 'unlimitedStorage', 'activeTab', 'scripting', 'downloads', 'clipboardWrite'],
     optional_host_permissions: ['<all_urls>'],
+    // No default keys: users bind them at chrome://extensions/shortcuts so we
+    // never hijack a site's own hotkeys (UX_PLAN §8.3).
+    commands: {
+      'toggle-pause': { description: '錄製：暫停或繼續' },
+      'undo-last-capture': { description: '錄製：復原上一個' },
+      'finish-recording': { description: '錄製：完成' },
+    },
     web_accessible_resources: [
       {
         resources: ['snapshot-shield.html'],

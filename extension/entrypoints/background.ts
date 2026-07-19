@@ -1171,6 +1171,35 @@ function handleRecordingControl(message: RecordingControlMessage): Promise<Recor
   }
 }
 
+/**
+ * Routes a configurable browser keyboard shortcut to the active recording's
+ * control handlers (UX_PLAN §8.3). Shortcuts carry no runId, so the current
+ * authoritative state supplies it; the handlers stay the single source of
+ * truth and remain idempotent, so acting in a wrong phase is a safe no-op.
+ */
+async function handleCommandShortcut(command: string): Promise<void> {
+  const state = await getRecordingState();
+  if (!state.isRecording || !state.runId) return;
+  const runId = state.runId;
+  switch (command) {
+    case 'toggle-pause':
+      // Pause/resume is a steps-mode affordance; snapshot has no pause (§9.2).
+      if (state.mode !== 'steps') return;
+      if (state.phase === 'recording') {
+        await handleRecordingControl({ type: 'PAUSE_RECORDING', runId });
+      } else if (state.phase === 'paused') {
+        await handleRecordingControl({ type: 'RESUME_RECORDING', runId });
+      }
+      return;
+    case 'undo-last-capture':
+      await handleRecordingControl({ type: 'UNDO_LAST_CAPTURE', runId });
+      return;
+    case 'finish-recording':
+      await handleRecordingControl({ type: 'FINISH_RECORDING', runId });
+      return;
+  }
+}
+
 async function captureScreenshot(
   message: Pick<ClickCapture, 'runId' | 'url' | 'viewport' | 'devicePixelRatio' | 'captureId'>,
   sessionId: string,
@@ -1381,6 +1410,10 @@ export default defineBackground(() => {
       case 'FRAME_TRAIL_READY':
         return handleRecorderReady(message, sender);
     }
+  });
+
+  browser.commands?.onCommand.addListener((command) => {
+    void handleCommandShortcut(command);
   });
 
   browser.runtime.onConnect.addListener((port) => {

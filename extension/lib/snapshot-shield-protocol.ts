@@ -16,7 +16,9 @@ export const SNAPSHOT_SHIELD_UNDO = 'FRAME_TRAIL_SNAPSHOT_SHIELD_UNDO';
 export const SNAPSHOT_SHIELD_TOOLBAR_STATE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_TOOLBAR_STATE';
 export const SNAPSHOT_SHIELD_CONTROL = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL';
 export const SNAPSHOT_SHIELD_CONTROL_RESULT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL_RESULT';
+export const SNAPSHOT_SHIELD_CANDIDATES = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CANDIDATES';
 export const SNAPSHOT_TARGET_OFFSET_LIMIT = 4_096;
+export const SNAPSHOT_KEYBOARD_LABEL_LIMIT = 200;
 
 export interface SnapshotShieldRect {
   x: number;
@@ -114,6 +116,20 @@ export interface SnapshotShieldControlResultMessage {
   result: RecordingControlResult;
 }
 
+/** A keyboard-reachable annotation candidate: a viewport point plus its
+ * accessible label, driven by index inside the frozen shield (§9.5). */
+export interface SnapshotShieldKeyboardAnchor {
+  x: number;
+  y: number;
+  label: string;
+}
+
+export interface SnapshotShieldCandidatesMessage {
+  type: typeof SNAPSHOT_SHIELD_CANDIDATES;
+  token: string;
+  anchors: SnapshotShieldKeyboardAnchor[];
+}
+
 export type SnapshotShieldPortMessage =
   | SnapshotShieldReadyMessage
   | SnapshotShieldPointerDownMessage
@@ -126,7 +142,8 @@ export type SnapshotShieldFrameMessage =
   | SnapshotShieldCommitMessage
   | SnapshotShieldUndoMessage
   | SnapshotShieldToolbarStateMessage
-  | SnapshotShieldControlResultMessage;
+  | SnapshotShieldControlResultMessage
+  | SnapshotShieldCandidatesMessage;
 
 function isRequestId(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
@@ -223,8 +240,22 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     selection?: (SnapshotShieldSelection & { id: number }) | null;
     state?: SnapshotShieldToolbarStateMessage['state'];
     result?: RecordingControlResult;
+    anchors?: SnapshotShieldKeyboardAnchor[];
   };
   if (message.token !== token) return false;
+  if (message.type === SNAPSHOT_SHIELD_CANDIDATES) {
+    return (
+      Array.isArray(message.anchors) &&
+      message.anchors.every(
+        (anchor) =>
+          Boolean(anchor) &&
+          Number.isFinite(anchor.x) &&
+          Number.isFinite(anchor.y) &&
+          typeof anchor.label === 'string' &&
+          anchor.label.length <= SNAPSHOT_KEYBOARD_LABEL_LIMIT,
+      )
+    );
+  }
   if (message.type === SNAPSHOT_SHIELD_PREVIEW) {
     return (
       isRequestId(message.requestId) &&

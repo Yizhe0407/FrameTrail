@@ -669,11 +669,34 @@ interface FinishResult {
 
 完成條件：核心流程無 axe serious/critical issue，並通過第 13 節的手動檢核。
 
+#### 實作進度（2026-07-19）
+
+本輪推進 Phase 4 的視覺 token 收斂與部分無障礙項目：
+
+- `assets/tailwind.css` 改用第 12.2 節的日式現代 token：以 hex 直接對應已驗證對比值，並保留 shadcn 語意名稱（`--primary`、`--muted-foreground` 等）重新映射，讓既有 utility 自動套用新色。新增 `--recording`、`--warning`、`--focus` token 與對應 `color-*`；focus ring 刻意採藍色與 moss primary 分離。
+- 導入 Noto Sans TC 優先字型堆疊（避免 JP 字形）、`letter-spacing: 0`，面板圓角收斂為 8px，並加入 `prefers-reduced-motion` 全域降級以移除錄製紅點的持續動畫。
+- 修正低於樓地板的關鍵文字：標註序號徽章 11px→12px 並改用 rose 對齊實際 marker 色；StepRail 快照角標 10px→11px（非關鍵 metadata 下限）。
+- 加入 browser `commands`：`toggle-pause`、`undo-last-capture`、`finish-recording`，路由到既有背景控制指令；不設預設鍵，改由 chrome://extensions/shortcuts 綁定，暫停切換僅在操作流程生效。Chrome MV3 與 Firefox MV2 build 均含 commands。
+- 實作快照鍵盤候選巡覽（§9.5），以 `lib/feature-flags.ts` 的 `snapshotKeyboardNav` 旗標隔離（§19）：
+  - 頁面凍結期間 top frame 只列舉一次可標註的語意候選（`isInteractiveElement` 過濾、reading order 排序、去重、上限 150），並在 idle callback 送入 shield，避免拖慢乾淨底圖交接。
+  - shield 以 index 驅動既有 probe／preview／commit 引擎：`Tab`／`Shift+Tab` 巡覽候選、`Enter`／`Space` 加入、`Delete`／`Backspace` 復原、方向鍵維持父子層級；`Escape` 回到 skip link。
+  - 新增「跳至錄製控制」skip link 與 `aria-live` polite 宣告（候選位置、加入標註、無法標註）。
+  - 純邏輯（排序／去重／roving index）與新 `SNAPSHOT_SHIELD_CANDIDATES` 訊息 schema 有 unit 覆蓋；新增鍵盤 only 的 Chromium E2E 驗證 Tab→加入→復原且底層頁面不被觸發。
+- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。134 項 Vitest、35 項 Chromium E2E、TypeScript、雙瀏覽器 build 通過。
+
+本節尚未實作（需真實瀏覽器與輔助科技手動驗證，非程式碼可自動完成）：
+
+- axe / VoiceOver / NVDA / 高對比 / reduced-motion 的手動驗證與 §17.4 視覺回歸截圖。
+- dark theme 各 foreground/background 組合的自動化對比逐一驗證。
+- 鍵盤候選巡覽的跨 frame 支援（目前僅 top frame；子 frame 候選維持指標可達）與大型頁面上的實機節奏調校。
+
 ### Phase 5：可選增強（不阻擋上線）
 
 - 僅為操作流程評估 Side Panel 即時步驟歷史。
 - 讓使用者在設定中選擇 `浮動控制器`、`側欄歷史 + 控制器` 或 `最小控制器`。
 - 先做實驗驗證是否真的降低錯誤率，再決定是否長期維護。
+
+> 狀態（2026-07-19）：本階段刻意保留未實作。依計畫，Side Panel 需先以 usability 實驗確認能降低錯誤率，才值得投入跨瀏覽器維護成本；在取得該證據前不預先建置。
 
 ## 17. 測試與驗收
 

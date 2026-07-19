@@ -21,7 +21,9 @@ import {
   isPointInsideViewport,
 } from '@/lib/recording-guards';
 import {
+  SNAPSHOT_KEYBOARD_LABEL_LIMIT,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
+  type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldPreviewResult,
@@ -29,6 +31,8 @@ import {
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
+import { featureFlags } from '@/lib/feature-flags';
+import { orderKeyboardCandidates, type RawKeyboardCandidate } from '@/lib/snapshot-candidates';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
 import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
@@ -169,6 +173,44 @@ function describeElement(el: Element): string {
     el.getAttribute('alt')?.trim() ||
     ''
   ).slice(0, 200);
+}
+
+const KEYBOARD_CANDIDATE_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  'label',
+  '[role]',
+  '[tabindex]',
+  '[contenteditable]',
+].join(',');
+
+/**
+ * Enumerates top-frame annotation candidates for keyboard traversal (§9.5).
+ * The page is frozen while annotating, so this runs once. Ordering, dedup and
+ * capping are delegated to the pure helper; cross-frame candidates are out of
+ * scope for this flag-gated first pass and remain pointer-reachable.
+ */
+function collectKeyboardCandidateAnchors(): SnapshotShieldKeyboardAnchor[] {
+  const raw: RawKeyboardCandidate[] = [];
+  const seen = new Set<Element>();
+  for (const el of document.querySelectorAll(KEYBOARD_CANDIDATE_SELECTOR)) {
+    if (seen.has(el) || !isInteractiveElement(el)) continue;
+    seen.add(el);
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    raw.push({
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      label: (describeElement(el) || el.tagName.toLowerCase()).slice(0, SNAPSHOT_KEYBOARD_LABEL_LIMIT),
+    });
+  }
+  return orderKeyboardCandidates(raw, window.innerWidth, window.innerHeight);
 }
 
 function replayElementClick(el: Element): void {
@@ -1182,6 +1224,20 @@ export default defineContentScript({
       try {
         await snapshotShield.ready;
         snapshotShield.updateToolbar(toToolbarState(recordingState));
+        if (featureFlags.snapshotKeyboardNav) {
+          // Defer enumeration off the startup path so a large page cannot stall
+          // the clean-base handoff (§9.5). The frozen page keeps anchors valid.
+          const shield = snapshotShield;
+          const sendCandidates = () => {
+            try {
+              shield.sendKeyboardCandidates(collectKeyboardCandidateAnchors());
+            } catch (error) {
+              console.warn('[frametrail] failed to enumerate keyboard candidates', error);
+            }
+          };
+          if (typeof requestIdleCallback === 'function') requestIdleCallback(sendCandidates, { timeout: 500 });
+          else setTimeout(sendCandidates, 0);
+        }
         await waitForNextFrame();
         await waitForNextFrame();
       } catch (err) {
