@@ -35,3 +35,9 @@ export const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   ...transform,
   x: 0,
 });
+
+/** Mobile timeline entries are laid out in one horizontal bottom rail. */
+export const restrictToHorizontalAxis: Modifier = ({ transform }) => ({
+  ...transform,
+  y: 0,
+});

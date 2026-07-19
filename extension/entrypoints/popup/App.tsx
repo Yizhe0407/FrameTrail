@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { browser } from 'wxt/browser';
 import { AlertCircle, PencilLine } from 'lucide-react';
 import { useRecordingSession } from '@/lib/useRecordingSession';
@@ -7,20 +8,32 @@ import { Separator } from '@/components/ui/separator';
 import RecordControls from '@/components/RecordControls';
 import ResetButton from '@/components/ResetButton';
 import ExportImagesButton from '@/components/ExportImagesButton';
+import { needsEditorRecovery } from '@/lib/recording-recovery';
+import type { OpenEditorResult } from '@/lib/messages';
 
 function App() {
   const { recording, isRecording, steps, error, recoverableError } = useRecordingSession();
+  const [openingEditor, setOpeningEditor] = useState(false);
+  const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
+  const editorRecovery = needsEditorRecovery(recoverableError);
 
   async function openEditor() {
-    const url = browser.runtime.getURL('/editor.html');
-    const [existing] = await browser.tabs.query({ url: `${url}*` });
-    if (existing?.id != null) {
-      const tab = await browser.tabs.update(existing.id, { active: true });
-      if (tab?.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
-    } else {
-      await browser.tabs.create({ url });
+    if (openingEditor) return;
+    setOpeningEditor(true);
+    setEditorOpenError(null);
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'OPEN_EDITOR' }) as OpenEditorResult;
+      if (!result.ok) {
+        setEditorOpenError(result.error);
+        return;
+      }
+      window.close();
+    } catch (openError) {
+      console.error('[frametrail] failed to request editor navigation', openError);
+      setEditorOpenError('無法開啟編輯器，請再試一次。');
+    } finally {
+      setOpeningEditor(false);
     }
-    window.close();
   }
 
   function handleStarted() {
@@ -36,18 +49,23 @@ function App() {
         </span>
       </div>
 
-      {(recoverableError?.message || error) && !isRecording && (
+      {(editorOpenError || recoverableError?.message || error) && !isRecording && (
         <Alert variant="destructive">
           <AlertCircle />
-          <AlertDescription>{recoverableError?.message ?? error}</AlertDescription>
+          <AlertDescription>{editorOpenError ?? recoverableError?.message ?? error}</AlertDescription>
         </Alert>
       )}
 
-      <RecordControls recording={recording} onStarted={handleStarted} />
+      <RecordControls
+        recording={recording}
+        onStarted={handleStarted}
+        onOpenEditor={openEditor}
+        openingEditor={openingEditor}
+      />
 
-      <Separator className="bg-stone-200 dark:bg-stone-700" />
+      {!editorRecovery && <Separator className="bg-stone-200 dark:bg-stone-700" />}
 
-      <div className="flex flex-col gap-2">
+      {!editorRecovery && <div className="flex flex-col gap-2">
         <Button
           variant="outline"
           className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
@@ -65,7 +83,7 @@ function App() {
             <ResetButton hasSteps variant="outline" className="w-full" />
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   readRecordingState,
   readSteps,
   resetExtensionData,
+  sendRecordingControl,
   startRecording,
   stopRecording,
 } from '../support/harness';
@@ -109,6 +110,48 @@ test.describe('step recording', () => {
     await expect(appPage.locator('[data-frametrail-recording-toolbar]')).toHaveCount(0);
     expect(editor.url()).toContain('entryId=');
     await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  test('rejects an old run and serializes rapid finish commands', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    const oldRunId = (await readRecordingState(popupPage)).runId as string;
+    await stopRecording(popupPage);
+
+    await startRecording(appPage, popupPage, 'steps');
+    const currentRunId = (await readRecordingState(popupPage)).runId as string;
+    expect(currentRunId).not.toBe(oldRunId);
+    const staleResult = await popupPage.evaluate(async (runId) => {
+      const extensionApi = (globalThis as unknown as {
+        chrome: { runtime: { sendMessage(message: unknown): Promise<unknown> } };
+      }).chrome;
+      return extensionApi.runtime.sendMessage({ type: 'PAUSE_RECORDING', runId }) as Promise<{ ok: boolean }>;
+    }, oldRunId);
+    expect(staleResult.ok).toBe(false);
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('recording');
+    await expect.poll(async () => (await readRecordingState(popupPage)).runId).toBe(currentRunId);
+
+    await clickTarget(appPage, '#plain-text');
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+    const editorOpened = extensionContext.waitForEvent('page');
+    const results = await Promise.all([
+      sendRecordingControl(popupPage, 'FINISH_RECORDING'),
+      sendRecordingControl(popupPage, 'FINISH_RECORDING'),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toHaveLength(1);
+
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    await expect.poll(async () => (await readRecordingState(editor)).isRecording).toBe(false);
+    const editorBase = editor.url().split('?')[0];
+    await expect.poll(() => extensionContext.pages().filter((page) => {
+      return page.url().startsWith(editorBase);
+    }).length).toBe(1);
   });
 
   test('keeps scrolling usable, previews below-the-fold targets, and ignores the scrollbar gutter', async ({

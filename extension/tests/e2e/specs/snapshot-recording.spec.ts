@@ -105,6 +105,57 @@ test.describe('snapshot recording', () => {
     await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
+  test('moves and persists the toolbar, then discards the current run after confirmation', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    const shield = await getSnapshotFrame(appPage);
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+    const readToolbarCorner = () => popupPage.evaluate(async () => {
+      const extensionApi = (globalThis as unknown as {
+        chrome: { storage: { local: { get(key: string): Promise<Record<string, unknown>> } } };
+      }).chrome;
+      const result = await extensionApi.storage.local.get('frametrail:recordingToolbarCorner');
+      return result['frametrail:recordingToolbarCorner'];
+    });
+
+    const positionControl = shield.getByRole('button', { name: /拖曳或使用方向鍵移動/ });
+    await positionControl.focus();
+    await positionControl.press('ArrowUp');
+    await expect.poll(() => shield.locator('.ft-toolbar').evaluate((element) => {
+      return Math.round(element.getBoundingClientRect().top);
+    })).toBe(16);
+    await expect.poll(readToolbarCorner).toBe('top-right');
+
+    const handle = await positionControl.boundingBox();
+    const viewportHeight = await appPage.evaluate(() => window.innerHeight);
+    expect(handle).not.toBeNull();
+    await appPage.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+    await appPage.mouse.down();
+    await appPage.mouse.move(40, viewportHeight - 40, { steps: 6 });
+    await appPage.mouse.up();
+    await expect.poll(() => shield.locator('.ft-toolbar').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        bottom: Math.round(window.innerHeight - rect.bottom),
+      };
+    })).toEqual({ left: 16, bottom: 16 });
+    await expect.poll(readToolbarCorner).toBe('bottom-left');
+
+    await shield.getByRole('button', { name: '更多錄製動作' }).click();
+    await shield.getByRole('menuitem', { name: '放棄這次錄製' }).click();
+    await expect(shield.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeVisible();
+    await shield.getByRole('button', { name: '放棄錄製' }).click();
+
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(0);
+    await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
+  });
+
   test('creates independent snapshot groups after releasing the page for navigation', async ({
     appPage,
     popupPage,
@@ -155,6 +206,81 @@ test.describe('snapshot recording', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect(editor.getByRole('button', { name: /選取步驟/ })).toHaveCount(2);
+  });
+
+  test('invalidates changed viewports, preserves the old group, and rebuilds onto a new anchor', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+
+    const originalSteps = await readSteps(popupPage);
+    const originalAnchor = originalSteps.find((step) => step.bounds === null)!;
+    const currentViewport = await appPage.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    await appPage.setViewportSize({ width: 320, height: Math.max(currentViewport.height - 40, 500) });
+
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('invalidated');
+    const invalidatedShield = await getSnapshotFrame(appPage);
+    await expect(invalidatedShield.getByText('畫面尺寸已改變，需建立新快照才能繼續。')).toBeVisible();
+    await expect(invalidatedShield.getByRole('button', { name: '保留並重建' })).toBeVisible();
+    await expect(invalidatedShield.getByRole('button', { name: '完成錄製' })).toBeVisible();
+    const invalidatedLayout = await invalidatedShield.evaluate(() => {
+      const rect = (selector: string) => {
+        const bounds = document.querySelector(selector)!.getBoundingClientRect();
+        return { left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom };
+      };
+      return {
+        viewportWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        toolbar: rect('.ft-toolbar--invalidated'),
+        status: rect('.ft-invalidated-status'),
+        secondary: rect('.ft-invalidated-actions .ft-secondary'),
+        primary: rect('.ft-invalidated-actions .ft-finish'),
+      };
+    });
+    expect(invalidatedLayout.scrollWidth).toBeLessThanOrEqual(invalidatedLayout.viewportWidth);
+    expect(invalidatedLayout.toolbar.left).toBeGreaterThanOrEqual(0);
+    expect(invalidatedLayout.toolbar.right).toBeLessThanOrEqual(invalidatedLayout.viewportWidth);
+    expect(invalidatedLayout.status.bottom).toBeLessThanOrEqual(invalidatedLayout.secondary.top);
+    expect(invalidatedLayout.secondary.right).toBeLessThanOrEqual(invalidatedLayout.primary.left);
+
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, '#action-button'));
+    await appPage.waitForTimeout(200);
+    expect(await readSteps(popupPage)).toEqual(originalSteps);
+
+    await invalidatedShield.getByRole('button', { name: '保留並重建' }).click();
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('recording');
+    const rebuiltSteps = await readSteps(popupPage);
+    const rebuiltAnchors = rebuiltSteps.filter((step) => step.bounds === null);
+    expect(rebuiltAnchors).toHaveLength(2);
+    expect(rebuiltSteps).toEqual(expect.arrayContaining(originalSteps));
+    expect(rebuiltAnchors.map((step) => step.id)).toContain(originalAnchor.id);
+
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, '#action-button'));
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+    const afterRebuild = await readSteps(popupPage);
+    const newestAnchor = afterRebuild.filter((step) => step.bounds === null).at(-1)!;
+    const newestAnnotation = afterRebuild.filter((step) => step.bounds !== null).at(-1)!;
+    expect(newestAnchor.id).not.toBe(originalAnchor.id);
+    expect(newestAnnotation.groupId).toBe(newestAnchor.id);
+
+    const countBeforeScroll = afterRebuild.length;
+    await appPage.evaluate(() => window.scrollTo(0, 120));
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('invalidated');
+    expect(await readSteps(popupPage)).toHaveLength(countBeforeScroll);
+    const scrolledShield = await getSnapshotFrame(appPage);
+    await expect(scrolledShield.getByRole('button', { name: '保留並重建' })).toBeVisible();
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    await scrolledShield.getByRole('button', { name: '完成錄製' }).click();
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
+    expect(editor.url()).toContain('groupId=');
   });
 
   test('reuses committed SVG nodes while relayout moves existing annotations', async ({

@@ -55,7 +55,7 @@ describe('image export', () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:archive');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
-    await exportImagesAsZip([step(0), step(1), step(2)]);
+    const result = await exportImagesAsZip([step(0), step(1), step(2)]);
 
     expect(mocks.composite).toHaveBeenCalledTimes(3);
     expect(mocks.maxActive).toBe(1);
@@ -66,6 +66,10 @@ describe('image export', () => {
     });
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:archive');
     expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      filename: expect.stringMatching(/^frame-trail-images-\d{4}-\d{2}-\d{2}\.zip$/),
+      itemCount: 3,
+    });
   });
 
   it('releases the object URL when starting the download fails', async () => {
@@ -76,5 +80,20 @@ describe('image export', () => {
     await expect(exportImagesAsZip([step(0)])).rejects.toThrow('download failed');
 
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:archive');
+  });
+
+  it('stops between image composites when the export is cancelled', async () => {
+    const controller = new AbortController();
+    mocks.composite.mockImplementationOnce(async (blob: Blob) => {
+      controller.abort();
+      return blob;
+    });
+
+    await expect(exportImagesAsZip([step(0), step(1)], undefined, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+
+    expect(mocks.composite).toHaveBeenCalledTimes(1);
+    expect(mocks.download).not.toHaveBeenCalled();
   });
 });

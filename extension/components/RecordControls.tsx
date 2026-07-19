@@ -6,10 +6,13 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import type { RecordingMode, RecordingState } from '@/lib/messages';
 import { getRecordingState } from '@/lib/storage';
+import { needsEditorRecovery } from '@/lib/recording-recovery';
 
 interface Props {
   recording: RecordingState;
   onStarted?: () => void;
+  onOpenEditor?: () => void | Promise<void>;
+  openingEditor?: boolean;
   className?: string;
 }
 
@@ -41,7 +44,13 @@ function isRestrictedRecordingUrl(url: string | undefined, allowExtensionPage = 
   return RESTRICTED_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
-export default function RecordControls({ recording, onStarted, className }: Props) {
+export default function RecordControls({
+  recording,
+  onStarted,
+  onOpenEditor,
+  openingEditor = false,
+  className,
+}: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
   const [numbered, setNumbered] = useState(true);
   const [crossPage, setCrossPage] = useState(false);
@@ -129,6 +138,22 @@ export default function RecordControls({ recording, onStarted, className }: Prop
     const tab = await browser.tabs.update(recording.tabId, { active: true });
     if (tab?.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
     window.close();
+  }
+
+  if (!recording.isRecording && needsEditorRecovery(recording.recoverableError)) {
+    const editorFailed = recording.recoverableError?.code === 'EDITOR_OPEN_FAILED';
+    return (
+      <div className={cn('space-y-3', className)}>
+        <Button
+          className="h-10 w-full bg-lime-700 text-white hover:bg-lime-800 dark:bg-lime-400 dark:text-stone-900 dark:hover:bg-lime-300"
+          disabled={openingEditor}
+          onClick={() => void onOpenEditor?.()}
+        >
+          {openingEditor ? <Loader2 className="animate-spin" /> : <ExternalLink />}
+          {openingEditor ? '正在開啟編輯器' : editorFailed ? '重試開啟編輯器' : '完成並開啟編輯器'}
+        </Button>
+      </div>
+    );
   }
 
   if (recording.isRecording && recording.runId && recording.phase !== 'starting') {

@@ -1,61 +1,37 @@
-import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import { updateStep, type Step } from '@/lib/db';
+import type { Step } from '@/lib/db';
+import { useStepDescriptionAutosave } from '@/lib/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
+import SaveStatus from './SaveStatus';
 
 interface Props {
   step: Step;
   onChange: () => void | Promise<void>;
+  disabled?: boolean;
 }
 
-export default function DescriptionField({ step, onChange }: Props) {
-  const [description, setDescription] = useState(step.description);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDescription(step.description);
-    setSaving(false);
-    setSaveError(null);
-  }, [step.id, step.description]);
-
-  async function saveDescription() {
-    if (saving || description === step.description) return;
-    const stepId = step.id;
-    const nextDescription = description;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await updateStep(stepId, { description: nextDescription });
-      await onChange();
-    } catch (err) {
-      console.error('儲存步驟說明失敗', err);
-      setSaveError('說明儲存失敗，請再試一次。');
-    } finally {
-      setSaving(false);
-    }
-  }
+export default function DescriptionField({ step, onChange, disabled = false }: Props) {
+  const { description, setDescription, status, error, flush } = useStepDescriptionAutosave(step, onChange);
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-[11px] tracking-[.16em] text-stone-400 dark:text-stone-500">說明</label>
+      <label htmlFor={`description-${step.id}`} className="text-xs font-medium text-stone-600 dark:text-stone-300">
+        說明
+      </label>
       <Textarea
+        id={`description-${step.id}`}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        onBlur={saveDescription}
-        disabled={saving}
+        onBlur={() => void flush().catch(() => undefined)}
+        disabled={disabled}
         placeholder="輸入步驟說明…"
-        className="min-h-16 resize-none rounded-xl border-stone-200 bg-stone-50 px-4 py-3.5 text-sm leading-[1.7] text-stone-700 shadow-none hover:border-stone-300 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-600"
+        className="min-h-16 resize-none rounded-md border-stone-200 bg-stone-50 px-4 py-3 text-sm leading-[22px] text-stone-700 shadow-none hover:border-stone-300 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-600"
       />
-      {(saving || saveError) && (
-        <div
-          role={saveError ? 'alert' : 'status'}
-          className={`flex items-center gap-1.5 text-xs ${saveError ? 'text-red-600 dark:text-red-400' : 'text-stone-400 dark:text-stone-500'}`}
-        >
-          {saving && <Loader2 className="size-3 animate-spin" />}
-          {saveError ?? '正在儲存…'}
-        </div>
-      )}
+      <SaveStatus
+        status={status}
+        error={error}
+        onRetry={() => void flush().catch(() => undefined)}
+        className={status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}
+      />
     </div>
   );
 }

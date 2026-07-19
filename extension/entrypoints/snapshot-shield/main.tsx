@@ -296,9 +296,11 @@ window.addEventListener('message', (event) => {
   let pendingHoverRequestId: number | null = null;
   let pendingHoverPointRevision: number | null = null;
   let candidateOffset = 0;
+  let interactionsEnabled = false;
 
   const scheduleHover = () => {
     if (
+      !interactionsEnabled ||
       capturing ||
       !lastPoint ||
       moveFrame !== null ||
@@ -309,7 +311,15 @@ window.addEventListener('message', (event) => {
     }
     moveFrame = requestAnimationFrame(() => {
       moveFrame = null;
-      if (capturing || !lastPoint || pendingHoverRequestId !== null || sentPointRevision === pointRevision) return;
+      if (
+        !interactionsEnabled ||
+        capturing ||
+        !lastPoint ||
+        pendingHoverRequestId !== null ||
+        sentPointRevision === pointRevision
+      ) {
+        return;
+      }
       latestRequestId = ++requestSequence;
       pendingHoverRequestId = latestRequestId;
       sentPointRevision = pointRevision;
@@ -337,6 +347,10 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    if (!interactionsEnabled) {
+      clearHover();
+      return;
+    }
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) {
       clearHover();
       return;
@@ -354,7 +368,7 @@ window.addEventListener('message', (event) => {
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     consume(event);
     ensureKeyboardFocus();
-    if (capturing || event.button !== 0 || !event.isPrimary) return;
+    if (!interactionsEnabled || capturing || event.button !== 0 || !event.isPrimary) return;
     if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
       candidateOffset = 0;
     }
@@ -379,7 +393,7 @@ window.addEventListener('message', (event) => {
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
-    if (capturing || !lastPoint) return;
+    if (!interactionsEnabled || capturing || !lastPoint) return;
     const delta = event.key === 'ArrowUp' ? 1 : -1;
     candidateOffset = Math.max(
       -SNAPSHOT_TARGET_OFFSET_LIMIT,
@@ -419,8 +433,13 @@ window.addEventListener('message', (event) => {
     }
     if (event.data.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
       const state = event.data.state;
+      interactionsEnabled = state.phase === 'recording';
+      if (!interactionsEnabled) {
+        capturing = false;
+        clearHover();
+      }
       toolbarRoot.render(
-        state.phase === 'recording' || state.phase === 'finishing' ? (
+        state.phase === 'recording' || state.phase === 'invalidated' || state.phase === 'finishing' ? (
           <RecordingToolbar
             state={state}
             onCommand={(action: RecordingControlMessage['type'], undoToken?: string) => {
@@ -452,7 +471,7 @@ window.addEventListener('message', (event) => {
       if (event.data.selection) overlay.commit(event.data.selection);
       capturing = false;
       sentPointRevision = -1;
-      scheduleHover();
+      if (interactionsEnabled) scheduleHover();
     }
   };
 

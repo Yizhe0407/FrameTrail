@@ -536,6 +536,7 @@ interface RecordingUiState {
 | `FINISH_RECORDING` | flush 後停止，回傳 Editor 定位資訊 |
 | `PREPARE_NEXT_SNAPSHOT` | 封存群組、移除 shield，進入準備下一張 |
 | `CREATE_NEXT_SNAPSHOT` | 重新安裝 shield 並擷取底圖 |
+| `REBUILD_INVALIDATED_SNAPSHOT` | 保留失效群組並以目前 viewport 原子建立新底圖 |
 | `DISCARD_CURRENT_RECORDING` | 確認後移除本輪資料 |
 
 事件：
@@ -611,7 +612,7 @@ interface FinishResult {
 
 #### 實作進度（2026-07-19）
 
-本輪已完成 Phase 1、Phase 2 的多快照核心流程，並提前完成部分 Phase 3 項目：
+本輪已完成 Phase 1、Phase 3，以及 Phase 2 的多快照核心流程：
 
 - 背景程序成為錄製狀態真相來源，加入 `phase`、`mode`、`itemCount`、`runId` 與 recoverable error。
 - 加入 `PAUSE_RECORDING`、`RESUME_RECORDING`、`UNDO_LAST_CAPTURE`、`RESTORE_LAST_CAPTURE`、`FINISH_RECORDING` 控制指令；復原只處理本輪內容，並提供 5 秒還原。
@@ -619,16 +620,26 @@ interface FinishResult {
 - 單頁標註將同一套控制器放在 shield iframe，支援計數、復原、還原與完成快照。
 - 加入 `PREPARE_NEXT_SNAPSHOT` 與 `CREATE_NEXT_SNAPSHOT`：封存目前群組後進入 `preparing-next`、移除 shield 並恢復頁面操作，再以全新 anchor、viewport 契約與歸零計數建立下一張。
 - `preparing-next` 可跨頁導覽並重新掛載輕量控制器；快速重複建立只允許一個指令取得狀態轉移，不會建立重複 anchor 或混用 `groupId`。
+- 加入 `SNAPSHOT_INVALIDATED` 與 `REBUILD_INVALIDATED_SNAPSHOT`：top frame 偵測 resize、scroll 與 DPR 變動後立即停用標註，background 驗證 tab、`runId`、數值與 anchor viewport 契約後冪等進入 `invalidated`。
+- `invalidated` 控制器顯示阻斷訊息、`保留並重建` 與 `完成錄製`；重建會保留舊 anchor／annotations，以新 viewport 建立獨立群組，失敗則恢復舊群組資訊供再次操作。
 - 截圖前會隱藏控制器、hover preview 與 shield UI，避免擴充功能介面進入成品。
 - Popup 已改用「操作流程／單頁標註」名稱、漸進式跨頁權限及錄製中摘要；完成後會開啟或聚焦單一 Editor tab，並選中本輪最新步驟或群組。
-- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 100 項 Vitest 與 29 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
+- Editor 的步驟與標註說明改為 650ms debounce autosave，固定顯示尚未儲存、正在儲存、已儲存或失敗狀態；失敗時保留草稿並可重試。
+- 切換項目、排序、刪除與匯出前會先 flush 待存說明；匯出重新讀取 IndexedDB，避免畫面 state 尚未刷新時輸出舊內容。
+- 單一步驟、快照群組與標註改為直接刪除，排序與刪除皆顯示 5 秒 Undo snackbar；還原使用單一 IndexedDB transaction 回復資料與順序。
+- Editor 在 1024px 以下改用固定底部水平 StepRail，支援左右鍵與水平拖曳；stage、快照圖與標註面板改成可捲動單欄，320px 與 768px 不產生水平溢出。
+- 空狀態提供主要動作，可回到進行中的錄製分頁，或回到最近使用的網頁並開啟錄製設定。
+- 匯出支援處理中取消，取消後不建立下載；成功狀態會回報 ZIP 檔名與實際輸出張數。
+- 控制器可用滑鼠拖曳並在放開後 snap 到 viewport 四角，位置以全域偏好保存；方向鍵提供等價移動方式，resize 與窄 viewport 會立即 clamp，避免動畫途中越界。
+- 收合與放棄移入更多選單；放棄本輪需二次確認，並以單一 IndexedDB transaction 只刪除目前 `runId` 的資料、保留同一 session 先前內容與連續順序。
+- 錄製分頁關閉時會保留已提交內容並寫入 `RECORDED_TAB_CLOSED` 恢復狀態；Popup 改以 `完成並開啟編輯器` 作為唯一主要動作，重試時仍會定位最新項目。
+- 完成錄製後若 Editor 分頁無法建立或聚焦，會寫入 `EDITOR_OPEN_FAILED`，Popup 可透過 background 的 `OPEN_EDITOR` 重試；成功後才清除恢復狀態。
+- 補齊舊 `runId` 與快速重複 `FINISH_RECORDING` 的真實瀏覽器競態覆蓋，確認舊指令不影響新 run、同一輪只完成一次且只開啟一個 Editor。
+- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 124 項 Vitest 與 34 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
 
 本輪尚未實作：
 
 - Phase 0 的量測基線與桌面錄影。
-- Phase 2 的完整 viewport invalidation 恢復、分頁關閉／Editor 開啟失敗等 recoverable error，以及其餘舊 `runId`／finish race tests。
-- Phase 3 的 Editor debounced autosave、儲存狀態、刪除／排序 Undo、responsive rail/drawer、空狀態與匯出進度。
-- 控制器拖曳／四角 snap、位置保存、更多選單與放棄本輪流程。
 - 快照鍵盤候選巡覽、browser commands，以及 Phase 4／5 的完整無障礙、視覺與可選 Side Panel 工作。
 
 ### Phase 2：多快照與錯誤恢復（P0/P1，2 至 4 天）

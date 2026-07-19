@@ -4,9 +4,11 @@ import {
   addStep,
   buildStepEntries,
   deleteStepsAndReorder,
+  deleteStepsForRun,
   getOrderedAnnotations,
   getSteps,
   reorderSteps,
+  restoreStepsAndReorder,
   updateStep,
   type Step,
 } from '@/lib/db';
@@ -133,6 +135,53 @@ describe('step persistence', () => {
     expect((await getSteps(sessionId)).map(({ id, order }) => ({ id, order }))).toEqual([
       { id: last.id, order: 0 },
       { id: first.id, order: 1 },
+    ]);
+  });
+
+  it('discards only the selected recording run and closes remaining order gaps', async () => {
+    const sessionId = crypto.randomUUID();
+    const previous = makeStep({ sessionId, runId: 'previous-run', order: 0, description: 'keep' });
+    const discardedAnchorId = crypto.randomUUID();
+    const discardedAnchor = makeStep({
+      id: discardedAnchorId,
+      sessionId,
+      runId: 'discarded-run',
+      groupId: discardedAnchorId,
+      bounds: null,
+      order: 1,
+    });
+    const discardedAnnotation = makeStep({
+      sessionId,
+      runId: 'discarded-run',
+      groupId: discardedAnchorId,
+      screenshotBlob: undefined,
+      order: 2,
+    });
+    const later = makeStep({ sessionId, runId: 'later-run', order: 3, description: 'also keep' });
+    await Promise.all([previous, discardedAnchor, discardedAnnotation, later].map(addStep));
+
+    await deleteStepsForRun(sessionId, 'discarded-run');
+
+    expect((await getSteps(sessionId)).map(({ id, order, description }) => ({ id, order, description }))).toEqual([
+      { id: previous.id, order: 0, description: 'keep' },
+      { id: later.id, order: 1, description: 'also keep' },
+    ]);
+  });
+
+  it('restores deleted rows and their original order in one transaction', async () => {
+    const sessionId = crypto.randomUUID();
+    const first = makeStep({ sessionId, order: 0 });
+    const restored = makeStep({ sessionId, order: 1, description: 'restore me' });
+    const last = makeStep({ sessionId, order: 2 });
+    await Promise.all([first, restored, last].map(addStep));
+    await deleteStepsAndReorder(sessionId, [restored.id], [first.id, last.id]);
+
+    await restoreStepsAndReorder(sessionId, [restored], [first.id, restored.id, last.id]);
+
+    expect((await getSteps(sessionId)).map(({ id, order, description }) => ({ id, order, description }))).toEqual([
+      { id: first.id, order: 0, description: '' },
+      { id: restored.id, order: 1, description: 'restore me' },
+      { id: last.id, order: 2, description: '' },
     ]);
   });
 });

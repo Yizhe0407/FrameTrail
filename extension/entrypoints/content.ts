@@ -17,6 +17,7 @@ import { orchestrateStepCapture, type ScrollSnapshot } from '@/lib/step-capture'
 import {
   isInScrollableElementGutter,
   isInScrollbarGutter,
+  isMatchingSnapshotViewport,
   isPointInsideViewport,
 } from '@/lib/recording-guards';
 import {
@@ -41,6 +42,7 @@ import type {
   RecordingControlMessage,
   RecordingControlResult,
   RecordingState,
+  SnapshotInvalidatedMessage,
 } from '@/lib/messages';
 
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
@@ -509,10 +511,13 @@ export default defineContentScript({
       if (shouldFreezeSnapshot) installSnapshotFrameProbe(runId);
       return;
     }
-    const snapshotOrigin = {
+    const snapshotViewportContract = recordingState.snapshotViewport ?? {
+      width: window.innerWidth,
+      height: window.innerHeight,
       scrollX: window.scrollX,
       scrollY: window.scrollY,
     };
+    const snapshotDevicePixelRatioContract = recordingState.snapshotDevicePixelRatio ?? window.devicePixelRatio;
 
     let lastTarget: Element | null = null;
     let lastTime = 0;
@@ -533,6 +538,8 @@ export default defineContentScript({
     let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
     let snapshotInteractionsActive = false;
+    let snapshotInvalidationSent = recordingState.phase === 'invalidated';
+    let snapshotDprQuery: MediaQueryList | null = null;
     let stepPreview: StepPreview | null = null;
     let stepPreviewFrame: number | null = null;
     let stepPreviewPoint: { clientX: number; clientY: number } | null = null;
@@ -544,6 +551,43 @@ export default defineContentScript({
     const selectedSnapshotRects = new Set<string>();
     const selectedSnapshotHistory: ResolvedSnapshotTarget[] = [];
     let undoneSnapshotTarget: ResolvedSnapshotTarget | null = null;
+
+    const readSnapshotViewport = (): ClickCapture['viewport'] => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+    const notifySnapshotInvalidated = () => {
+      if (!shouldFreezeSnapshot || !snapshotInteractionsActive || snapshotInvalidationSent) return;
+      const viewport = readSnapshotViewport();
+      if (
+        isMatchingSnapshotViewport(
+          snapshotViewportContract,
+          snapshotDevicePixelRatioContract,
+          viewport,
+          window.devicePixelRatio,
+        )
+      ) {
+        return;
+      }
+      snapshotInvalidationSent = true;
+      snapshotInteractionsActive = false;
+      void browser.runtime.sendMessage({
+        type: 'SNAPSHOT_INVALIDATED',
+        runId,
+        viewport,
+        devicePixelRatio: window.devicePixelRatio,
+      } satisfies SnapshotInvalidatedMessage).catch((error) => {
+        console.error('[frametrail] failed to invalidate changed snapshot viewport', error);
+      });
+    };
+    const onSnapshotDprChange = () => {
+      notifySnapshotInvalidated();
+      snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
+      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
+    };
 
     const beginStepGesture = (target: Element) => {
       let cancel!: () => void;
@@ -895,6 +939,7 @@ export default defineContentScript({
         resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
       );
       if (
+        !snapshotInteractionsActive ||
         !target ||
         (target.element ? selectedSnapshotElements.has(target.element) : false) ||
         selectedSnapshotTargets.has(target.identity) ||
@@ -917,7 +962,7 @@ export default defineContentScript({
         resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
       );
       const now = Date.now();
-      if (!target) return null;
+      if (!snapshotInteractionsActive || !target) return null;
       if (
         (target.element ? selectedSnapshotElements.has(target.element) : false) ||
         selectedSnapshotTargets.has(target.identity) ||
@@ -1008,16 +1053,15 @@ export default defineContentScript({
       event.preventDefault();
       event.stopImmediatePropagation();
     };
-    const onSnapshotScroll = () => {
-      if (window.scrollX !== snapshotOrigin.scrollX || window.scrollY !== snapshotOrigin.scrollY) {
-        window.scrollTo(snapshotOrigin.scrollX, snapshotOrigin.scrollY);
-      }
-    };
+    const onSnapshotScroll = () => notifySnapshotInvalidated();
     if (shouldFreezeSnapshot) {
       for (const type of SNAPSHOT_FREEZE_EVENTS) {
         window.addEventListener(type, onSnapshotFreeze, { capture: true, passive: false });
       }
       window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
+      window.addEventListener('resize', notifySnapshotInvalidated, { passive: true });
+      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
     }
 
     const toToolbarState = (state: RecordingState) => ({
@@ -1048,6 +1092,10 @@ export default defineContentScript({
     const unsubscribeRecordingState = onRecordingStateChange((state) => {
       if (state.runId !== runId) return;
       recorderPaused = state.phase === 'paused';
+      if (isSnapshotMode) {
+        snapshotInteractionsActive = state.phase === 'recording';
+        if (state.phase === 'invalidated') snapshotInvalidationSent = true;
+      }
       if (recorderPaused) suspendStepPreview();
       recordingToolbar?.update(toToolbarState(state));
       snapshotShield?.updateToolbar(toToolbarState(state));
@@ -1075,6 +1123,7 @@ export default defineContentScript({
       }
       if (message?.type === 'FRAME_TRAIL_SNAPSHOT_ACTIVE' && message.runId === runId) {
         snapshotInteractionsActive = true;
+        notifySnapshotInvalidated();
         return Promise.resolve(true);
       }
     };
@@ -1101,6 +1150,9 @@ export default defineContentScript({
           window.removeEventListener(type, onSnapshotFreeze, { capture: true });
         }
         window.removeEventListener('scroll', onSnapshotScroll, { capture: true });
+        window.removeEventListener('resize', notifySnapshotInvalidated);
+        snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
+        snapshotDprQuery = null;
       }
       snapshotShield?.remove();
       snapshotShield = null;
@@ -1129,6 +1181,7 @@ export default defineContentScript({
       snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl);
       try {
         await snapshotShield.ready;
+        snapshotShield.updateToolbar(toToolbarState(recordingState));
         await waitForNextFrame();
         await waitForNextFrame();
       } catch (err) {

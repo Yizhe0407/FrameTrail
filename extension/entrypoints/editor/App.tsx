@@ -6,20 +6,31 @@ import {
   deleteStepsAndReorder,
   entryId,
   flattenEntries,
+  getSteps,
   reorderSteps,
+  restoreStepsAndReorder,
   type Step,
   type StepEntry,
 } from '@/lib/db';
+import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/EditorHeader';
 import StepRail from '@/components/StepRail';
 import StepStage from '@/components/StepStage';
 import EmptyState from '@/components/EmptyState';
 import Lightbox from '@/components/Lightbox';
-import ConfirmationDialog from '@/components/ConfirmationDialog';
+import UndoSnackbar from '@/components/UndoSnackbar';
 
-function App() {
-  const { sessionId, isRecording, steps, error, refresh } = useRecordingSession();
+interface UndoAction {
+  id: number;
+  message: string;
+  restoreSelectionId?: string;
+  restore: () => Promise<void>;
+}
+
+function EditorApp() {
+  const { sessionId, tabId, isRecording, steps, error, refresh } = useRecordingSession();
+  const { flushAll } = useEditorSaveRegistry();
   const dbEntries = useMemo(() => buildStepEntries(steps), [steps]);
 
   // Optimistic entries state: when a drag reorder happens we update this
@@ -30,6 +41,8 @@ function App() {
   const [optimisticEntries, setOptimisticEntries] = useState<StepEntry[] | null>(null);
   const [dataOperation, setDataOperation] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
+  const undoSequence = useRef(0);
   useEffect(() => {
     if (!dataOperation) setOptimisticEntries(null);
   }, [dbEntries, dataOperation]);
@@ -39,7 +52,10 @@ function App() {
   const requestedEntryId = useMemo(() => new URLSearchParams(window.location.search).get('entryId'), []);
   const appliedRequestedEntry = useRef(false);
   const [zoomOpen, setZoomOpen] = useState(false);
-  const [entryPendingDelete, setEntryPendingDelete] = useState<StepEntry | null>(null);
+
+  useEffect(() => {
+    if (isRecording) setUndoAction(null);
+  }, [isRecording]);
 
   // Keep the selection valid as entries come and go (new steps while
   // recording, deletions, reorders) — default to the first entry and fall
@@ -62,14 +78,47 @@ function App() {
   const selectedIndex = entries.findIndex((e) => entryId(e) === selectedEntryId);
   const selectedEntry: StepEntry | undefined = selectedIndex === -1 ? undefined : entries[selectedIndex];
 
+  async function flushDescriptions(): Promise<void> {
+    try {
+      await flushAll();
+    } catch (saveError) {
+      console.error('完成編輯器操作前儲存說明失敗', saveError);
+      setOperationError('尚有說明無法儲存。請重試後再繼續。');
+      throw saveError;
+    }
+  }
+
+  async function selectEntry(id: string) {
+    if (id === selectedEntryId || dataOperation) return;
+    try {
+      await flushDescriptions();
+      setOperationError(null);
+      setSelectedEntryId(id);
+    } catch {
+      // Keep the current field mounted so its unsaved draft remains available.
+    }
+  }
+
+  async function stepsForExport(): Promise<Step[]> {
+    await flushDescriptions();
+    return sessionId ? getSteps(sessionId) : steps;
+  }
+
   async function persistReorder(newEntries: StepEntry[], previousEntries: StepEntry[], operation: string) {
     if (!sessionId || dataOperation || isRecording) return;
+    await flushDescriptions();
+    setUndoAction(null);
     setOptimisticEntries(newEntries);
     setDataOperation(operation);
     setOperationError(null);
     try {
       await reorderSteps(sessionId, flattenEntries(newEntries));
       await refresh();
+      setUndoAction({
+        id: ++undoSequence.current,
+        message: operation.includes('標注') ? '已更新標註順序' : '已更新步驟順序',
+        restore: () => reorderSteps(sessionId, flattenEntries(previousEntries)),
+      });
     } catch (err) {
       console.error('儲存步驟順序失敗', err);
       setOptimisticEntries(previousEntries);
@@ -85,7 +134,11 @@ function App() {
   }
 
   async function handleReorderEntries(newEntries: StepEntry[]) {
-    await persistReorder(newEntries, entries, '正在儲存步驟順序…');
+    try {
+      await persistReorder(newEntries, entries, '正在儲存步驟順序…');
+    } catch {
+      // flushDescriptions already exposes the actionable save error.
+    }
   }
 
   async function handleReorderAnnotations(anchorId: string, reordered: Step[]) {
@@ -93,22 +146,23 @@ function App() {
     const newEntries = previousEntries.map((e) =>
       e.kind === 'group' && e.anchor.id === anchorId ? { ...e, annotations: reordered } : e,
     );
-    await persistReorder(newEntries, previousEntries, '正在儲存標注順序…');
+    try {
+      await persistReorder(newEntries, previousEntries, '正在儲存標注順序…');
+    } catch {
+      // flushDescriptions already exposes the actionable save error.
+    }
   }
 
-  function requestDeleteEntry() {
+  async function deleteEntry() {
     if (!selectedEntry || dataOperation || isRecording) return;
-    setEntryPendingDelete(selectedEntry);
-  }
-
-  async function confirmDeleteEntry() {
-    if (!entryPendingDelete || dataOperation || isRecording) return;
-    const deletingEntry = entryPendingDelete;
+    await flushDescriptions();
+    const deletingEntry = selectedEntry;
     const deletingId = entryId(deletingEntry);
     const previousEntries = entries;
     const deletingIndex = previousEntries.findIndex((entry) => entryId(entry) === deletingId);
     const remaining = previousEntries.filter((e) => entryId(e) !== deletingId);
 
+    setUndoAction(null);
     setOptimisticEntries(remaining);
     setDataOperation('正在刪除步驟…');
     setOperationError(null);
@@ -122,8 +176,17 @@ function App() {
       const nextIndex = Math.min(Math.max(deletingIndex, 0), remaining.length - 1);
       setSelectedEntryId(nextIndex >= 0 ? entryId(remaining[nextIndex]) : null);
       setZoomOpen(false);
-      setEntryPendingDelete(null);
       await refresh();
+      const deletedSteps =
+        deletingEntry.kind === 'single'
+          ? [deletingEntry.step]
+          : [deletingEntry.anchor, ...deletingEntry.annotations];
+      setUndoAction({
+        id: ++undoSequence.current,
+        message: `已刪除步驟 ${deletingIndex + 1}`,
+        restoreSelectionId: deletingId,
+        restore: () => restoreStepsAndReorder(sessionId, deletedSteps, flattenEntries(previousEntries)),
+      });
     } catch (err) {
       console.error('刪除步驟失敗', err);
       setOperationError('步驟刪除失敗，已重新載入目前資料。');
@@ -140,18 +203,21 @@ function App() {
 
   async function handleDeleteAnnotation(step: Step) {
     if (dataOperation || isRecording) return;
+    await flushDescriptions();
     const previousEntries = entries;
     const deletingGroup = previousEntries.find(
       (entry): entry is Extract<StepEntry, { kind: 'group' }> =>
         entry.kind === 'group' && entry.anchor.id === step.groupId,
     );
     const removesEmptyGroup = deletingGroup?.annotations.length === 1;
+    const annotationIndex = deletingGroup?.annotations.findIndex((annotation) => annotation.id === step.id) ?? -1;
     const nextEntries = previousEntries.flatMap((entry) => {
       if (entry.kind !== 'group' || entry.anchor.id !== step.groupId) return [entry];
       if (removesEmptyGroup) return [];
       return [{ ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }];
     });
 
+    setUndoAction(null);
     setOptimisticEntries(nextEntries);
     setDataOperation('正在刪除標注…');
     setOperationError(null);
@@ -163,6 +229,13 @@ function App() {
         flattenEntries(nextEntries),
       );
       await refresh();
+      const deletedSteps = removesEmptyGroup ? [deletingGroup!.anchor, step] : [step];
+      setUndoAction({
+        id: ++undoSequence.current,
+        message: `已刪除標註 ${annotationIndex + 1}`,
+        restoreSelectionId: deletingGroup?.anchor.id,
+        restore: () => restoreStepsAndReorder(sessionId, deletedSteps, flattenEntries(previousEntries)),
+      });
     } catch (err) {
       console.error('刪除標注失敗', err);
       setOperationError('標注刪除失敗，已重新載入目前資料。');
@@ -177,9 +250,26 @@ function App() {
     }
   }
 
+  async function handleUndo() {
+    if (!undoAction || dataOperation || isRecording) return;
+    setDataOperation('正在還原…');
+    setOperationError(null);
+    try {
+      await undoAction.restore();
+      await refresh();
+      if (undoAction.restoreSelectionId) setSelectedEntryId(undoAction.restoreSelectionId);
+      setUndoAction(null);
+    } catch (undoError) {
+      console.error('還原編輯操作失敗', undoError);
+      setOperationError('無法還原，請再試一次。');
+    } finally {
+      setDataOperation(null);
+    }
+  }
+
   return (
     <div className="flex h-screen flex-col">
-      <EditorHeader isRecording={isRecording} steps={steps} />
+      <EditorHeader isRecording={isRecording} steps={steps} onBeforeExport={stepsForExport} />
       {(error || operationError) && (
         <div className="border-b border-stone-200 bg-stone-50 px-7 py-3 dark:border-stone-700 dark:bg-stone-900">
           <Alert variant={error || operationError ? 'destructive' : 'default'}>
@@ -190,13 +280,13 @@ function App() {
       )}
       <div className="flex min-h-0 flex-1">
         {entries.length === 0 || !selectedEntry ? (
-          <EmptyState />
+          <EmptyState isRecording={isRecording} recordingTabId={tabId} />
         ) : (
           <>
             <StepRail
               entries={entries}
               selectedEntryId={selectedEntryId}
-              onSelect={setSelectedEntryId}
+              onSelect={(id) => void selectEntry(id)}
               onReorder={handleReorderEntries}
               reorderDisabled={isRecording || dataOperation !== null}
             />
@@ -205,7 +295,7 @@ function App() {
               entry={selectedEntry}
               index={selectedIndex}
               onChange={refresh}
-              onDelete={async () => requestDeleteEntry()}
+              onDelete={deleteEntry}
               onDeleteAnnotation={handleDeleteAnnotation}
               onZoom={() => setZoomOpen(true)}
               onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
@@ -218,19 +308,26 @@ function App() {
         entries={entries}
         index={zoomOpen ? selectedIndex : null}
         onClose={() => setZoomOpen(false)}
-        onNavigate={(i) => setSelectedEntryId(entryId(entries[i]))}
+        onNavigate={(i) => void selectEntry(entryId(entries[i]))}
       />
-      <ConfirmationDialog
-        open={entryPendingDelete !== null}
-        title="刪除步驟？"
-        description="圖片、說明與所有標注將永久刪除，且無法復原。"
-        confirmLabel="刪除步驟"
-        pending={dataOperation === '正在刪除步驟…'}
-        onOpenChange={(open) => !open && setEntryPendingDelete(null)}
-        onConfirm={confirmDeleteEntry}
-      />
+      {undoAction && (
+        <UndoSnackbar
+          key={undoAction.id}
+          message={undoAction.message}
+          pending={dataOperation !== null}
+          aboveMobileRail={entries.length > 0}
+          onUndo={() => void handleUndo()}
+          onDismiss={() => setUndoAction(null)}
+        />
+      )}
     </div>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <EditorSaveProvider>
+      <EditorApp />
+    </EditorSaveProvider>
+  );
+}

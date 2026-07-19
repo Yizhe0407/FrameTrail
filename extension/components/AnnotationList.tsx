@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import {
   DndContext,
@@ -6,9 +6,11 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { updateStep, type Step } from '@/lib/db';
+import type { Step } from '@/lib/db';
 import { reorderById, restrictToVerticalAxis, useSortableSensors } from '@/lib/dnd';
+import { useStepDescriptionAutosave } from '@/lib/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
+import SaveStatus from './SaveStatus';
 import SortableItem from './SortableItem';
 
 interface RowProps {
@@ -21,36 +23,13 @@ interface RowProps {
 }
 
 function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHandle }: RowProps) {
-  const [description, setDescription] = useState(step.description);
-  const [pendingAction, setPendingAction] = useState<'save' | 'delete' | null>(null);
+  const { description, setDescription, status, error, flush } = useStepDescriptionAutosave(step, onChange);
+  const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setDescription(step.description);
-    setPendingAction(null);
-    setActionError(null);
-  }, [step.id, step.description]);
-
-  async function saveDescription() {
-    if (pendingAction || description === step.description) return;
-    const stepId = step.id;
-    const nextDescription = description;
-    setPendingAction('save');
-    setActionError(null);
-    try {
-      await updateStep(stepId, { description: nextDescription });
-      await onChange();
-    } catch (err) {
-      console.error('儲存標注說明失敗', err);
-      setActionError('標注說明儲存失敗，請再試一次。');
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
   async function handleDelete() {
-    if (pendingAction || deleteDisabled) return;
-    setPendingAction('delete');
+    if (deleting || deleteDisabled) return;
+    setDeleting(true);
     setActionError(null);
     try {
       await onDelete(step);
@@ -58,7 +37,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
       console.error('刪除標注失敗', err);
       setActionError('標注刪除失敗，請再試一次。');
     } finally {
-      setPendingAction(null);
+      setDeleting(false);
     }
   }
 
@@ -69,10 +48,11 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           {index + 1}
         </span>
         <Textarea
+          aria-label={`標註 ${index + 1} 說明`}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          onBlur={saveDescription}
-          disabled={pendingAction !== null}
+          onBlur={() => void flush().catch(() => undefined)}
+          disabled={deleteDisabled || deleting}
           placeholder="輸入標注說明…"
           rows={1}
           className="min-h-0 flex-1 resize-none border-transparent bg-transparent px-3 py-2 text-[13.5px] leading-[1.7] text-stone-700 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:text-stone-300"
@@ -81,22 +61,31 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           type="button"
           onClick={handleDelete}
           onPointerDown={(event) => event.preventDefault()}
-          disabled={deleteDisabled || pendingAction !== null}
+          disabled={deleteDisabled || deleting}
           aria-label={`刪除標注 ${index + 1}`}
           title={deleteDisabled ? '錄製期間無法刪除標注' : '刪除標注'}
           className="shrink-0 rounded-md p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-stone-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
         >
-          {pendingAction === 'delete' ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
         </button>
         {dragHandle}
       </div>
-      {(pendingAction === 'save' || actionError) && (
-        <div
-          role={actionError ? 'alert' : 'status'}
-          className={`mt-1 ml-8 flex items-center gap-1.5 text-xs ${actionError ? 'text-red-600 dark:text-red-400' : 'text-stone-400 dark:text-stone-500'}`}
-        >
-          {pendingAction === 'save' && <Loader2 className="size-3 animate-spin" />}
-          {actionError ?? '正在儲存…'}
+      <SaveStatus
+        status={status}
+        error={error}
+        onRetry={() => void flush().catch(() => undefined)}
+        className={`mt-1 ml-8 ${status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}`}
+      />
+      {actionError && (
+        <div role="alert" className="ml-8 flex min-h-6 items-center gap-2 text-xs text-red-700 dark:text-red-300">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            className="rounded px-1.5 py-1 font-medium text-blue-700 outline-none hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600 dark:text-blue-300 dark:hover:bg-blue-950/40"
+          >
+            重試刪除
+          </button>
         </div>
       )}
     </div>
@@ -126,10 +115,10 @@ export default function AnnotationList({ annotations, onChange, onDelete, onReor
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <label className="shrink-0 text-[11px] tracking-[.16em] text-stone-400 dark:text-stone-500">
+      <label className="shrink-0 text-xs font-medium text-stone-600 dark:text-stone-300">
         標注說明 · {annotations.length}
       </label>
-      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto rounded-xl border border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto rounded-md border border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}

@@ -189,6 +189,8 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
         'RESTORE_LAST_CAPTURE',
         'PREPARE_NEXT_SNAPSHOT',
         'CREATE_NEXT_SNAPSHOT',
+        'REBUILD_INVALIDATED_SNAPSHOT',
+        'DISCARD_CURRENT_RECORDING',
         'FINISH_RECORDING',
       ].includes(message.action as RecordingControlMessage['type']) &&
       (message.undoToken === undefined || typeof message.undoToken === 'string')

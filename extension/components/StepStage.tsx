@@ -49,16 +49,16 @@ export default function StepStage({
   }
 
   const headerRow = (
-    <div className="flex shrink-0 items-center justify-between">
+    <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         <span className="flex size-[30px] items-center justify-center rounded-full bg-stone-800 text-[13px] font-semibold tabular-nums text-stone-50 dark:bg-stone-100 dark:text-stone-900">
           {index + 1}
         </span>
-        <span className="text-xs tracking-[.1em] text-stone-400 dark:text-stone-500">
+        <span className="text-xs text-stone-500 dark:text-stone-400">
           {entry.kind === 'single' ? '步驟模式' : `快照模式 · ${entry.annotations.length} 個標注`}
         </span>
       </div>
-      <div className="flex items-center gap-3.5">
+      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3.5">
         {entry.kind === 'group' && (
           <label
             className={cn(
@@ -97,15 +97,15 @@ export default function StepStage({
 
   if (entry.kind === 'single') {
     return (
-      <main className="relative flex min-h-0 flex-1 min-w-0 flex-col items-center overflow-hidden bg-stone-100 px-16 pt-10 pb-8 dark:bg-stone-800">
-        <div className="flex w-full max-w-[1040px] min-h-0 flex-1 flex-col gap-5">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:overflow-hidden lg:px-16 lg:pt-10 lg:pb-8 dark:bg-stone-800">
+        <div className="flex w-full max-w-[1040px] flex-none flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-5">
           {headerRow}
           {errorNotice}
           <button
             type="button"
             onClick={onZoom}
             aria-label="放大圖片"
-            className="group relative min-h-0 w-full cursor-zoom-in overflow-hidden rounded-[14px] border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900"
+            className="group relative w-full shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm lg:min-h-0 lg:shrink dark:border-stone-700 dark:bg-stone-900"
           >
             <HighlightThumbnail
               blob={entry.step.screenshotBlob}
@@ -117,23 +117,28 @@ export default function StepStage({
             />
             {zoomHint}
           </button>
-          <DescriptionField key={entry.step.id} step={entry.step} onChange={onChange} />
+          <DescriptionField
+            key={entry.step.id}
+            step={entry.step}
+            onChange={onChange}
+            disabled={editingDisabled}
+          />
         </div>
       </main>
     );
   }
 
   return (
-    <main className="relative flex min-h-0 flex-1 min-w-0 flex-col gap-5 overflow-hidden bg-stone-100 px-9 pt-7 pb-7 dark:bg-stone-800">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:gap-5 lg:overflow-hidden lg:px-9 lg:pt-7 lg:pb-7 dark:bg-stone-800">
       {headerRow}
       {errorNotice}
-      <div className="flex min-h-0 flex-1 gap-7">
-        <div className="flex min-w-0 flex-1 items-center justify-center">
+      <div className="flex min-h-0 flex-none flex-col gap-5 lg:flex-1 lg:flex-row lg:gap-7">
+        <div className="flex min-w-0 shrink-0 items-center justify-center lg:flex-1">
           <button
             type="button"
             onClick={onZoom}
             aria-label="放大圖片"
-            className="group relative w-full cursor-zoom-in overflow-hidden rounded-[14px] border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900"
+            className="group relative w-full cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900"
           >
             <MultiHighlightThumbnail
               blob={entry.anchor.screenshotBlob}
@@ -147,7 +152,7 @@ export default function StepStage({
             {zoomHint}
           </button>
         </div>
-        <aside className="flex min-h-0 w-[400px] shrink-0 flex-col gap-2.5">
+        <aside className="flex min-h-[280px] w-full shrink-0 flex-col gap-2.5 lg:min-h-0 lg:w-[400px]">
           <AnnotationList
             annotations={entry.annotations}
             onChange={onChange}

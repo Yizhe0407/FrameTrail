@@ -118,7 +118,12 @@ describe('snapshot shield protocol', () => {
   });
 
   it('accepts the multi-snapshot controls and rejects unknown actions', () => {
-    for (const action of ['PREPARE_NEXT_SNAPSHOT', 'CREATE_NEXT_SNAPSHOT']) {
+    for (const action of [
+      'PREPARE_NEXT_SNAPSHOT',
+      'CREATE_NEXT_SNAPSHOT',
+      'REBUILD_INVALIDATED_SNAPSHOT',
+      'DISCARD_CURRENT_RECORDING',
+    ]) {
       expect(
         isSnapshotShieldPortMessage(
           { type: SNAPSHOT_SHIELD_CONTROL, token, requestId: 8, action },

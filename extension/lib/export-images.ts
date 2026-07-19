@@ -8,6 +8,20 @@ export function localDateStamp(date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+export interface ExportImagesResult {
+  filename: string;
+  itemCount: number;
+}
+
+export function isExportCancelledError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new DOMException('Export cancelled', 'AbortError');
+}
+
 function createStreamingZip() {
   const chunks: Uint8Array[] = [];
   let byteLength = 0;
@@ -49,11 +63,13 @@ function createStreamingZip() {
 export async function exportImagesAsZip(
   steps: Step[],
   onProgress?: (done: number, total: number) => void,
-): Promise<void> {
-  if (steps.length === 0) return;
+  signal?: AbortSignal,
+): Promise<ExportImagesResult | null> {
+  throwIfCancelled(signal);
+  if (steps.length === 0) return null;
 
   const entries = buildStepEntries(steps);
-  if (entries.length === 0) return;
+  if (entries.length === 0) return null;
   const pad = String(entries.length).length;
   let done = 0;
   const { archive, result } = createStreamingZip();
@@ -63,6 +79,7 @@ export async function exportImagesAsZip(
     // annotated JPEG as soon as it has emitted the corresponding archive
     // chunks, avoiding a decoded image for every step at once.
     for (const [index, entry] of entries.entries()) {
+      throwIfCancelled(signal);
       const annotated =
         entry.kind === 'single'
           ? await compositeHighlight(
@@ -76,12 +93,15 @@ export async function exportImagesAsZip(
               entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio,
               entry.anchor.numbered ?? false,
             );
+      throwIfCancelled(signal);
       const bytes = new Uint8Array(await annotated.arrayBuffer());
+      throwIfCancelled(signal);
       const file = new ZipPassThrough(`${String(index + 1).padStart(pad, '0')}.jpg`);
       archive.add(file);
       file.push(bytes, true);
       onProgress?.(++done, entries.length);
     }
+    throwIfCancelled(signal);
     archive.end();
   } catch (error) {
     archive.terminate();
@@ -89,12 +109,16 @@ export async function exportImagesAsZip(
   }
 
   const zipped = await result;
+  throwIfCancelled(signal);
 
   const blob = new Blob([zipped.slice()], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
+  const filename = `frame-trail-images-${localDateStamp()}.zip`;
   try {
-    await browser.downloads.download({ url, filename: `frame-trail-images-${localDateStamp()}.zip`, saveAs: true });
+    throwIfCancelled(signal);
+    await browser.downloads.download({ url, filename, saveAs: true });
   } finally {
     URL.revokeObjectURL(url);
   }
+  return { filename, itemCount: entries.length };
 }
