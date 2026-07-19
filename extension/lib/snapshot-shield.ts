@@ -376,6 +376,7 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
             clearTimeout(readyTimeout);
             resolveReady();
           }
+          frame.focus({ preventScroll: true });
           for (const selection of committedSelections) {
             const commitMessage: SnapshotShieldCommitMessage = {
               type: SNAPSHOT_SHIELD_COMMIT,

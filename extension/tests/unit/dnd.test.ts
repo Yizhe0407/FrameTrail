@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reorderById } from './dnd';
+import { reorderById } from '@/lib/dnd';
 
 describe('reorderById', () => {
   const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];

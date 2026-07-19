@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BADGE_RADIUS, getBadgeFontSize, layoutAnnotations, type AnnotationLayout } from './annotate';
+import { BADGE_RADIUS, getBadgeFontSize, layoutAnnotations, type AnnotationLayout } from '@/lib/annotate';
 
 function expectFiniteLayout(layout: AnnotationLayout): void {
   const values = [

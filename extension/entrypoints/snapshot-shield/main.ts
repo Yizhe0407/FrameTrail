@@ -58,6 +58,10 @@ function consume(event: Event): void {
   event.stopImmediatePropagation();
 }
 
+function ensureKeyboardFocus(): void {
+  if (!document.hasFocus()) window.focus();
+}
+
 function positionBox(element: HTMLElement, rect: SnapshotShieldRect): void {
   const left = Math.max(0, rect.x - HIGHLIGHT_PADDING);
   const top = Math.max(0, rect.y - HIGHLIGHT_PADDING);
@@ -247,6 +251,7 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    ensureKeyboardFocus();
     if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
       candidateOffset = 0;
     }
@@ -257,6 +262,7 @@ window.addEventListener('message', (event) => {
 
   const onPointerDown = (event: PointerEvent) => {
     consume(event);
+    ensureKeyboardFocus();
     if (capturing || event.button !== 0 || !event.isPrimary) return;
     if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
       candidateOffset = 0;

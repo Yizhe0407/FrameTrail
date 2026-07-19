@@ -85,6 +85,8 @@ pnpm dev
 ```bash
 cd extension
 pnpm test
+pnpm test:e2e
+pnpm test:all
 pnpm compile
 pnpm build
 pnpm build:firefox
@@ -94,13 +96,21 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前基準包含 17 個 Vitest 測試檔、64 項測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。自動測試與建置驗證範圍包括：
+目前基準包含 17 個 Vitest 測試檔、64 項 unit/integration 測試，以及 5 個 Playwright spec、18 項真實 Chromium E2E；合計 82 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+
+Unit 與 integration 覆蓋：
 
 - 快照啟動 READY gate、事件隔離、十字準星、hover 背壓、父子候選切換、同元素/同框去重與錄影 overlay 清理。
 - 一般文字與容器、open/slotted shadow root、disabled/inert、ARIA、SVG、canvas、custom element 與各種 image map。
 - 同來源、跨來源、巢狀、旋轉與斜切 iframe，以及不可存取 frame 的 timeout fallback。
 - 1,000 個分散標註與 1,000 個重疊標註的有界布局。
-- 編輯器刪除、拖曳、複製、說明編輯與圖片導覽不閃爍；所有破壞性確認使用 shadcn Dialog。
+- browser API mock 邊界、編輯器資料 transaction、object URL 共用與匯出資源清理。
+
+Chromium E2E 覆蓋：
+
+- production extension 的步驟/快照預覽、一般元素與控制項選取、原頁事件重播、快照輸入隔離、父子候選與去重。
+- 跨來源與巢狀 iframe 座標、無 probe frame 的 timeout fallback、步驟導覽後重新注入、快照導覽停止與空 anchor 清除。
+- popup 模式與編號設定、START/STOP、開啟 editor，以及 editor 說明、標注、兩層拖曳、Lightbox、Clipboard PNG、ZIP/JPEG、刪除與重置。
 
 ## 手動端到端測試
 

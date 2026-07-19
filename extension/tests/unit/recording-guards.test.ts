@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { RecordingState } from './messages';
+import type { RecordingState } from '@/lib/messages';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
-} from './recording-guards';
+} from '@/lib/recording-guards';
 
 const state: RecordingState = {
   isRecording: true,

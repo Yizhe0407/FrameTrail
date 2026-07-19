@@ -730,7 +730,7 @@ export default defineContentScript({
       if (!stepGesture) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (event.type === 'click') stepGesture.settle(true);
+      if (event.type === 'pointerup' || event.type === 'click') stepGesture.settle(true);
       if (event.type === 'pointercancel') stepGesture.settle(false);
     };
     if (!shouldFreezeSnapshot) {

@@ -26,12 +26,18 @@ pnpm dev:firefox
 
 ```bash
 pnpm test
+pnpm test:e2e
+pnpm test:all
 pnpm compile
 pnpm build
 pnpm build:firefox
 ```
 
-- `pnpm test`：執行 17 個 Vitest 測試檔、64 項測試。
+- `pnpm test:unit`：執行 11 個 unit 測試檔、47 項測試。
+- `pnpm test:integration`：執行 6 個 integration 測試檔、17 項測試。
+- `pnpm test`：一次執行上述 17 個 Vitest 測試檔、64 項測試。
+- `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行 5 個 Playwright spec、18 項 Chromium E2E。
+- `pnpm test:all`：依序執行 64 項 Vitest 與 18 項 E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。
@@ -44,3 +50,4 @@ pnpm zip:firefox
 ```
 
 擴充功能不需要啟動任何後端伺服器；錄製資料、圖片合成與 ZIP 匯出都在本機完成。
+E2E 所需的 fixture server 由 Playwright 自動啟停，測試架構詳見 [tests/README.md](./tests/README.md)。

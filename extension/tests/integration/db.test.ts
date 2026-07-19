@@ -9,7 +9,7 @@ import {
   reorderSteps,
   updateStep,
   type Step,
-} from './db';
+} from '@/lib/db';
 
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {

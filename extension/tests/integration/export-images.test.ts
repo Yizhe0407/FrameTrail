@@ -15,13 +15,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('wxt/browser', () => ({ browser: { downloads: { download: mocks.download } } }));
-vi.mock('./annotate', () => ({
+vi.mock('@/lib/annotate', () => ({
   compositeHighlight: mocks.composite,
   compositeMultiHighlight: mocks.composite,
 }));
 
-import { exportImagesAsZip, localDateStamp } from './export-images';
-import type { Step } from './db';
+import { exportImagesAsZip, localDateStamp } from '@/lib/export-images';
+import type { Step } from '@/lib/db';
 
 function step(order: number): Step {
   return {
@@ -59,7 +59,11 @@ describe('image export', () => {
 
     expect(mocks.composite).toHaveBeenCalledTimes(3);
     expect(mocks.maxActive).toBe(1);
-    expect(mocks.download).toHaveBeenCalledWith(expect.objectContaining({ url: 'blob:archive' }));
+    expect(mocks.download).toHaveBeenCalledWith({
+      url: 'blob:archive',
+      filename: expect.stringMatching(/^frame-trail-images-\d{4}-\d{2}-\d{2}\.zip$/),
+      saveAs: true,
+    });
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:archive');
     expect(createObjectURL).toHaveBeenCalledOnce();
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFrameProbeOutcome } from './frame-probe';
+import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
 
 describe('classifyFrameProbeOutcome', () => {
   it('falls back only when the frame transport times out', () => {

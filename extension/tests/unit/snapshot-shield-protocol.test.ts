@@ -10,7 +10,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
-} from './snapshot-shield-protocol';
+} from '@/lib/snapshot-shield-protocol';
 
 describe('snapshot shield protocol', () => {
   const token = 'run-token';

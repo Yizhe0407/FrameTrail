@@ -7,7 +7,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
-} from './snapshot-shield-protocol';
+} from '@/lib/snapshot-shield-protocol';
 
 const mocks = vi.hoisted(() => ({
   getURL: vi.fn((path: string) => `https://extension.test${path}`),
@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wxt/browser', () => ({ browser: { runtime: { getURL: mocks.getURL } } }));
 
-import { createSnapshotShield } from './snapshot-shield';
+import { createSnapshotShield } from '@/lib/snapshot-shield';
 
 afterEach(() => {
   document.documentElement.querySelectorAll('[data-frametrail-snapshot-shield]').forEach((element) => element.remove());
@@ -48,6 +48,7 @@ describe('createSnapshotShield', () => {
     const onHover = vi.fn(() => ({ rect: selection.rect, candidateOffset: 1 }));
     const shield = createSnapshotShield(onPoint, onHover);
     const frame = shadowRoot!.querySelector('iframe')!;
+    const focusFrame = vi.spyOn(frame, 'focus');
 
     frame.dispatchEvent(new Event('load'));
     const [initMessage, , transfer] = postMessage.mock.calls[0] as unknown as [
@@ -61,6 +62,7 @@ describe('createSnapshotShield', () => {
     framePort.start();
     framePort.postMessage({ type: SNAPSHOT_SHIELD_READY, token: initMessage.token });
     await shield.ready;
+    await vi.waitFor(() => expect(focusFrame).toHaveBeenCalledWith({ preventScroll: true }));
 
     const host = shadowRoot!.host as HTMLElement;
     expect(shield.runWithoutShield(() => ({

@@ -1,0 +1,308 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
+import { unzipSync } from 'fflate';
+import { test, expect } from '../support/fixture';
+import {
+  clickSnapshotTarget,
+  clickTarget,
+  readLatestDownload,
+  readSteps,
+  resetExtensionData,
+  startRecording,
+  stopRecording,
+  targetCenter,
+} from '../support/harness';
+
+async function recordStepTargets(appPage: Page, popupPage: Page, selectors: string[]): Promise<void> {
+  const initialCount = (await readSteps(popupPage)).length;
+  await startRecording(appPage, popupPage, 'steps');
+  for (const [index, selector] of selectors.entries()) {
+    await clickTarget(appPage, selector);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(initialCount + index + 1);
+  }
+  await stopRecording(popupPage);
+}
+
+async function recordSnapshotTargets(
+  appPage: Page,
+  popupPage: Page,
+  selectors: string[],
+  numbered = true,
+): Promise<void> {
+  const initialCount = (await readSteps(popupPage)).length;
+  await startRecording(appPage, popupPage, 'snapshot', numbered);
+  await expect.poll(async () => (await readSteps(popupPage)).length).toBe(initialCount + 1);
+  for (const [index, selector] of selectors.entries()) {
+    await clickSnapshotTarget(appPage, await targetCenter(appPage, selector));
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(initialCount + index + 2);
+  }
+  await stopRecording(popupPage);
+}
+
+async function openEditor(
+  extensionContext: BrowserContext,
+  extensionId: string,
+  expectedEntries: number,
+): Promise<Page> {
+  const editor = await extensionContext.newPage();
+  await editor.goto(`chrome-extension://${extensionId}/editor.html`);
+  await expect(editor.getByText(`步驟 · ${expectedEntries}`, { exact: true })).toBeVisible();
+  return editor;
+}
+
+async function dragBetween(page: Page, source: Locator, target: Locator): Promise<void> {
+  await source.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) throw new Error('Drag handle has no bounding box');
+
+  const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
+  const targetPoint = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+  await page.mouse.move(sourcePoint.x, sourcePoint.y);
+  await page.mouse.down();
+  await page.mouse.move(sourcePoint.x, sourcePoint.y + 8, { steps: 4 });
+  await page.mouse.move(targetPoint.x, targetPoint.y, { steps: 12 });
+  await page.waitForTimeout(100);
+  await page.mouse.up();
+}
+
+async function readClipboardPng(page: Page): Promise<{
+  type: string;
+  size: number;
+  signature: number[];
+  width: number;
+  height: number;
+}> {
+  return page.evaluate(async () => {
+    const items = await navigator.clipboard.read();
+    const item = items.find((candidate) => candidate.types.includes('image/png'));
+    if (!item) throw new Error('Clipboard does not contain a PNG image');
+    const blob = await item.getType('image/png');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const bitmap = await createImageBitmap(blob);
+    const result = {
+      type: blob.type,
+      size: blob.size,
+      signature: Array.from(bytes.slice(0, 8)),
+      width: bitmap.width,
+      height: bitmap.height,
+    };
+    bitmap.close();
+    return result;
+  });
+}
+
+test.describe('editor workflows', () => {
+  test.beforeEach(async ({ popupPage }) => {
+    await resetExtensionData(popupPage);
+  });
+
+  test('persists step and annotation edits, numbering, and annotation deletion', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
+    const editor = await openEditor(extensionContext, extensionId, 2);
+
+    const description = editor.getByPlaceholder('輸入步驟說明…');
+    await description.fill('更新後的步驟說明');
+    await description.press('Tab');
+    await expect.poll(async () => (await readSteps(popupPage))[0]?.description).toBe('更新後的步驟說明');
+
+    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await expect(editor.getByText('快照模式 · 2 個標注', { exact: true })).toBeVisible();
+    const annotations = editor.getByPlaceholder('輸入標注說明…');
+    await annotations.nth(0).fill('更新後的快照標注');
+    await annotations.nth(0).press('Tab');
+    await expect.poll(async () => (await readSteps(popupPage)).some(
+      (step) => step.description === '更新後的快照標注',
+    )).toBe(true);
+
+    const numbering = editor.getByRole('switch', { name: '順序編號' });
+    await expect(numbering).toBeChecked();
+    await numbering.click();
+    await expect(numbering).not.toBeChecked();
+    await expect.poll(async () => (await readSteps(popupPage)).filter((step) => step.groupId).every(
+      (step) => step.numbered === false,
+    )).toBe(true);
+
+    await editor.getByRole('button', { name: '刪除標注 2' }).click();
+    await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
+    expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
+  });
+
+  test('reorders timeline entries and annotations through their drag handles', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button', '#fixture-canvas']);
+    const editor = await openEditor(extensionContext, extensionId, 3);
+
+    const railHandles = editor.locator('nav').getByRole('button', { name: '拖曳排序' });
+    await expect(railHandles).toHaveCount(3);
+    await dragBetween(editor, railHandles.nth(0), railHandles.nth(2));
+    await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.description)).toEqual([
+      '標記 一般視覺容器',
+      '',
+      '標記 執行操作',
+      '標記 停用操作',
+      '標記 趨勢圖',
+      '標記 這是一段不可點擊的純文字',
+    ]);
+
+    await editor.reload();
+    await expect(editor.getByText('步驟 · 3', { exact: true })).toBeVisible();
+    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await expect(editor.getByText('快照模式 · 3 個標注', { exact: true })).toBeVisible();
+    const annotationPanel = editor.locator('aside');
+    const annotationHandles = annotationPanel.getByRole('button', { name: '拖曳排序' });
+    await expect(annotationHandles).toHaveCount(3);
+    await dragBetween(editor, annotationHandles.nth(0), annotationHandles.nth(2));
+    await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.description)).toEqual([
+      '標記 一般視覺容器',
+      '',
+      '標記 停用操作',
+      '標記 趨勢圖',
+      '標記 執行操作',
+      '標記 這是一段不可點擊的純文字',
+    ]);
+    await expect(annotationPanel.getByPlaceholder('輸入標注說明…').nth(0)).toHaveValue('標記 停用操作');
+    await expect(annotationPanel.getByPlaceholder('輸入標注說明…').nth(2)).toHaveValue('標記 執行操作');
+  });
+
+  test('navigates every timeline entry in the lightbox with buttons and arrow keys', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
+    const editor = await openEditor(extensionContext, extensionId, 3);
+
+    await editor.getByRole('button', { name: '放大圖片' }).click();
+    const dialog = editor.getByRole('dialog');
+    await expect(dialog.getByAltText('Step 1 放大')).toBeVisible();
+    await expect(dialog.getByText('1 / 3', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: '上一張' })).toBeDisabled();
+
+    await editor.keyboard.press('ArrowRight');
+    await expect(dialog.getByAltText('Step 2 放大')).toBeVisible();
+    await dialog.getByRole('button', { name: '下一張' }).click();
+    await expect(dialog.getByAltText('Step 3 放大')).toBeVisible();
+    await expect(dialog.getByText('3 / 3', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: '下一張' })).toBeDisabled();
+
+    await dialog.getByRole('button', { name: '上一張' }).click();
+    await expect(dialog.getByAltText('Step 2 放大')).toBeVisible();
+    await editor.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test('copies ordinary and snapshot entries as valid PNG images', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
+    const editor = await openEditor(extensionContext, extensionId, 2);
+
+    await editor.getByRole('button', { name: '複製圖片' }).click();
+    await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
+    const ordinaryPng = await readClipboardPng(editor);
+    expect(ordinaryPng).toMatchObject({
+      type: 'image/png',
+      signature: [137, 80, 78, 71, 13, 10, 26, 10],
+    });
+    expect(ordinaryPng.size).toBeGreaterThan(10_000);
+    expect(ordinaryPng.width).toBeGreaterThan(1_000);
+    expect(ordinaryPng.height).toBeGreaterThan(600);
+
+    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '複製圖片' }).click();
+    await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
+    const snapshotPng = await readClipboardPng(editor);
+    expect(snapshotPng).toMatchObject({
+      type: 'image/png',
+      signature: [137, 80, 78, 71, 13, 10, 26, 10],
+    });
+    expect(snapshotPng.size).toBeGreaterThan(10_000);
+  });
+
+  test('exports one valid JPEG per timeline entry in the ZIP archive', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
+    const editor = await openEditor(extensionContext, extensionId, 3);
+
+    const browserDownload = editor.waitForEvent('download');
+    await editor.getByRole('button', { name: '匯出圖片' }).click();
+    const download = await browserDownload;
+    const archivePath = await download.path();
+    if (!archivePath) throw new Error('Export download has no local path');
+
+    await expect.poll(async () => (await readLatestDownload(popupPage))?.state).toBe('complete');
+    const downloadRecord = await readLatestDownload(popupPage);
+    expect(downloadRecord?.mime).toBe('application/zip');
+    expect(path.extname(download.suggestedFilename())).toBe('.zip');
+
+    const files = unzipSync(new Uint8Array(await readFile(archivePath)));
+    expect(Object.keys(files).sort()).toEqual(['1.jpg', '2.jpg', '3.jpg']);
+    for (const bytes of Object.values(files)) {
+      expect(Array.from(bytes.slice(0, 3))).toEqual([0xff, 0xd8, 0xff]);
+      expect(Array.from(bytes.slice(-2))).toEqual([0xff, 0xd9]);
+      expect(bytes.byteLength).toBeGreaterThan(5_000);
+    }
+  });
+
+  test('requires confirmation before deleting an entry and resetting the session', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
+    const editor = await openEditor(extensionContext, extensionId, 2);
+
+    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '刪除', exact: true }).click();
+    const deleteDialog = editor.getByRole('dialog');
+    await expect(deleteDialog).toContainText('刪除步驟？');
+    await deleteDialog.getByRole('button', { name: '取消' }).click();
+    await expect(editor.getByText('步驟 · 2', { exact: true })).toBeVisible();
+
+    await editor.getByRole('button', { name: '刪除', exact: true }).click();
+    await editor.getByRole('dialog').getByRole('button', { name: '刪除步驟' }).click();
+    await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+
+    await editor.getByRole('button', { name: '重置', exact: true }).click();
+    const resetDialog = editor.getByRole('dialog');
+    await expect(resetDialog).toContainText('重置目前錄製？');
+    await resetDialog.getByRole('button', { name: '重置', exact: true }).click();
+    await expect(editor.getByText('尚未錄製任何步驟')).toBeVisible();
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(0);
+  });
+});

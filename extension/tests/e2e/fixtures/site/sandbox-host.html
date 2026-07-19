@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>FrameTrail Sandbox Fixture</title>
+    <style>
+      body { margin: 0; padding: 40px; background: #f5f5f4; font-family: Arial, sans-serif; }
+      iframe { display: block; width: 620px; height: 240px; border: 8px solid #d6d3d1; }
+    </style>
+  </head>
+  <body>
+    <iframe
+      id="sandbox-frame"
+      title="受限框架"
+      sandbox="allow-scripts"
+      srcdoc="<!doctype html><html><body style='margin:0;padding:24px'><p id='sandbox-text'>sandbox 純文字</p></body></html>"
+    ></iframe>
+  </body>
+</html>
