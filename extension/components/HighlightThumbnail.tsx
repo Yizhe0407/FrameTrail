@@ -3,8 +3,8 @@ import {
   HIGHLIGHT_COLOR,
   HIGHLIGHT_FILL_COLOR,
   HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_PADDING,
   HIGHLIGHT_RADIUS,
+  fitHighlightFrame,
 } from '@/lib/annotate';
 import { useObjectUrl } from '@/lib/useObjectUrl';
 import { cn } from '@/lib/utils';
@@ -70,12 +70,13 @@ export default function HighlightThumbnail({
     const contentHeight = nh * scale;
     const offsetLeft = img.offsetLeft + (boxWidth - contentWidth) / 2;
     const offsetTop = img.offsetTop + (boxHeight - contentHeight) / 2;
+    const frame = fitHighlightFrame(bounds, nw / dpr, nh / dpr);
 
     setBox({
-      left: offsetLeft + (bounds.x - HIGHLIGHT_PADDING) * dpr * scale,
-      top: offsetTop + (bounds.y - HIGHLIGHT_PADDING) * dpr * scale,
-      width: (bounds.width + HIGHLIGHT_PADDING * 2) * dpr * scale,
-      height: (bounds.height + HIGHLIGHT_PADDING * 2) * dpr * scale,
+      left: offsetLeft + frame.x * dpr * scale,
+      top: offsetTop + frame.y * dpr * scale,
+      width: frame.width * dpr * scale,
+      height: frame.height * dpr * scale,
       borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
       borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
     });

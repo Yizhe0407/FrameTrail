@@ -1,4 +1,5 @@
 import { expect, type Frame, type Page } from '@playwright/test';
+import { inflateSync } from 'node:zlib';
 
 declare const chrome: {
   runtime: {
@@ -20,6 +21,88 @@ declare const chrome: {
 };
 
 export type RecordingMode = 'steps' | 'snapshot';
+
+function decodePngRgba(input: Buffer): { width: number; height: number; channels: number; pixels: Uint8Array } {
+  if (input.readUInt32BE(0) !== 0x89504e47 || input.readUInt32BE(4) !== 0x0d0a1a0a) {
+    throw new Error('Expected a PNG screenshot.');
+  }
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const chunks: Buffer[] = [];
+  while (offset < input.length) {
+    const length = input.readUInt32BE(offset);
+    const type = input.toString('ascii', offset + 4, offset + 8);
+    const data = input.subarray(offset + 8, offset + 8 + length);
+    offset += 12 + length;
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+    } else if (type === 'IDAT') {
+      chunks.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+  }
+  if (bitDepth !== 8 || (colorType !== 2 && colorType !== 6)) {
+    throw new Error('Only 8-bit RGB/RGBA PNG screenshots are supported.');
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = width * channels;
+  const pixels = new Uint8Array(height * stride);
+  let source = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[source++];
+    const rowStart = y * stride;
+    const previousStart = rowStart - stride;
+    for (let x = 0; x < stride; x += 1) {
+      const left = x >= channels ? pixels[rowStart + x - channels] : 0;
+      const above = y > 0 ? pixels[previousStart + x] : 0;
+      const upperLeft = y > 0 && x >= channels ? pixels[previousStart + x - channels] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = above;
+      else if (filter === 3) predictor = Math.floor((left + above) / 2);
+      else if (filter === 4) {
+        const p = left + above - upperLeft;
+        const pa = Math.abs(p - left);
+        const pb = Math.abs(p - above);
+        const pc = Math.abs(p - upperLeft);
+        predictor = pa <= pb && pa <= pc ? left : pb <= pc ? above : upperLeft;
+      } else if (filter !== 0) {
+        throw new Error(`Unsupported PNG filter ${filter}.`);
+      }
+      pixels[rowStart + x] = (raw[source++] + predictor) & 0xff;
+    }
+  }
+  return { width, height, channels, pixels };
+}
+
+export async function readRootScrollbarSentinelPixels(page: Page): Promise<number> {
+  const decoded = decodePngRgba(await page.screenshot({ type: 'png' }));
+  const stripWidth = Math.min(24, decoded.width);
+  let count = 0;
+  for (let y = 0; y < decoded.height; y += 1) {
+    for (let x = decoded.width - stripWidth; x < decoded.width; x += 1) {
+      const index = (y * decoded.width + x) * decoded.channels;
+      const red = decoded.pixels[index];
+      const green = decoded.pixels[index + 1];
+      const blue = decoded.pixels[index + 2];
+      if (
+        (red > 170 && green < 100 && blue > 170) ||
+        (red < 100 && green > 170 && blue < 100) ||
+        (red < 100 && green > 170 && blue > 170) ||
+        (red > 170 && green > 170 && blue < 100)
+      ) count += 1;
+    }
+  }
+  return count;
+}
 
 export interface StoredStep {
   id: string;
@@ -107,8 +190,12 @@ export async function readLatestDownload(popup: Page): Promise<{
   });
 }
 
-export async function rawScreenshotRosePixels(popup: Page, stepId: string): Promise<number> {
-  return popup.evaluate(async (id) => {
+export async function rawScreenshotRosePixels(
+  popup: Page,
+  stepId: string,
+  boundsOverride?: { x: number; y: number; width: number; height: number },
+): Promise<number> {
+  return popup.evaluate(async ({ id, boundsOverride }) => {
     return await new Promise<number>((resolve, reject) => {
       const request = indexedDB.open('scribe', 3);
       request.onerror = () => reject(request.error);
@@ -118,7 +205,8 @@ export async function rawScreenshotRosePixels(popup: Page, stepId: string): Prom
         all.onerror = () => reject(all.error);
         all.onsuccess = async () => {
           const step = all.result.find((candidate) => candidate.id === id);
-          if (!step?.screenshotBlob || !step.bounds) {
+          const sampleBounds = boundsOverride ?? step?.bounds;
+          if (!step?.screenshotBlob || !sampleBounds) {
             db.close();
             reject(new Error(`Screenshot ${id} was not found`));
             return;
@@ -130,10 +218,10 @@ export async function rawScreenshotRosePixels(popup: Page, stepId: string): Prom
           context.drawImage(bitmap, 0, 0);
           bitmap.close();
           const scale = step.screenshotScale || step.devicePixelRatio || 1;
-          const left = Math.max(0, Math.floor((step.bounds.x - 10) * scale));
-          const top = Math.max(0, Math.floor((step.bounds.y - 10) * scale));
-          const right = Math.min(canvas.width, Math.ceil((step.bounds.x + step.bounds.width + 10) * scale));
-          const bottom = Math.min(canvas.height, Math.ceil((step.bounds.y + step.bounds.height + 10) * scale));
+          const left = Math.max(0, Math.floor((sampleBounds.x - 10) * scale));
+          const top = Math.max(0, Math.floor((sampleBounds.y - 10) * scale));
+          const right = Math.min(canvas.width, Math.ceil((sampleBounds.x + sampleBounds.width + 10) * scale));
+          const bottom = Math.min(canvas.height, Math.ceil((sampleBounds.y + sampleBounds.height + 10) * scale));
           const pixels = context.getImageData(left, top, right - left, bottom - top).data;
           let rosePixels = 0;
           for (let index = 0; index < pixels.length; index += 4) {
@@ -144,6 +232,71 @@ export async function rawScreenshotRosePixels(popup: Page, stepId: string): Prom
           }
           db.close();
           resolve(rosePixels);
+        };
+      };
+    });
+  }, { id: stepId, boundsOverride });
+}
+
+export async function readScreenshotScrollbarStats(popup: Page, stepId: string): Promise<{
+  width: number;
+  height: number;
+  rootSentinelPixels: number;
+  nestedSentinelPixels: number;
+}> {
+  return popup.evaluate(async (id) => {
+    return await new Promise<{
+      width: number;
+      height: number;
+      rootSentinelPixels: number;
+      nestedSentinelPixels: number;
+    }>((resolve, reject) => {
+      const request = indexedDB.open('scribe', 3);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const all = db.transaction('steps', 'readonly').objectStore('steps').getAll();
+        all.onerror = () => reject(all.error);
+        all.onsuccess = async () => {
+          try {
+            const step = all.result.find((candidate) => candidate.id === id);
+            if (!step?.screenshotBlob) throw new Error(`Screenshot ${id} was not found`);
+            const bitmap = await createImageBitmap(step.screenshotBlob);
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Canvas context is unavailable');
+            context.drawImage(bitmap, 0, 0);
+            const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+            const rootStripWidth = Math.min(24, bitmap.width);
+            let rootSentinelPixels = 0;
+            let nestedSentinelPixels = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+              const red = pixels[index];
+              const green = pixels[index + 1];
+              const blue = pixels[index + 2];
+              const x = (index / 4) % bitmap.width;
+              const magenta = red > 170 && green < 100 && blue > 170;
+              const greenTrack = red < 100 && green > 170 && blue < 100;
+              const cyanButton = red < 100 && green > 170 && blue > 170;
+              const yellowCorner = red > 170 && green > 170 && blue < 100;
+              if (
+                x >= bitmap.width - rootStripWidth &&
+                (magenta || greenTrack || cyanButton || yellowCorner)
+              ) {
+                rootSentinelPixels++;
+              }
+              const orangeThumb = red > 180 && green > 50 && green < 170 && blue < 80;
+              const blueTrack = red < 80 && green > 50 && green < 160 && blue > 180;
+              if (orangeThumb || blueTrack) nestedSentinelPixels++;
+            }
+            const result = { width: bitmap.width, height: bitmap.height, rootSentinelPixels, nestedSentinelPixels };
+            bitmap.close();
+            resolve(result);
+          } catch (error) {
+            reject(error);
+          } finally {
+            db.close();
+          }
         };
       };
     });

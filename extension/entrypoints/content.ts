@@ -3,6 +3,7 @@ import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
   findVisualTargetCandidates,
+  getComposedParent,
   getHighlightBounds,
   getVisibleHighlightBounds,
   intersectBounds,
@@ -12,6 +13,12 @@ import {
 } from '@/lib/selector-utils';
 import { createSnapshotShield, type SnapshotShield } from '@/lib/snapshot-shield';
 import { createStepPreview, type StepPreview } from '@/lib/step-preview';
+import { orchestrateStepCapture, type ScrollSnapshot } from '@/lib/step-capture';
+import {
+  isInScrollableElementGutter,
+  isInScrollbarGutter,
+  isPointInsideViewport,
+} from '@/lib/recording-guards';
 import {
   SNAPSHOT_TARGET_OFFSET_LIMIT,
   type SnapshotShieldPointerDownMessage,
@@ -24,7 +31,12 @@ import { getRecordingState } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
 import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
 import { createImageCoordinateMapper } from '@/lib/image-geometry';
-import type { ClickCapture, ClickCaptureResult, FrameTrailStopMessage } from '@/lib/messages';
+import type {
+  ClickCapture,
+  ClickCaptureResult,
+  FrameTrailSnapshotActiveMessage,
+  FrameTrailStopMessage,
+} from '@/lib/messages';
 
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
@@ -35,6 +47,11 @@ const FRAME_PROBE_MESSAGE = `frame_trail_snapshot_probe_${browser.runtime.id}`;
 const FRAME_PROBE_TIMEOUT_MS = 120;
 const FRAME_PROBE_CHILD_BUDGET_MS = 20;
 const FRAME_PROBE_RETRY_DELAY_MS = 2_000;
+// Only a genuinely hung capture should hit this; normal-latency captures (even
+// throttled) settle well under it, so they never lose the race to the replay.
+const CAPTURE_FAILSAFE_MS = 2_000;
+const LATE_CLICK_SUPPRESS_MS = 2_000;
+const STEP_PREVIEW_FALLBACK_MS = 750;
 const timedOutFrameProbes = new WeakMap<HTMLIFrameElement, { runId: string; retryAt: number }>();
 
 const SNAPSHOT_FREEZE_EVENTS = [
@@ -70,6 +87,39 @@ function isOutOfViewport(rect: { x: number; y: number; width: number; height: nu
   const right = rect.x + rect.width;
   const bottom = rect.y + rect.height;
   return rect.y < 0 || rect.x < 0 || bottom > window.innerHeight || right > window.innerWidth;
+}
+
+function isScrollableElement(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement)) return false;
+  const style = getComputedStyle(element);
+  const overflowX = style.overflowX || style.overflow;
+  const overflowY = style.overflowY || style.overflow;
+  return (
+    (['auto', 'scroll', 'overlay'].includes(overflowX) && element.scrollWidth > element.clientWidth) ||
+    (['auto', 'scroll', 'overlay'].includes(overflowY) && element.scrollHeight > element.clientHeight)
+  );
+}
+
+function getScrollableAncestors(target: Element): Element[] {
+  const ancestors: Element[] = [];
+  let ancestor = getComposedParent(target);
+  while (ancestor) {
+    if (isScrollableElement(ancestor)) ancestors.push(ancestor);
+    ancestor = getComposedParent(ancestor);
+  }
+  return ancestors;
+}
+
+function readScrollSnapshot(target: Element): ScrollSnapshot {
+  return {
+    x: window.scrollX,
+    y: window.scrollY,
+    containers: getScrollableAncestors(target).map((element) => ({
+      element,
+      x: element.scrollLeft,
+      y: element.scrollTop,
+    })),
+  };
 }
 
 function snapshotRectKey(rect: SnapshotShieldRect): string {
@@ -461,10 +511,15 @@ export default defineContentScript({
     let lastTime = 0;
     let stepGesture: {
       target: Element;
-      settle: (shouldReplay: boolean) => void;
-      settled: Promise<boolean>;
-      timeout: ReturnType<typeof setTimeout>;
+      captureId: string;
+      isCancelled: () => boolean;
+      cancel: () => void;
+      cancelled: Promise<void>;
     } | null = null;
+    // While a capture is in flight the stored rect is pinned to this scroll
+    // position, so the screenshot pixels always match it. Null when idle.
+    let captureScrollLock: ScrollSnapshot | null = null;
+    const lockedScrollElements = new Set<Element>();
     let suppressLateClickTarget: Element | null = null;
     let suppressLateClickUntil = 0;
     let snapshotAnnotationNumber = 0;
@@ -473,21 +528,23 @@ export default defineContentScript({
     let stepPreview: StepPreview | null = null;
     let stepPreviewFrame: number | null = null;
     let stepPreviewPoint: { clientX: number; clientY: number } | null = null;
+    let stepPreviewObserver: MutationObserver | null = null;
+    let stepPreviewObservedTarget: Element | null = null;
+    let stepPreviewFallbackTimer: ReturnType<typeof setTimeout> | null = null;
     const selectedSnapshotTargets = new Set<string>();
     const selectedSnapshotElements = new WeakSet<Element>();
     const selectedSnapshotRects = new Set<string>();
 
     const beginStepGesture = (target: Element) => {
-      let settle!: (shouldReplay: boolean) => void;
-      const settled = new Promise<boolean>((resolve) => {
-        settle = resolve;
+      let cancel!: () => void;
+      let cancelledFlag = false;
+      const cancelled = new Promise<void>((resolve) => {
+        cancel = () => {
+          cancelledFlag = true;
+          resolve();
+        };
       });
-      const timeout = setTimeout(() => {
-        suppressLateClickTarget = target;
-        suppressLateClickUntil = Date.now() + 2_000;
-        settle(true);
-      }, 1_500);
-      stepGesture = { target, settle, settled, timeout };
+      stepGesture = { target, captureId: crypto.randomUUID(), isCancelled: () => cancelledFlag, cancel, cancelled };
       return stepGesture;
     };
 
@@ -505,36 +562,147 @@ export default defineContentScript({
         : null;
     };
 
+    const disconnectStepPreviewObserver = () => {
+      stepPreviewObserver?.disconnect();
+      stepPreviewObservedTarget = null;
+    };
+
+    const observeStepPreviewTarget = (target: Element | null) => {
+      if (!stepPreviewObserver || target === stepPreviewObservedTarget) return;
+      disconnectStepPreviewObserver();
+      if (!target) return;
+
+      const observedNodes = new Map<Node, MutationObserverInit>();
+      const mergeOptions = (node: Node, options: MutationObserverInit) => {
+        const current = observedNodes.get(node) ?? {};
+        observedNodes.set(node, {
+          childList: current.childList || options.childList,
+          attributes: current.attributes || options.attributes,
+          characterData: current.characterData || options.characterData,
+          subtree: current.subtree || options.subtree,
+          ...(current.attributes || options.attributes
+            ? { attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'] }
+            : {}),
+        });
+      };
+
+      // Observe content/style changes inside the selected target, direct child
+      // replacement in its DOM parent, and only style-affecting attributes on
+      // composed ancestors. Unrelated document subtrees produce no records.
+      mergeOptions(target, { subtree: true, childList: true, attributes: true, characterData: true });
+      if (target.parentNode) mergeOptions(target.parentNode, { childList: true });
+      let ancestor = getComposedParent(target);
+      while (ancestor) {
+        // Direct child replacement on any composed ancestor can detach the
+        // current target (for example a virtualized row replacing its wrapper).
+        // This remains bounded to the ancestor chain; no document subtree is
+        // observed.
+        mergeOptions(ancestor, { attributes: true, childList: true });
+        ancestor = getComposedParent(ancestor);
+      }
+      for (const [node, options] of observedNodes) stepPreviewObserver.observe(node, options);
+      stepPreviewObservedTarget = target;
+    };
+
+    const stopStepPreviewFallback = () => {
+      if (stepPreviewFallbackTimer !== null) clearTimeout(stepPreviewFallbackTimer);
+      stepPreviewFallbackTimer = null;
+    };
+
+    const armStepPreviewFallback = () => {
+      if (!stepPreview || !stepPreviewPoint || stepGesture || stepPreviewFallbackTimer !== null) return;
+      stepPreviewFallbackTimer = setTimeout(() => {
+        stepPreviewFallbackTimer = null;
+        scheduleStepPreview();
+        armStepPreviewFallback();
+      }, STEP_PREVIEW_FALLBACK_MS);
+    };
+
     const renderStepPreview = () => {
       stepPreviewFrame = null;
       if (!stepPreview || !stepPreviewPoint || stepGesture) {
+        disconnectStepPreviewObserver();
         stepPreview?.hide();
         return;
       }
       const { clientX, clientY } = stepPreviewPoint;
       const target = resolvePrimaryVisualTarget(clientX, clientY);
       const bounds = target ? getVisibleHighlightBounds(target, clientX, clientY) : null;
+      observeStepPreviewTarget(target);
       if (bounds) stepPreview.show(bounds);
       else stepPreview.hide();
+      armStepPreviewFallback();
     };
 
     const scheduleStepPreview = () => {
-      if (!stepPreview || stepPreviewFrame !== null) return;
+      if (!stepPreview || !stepPreviewPoint || stepGesture || stepPreviewFrame !== null) return;
       stepPreviewFrame = requestAnimationFrame(renderStepPreview);
     };
 
     const suspendStepPreview = () => {
       if (stepPreviewFrame !== null) cancelAnimationFrame(stepPreviewFrame);
       stepPreviewFrame = null;
+      disconnectStepPreviewObserver();
+      stopStepPreviewFallback();
       stepPreview?.hide();
+    };
+
+    const onStepScroll = () => {
+      // A queued capture is pinned to one viewport and every nested scrollport.
+      // Snap any user scroll back so the eventual screenshot pixels still match
+      // the stored rect; otherwise fall through to refresh the hover preview.
+      if (captureScrollLock) {
+        let changed = window.scrollX !== captureScrollLock.x || window.scrollY !== captureScrollLock.y;
+        if (changed) window.scrollTo(captureScrollLock.x, captureScrollLock.y);
+        for (const container of captureScrollLock.containers ?? []) {
+          if (container.element.scrollLeft !== container.x || container.element.scrollTop !== container.y) {
+            container.element.scrollLeft = container.x;
+            container.element.scrollTop = container.y;
+            changed = true;
+          }
+        }
+        if (changed) return;
+      }
+      scheduleStepPreview();
+    };
+
+    const setCaptureScrollLock = (lock: ScrollSnapshot | null) => {
+      for (const element of lockedScrollElements) {
+        element.removeEventListener('scroll', onStepScroll);
+      }
+      lockedScrollElements.clear();
+      captureScrollLock = lock;
+      for (const container of lock?.containers ?? []) {
+        container.element.addEventListener('scroll', onStepScroll, { passive: true });
+        lockedScrollElements.add(container.element);
+      }
     };
 
     const onStepPointerMove = (event: PointerEvent) => {
       stepPreviewPoint = { clientX: event.clientX, clientY: event.clientY };
       scheduleStepPreview();
+      armStepPreviewFallback();
     };
 
     const onStepPointerOut = (event: PointerEvent) => {
+      if (event.relatedTarget) return;
+      if (
+        isPointInsideViewport(event.clientX, event.clientY, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
+      ) {
+        // Virtualized pages can detach the old target during scroll and emit a
+        // null-relatedTarget pointerout even though the cursor never left the
+        // viewport. Keep the point and resolve whatever moved underneath it.
+        scheduleStepPreview();
+        return;
+      }
+      stepPreviewPoint = null;
+      suspendStepPreview();
+    };
+
+    const onStepPointerLeave = (event: PointerEvent) => {
       if (event.relatedTarget) return;
       stepPreviewPoint = null;
       suspendStepPreview();
@@ -545,9 +713,11 @@ export default defineContentScript({
       target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
       intent: ClickCapture['intent'],
       now: number,
+      captureId: string = crypto.randomUUID(),
     ): Promise<boolean> => {
       const payload: ClickCapture = {
         type: 'FRAME_TRAIL_CLICK',
+        captureId,
         runId,
         rect,
         devicePixelRatio: window.devicePixelRatio,
@@ -575,37 +745,43 @@ export default defineContentScript({
       initialClientY: number,
       intent: ClickCapture['intent'],
       now: number,
-    ): Promise<SnapshotShieldRect | null> => {
+      captureId: string,
+      shouldCancel: () => boolean,
+    ): Promise<boolean> => {
       try {
         let clientX = initialClientX;
         let clientY = initialClientY;
         let rect = getHighlightBounds(el, clientX, clientY);
-        if (!rect) return null;
+        if (!rect) return false;
 
         if (!shouldFreezeSnapshot && isOutOfViewport(rect)) {
           const before = el.getBoundingClientRect();
           el.scrollIntoView({ block: 'center', behavior: 'instant' });
           await waitForNextFrame();
+          if (shouldCancel()) return false;
           const after = el.getBoundingClientRect();
           clientX += after.left - before.left;
           clientY += after.top - before.top;
           rect = getHighlightBounds(el, clientX, clientY);
-          if (!rect) return null;
+          if (!rect) return false;
         }
         rect = getVisibleHighlightBounds(el, clientX, clientY);
-        if (!rect) return null;
+        if (!rect) return false;
+        if (shouldCancel()) return false;
 
-        return (await sendCapture(
+        // Pin scrolling from here until the screenshot actually lands so nothing
+        // shifts the pixels out from under this rect (auto-scroll included).
+        setCaptureScrollLock(readScrollSnapshot(el));
+        return sendCapture(
           rect,
           { text: describeElement(el), tagName: el.tagName.toLowerCase() },
           intent,
           now,
-        ))
-          ? rect
-          : null;
+          captureId,
+        );
       } catch (err) {
         console.error('[frametrail] sendMessage failed', err);
-        return null;
+        return false;
       }
     };
 
@@ -613,9 +789,21 @@ export default defineContentScript({
       const pe = event as PointerEvent;
       if (pe.button !== 0 || !pe.isPrimary) return;
 
+      // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
+      // step: leave it untouched so the drag scrolls and no bogus step lands.
+      if (isInScrollbarGutter(pe.clientX, pe.clientY, document.documentElement)) return;
+      const pointTarget = deepElementFromPoint(pe.clientX, pe.clientY);
+      let gutterAncestor = pointTarget;
+      while (gutterAncestor) {
+        if (isInScrollableElementGutter(pe.clientX, pe.clientY, gutterAncestor)) return;
+        gutterAncestor = getComposedParent(gutterAncestor);
+      }
+
       const el = resolvePrimaryVisualTarget(pe.clientX, pe.clientY);
       if (!el) return;
       if (stepGesture) {
+        // A capture is still in flight; swallow the gesture so it cannot mutate
+        // the page before that screenshot lands.
         pe.preventDefault();
         pe.stopImmediatePropagation();
         return;
@@ -631,25 +819,55 @@ export default defineContentScript({
       pe.stopImmediatePropagation();
       const gesture = beginStepGesture(el);
 
-      try {
-        await stepPreview?.prepareForCapture();
-        await captureElement(
-          el,
-          pe.clientX,
-          pe.clientY,
-          isInteractiveElement(el) ? 'click' : 'mark',
-          now,
-        );
-      } finally {
-        const shouldReplay = await gesture.settled;
-        clearTimeout(gesture.timeout);
-        if (stepGesture === gesture) stepGesture = null;
-        if (shouldReplay && el.isConnected) {
+      const outcome = await orchestrateStepCapture({
+        failsafeMs: CAPTURE_FAILSAFE_MS,
+        cancelled: gesture.cancelled,
+        readScroll: () => readScrollSnapshot(el),
+        hidePreview: () => stepPreview?.prepareForCapture() ?? Promise.resolve(),
+        capture: () =>
+          captureElement(
+            el,
+            pe.clientX,
+            pe.clientY,
+            isInteractiveElement(el) ? 'click' : 'mark',
+            now,
+            gesture.captureId,
+            gesture.isCancelled,
+          ),
+        cancelCapture: async () => {
+          gesture.cancel();
+          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', captureId: gesture.captureId });
+        },
+        endGesture: () => {
+          // Capture window closed: stop swallowing page events. The scroll pin
+          // stays installed until restoreScroll has copied every ancestor back.
+          if (stepGesture === gesture) stepGesture = null;
+        },
+        restoreScroll: (origin) => {
+          setCaptureScrollLock(null);
+          if (window.scrollX !== origin.x || window.scrollY !== origin.y) {
+            window.scrollTo(origin.x, origin.y);
+          }
+          for (const container of origin.containers ?? []) {
+            container.element.scrollLeft = container.x;
+            container.element.scrollTop = container.y;
+          }
+        },
+        replay: () => {
+          if (!el.isConnected) return;
+          // A trailing trusted click can still arrive after the gesture cleared;
+          // suppress it so the page handler runs exactly once — from this replay.
+          suppressLateClickTarget = el;
+          suppressLateClickUntil = Date.now() + LATE_CLICK_SUPPRESS_MS;
           // click() preserves control/default behavior and bubbling page click
-          // handlers, but intentionally runs after the screenshot.
+          // handlers, but intentionally runs only after the screenshot.
           replayElementClick(el);
-        }
-        scheduleStepPreview();
+        },
+        resumePreview: () => scheduleStepPreview(),
+      });
+
+      if (outcome === 'timeout') {
+        console.warn('[frametrail] capture exceeded its failsafe budget; invalidated it before replaying the click');
       }
     };
 
@@ -709,8 +927,11 @@ export default defineContentScript({
       stepPreview = createStepPreview();
       window.addEventListener('pointermove', onStepPointerMove, { capture: true, passive: true });
       window.addEventListener('pointerout', onStepPointerOut, { capture: true, passive: true });
-      window.addEventListener('scroll', scheduleStepPreview, { capture: true, passive: true });
+      window.addEventListener('pointerleave', onStepPointerLeave, { capture: true, passive: true });
+      window.addEventListener('scroll', onStepScroll, { capture: true, passive: true });
+      window.addEventListener('scrollend', scheduleStepPreview, { capture: true, passive: true });
       window.addEventListener('resize', scheduleStepPreview, { passive: true });
+      stepPreviewObserver = new MutationObserver(scheduleStepPreview);
       document.addEventListener('pointerdown', onPointerDown, { capture: true });
     }
 
@@ -728,10 +949,12 @@ export default defineContentScript({
         return;
       }
       if (!stepGesture) return;
+      // Swallow the raw pointer sequence while the capture runs; the canonical
+      // click is replayed once the screenshot lands. Replay timing is driven by
+      // the capture, not by pointerup, so only cancellation matters here.
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (event.type === 'pointerup' || event.type === 'click') stepGesture.settle(true);
-      if (event.type === 'pointercancel') stepGesture.settle(false);
+      if (event.type === 'pointercancel') stepGesture.cancel();
     };
     if (!shouldFreezeSnapshot) {
       for (const type of STEP_FOLLOWUP_EVENTS) {
@@ -770,8 +993,15 @@ export default defineContentScript({
     };
     connectKeepAlive();
 
-    const onStopMessage = (message: FrameTrailStopMessage) => {
-      if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+    const onRecorderMessage = (message: FrameTrailStopMessage | FrameTrailSnapshotActiveMessage) => {
+      if (message?.type === 'FRAME_TRAIL_STOP') {
+        cleanup();
+        return;
+      }
+      if (message?.type === 'FRAME_TRAIL_SNAPSHOT_ACTIVE' && message.runId === runId) {
+        snapshotInteractionsActive = true;
+        return Promise.resolve(true);
+      }
     };
 
     const cleanup = () => {
@@ -779,8 +1009,14 @@ export default defineContentScript({
       if (!shouldFreezeSnapshot) {
         window.removeEventListener('pointermove', onStepPointerMove, { capture: true });
         window.removeEventListener('pointerout', onStepPointerOut, { capture: true });
-        window.removeEventListener('scroll', scheduleStepPreview, { capture: true });
+        window.removeEventListener('pointerleave', onStepPointerLeave, { capture: true });
+        window.removeEventListener('scroll', onStepScroll, { capture: true });
+        window.removeEventListener('scrollend', scheduleStepPreview, { capture: true });
         window.removeEventListener('resize', scheduleStepPreview);
+        stepPreviewObserver?.disconnect();
+        stepPreviewObserver = null;
+        stepPreviewObservedTarget = null;
+        stopStepPreviewFallback();
         for (const type of STEP_FOLLOWUP_EVENTS) {
           document.removeEventListener(type, onStepFollowup, { capture: true });
         }
@@ -798,18 +1034,18 @@ export default defineContentScript({
       stepPreview?.remove();
       stepPreview = null;
       if (stepGesture) {
-        clearTimeout(stepGesture.timeout);
-        stepGesture.settle(false);
+        stepGesture.cancel();
         stepGesture = null;
       }
+      setCaptureScrollLock(null);
       document.removeEventListener(CLEANUP_EVENT, cleanup);
-      browser.runtime.onMessage.removeListener(onStopMessage);
+      browser.runtime.onMessage.removeListener(onRecorderMessage);
       keepAliveStopped = true;
       if (keepAliveTimer) clearInterval(keepAliveTimer);
       keepAlivePort?.disconnect();
     };
     document.addEventListener(CLEANUP_EVENT, cleanup);
-    browser.runtime.onMessage.addListener(onStopMessage);
+    browser.runtime.onMessage.addListener(onRecorderMessage);
 
     if (shouldFreezeSnapshot) {
       snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover);
@@ -855,7 +1091,7 @@ export default defineContentScript({
       cleanup();
       return;
     }
-    snapshotInteractionsActive = true;
+    if (!shouldFreezeSnapshot) snapshotInteractionsActive = true;
 
     console.log('[frametrail] recorder ready on', location.href);
   },

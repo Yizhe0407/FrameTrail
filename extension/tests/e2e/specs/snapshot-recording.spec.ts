@@ -70,6 +70,91 @@ test.describe('snapshot recording', () => {
 
     await stopRecording(popupPage);
   });
+
+  test('reuses committed SVG nodes while relayout moves existing annotations', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    const shield = await getSnapshotFrame(appPage);
+    const firstPoint = await targetCenter(appPage, '#plain-text');
+    const secondPoint = await targetCenter(appPage, '#action-button');
+
+    await clickSnapshotTarget(appPage, firstPoint);
+    const firstTargetGroup = shield.locator('g[data-snapshot-selection-id="1"]', {
+      has: shield.locator('.snapshot-annotation__frame'),
+    });
+    await expect(firstTargetGroup).toHaveCount(1);
+    await firstTargetGroup.evaluate((element) => element.setAttribute('data-reconciliation-probe', 'retained'));
+
+    await clickSnapshotTarget(appPage, secondPoint);
+
+    await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(2);
+    await expect(firstTargetGroup).toHaveAttribute('data-reconciliation-probe', 'retained');
+    await stopRecording(popupPage);
+  });
+
+  test('keeps a committed frame fully painted when its target touches every viewport edge', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.evaluate(() => {
+      const target = document.createElement('button');
+      target.id = 'viewport-edge-target';
+      target.type = 'button';
+      target.textContent = 'Viewport edge target';
+      Object.assign(target.style, {
+        position: 'fixed',
+        inset: '0',
+        zIndex: '2147480000',
+        margin: '0',
+        padding: '0',
+        border: '0',
+        borderRadius: '0',
+        background: '#ffffff',
+      });
+      document.body.append(target);
+    });
+
+    const point = await targetCenter(appPage, '#viewport-edge-target');
+    await startRecording(appPage, popupPage, 'snapshot', false);
+    const shield = await getSnapshotFrame(appPage);
+    await clickSnapshotTarget(appPage, point);
+
+    const paintBounds = await shield.locator('.snapshot-annotation__frame').evaluate((element) => {
+      const frame = element as SVGRectElement;
+      const svg = frame.ownerSVGElement!;
+      const viewBox = svg.viewBox.baseVal;
+      const strokeWidth = Number(frame.getAttribute('stroke-width'));
+      const halfStroke = strokeWidth / 2;
+      return {
+        viewBox: { x: viewBox.x, y: viewBox.y, width: viewBox.width, height: viewBox.height },
+        strokeWidth,
+        left: frame.x.baseVal.value - halfStroke,
+        top: frame.y.baseVal.value - halfStroke,
+        right: frame.x.baseVal.value + frame.width.baseVal.value + halfStroke,
+        bottom: frame.y.baseVal.value + frame.height.baseVal.value + halfStroke,
+        frameWidth: frame.width.baseVal.value,
+        frameHeight: frame.height.baseVal.value,
+      };
+    });
+
+    expect(paintBounds.strokeWidth).toBeGreaterThan(0);
+    expect(paintBounds.frameWidth).toBeGreaterThan(0);
+    expect(paintBounds.frameHeight).toBeGreaterThan(0);
+    expect(paintBounds.left).toBeGreaterThanOrEqual(paintBounds.viewBox.x);
+    expect(paintBounds.top).toBeGreaterThanOrEqual(paintBounds.viewBox.y);
+    expect(paintBounds.right).toBeLessThanOrEqual(paintBounds.viewBox.x + paintBounds.viewBox.width);
+    expect(paintBounds.bottom).toBeLessThanOrEqual(paintBounds.viewBox.y + paintBounds.viewBox.height);
+    expect(paintBounds.left).toBe(paintBounds.viewBox.x);
+    expect(paintBounds.top).toBe(paintBounds.viewBox.y);
+    expect(paintBounds.right).toBe(paintBounds.viewBox.x + paintBounds.viewBox.width);
+    expect(paintBounds.bottom).toBe(paintBounds.viewBox.y + paintBounds.viewBox.height);
+
+    await stopRecording(popupPage);
+  });
 });
 
 declare global {

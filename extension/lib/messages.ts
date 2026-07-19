@@ -4,6 +4,8 @@ export type CaptureIntent = 'click' | 'mark';
 
 export interface ClickCapture {
   type: 'FRAME_TRAIL_CLICK';
+  /** Identifies one in-flight screenshot so a cancelled gesture can invalidate it. */
+  captureId: string;
   /** Identifies the exact recording run that injected the sender. */
   runId: string;
   rect: { x: number; y: number; width: number; height: number };
@@ -41,8 +43,21 @@ export interface FrameTrailStopMessage {
   type: 'FRAME_TRAIL_STOP';
 }
 
+/** Sent background -> the top-level snapshot recorder only after its clean
+ * anchor screenshot has been captured and persisted. Until this arrives the
+ * shield consumes input but does not show hover previews or accept marks. */
+export interface FrameTrailSnapshotActiveMessage {
+  type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE';
+  runId: string;
+}
+
 export interface ClickCaptureResult {
   ok: boolean;
+}
+
+export interface CancelCaptureMessage {
+  type: 'FRAME_TRAIL_CANCEL_CAPTURE';
+  captureId: string;
 }
 
 export interface RecorderReadyMessage {
@@ -58,7 +73,12 @@ export interface RecorderReadyMessage {
   };
 }
 
-export type BackgroundMessage = ClickCapture | StartRecordingMessage | StopRecordingMessage | RecorderReadyMessage;
+export type BackgroundMessage =
+  | ClickCapture
+  | CancelCaptureMessage
+  | StartRecordingMessage
+  | StopRecordingMessage
+  | RecorderReadyMessage;
 
 export interface RecordingState {
   isRecording: boolean;

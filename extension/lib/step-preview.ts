@@ -1,9 +1,9 @@
 import {
   HIGHLIGHT_COLOR,
   HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_PADDING,
   HIGHLIGHT_PREVIEW_FILL_COLOR,
   HIGHLIGHT_RADIUS,
+  fitHighlightFrame,
 } from './annotate';
 import type { Bounds } from './db';
 
@@ -113,14 +113,11 @@ export function createStepPreview(): StepPreview {
       if (removed) return;
       mount();
       showInTopLayer();
-      const left = Math.max(0, bounds.x - HIGHLIGHT_PADDING);
-      const top = Math.max(0, bounds.y - HIGHLIGHT_PADDING);
-      const right = Math.min(window.innerWidth, bounds.x + bounds.width + HIGHLIGHT_PADDING);
-      const bottom = Math.min(window.innerHeight, bounds.y + bounds.height + HIGHLIGHT_PADDING);
-      setImportantStyle(box, 'left', `${left}px`);
-      setImportantStyle(box, 'top', `${top}px`);
-      setImportantStyle(box, 'width', `${Math.max(0, right - left)}px`);
-      setImportantStyle(box, 'height', `${Math.max(0, bottom - top)}px`);
+      const frame = fitHighlightFrame(bounds, window.innerWidth, window.innerHeight);
+      setImportantStyle(box, 'left', `${frame.x}px`);
+      setImportantStyle(box, 'top', `${frame.y}px`);
+      setImportantStyle(box, 'width', `${frame.width}px`);
+      setImportantStyle(box, 'height', `${frame.height}px`);
       box.hidden = false;
       setImportantStyle(box, 'display', 'block');
     },

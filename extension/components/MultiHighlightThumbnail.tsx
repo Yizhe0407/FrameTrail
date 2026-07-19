@@ -71,9 +71,9 @@ export default function MultiHighlightThumbnail({
 }: Props) {
   const url = useObjectUrl(blob);
   const [boxes, setBoxes] = useState<BoxStyle[]>([]);
+  const [imageSize, setImageSize] = useState<{ url: string; width: number; height: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const annotationsRef = useRef(annotations);
-  annotationsRef.current = annotations;
+  const mapFrameRef = useRef<number | null>(null);
   const annotationSignature = useMemo(
     () =>
       annotations
@@ -81,29 +81,73 @@ export default function MultiHighlightThumbnail({
         .join('|'),
     [annotations],
   );
+  const stableAnnotations = useMemo(
+    () => annotations.map(({ bounds, order }) => ({ bounds: { ...bounds }, order })),
+    [annotationSignature],
+  );
+  const dpr = screenshotScale || 1;
+  const layouts = useMemo(() => {
+    if (!url || imageSize?.url !== url || !imageSize.width || !imageSize.height) return [];
+    return layoutAnnotations(stableAnnotations, imageSize.width / dpr, imageSize.height / dpr);
+  }, [dpr, imageSize, stableAnnotations, url]);
 
-  const computeBoxes = useCallback(() => {
+  const mapBoxes = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !img.naturalWidth || !img.naturalHeight) {
+    if (!img || imageSize?.url !== url || !imageSize.width || !imageSize.height) {
       setBoxes([]);
       return;
     }
-    const dpr = screenshotScale || 1;
-    const nw = img.naturalWidth;
-    const nh = img.naturalHeight;
+    const nw = imageSize.width;
+    const nh = imageSize.height;
     const renderedBox = img.getBoundingClientRect();
     const boxWidth = renderedBox.width || nw;
     const boxHeight = renderedBox.height || nh;
     const scale = fit === 'cover' ? Math.max(boxWidth / nw, boxHeight / nh) : Math.min(boxWidth / nw, boxHeight / nh);
-    const offsetLeft = img.offsetLeft + (boxWidth - nw * scale) / 2;
-    const offsetTop = img.offsetTop + (boxHeight - nh * scale) / 2;
+    const contentWidth = nw * scale;
+    const contentHeight = nh * scale;
+    const offsetLeft = img.offsetLeft + (boxWidth - contentWidth) / 2;
+    const offsetTop = img.offsetTop + (boxHeight - contentHeight) / 2;
+    const visibleLeft = Math.max(offsetLeft, img.offsetLeft);
+    const visibleTop = Math.max(offsetTop, img.offsetTop);
+    const visibleRight = Math.min(offsetLeft + contentWidth, img.offsetLeft + boxWidth);
+    const visibleBottom = Math.min(offsetTop + contentHeight, img.offsetTop + boxHeight);
     const mapX = (x: number) => offsetLeft + x * dpr * scale;
     const mapY = (y: number) => offsetTop + y * dpr * scale;
+    const fitCenter = (value: number, radius: number, start: number, end: number) => {
+      const extent = Math.max(end - start, 0);
+      return extent <= radius * 2
+        ? start + extent / 2
+        : Math.min(Math.max(value, start + radius), end - radius);
+    };
 
-    const layouts = layoutAnnotations(annotationsRef.current, nw / dpr, nh / dpr);
     setBoxes(
       layouts.map((layout) => {
         const badgeSize = Math.max(BADGE_RADIUS * 2 * dpr * scale, 14);
+        const markerSize = Math.max(MARKER_RADIUS * 2 * dpr * scale, 10);
+        const anchorLeft = fitCenter(mapX(layout.anchor.x), markerSize / 2, visibleLeft, visibleRight);
+        const anchorTop = fitCenter(mapY(layout.anchor.y), markerSize / 2, visibleTop, visibleBottom);
+        const badgeAnchorLeft = fitCenter(mapX(layout.badgeAnchor.x), badgeSize / 2, visibleLeft, visibleRight);
+        const badgeAnchorTop = fitCenter(mapY(layout.badgeAnchor.y), badgeSize / 2, visibleTop, visibleBottom);
+        const calloutLeft = layout.callout
+          ? fitCenter(mapX(layout.callout.x), badgeSize / 2, visibleLeft, visibleRight)
+          : null;
+        const calloutTop = layout.callout
+          ? fitCenter(mapY(layout.callout.y), badgeSize / 2, visibleTop, visibleBottom)
+          : null;
+        let leaderPoints = '';
+        if (layout.leader.length >= 2 && calloutLeft !== null && calloutTop !== null) {
+          const dx = calloutLeft - anchorLeft;
+          const dy = calloutTop - anchorTop;
+          const length = Math.hypot(dx, dy);
+          if (length > markerSize / 2 + badgeSize / 2) {
+            const ux = dx / length;
+            const uy = dy / length;
+            leaderPoints = [
+              `${anchorLeft + ux * markerSize / 2},${anchorTop + uy * markerSize / 2}`,
+              `${calloutLeft - ux * badgeSize / 2},${calloutTop - uy * badgeSize / 2}`,
+            ].join(' ');
+          }
+        }
 
         return {
           order: layout.order,
@@ -112,34 +156,56 @@ export default function MultiHighlightThumbnail({
           top: mapY(layout.frame.y),
           width: layout.frame.width * dpr * scale,
           height: layout.frame.height * dpr * scale,
-          anchorLeft: mapX(layout.anchor.x),
-          anchorTop: mapY(layout.anchor.y),
-          badgeAnchorLeft: mapX(layout.badgeAnchor.x),
-          badgeAnchorTop: mapY(layout.badgeAnchor.y),
-          calloutLeft: layout.callout ? mapX(layout.callout.x) : null,
-          calloutTop: layout.callout ? mapY(layout.callout.y) : null,
+          anchorLeft,
+          anchorTop,
+          badgeAnchorLeft,
+          badgeAnchorTop,
+          calloutLeft,
+          calloutTop,
           borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
           borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
           badgeSize,
           badgeFontSize: Math.max(getBadgeFontSize(layout.order, badgeSize), 7),
-          markerSize: Math.max(MARKER_RADIUS * 2 * dpr * scale, 10),
+          markerSize,
           markerRingWidth: Math.max(MARKER_RING_WIDTH * dpr * scale, 1),
           leaderWidth: Math.max(LEADER_LINE_WIDTH * dpr * scale, 1),
-          leaderPoints: layout.leader
-            .map((point) => `${mapX(point.x)},${mapY(point.y)}`)
-            .join(' '),
+          leaderPoints,
         };
       }),
     );
-  }, [annotationSignature, fit, screenshotScale]);
+  }, [dpr, fit, imageSize, layouts, url]);
+
+  const scheduleMapping = useCallback(() => {
+    if (mapFrameRef.current !== null) return;
+    mapFrameRef.current = requestAnimationFrame(() => {
+      mapFrameRef.current = null;
+      mapBoxes();
+    });
+  }, [mapBoxes]);
 
   useEffect(() => {
     const img = imgRef.current;
     if (!img) return;
-    const observer = new ResizeObserver(() => computeBoxes());
+    const observer = new ResizeObserver(scheduleMapping);
     observer.observe(img);
-    return () => observer.disconnect();
-  }, [url, computeBoxes]);
+    scheduleMapping();
+    return () => {
+      observer.disconnect();
+      if (mapFrameRef.current !== null) cancelAnimationFrame(mapFrameRef.current);
+      mapFrameRef.current = null;
+    };
+  }, [scheduleMapping, url]);
+
+  const onImageLoad = useCallback(() => {
+    const img = imgRef.current;
+    if (!img || !url) return;
+    setImageSize((current) => {
+      if (current?.url === url && current.width === img.naturalWidth && current.height === img.naturalHeight) {
+        return current;
+      }
+      return { url, width: img.naturalWidth, height: img.naturalHeight };
+    });
+  }, [url]);
 
   const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
 
@@ -150,7 +216,7 @@ export default function MultiHighlightThumbnail({
           ref={imgRef}
           src={url}
           alt={alt}
-          onLoad={() => computeBoxes()}
+          onLoad={onImageLoad}
           className={cn('block', imgClassName ?? defaultImgClass)}
           style={imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : undefined}
         />
@@ -196,6 +262,7 @@ export default function MultiHighlightThumbnail({
             </div>
           ) : (
             <div
+              data-frametrail-annotation-frame={box.order}
               className="pointer-events-none absolute box-border"
               style={{
                 left: box.left,

@@ -18,9 +18,14 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   extensionContext: async ({}, use, testInfo) => {
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'frametrail-playwright-'));
+    const requiresNativeScrollbars = testInfo.file.endsWith('capture-presentation.spec.ts');
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: process.env.PW_HEADED !== '1',
+      // Chromium normally adds --hide-scrollbars in headless mode. Only the
+      // presentation suite removes it, so CI exercises real scrollbar paint
+      // without changing geometry in unrelated E2E coverage.
+      ignoreDefaultArgs: requiresNativeScrollbars ? ['--hide-scrollbars'] : undefined,
       viewport: null,
       acceptDownloads: true,
       args: [
@@ -28,6 +33,9 @@ export const test = base.extend<Fixtures>({
         `--load-extension=${preparedExtensionPath}`,
         '--window-size=1280,900',
         '--force-device-scale-factor=1',
+        // Playwright adds --hide-scrollbars in headless mode. Chromium's
+        // explicit override keeps native scrollbars paintable for pixel tests.
+        ...(requiresNativeScrollbars || process.env.PW_HEADED === '1' ? ['--show-scrollbars'] : []),
         '--no-first-run',
         '--no-default-browser-check',
       ],

@@ -2,9 +2,6 @@ import type { Bounds } from './db';
 
 // Highlight geometry in CSS px, scaled by the screenshot pixel ratio.
 export const HIGHLIGHT_PADDING = 6;
-// Floor for the adaptive per-single padding below. Below this, a shrunk
-// frame reads as "no highlight" rather than a tight one.
-const MIN_PADDING = 1;
 export const HIGHLIGHT_RADIUS = 6;
 export const HIGHLIGHT_LINE_WIDTH = 2;
 export const HIGHLIGHT_COLOR = '#f43f5e';
@@ -33,10 +30,15 @@ const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
 // Minimum gap kept between a badge and a neighboring frame, marker or other
 // badge, so circles never touch even when targets are packed tight.
 const BADGE_CLEARANCE = 4;
-// Full collision-aware leader routing is deliberately bounded. Above this
-// point the density is already too high for individual obstacle avoidance to
-// remain legible, so a direct leader keeps layout work linear and predictable.
-const MAX_COLLISION_ROUTED_GROUP_SIZE = 100;
+// Anchors closer than this along the lane axis read as one visual cluster, so
+// their lane slots follow the step numbers (1,2,3…) instead of a sub-marker-
+// sized coordinate difference that would scramble the numbering.
+const ANCHOR_TIE_EPSILON = 8;
+// How far the whole lane is pushed outward, and how many pushes are tried,
+// when its first position collides with already-placed badges or frames.
+// Moving the lane as a block preserves the sorted slot order that keeps
+// leaders crossing-free; skipping individual slots would scramble it.
+const LANE_NUDGE_ATTEMPTS = 3;
 // The dot drawn at a coincident target's anchor. Leaders leave from its edge
 // rather than the target centre, so the line never sits under its own dot.
 // Exported so the CSS preview and canvas export size the marker identically.
@@ -48,12 +50,14 @@ export const MARKER_RING_WIDTH = 2;
 export const MARKER_INNER_RADIUS = MARKER_RADIUS * 0.4;
 
 // Two targets merge into one coincident group only when their intersection
-// covers most of the smaller one. A boolean "do the boxes touch" test chained
-// adjacent list rows — each sharing a hairline border with the next — into one
-// runaway cluster; requiring near-containment instead keeps merely-adjacent
-// rows as separate framed singles and merges only genuinely stacked or
-// duplicate targets. 0.4 sits below the ratio a row overlapping its neighbor
-// by a few px produces, yet well under the ~1.0 of truly coincident boxes.
+// covers most of *both* boxes (ratio against the larger area — the smaller of
+// the two per-box ratios). Duplicate or heavily stacked same-size targets
+// score near 1.0 and merge; merely-adjacent rows sharing a hairline border
+// score near 0 and stay separate framed singles. Crucially, a small target
+// inside a page-sized container scores near 0 too: measuring against the
+// smaller box instead used to read containment as coincidence, gluing every
+// target on the page into one giant pseudo-group whose leaders then criss-
+// crossed the whole screenshot.
 const MERGE_OVERLAP_RATIO = 0.4;
 
 export interface AnnotationPoint {
@@ -81,11 +85,14 @@ export interface AnnotationLayout {
    * this frame's own perimeter (corner or edge) that clears its neighbors. */
   badgeAnchor: AnnotationPoint;
   /** Present only for a coincident-group member. When set, the badge always
-   * renders here with a leader line — regardless of `numbered` — because the
-   * marker alone cannot carry the order number. */
+   * renders here — regardless of `numbered` — because the marker alone cannot
+   * carry the order number. */
   callout: AnnotationPoint | null;
-  /** Orthogonal (or, as a last resort, diagonal) leader path from the marker
-   * to its callout badge. */
+  /** Straight leader segment from the marker's edge to its callout badge's
+   * edge; empty when the badge sits close enough to touch the marker. Lane
+   * slots follow the anchors' order along the lane axis (one-sided boundary
+   * labeling), so leaders don't cross — except inside a sub-marker-sized
+   * anchor blob, where step-number order deliberately wins. */
   leader: AnnotationPoint[];
 }
 
@@ -97,6 +104,18 @@ export function getBadgeFontSize(order: number, diameter = BADGE_RADIUS * 2): nu
   return Math.max(Math.min(base, horizontalFit), Math.min(7, base));
 }
 
+/** Per-side highlight padding for a single, so a box squeezed on one side by a
+ * neighbor keeps its full padding on the other three (see
+ * {@link adaptiveSidePaddings}). */
+interface SidePadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Scalar inflate, kept for callers that never collide — group-member frames
+ * (rendered as marker dots) and {@link compositeHighlight}'s lone box. */
 function inflateBounds(bounds: Bounds, padding: number): Bounds {
   return {
     x: bounds.x - padding,
@@ -106,19 +125,67 @@ function inflateBounds(bounds: Bounds, padding: number): Bounds {
   };
 }
 
+function inflateBoundsPerSide(bounds: Bounds, padding: SidePadding): Bounds {
+  return {
+    x: bounds.x - padding.left,
+    y: bounds.y - padding.top,
+    width: bounds.width + padding.left + padding.right,
+    height: bounds.height + padding.top + padding.bottom,
+  };
+}
+
+/** Fits the final drawable frame inside the screenshot. Browser hit bounds are
+ * already viewport-clipped, but highlight padding can push the outer border
+ * beyond an edge and make that side disappear during canvas/SVG clipping. */
+function fitBoundsInViewport(bounds: Bounds, viewportWidth: number, viewportHeight: number): Bounds {
+  const width = Math.max(Number.isFinite(viewportWidth) ? viewportWidth : 0, 0);
+  const height = Math.max(Number.isFinite(viewportHeight) ? viewportHeight : 0, 0);
+  const left = Math.min(Math.max(bounds.x, 0), width);
+  const top = Math.min(Math.max(bounds.y, 0), height);
+  const right = Math.min(Math.max(bounds.x + Math.max(bounds.width, 0), left), width);
+  const bottom = Math.min(Math.max(bounds.y + Math.max(bounds.height, 0), top), height);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** Returns the final single-target highlight frame in screenshot CSS pixels.
+ * All single-image renderers use this helper so padding and edge clipping stay
+ * identical in previews, thumbnails and exported images. */
+export function fitHighlightFrame(bounds: Bounds, viewportWidth: number, viewportHeight: number): Bounds {
+  return fitBoundsInViewport(inflateBounds(bounds, HIGHLIGHT_PADDING), viewportWidth, viewportHeight);
+}
+
+function fitPointInViewport(
+  point: AnnotationPoint,
+  radius: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): AnnotationPoint {
+  const fitAxis = (value: number, extent: number) => {
+    const safeExtent = Math.max(Number.isFinite(extent) ? extent : 0, 0);
+    return safeExtent <= radius * 2
+      ? safeExtent / 2
+      : Math.min(Math.max(value, radius), safeExtent - radius);
+  };
+  return {
+    x: fitAxis(point.x, viewportWidth),
+    y: fitAxis(point.y, viewportHeight),
+  };
+}
+
+/** True when `outer`'s raw bounds fully enclose `inner`'s. */
+function contains(outer: Bounds, inner: Bounds): boolean {
+  return (
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height
+  );
+}
+
 /**
- * Two clicked elements can sit just a few px apart even though the targets
- * themselves don't overlap; inflating both by the flat HIGHLIGHT_PADDING then
- * makes their frames visually collide. Each single instead gets only as much
- * padding as fits before its frame would cross its nearest neighbor's.
- *
- * For raw bounds a, b the axis separations are
- * `dx = max(0, a.x-(b.x+b.width), b.x-(a.x+a.width))` (dy likewise). Inflating
- * both by padding p keeps them apart iff `2p < max(dx, dy)` — they only
- * collide once *both* axes overlap. The `-1` keeps a visible gap once the
- * stroke width is drawn on top. Compared only against other singles' raw
- * bounds: group members render as marker dots, never frames, so they can't
- * collide with anything and would only make this over-conservative.
+ * Visits every pair of bounds within `maxGap` on both axes, sweeping along the
+ * less-congested axis so a long single-column list stays near-linear instead of
+ * degenerating to O(n²).
  */
 function forEachNearbyPair(
   bounds: Bounds[],
@@ -160,21 +227,113 @@ function forEachNearbyPair(
   }
 }
 
-function adaptivePaddings(rawBounds: Bounds[]): number[] {
-  const paddings = rawBounds.map(() => HIGHLIGHT_PADDING);
+/**
+ * Per-side padding for each single so their drawn frames never cross.
+ *
+ * Invariant: sibling frames do not cross even when their raw browser hit areas
+ * already overlap. Disjoint targets only shrink the two facing outer paddings.
+ * Partially overlapping targets are split at the middle of their intersection
+ * on the axis between their centers; this may make a facing padding negative,
+ * intentionally pulling that frame edge inside its oversized hit area. The
+ * other sides retain full padding, so the visual target remains recognizable.
+ *
+ * Only singles are compared: group members render as marker dots, never frames,
+ * so they can never collide and would only make this over-conservative.
+ *
+ * Nested targets are handled separately: the inner frame stays inside the
+ * outer raw bounds instead of being split as if the two were siblings.
+ */
+function adaptiveSidePaddings(rawBounds: Bounds[]): SidePadding[] {
+  const paddings: SidePadding[] = rawBounds.map(() => ({
+    top: HIGHLIGHT_PADDING,
+    right: HIGHLIGHT_PADDING,
+    bottom: HIGHLIGHT_PADDING,
+    left: HIGHLIGHT_PADDING,
+  }));
   forEachNearbyPair(rawBounds, HIGHLIGHT_PADDING * 2 + 2, (first, second) => {
     const a = rawBounds[first];
     const b = rawBounds[second];
     const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
     const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
-    const padding = Math.max(dx, dy) / 2 - 1;
-    paddings[first] = Math.min(paddings[first], padding);
-    paddings[second] = Math.min(paddings[second], padding);
+
+    if (dx > 0 || dy > 0) {
+      const cap = Math.max(dx, dy) / 2 - 1;
+      if (dx >= dy) {
+        // Disjoint on x: the box with the smaller x is the left one, so its
+        // right side and the other's left side are the pair that face.
+        const [left, right] = a.x < b.x ? [first, second] : [second, first];
+        paddings[left].right = Math.min(paddings[left].right, cap);
+        paddings[right].left = Math.min(paddings[right].left, cap);
+      } else {
+        const [top, bottom] = a.y < b.y ? [first, second] : [second, first];
+        paddings[top].bottom = Math.min(paddings[top].bottom, cap);
+        paddings[bottom].top = Math.min(paddings[bottom].top, cap);
+      }
+      return;
+    }
+
+    // Raw bounds overlap (dx = dy = 0). A container and its descendant should
+    // remain nested; cap the inner frame so it stays inside the outer raw box.
+    const aInB = contains(b, a);
+    const bInA = contains(a, b);
+    if (aInB || bInA) {
+      const inner = bInA ? paddings[second] : paddings[first];
+      const io = bInA ? b : a;
+      const oo = bInA ? a : b;
+      inner.left = Math.min(inner.left, io.x - oo.x - 1);
+      inner.top = Math.min(inner.top, io.y - oo.y - 1);
+      inner.right = Math.min(inner.right, oo.x + oo.width - (io.x + io.width) - 1);
+      inner.bottom = Math.min(inner.bottom, oo.y + oo.height - (io.y + io.height) - 1);
+      return;
+    }
+
+    // Adjacent controls often use intentionally overlapping hit areas. Divide
+    // the overlap between their centers and pull only the two facing frame
+    // edges inward, leaving a stroke-width gap between the rendered boxes.
+    const centerAX = a.x + a.width / 2;
+    const centerAY = a.y + a.height / 2;
+    const centerBX = b.x + b.width / 2;
+    const centerBY = b.y + b.height / 2;
+    const normalizedX = Math.abs(centerAX - centerBX) / Math.max((a.width + b.width) / 2, 1);
+    const normalizedY = Math.abs(centerAY - centerBY) / Math.max((a.height + b.height) / 2, 1);
+    const halfClearance = HIGHLIGHT_LINE_WIDTH / 2;
+
+    if (normalizedX >= normalizedY && centerAX !== centerBX) {
+      const divider = (Math.max(a.x, b.x) + Math.min(a.x + a.width, b.x + b.width)) / 2;
+      const [leftIndex, rightIndex] = centerAX < centerBX ? [first, second] : [second, first];
+      const leftBounds = rawBounds[leftIndex];
+      const rightBounds = rawBounds[rightIndex];
+      paddings[leftIndex].right = Math.min(
+        paddings[leftIndex].right,
+        divider - halfClearance - (leftBounds.x + leftBounds.width),
+      );
+      paddings[rightIndex].left = Math.min(
+        paddings[rightIndex].left,
+        rightBounds.x - divider - halfClearance,
+      );
+    } else if (centerAY !== centerBY) {
+      const divider = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2;
+      const [topIndex, bottomIndex] = centerAY < centerBY ? [first, second] : [second, first];
+      const topBounds = rawBounds[topIndex];
+      const bottomBounds = rawBounds[bottomIndex];
+      paddings[topIndex].bottom = Math.min(
+        paddings[topIndex].bottom,
+        divider - halfClearance - (topBounds.y + topBounds.height),
+      );
+      paddings[bottomIndex].top = Math.min(
+        paddings[bottomIndex].top,
+        bottomBounds.y - divider - halfClearance,
+      );
+    }
   });
-  // Genuinely overlapping raw bounds (below the coincident-group threshold)
-  // produce max(dx,dy) === 0: clamp to MIN_PADDING and accept the small
-  // residual frame overlap rather than collapsing the highlight entirely.
-  return paddings.map((padding) => Math.min(HIGHLIGHT_PADDING, Math.max(MIN_PADDING, padding)));
+
+  const clamp = (value: number) => Math.min(HIGHLIGHT_PADDING, value);
+  return paddings.map((padding) => ({
+    top: clamp(padding.top),
+    right: clamp(padding.right),
+    bottom: clamp(padding.bottom),
+    left: clamp(padding.left),
+  }));
 }
 
 function pointBounds(point: AnnotationPoint, radius: number): Bounds {
@@ -190,8 +349,8 @@ function intersectionArea(a: Bounds, b: Bounds): number {
 function coincident(a: Bounds, b: Bounds): boolean {
   const inter = intersectionArea(a, b);
   if (inter === 0) return false;
-  const minArea = Math.min(a.width * a.height, b.width * b.height);
-  return minArea > 0 && inter / minArea > MERGE_OVERLAP_RATIO;
+  const maxArea = Math.max(a.width * a.height, b.width * b.height);
+  return maxArea > 0 && inter / maxArea > MERGE_OVERLAP_RATIO;
 }
 
 function unionBounds(bounds: Bounds[]): Bounds {
@@ -209,97 +368,40 @@ function distanceToBounds(point: AnnotationPoint, bounds: Bounds): number {
 }
 
 /**
- * Liang–Barsky segment/rectangle clip, reduced to a boolean intersection test.
- * Works for any orientation — an honest answer for diagonal leaders, where the
- * old axis-only test silently reported "no crossing" and let diagonals cut
- * straight through frames.
+ * Ordered 1-D slot placement: slots keep the given order, sit at least
+ * `spacing` apart, stay inside [lo, hi], and land as close to their targets as
+ * possible (least squares). Substituting away the cumulative minimum gap turns
+ * the constraint into plain monotonicity, solved by pool-adjacent-violators.
+ * Order preservation is what keeps a lane's leaders crossing-free; closeness
+ * to the targets is what keeps them short and near-parallel.
  */
-function segmentIntersectsBounds(start: AnnotationPoint, end: AnnotationPoint, bounds: Bounds): boolean {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const p = [-dx, dx, -dy, dy];
-  const q = [start.x - bounds.x, bounds.x + bounds.width - start.x, start.y - bounds.y, bounds.y + bounds.height - start.y];
-  let t0 = 0;
-  let t1 = 1;
-  for (let i = 0; i < 4; i++) {
-    if (p[i] === 0) {
-      if (q[i] < 0) return false; // parallel to this edge and wholly outside it
-      continue;
+function placeOrderedSlots(targets: number[], spacing: number, lo: number, hi: number): number[] {
+  if (targets.length === 0) return [];
+  const shifted = targets.map((value, index) => value - index * spacing);
+  const pools: { sum: number; weight: number; mean: number }[] = [];
+  for (const value of shifted) {
+    let sum = value;
+    let weight = 1;
+    while (pools.length > 0 && pools[pools.length - 1].mean >= sum / weight) {
+      const previous = pools.pop()!;
+      sum += previous.sum;
+      weight += previous.weight;
     }
-    const t = q[i] / p[i];
-    if (p[i] < 0) {
-      if (t > t1) return false;
-      if (t > t0) t0 = t;
-    } else {
-      if (t < t0) return false;
-      if (t < t1) t1 = t;
-    }
+    pools.push({ sum, weight, mean: sum / weight });
   }
-  return t0 < t1;
-}
-
-// Proper segment/segment crossing: true only when the two segments straddle
-// each other's interior, so leaders that merely share their origin cluster or
-// touch end-to-end are not counted.
-function segmentsCross(a1: AnnotationPoint, a2: AnnotationPoint, b1: AnnotationPoint, b2: AnnotationPoint): boolean {
-  const orient = (p: AnnotationPoint, q: AnnotationPoint, r: AnnotationPoint) =>
-    Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
-  const d1 = orient(b1, b2, a1);
-  const d2 = orient(b1, b2, a2);
-  const d3 = orient(a1, a2, b1);
-  const d4 = orient(a1, a2, b2);
-  return d1 !== d2 && d3 !== d4 && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
-}
-
-function routeCrossings(points: AnnotationPoint[], obstacles: Bounds[], siblings: AnnotationPoint[][]): number {
-  let count = 0;
-  for (let i = 1; i < points.length; i++) {
-    for (const obstacle of obstacles) {
-      if (segmentIntersectsBounds(points[i - 1], points[i], obstacle)) count++;
-    }
-    for (const sibling of siblings) {
-      for (let j = 1; j < sibling.length; j++) {
-        if (segmentsCross(points[i - 1], points[i], sibling[j - 1], sibling[j])) count++;
-      }
-    }
+  const slots: number[] = [];
+  for (const pool of pools) {
+    for (let member = 0; member < pool.weight; member++) slots.push(pool.mean + slots.length * spacing);
   }
-  return count;
-}
 
-/**
- * Routes a leader from a marker's edge to a badge's edge. Prefers an orthogonal
- * elbow (reads as a deliberate connector), picking horizontal-first over
- * vertical-first on a tie, and only falls back to a straight diagonal when both
- * elbows would cut through strictly more obstacles or previously-drawn sibling
- * leaders. Passing the group's already-placed leaders as `siblings` lets each
- * leader steer clear of them — the sorted-slot invariant fixes vertical order,
- * this keeps the connecting lines from crossing when badges straddle the
- * anchor cluster.
- */
-function buildLeader(
-  start: AnnotationPoint,
-  end: AnnotationPoint,
-  obstacles: Bounds[],
-  siblings: AnnotationPoint[][],
-): AnnotationPoint[] {
-  const routes =
-    Math.abs(start.x - end.x) < 1 || Math.abs(start.y - end.y) < 1
-      ? [[start, end]]
-      : [
-          [start, { x: end.x, y: start.y }, end],
-          [start, { x: start.x, y: end.y }, end],
-          [start, end],
-        ];
-  let best = routes[0];
-  let bestCrossings = routeCrossings(routes[0], obstacles, siblings);
-  for (const route of routes.slice(1)) {
-    const crossings = routeCrossings(route, obstacles, siblings);
-    if (crossings < bestCrossings) {
-      best = route;
-      bestCrossings = crossings;
-    }
-  }
-  return best;
+  const min = slots[0];
+  const max = slots[slots.length - 1];
+  const room = hi - lo;
+  if (room <= 0) return slots.map(() => (lo + hi) / 2);
+  const span = max - min;
+  if (span > room) return slots.map((value) => lo + ((value - min) / span) * room);
+  const shift = min < lo ? lo - min : max > hi ? hi - max : 0;
+  return slots.map((value) => value + shift);
 }
 
 /**
@@ -332,20 +434,19 @@ function fitsInViewport(point: AnnotationPoint, viewportWidth: number, viewportH
 }
 
 function clampToViewport(point: AnnotationPoint, viewportWidth: number, viewportHeight: number): AnnotationPoint {
-  const clampAxis = (value: number, extent: number) =>
-    extent <= BADGE_RADIUS * 2
-      ? Math.max(extent, 0) / 2
-      : Math.min(Math.max(value, BADGE_RADIUS), extent - BADGE_RADIUS);
-  return {
-    x: clampAxis(point.x, viewportWidth),
-    y: clampAxis(point.y, viewportHeight),
-  };
+  return fitPointInViewport(point, BADGE_RADIUS, viewportWidth, viewportHeight);
 }
 
 class BoundsSpatialIndex {
   private readonly cells = new Map<string, Bounds[]>();
+  private readonly oversized = new Set<Bounds>();
   private readonly columns: number;
   private readonly rows: number;
+
+  // A viewport-sized frame can cover millions of 64px cells on a large
+  // canvas. Index it once and filter it geometrically at query time instead
+  // of trading a small number of distance checks for unbounded memory use.
+  private static readonly MAX_CELLS_PER_RECT = 256;
 
   constructor(
     private readonly width: number,
@@ -366,6 +467,11 @@ class BoundsSpatialIndex {
     const maxColumn = this.cell(right, this.columns);
     const minRow = this.cell(top, this.rows);
     const maxRow = this.cell(bottom, this.rows);
+    const coveredCells = (maxColumn - minColumn + 1) * (maxRow - minRow + 1);
+    if (coveredCells > BoundsSpatialIndex.MAX_CELLS_PER_RECT) {
+      this.oversized.add(rect);
+      return;
+    }
     for (let row = minRow; row <= maxRow; row++) {
       for (let column = minColumn; column <= maxColumn; column++) {
         const key = `${column}:${row}`;
@@ -382,6 +488,16 @@ class BoundsSpatialIndex {
     const minRow = this.cell(point.y - radius, this.rows);
     const maxRow = this.cell(point.y + radius, this.rows);
     const matches = new Set<Bounds>();
+    for (const rect of this.oversized) {
+      if (
+        rect.x <= point.x + radius &&
+        rect.x + rect.width >= point.x - radius &&
+        rect.y <= point.y + radius &&
+        rect.y + rect.height >= point.y - radius
+      ) {
+        matches.add(rect);
+      }
+    }
     for (let row = minRow; row <= maxRow; row++) {
       for (let column = minColumn; column <= maxColumn; column++) {
         for (const rect of this.cells.get(`${column}:${row}`) ?? []) matches.add(rect);
@@ -495,22 +611,28 @@ function placeGroupCallouts(
     viewportHeight,
     laneOnRight,
   );
-  const candidates = xs.flatMap((x) => ys.map((y) => ({ x, y })));
+  const candidateCount = xs.length * ys.length;
+  const candidateAt = (index: number): AnnotationPoint | undefined => {
+    if (index < 0 || index >= candidateCount || ys.length === 0) return undefined;
+    return {
+      x: xs[Math.floor(index / ys.length)],
+      y: ys[index % ys.length],
+    };
+  };
   const slots: AnnotationPoint[] = [];
   let candidateIndex = 0;
 
   for (let position = 0; position < count; position++) {
-    while (
-      candidateIndex < candidates.length &&
-      badgeOverlaps(candidates[candidateIndex], placedBadges, obstacleRects, ignoredRects)
-    ) {
+    let candidate = candidateAt(candidateIndex);
+    while (candidate && badgeOverlaps(candidate, placedBadges, obstacleRects, ignoredRects)) {
       candidateIndex++;
+      candidate = candidateAt(candidateIndex);
     }
     // More annotations than physically fit in the viewport is unsatisfiable.
     // Reuse the deterministic grid only after every collision-free slot has
     // been exhausted, keeping all geometry finite and inside the screenshot.
-    const slot = candidates[candidateIndex] ?? candidates[position % candidates.length] ?? { x: 0, y: 0 };
-    if (candidateIndex < candidates.length) candidateIndex++;
+    const slot = candidate ?? candidateAt(candidateCount > 0 ? position % candidateCount : -1) ?? { x: 0, y: 0 };
+    if (candidate) candidateIndex++;
     slots.push(slot);
     placedBadges.add(slot);
   }
@@ -547,13 +669,16 @@ function pickPerimeterBadge(
  * exported image are byte-for-byte identical in geometry.
  *
  * Targets whose boxes genuinely coincide (see {@link coincident}) collapse into
- * a group: every member becomes a marker dot, and its badge moves to a side
- * lane joined by a leader. Members are sorted by anchor.y and assigned lane
- * slots top-to-bottom in that same order — the one-sided boundary-labeling
- * invariant that keeps orthogonal leaders from crossing. Every other target
- * keeps its own frame with a perimeter badge. A global badge registry lets
- * every badge — lane or perimeter — steer clear of every badge placed before
- * it, across groups and singles alike.
+ * a group: every member becomes a marker dot, and its badge moves to a lane
+ * joined by a straight leader. The lane runs along the axis the anchors spread
+ * on (a row of targets gets a lane above/below sorted by x, a column or point
+ * cluster a side lane sorted by y), slots are assigned in the anchors' order
+ * along that axis — the one-sided boundary-labeling invariant that keeps
+ * leaders from crossing — and each slot sits as close to its own anchor as the
+ * badge spacing allows, so leaders stay short and near-parallel. Every other
+ * target keeps its own frame with a perimeter badge. A global badge registry
+ * lets every badge — lane or perimeter — steer clear of every badge placed
+ * before it, across groups and singles alike.
  */
 export function layoutAnnotations(
   annotations: Annotation[],
@@ -612,16 +737,28 @@ export function layoutAnnotations(
 
   const anchorOf = (index: number): AnnotationPoint => {
     const { x, y, width, height } = annotations[index].bounds;
-    return { x: x + width / 2, y: y + height / 2 };
+    return fitPointInViewport(
+      { x: x + width / 2, y: y + height / 2 },
+      MARKER_RADIUS,
+      viewportWidth,
+      viewportHeight,
+    );
   };
 
   // Geometry that will actually be drawn, known before any badge is placed so
-  // every badge can be tested against all of it. Padding is adaptive (see
-  // adaptivePadding) so two frames for near-but-non-overlapping targets never
-  // visually collide.
+  // every badge can be tested against all of it. Padding is adaptive per side
+  // (see adaptiveSidePaddings) so two frames for near-but-non-overlapping
+  // targets never visually collide; the obstacle index and perimeter-badge
+  // picker below both build on these final frames.
   const singleRawBounds = singles.map((index) => annotations[index].bounds);
-  const singlePaddings = adaptivePaddings(singleRawBounds);
-  const singleFrames = singleRawBounds.map((bounds, position) => inflateBounds(bounds, singlePaddings[position]));
+  const singlePaddings = adaptiveSidePaddings(singleRawBounds);
+  const singleFrames = singleRawBounds.map((bounds, position) =>
+    fitBoundsInViewport(
+      inflateBoundsPerSide(bounds, singlePaddings[position]),
+      viewportWidth,
+      viewportHeight,
+    ),
+  );
   const groupMembers = groups.flat();
   const markerRectOf = (index: number): Bounds => pointBounds(anchorOf(index), MARKER_RADIUS);
   const markerRects = new Map(groupMembers.map((index) => [index, markerRectOf(index)]));
@@ -630,57 +767,128 @@ export function layoutAnnotations(
   // nearby badge query into a linear scan.
   const groupMarkerObstacles = groups.map((group) => unionBounds(group.map((index) => markerRects.get(index)!)));
 
-  const placedBadges: AnnotationPoint[] = [];
   const badgeIndex = new PointSpatialIndex();
   const obstacleIndex = new BoundsSpatialIndex(viewportWidth, viewportHeight);
   for (const frame of singleFrames) obstacleIndex.add(frame);
   for (const marker of groupMarkerObstacles) obstacleIndex.add(marker);
   const layouts: AnnotationLayout[] = [];
 
+  /**
+   * Lane members sorted by their anchor coordinate along the lane axis — the
+   * one-sided boundary-labeling invariant that makes straight leaders to
+   * sorted slots crossing-free. Runs of anchors closer than ANCHOR_TIE_EPSILON
+   * read as one cluster, so within a run the step numbers win: the lane then
+   * shows 1,2,3… instead of an order dictated by sub-pixel anchor jitter.
+   */
+  const sortAlongLane = (group: number[], coordinate: (index: number) => number): number[] => {
+    const byCoordinate = group
+      .slice()
+      .sort((a, b) => coordinate(a) - coordinate(b) || annotations[a].order - annotations[b].order);
+    const ordered: number[] = [];
+    let run: number[] = [];
+    const flushRun = () => {
+      run.sort((a, b) => annotations[a].order - annotations[b].order);
+      ordered.push(...run);
+      run = [];
+    };
+    for (const index of byCoordinate) {
+      if (run.length > 0 && coordinate(index) - coordinate(run[run.length - 1]) > ANCHOR_TIE_EPSILON) flushRun();
+      run.push(index);
+    }
+    flushRun();
+    return ordered;
+  };
+
   // Groups first, so a single's perimeter badge can dodge the lane badges.
   groups.forEach((group, groupPosition) => {
-    const ownMarker = groupMarkerObstacles[groupPosition];
-    const foreignMarkers = groupMarkerObstacles.filter((_, position) => position !== groupPosition);
-    const ownMarkers = new Set([ownMarker]);
+    const ownMarkers = new Set([groupMarkerObstacles[groupPosition]]);
     const groupBounds = unionBounds(group.map((index) => annotations[index].bounds));
+    const anchorXs = group.map((index) => anchorOf(index).x);
+    const anchorYs = group.map((index) => anchorOf(index).y);
+    const spreadX = Math.max(...anchorXs) - Math.min(...anchorXs);
+    const spreadY = Math.max(...anchorYs) - Math.min(...anchorYs);
 
-    const leftSpace = groupBounds.x;
-    const rightSpace = viewportWidth - (groupBounds.x + groupBounds.width);
-    const laneOnRight = rightSpace >= leftSpace;
-    const laneX = laneOnRight
-      ? Math.min(viewportWidth - BADGE_RADIUS, groupBounds.x + groupBounds.width + CALLOUT_GAP + BADGE_RADIUS)
-      : Math.max(BADGE_RADIUS, groupBounds.x - CALLOUT_GAP - BADGE_RADIUS);
+    // The lane runs along the axis the anchors spread on: a row of targets
+    // gets its badges above/below sorted by x, a column (or a point cluster)
+    // gets a side lane sorted by y. A lane on the wrong axis degenerates into
+    // a lattice of near-parallel leaders.
+    const laneIsVertical = spreadY >= spreadX;
+    const laneExtent = laneIsVertical ? viewportHeight : viewportWidth;
+    const laneCapacity =
+      laneExtent > BADGE_RADIUS * 2 ? Math.floor((laneExtent - BADGE_RADIUS * 2) / CALLOUT_SPACING) + 1 : 0;
 
-    const ordered = group.slice().sort((a, b) => anchorOf(a).y - anchorOf(b).y);
-    const startY = Math.max(
-      BADGE_RADIUS,
-      Math.min(groupBounds.y + BADGE_RADIUS, viewportHeight - BADGE_RADIUS - CALLOUT_SPACING * (ordered.length - 1)),
-    );
+    let slots: AnnotationPoint[];
+    let ordered: number[];
+    if (group.length <= laneCapacity) {
+      ordered = sortAlongLane(group, (index) => (laneIsVertical ? anchorOf(index).y : anchorOf(index).x));
+      const alongLane = ordered.map((index) => (laneIsVertical ? anchorOf(index).y : anchorOf(index).x));
+      const slotCoordinates = placeOrderedSlots(alongLane, CALLOUT_SPACING, BADGE_RADIUS, laneExtent - BADGE_RADIUS);
 
-    // Lane badges placed strictly top-to-bottom with monotonically increasing
-    // y — the property that, combined with the anchor.y sort above, forbids
-    // any two of this group's leaders from crossing. Badges placed by earlier
-    // groups count as obstacles to nudge past; this group's own not-yet-placed
-    // badges never do, keeping the monotonic slot order intact.
-    const foreignBadges = placedBadges.slice();
-    const slots = placeGroupCallouts(
-      ordered.length,
-      laneX,
-      startY,
-      laneOnRight,
-      obstacleIndex,
-      badgeIndex,
-      ownMarkers,
-      viewportWidth,
-      viewportHeight,
-    );
-    placedBadges.push(...slots);
+      // The lane's cross-axis position: just outside the cluster on whichever
+      // side has more room. If badges or frames placed earlier already occupy
+      // it, the whole lane nudges further out — as a block, so the sorted slot
+      // order (and with it crossing-freeness) survives.
+      const crossExtent = laneIsVertical ? viewportWidth : viewportHeight;
+      const clusterStart = laneIsVertical ? groupBounds.x : groupBounds.y;
+      const clusterEnd = laneIsVertical
+        ? groupBounds.x + groupBounds.width
+        : groupBounds.y + groupBounds.height;
+      const laneOutward = crossExtent - clusterEnd >= clusterStart;
+      const laneBase = laneOutward
+        ? Math.min(crossExtent - BADGE_RADIUS, clusterEnd + CALLOUT_GAP + BADGE_RADIUS)
+        : Math.max(BADGE_RADIUS, clusterStart - CALLOUT_GAP - BADGE_RADIUS);
+      const toPoints = (cross: number) =>
+        slotCoordinates.map((coordinate) =>
+          laneIsVertical ? { x: cross, y: coordinate } : { x: coordinate, y: cross },
+        );
+      const collisions = (points: AnnotationPoint[]) =>
+        points.reduce(
+          (sum, point) => sum + (badgeOverlaps(point, badgeIndex, obstacleIndex, ownMarkers) ? 1 : 0),
+          0,
+        );
+      slots = toPoints(laneBase);
+      let bestCollisions = collisions(slots);
+      for (let attempt = 1; attempt <= LANE_NUDGE_ATTEMPTS && bestCollisions > 0; attempt++) {
+        const nudged = laneBase + attempt * CALLOUT_SPACING * (laneOutward ? 1 : -1);
+        if (nudged < BADGE_RADIUS || nudged > crossExtent - BADGE_RADIUS) break;
+        const candidate = toPoints(nudged);
+        const candidateCollisions = collisions(candidate);
+        if (candidateCollisions < bestCollisions) {
+          slots = candidate;
+          bestCollisions = candidateCollisions;
+        }
+        if (candidateCollisions === 0) break;
+      }
+      for (const slot of slots) badgeIndex.add(slot);
+    } else {
+      // More badges than one lane can hold: fall back to the deterministic
+      // multi-column side grid. Order along each column still follows the
+      // anchor sort, which keeps the common case of a huge duplicate stack
+      // readable even though cross-column leaders may touch.
+      ordered = sortAlongLane(group, (index) => anchorOf(index).y);
+      const leftSpace = groupBounds.x;
+      const rightSpace = viewportWidth - (groupBounds.x + groupBounds.width);
+      const laneOnRight = rightSpace >= leftSpace;
+      const laneX = laneOnRight
+        ? Math.min(viewportWidth - BADGE_RADIUS, groupBounds.x + groupBounds.width + CALLOUT_GAP + BADGE_RADIUS)
+        : Math.max(BADGE_RADIUS, groupBounds.x - CALLOUT_GAP - BADGE_RADIUS);
+      const startY = Math.max(
+        BADGE_RADIUS,
+        Math.min(groupBounds.y + BADGE_RADIUS, viewportHeight - BADGE_RADIUS - CALLOUT_SPACING * (ordered.length - 1)),
+      );
+      slots = placeGroupCallouts(
+        ordered.length,
+        laneX,
+        startY,
+        laneOnRight,
+        obstacleIndex,
+        badgeIndex,
+        ownMarkers,
+        viewportWidth,
+        viewportHeight,
+      );
+    }
 
-    // Own-group markers are excluded from the obstacle set: they share one
-    // cluster every leader must leave from, so counting them would penalise all
-    // routes equally. Sibling leaders are fed in incrementally so each new one
-    // routes around those already drawn.
-    const siblingLeaders: AnnotationPoint[][] = [];
     ordered.forEach((index, position) => {
       const anchor = anchorOf(index);
       const badge = slots[position];
@@ -689,31 +897,14 @@ export function layoutAnnotations(
       const length = Math.hypot(dx, dy) || 1;
       const start = { x: anchor.x + (dx / length) * MARKER_RADIUS, y: anchor.y + (dy / length) * MARKER_RADIUS };
       const end = { x: badge.x - (dx / length) * BADGE_RADIUS, y: badge.y - (dy / length) * BADGE_RADIUS };
-      const routeWithCollisionAvoidance = ordered.length <= MAX_COLLISION_ROUTED_GROUP_SIZE;
-      const leader = routeWithCollisionAvoidance
-        ? buildLeader(
-            start,
-            end,
-            [
-              ...singleFrames,
-              ...foreignMarkers,
-              ...foreignBadges.map((point) => pointBounds(point, BADGE_RADIUS)),
-              ...slots
-                .filter((_, other) => other !== position)
-                .map((point) => pointBounds(point, BADGE_RADIUS)),
-            ],
-            siblingLeaders,
-          )
-        : [start, end];
-      siblingLeaders.push(leader);
       layouts.push({
         order: annotations[index].order,
-        frame: inflateBounds(annotations[index].bounds, HIGHLIGHT_PADDING),
+        frame: fitHighlightFrame(annotations[index].bounds, viewportWidth, viewportHeight),
         anchor,
         markerOnly: true,
         badgeAnchor: badge,
         callout: badge,
-        leader,
+        leader: length > MARKER_RADIUS + BADGE_RADIUS ? [start, end] : [],
       });
     });
   });
@@ -721,7 +912,6 @@ export function layoutAnnotations(
   singles.forEach((index, position) => {
     const frame = singleFrames[position];
     const badgeAnchor = pickPerimeterBadge(frame, obstacleIndex, badgeIndex, viewportWidth, viewportHeight);
-    placedBadges.push(badgeAnchor);
     badgeIndex.add(badgeAnchor);
     layouts.push({
       order: annotations[index].order,
@@ -848,10 +1038,13 @@ export async function compositeHighlight(
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(bitmap, 0, 0);
+  const dpr = screenshotScale || 1;
+  const viewportWidth = bitmap.width / dpr;
+  const viewportHeight = bitmap.height / dpr;
   bitmap.close();
 
   if (bounds) {
-    strokeBox(ctx, inflateBounds(bounds, HIGHLIGHT_PADDING), screenshotScale || 1);
+    strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
   }
 
   return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });

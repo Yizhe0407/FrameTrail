@@ -1,9 +1,13 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import type { RecordingState } from '@/lib/messages';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
+  isInScrollableElementGutter,
+  isInScrollbarGutter,
   isMatchingSnapshotViewport,
+  isPointInsideViewport,
 } from '@/lib/recording-guards';
 
 const state: RecordingState = {
@@ -53,6 +57,71 @@ describe('isMatchingSnapshotViewport', () => {
     expect(isMatchingSnapshotViewport(viewport, 2, { ...viewport, width: 1279 }, 2)).toBe(false);
     expect(isMatchingSnapshotViewport(viewport, 2, { ...viewport, scrollY: 42 }, 2)).toBe(false);
     expect(isMatchingSnapshotViewport(viewport, 2, viewport, 1)).toBe(false);
+  });
+});
+
+describe('isInScrollbarGutter', () => {
+  const layout = { clientLeft: 0, clientTop: 0, clientWidth: 1200, clientHeight: 800 };
+
+  it('flags the vertical and horizontal scrollbar gutters but not page content', () => {
+    // Content inside the layout viewport is never a gutter.
+    expect(isInScrollbarGutter(600, 400, layout)).toBe(false);
+    expect(isInScrollbarGutter(1199, 799, layout)).toBe(false);
+    // The vertical bar sits at or past clientWidth; the horizontal bar past clientHeight.
+    expect(isInScrollbarGutter(1200, 400, layout)).toBe(true);
+    expect(isInScrollbarGutter(1210, 400, layout)).toBe(true);
+    expect(isInScrollbarGutter(600, 800, layout)).toBe(true);
+    // The bottom-right corner box counts too.
+    expect(isInScrollbarGutter(1205, 805, layout)).toBe(true);
+  });
+
+  it('accounts for scrollbars placed on the left or top edge', () => {
+    const offsetLayout = { clientLeft: 14, clientTop: 10, clientWidth: 1186, clientHeight: 790 };
+
+    expect(isInScrollbarGutter(13, 400, offsetLayout)).toBe(true);
+    expect(isInScrollbarGutter(600, 9, offsetLayout)).toBe(true);
+    expect(isInScrollbarGutter(14, 10, offsetLayout)).toBe(false);
+    expect(isInScrollbarGutter(1199, 799, offsetLayout)).toBe(false);
+    expect(isInScrollbarGutter(1200, 400, offsetLayout)).toBe(true);
+  });
+});
+
+describe('isInScrollableElementGutter', () => {
+  it('detects a nested vertical scrollbar without treating its content as a gutter', () => {
+    const element = document.createElement('div');
+    element.style.overflowY = 'auto';
+    Object.defineProperties(element, {
+      clientLeft: { configurable: true, value: 0 },
+      clientTop: { configurable: true, value: 0 },
+      clientWidth: { configurable: true, value: 180 },
+      clientHeight: { configurable: true, value: 100 },
+      offsetWidth: { configurable: true, value: 192 },
+      offsetHeight: { configurable: true, value: 100 },
+      scrollWidth: { configurable: true, value: 180 },
+      scrollHeight: { configurable: true, value: 400 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ left: 40, top: 20, right: 232, bottom: 120, width: 192, height: 100 }),
+      },
+    });
+    expect(element.scrollHeight).toBe(400);
+    expect(getComputedStyle(element).overflowY).toBe('auto');
+
+    expect(isInScrollableElementGutter(100, 70, element)).toBe(false);
+    expect(isInScrollableElementGutter(226, 70, element)).toBe(true);
+    expect(isInScrollableElementGutter(240, 70, element)).toBe(false);
+  });
+});
+
+describe('isPointInsideViewport', () => {
+  const viewport = { width: 1200, height: 800 };
+
+  it('distinguishes an in-page target replacement from actually leaving the viewport', () => {
+    expect(isPointInsideViewport(600, 400, viewport)).toBe(true);
+    expect(isPointInsideViewport(0, 0, viewport)).toBe(true);
+    expect(isPointInsideViewport(-1, 400, viewport)).toBe(false);
+    expect(isPointInsideViewport(1200, 400, viewport)).toBe(false);
+    expect(isPointInsideViewport(600, 800, viewport)).toBe(false);
   });
 });
 

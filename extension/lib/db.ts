@@ -98,10 +98,18 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
     );
 
     if (anchor) {
+      // An anchor without any surviving annotation has no renderable content.
+      // Do not surface it as a phantom snapshot whose old pixels can be
+      // mistaken for a current annotation; deletion and stop cleanup remove
+      // the rows, while this also sanitizes legacy empty groups on read.
+      const annotations = groupSteps.filter(
+        (candidate) => candidate.id !== step.groupId && candidate.bounds !== null,
+      );
+      if (annotations.length === 0) continue;
       entries.push({
         kind: 'group',
         anchor,
-        annotations: groupSteps.filter((candidate) => candidate.id !== step.groupId && candidate.bounds !== null),
+        annotations,
       });
       continue;
     }

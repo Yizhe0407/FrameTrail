@@ -180,6 +180,31 @@ describe('findVisualTargetCandidates', () => {
     expect(selectVisualTargetCandidate(targets, 1)).toMatchObject({ element: button, candidateOffset: 0 });
   });
 
+  it('reads each ancestor style and candidate rectangle once per hit-test', () => {
+    const button = document.createElement('button');
+    const wrapper = document.createElement('span');
+    const icon = document.createElement('span');
+    wrapper.append(icon);
+    button.append(wrapper);
+    document.body.append(button);
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    makeVisible(wrapper, { x: 30, y: 25, width: 40, height: 20 });
+    makeVisible(icon, { x: 32, y: 27, width: 16, height: 16 });
+    const styleSpy = vi.spyOn(window, 'getComputedStyle');
+    const rectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getBoundingClientRect'));
+    const clientRectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getClientRects'));
+
+    expect(selectVisualTargetCandidate(findVisualTargetCandidates(icon, 36, 32), 0)?.element).toBe(button);
+
+    // body/html are part of the composed chain as well; no element is styled
+    // more than once and candidate geometry is never recalculated for sorting.
+    const callsByElement = new Map<Element, number>();
+    for (const [element] of styleSpy.mock.calls) callsByElement.set(element, (callsByElement.get(element) ?? 0) + 1);
+    expect(Math.max(...callsByElement.values())).toBe(1);
+    expect(rectSpies.every((spy) => spy.mock.calls.length <= 1)).toBe(true);
+    expect(clientRectSpies.every((spy) => spy.mock.calls.length === 1)).toBe(true);
+  });
+
   it('allows visible disabled and inert content in snapshot mode', () => {
     const container = document.createElement('div');
     const button = document.createElement('button');
@@ -321,6 +346,33 @@ describe('getVisibleHighlightBounds', () => {
       width: 180,
       height: 84,
     });
+  });
+
+  it('clips a scrolled root body against the viewport instead of its moving border box', () => {
+    const button = document.createElement('button');
+    document.body.append(button);
+    document.body.style.overflowY = 'scroll';
+    makeVisible(button, { x: 396, y: 459, width: 28, height: 28 });
+    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: -420,
+      top: -420,
+      left: 0,
+      right: 1280,
+      bottom: 393,
+      width: 1280,
+      height: 813,
+      toJSON: () => ({}),
+    });
+
+    expect(getVisibleHighlightBounds(button, 410, 473, { width: 1280, height: 813 })).toEqual({
+      x: 396,
+      y: 459,
+      width: 28,
+      height: 28,
+    });
+
+    document.body.style.overflowY = '';
   });
 
   it('honors paint containment shorthands', () => {

@@ -138,6 +138,78 @@ test.describe('editor workflows', () => {
     expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
   });
 
+  test('removes an empty snapshot group and its anchor after deleting its last annotation', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
+    const storedBeforeDelete = await readSteps(popupPage);
+    const anchor = storedBeforeDelete.find((step) => step.groupId === step.id && step.bounds === null);
+    const annotation = storedBeforeDelete.find((step) => step.groupId === anchor?.id && step.bounds !== null);
+    expect(anchor).toBeDefined();
+    expect(annotation).toBeDefined();
+
+    const editor = await openEditor(extensionContext, extensionId, 1);
+    await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
+    await editor.getByRole('button', { name: '刪除標注 1' }).click();
+
+    await expect(editor.getByText('尚未錄製任何步驟', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveCount(0);
+    await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.id)).toEqual([]);
+  });
+
+  test('renders partially overlapping control hit areas as disjoint annotation frames', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button']);
+    await popupPage.evaluate(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open('scribe', 3);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const tx = db.transaction('steps', 'readwrite');
+          const store = tx.objectStore('steps');
+          const all = store.getAll();
+          all.onerror = () => reject(all.error);
+          all.onsuccess = () => {
+            const annotations = all.result
+              .filter((step) => step.groupId && step.id !== step.groupId)
+              .sort((first, second) => first.order - second.order);
+            const bounds = [
+              { x: 100, y: 80, width: 64, height: 48 },
+              { x: 150, y: 80, width: 64, height: 48 },
+            ];
+            annotations.forEach((step, index) => store.put({ ...step, bounds: bounds[index] }));
+          };
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+    });
+
+    const editor = await openEditor(extensionContext, extensionId, 1);
+    const frames = editor.locator('main [data-frametrail-annotation-frame]');
+    await expect(frames).toHaveCount(2);
+    const first = await frames.nth(0).boundingBox();
+    const second = await frames.nth(1).boundingBox();
+    if (!first || !second) throw new Error('Rendered annotation frame has no bounding box');
+
+    expect(first.x + first.width).toBeLessThan(second.x);
+    expect(Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y))
+      .toBeGreaterThan(0);
+  });
+
   test('reorders timeline entries and annotations through their drag handles', async ({
     appPage,
     popupPage,

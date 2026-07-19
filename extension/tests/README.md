@@ -42,4 +42,4 @@ pnpm test:all
 - 測試固定單 worker 執行，避免 `activeTab`、`captureVisibleTab` quota 與系統剪貼簿互相干擾。
 - 失敗時保存 trace、頁面截圖與 console error；成功案例不保留大型 artifact。
 
-目前 5 個 E2E spec 共 18 項：步驟錄製 3、快照錄製 2、frame/lifecycle 5、popup 2、editor 6。
+目前 5 個 E2E spec 共 20 項：步驟錄製 4、快照錄製 2、frame/lifecycle 5、popup 2、editor 7。

@@ -66,7 +66,7 @@ const NON_SELECTABLE_VISUAL_TAGS = new Set([
 
 type InteractionKind = 'native' | 'role' | 'handler' | 'focusable' | 'cursor';
 
-function composedParent(el: Element): Element | null {
+export function getComposedParent(el: Element): Element | null {
   if (el.assignedSlot) return el.assignedSlot;
   if (el.parentElement) return el.parentElement;
   const root = el.getRootNode();
@@ -83,7 +83,7 @@ function isElementInteractionDisabled(el: Element): boolean {
     ) {
       return true;
     }
-    current = composedParent(current);
+    current = getComposedParent(current);
   }
   return false;
 }
@@ -108,7 +108,7 @@ export function isElementVisuallyUnavailable(el: Element): boolean {
         return true;
       }
     }
-    current = composedParent(current);
+    current = getComposedParent(current);
   }
   return false;
 }
@@ -117,7 +117,7 @@ export function isElementUnavailable(el: Element): boolean {
   return isElementInteractionDisabled(el) || isElementVisuallyUnavailable(el);
 }
 
-function interactionKind(el: Element): InteractionKind | null {
+function interactionKind(el: Element, style?: CSSStyleDeclaration): InteractionKind | null {
   const tag = el.tagName.toLowerCase();
   const isNative =
     INTERACTIVE_TAGS.has(tag) &&
@@ -146,7 +146,7 @@ function interactionKind(el: Element): InteractionKind | null {
   const tabindex = el.getAttribute('tabindex');
   if (tabindex !== null && Number(tabindex) >= 0) return 'focusable';
 
-  return getComputedStyle(el).cursor === 'pointer' ? 'cursor' : null;
+  return (style ?? getComputedStyle(el)).cursor === 'pointer' ? 'cursor' : null;
 }
 
 export function isInteractiveElement(el: Element): boolean {
@@ -158,8 +158,73 @@ function isDecorativeLeaf(el: Element, kind: InteractionKind): boolean {
   return DECORATIVE_SVG_TAGS.has(tag) && kind === 'cursor';
 }
 
-function visibleArea(el: Element): number {
-  const rect = el.getBoundingClientRect();
+interface AnalyzedElement {
+  element: Element;
+  kind: InteractionKind | null;
+  interactionUnavailable: boolean;
+  visuallyUnavailable: boolean;
+  boundingRect?: DOMRect;
+  highlightBounds?: Bounds | null;
+}
+
+function hasOwnInteractionDisabledState(el: Element): boolean {
+  return (
+    el.hasAttribute('inert') ||
+    el.getAttribute('aria-disabled')?.trim().toLowerCase() === 'true' ||
+    ('disabled' in el && Boolean((el as HTMLButtonElement).disabled))
+  );
+}
+
+function hasOwnVisualUnavailableState(el: Element, style: CSSStyleDeclaration): boolean {
+  return (
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
+    style.visibility === 'collapse' ||
+    (style.opacity !== '' && Number(style.opacity) === 0) ||
+    style.contentVisibility === 'hidden'
+  );
+}
+
+/** Builds the composed ancestor chain and all inherited state once per hit-test.
+ * Entries remain deepest-first to preserve candidate cycling semantics. */
+function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
+  const elements: Element[] = [];
+  const seen = new Set<Element>();
+  for (const node of nodes) {
+    if (!(node instanceof Element) || seen.has(node)) continue;
+    seen.add(node);
+    elements.push(node);
+  }
+
+  const entries = new Array<AnalyzedElement>(elements.length);
+  let interactionUnavailable = false;
+  let visualUnavailable = false;
+  for (let index = elements.length - 1; index >= 0; index -= 1) {
+    const element = elements[index];
+    const style = getComputedStyle(element);
+    interactionUnavailable ||= hasOwnInteractionDisabledState(element);
+    visualUnavailable ||= hasOwnVisualUnavailableState(element, style);
+    entries[index] = {
+      element,
+      kind: interactionKind(element, style),
+      interactionUnavailable,
+      // Image-map areas intentionally inherit their rendered state from the
+      // associated image rather than their non-rendered <map> ancestry.
+      visuallyUnavailable: element instanceof HTMLAreaElement
+        ? false
+        : visualUnavailable || style.display === 'contents',
+    };
+  }
+  return entries;
+}
+
+function boundingRect(entry: AnalyzedElement): DOMRect {
+  entry.boundingRect ??= entry.element.getBoundingClientRect();
+  return entry.boundingRect;
+}
+
+function visibleArea(entry: AnalyzedElement): number {
+  const rect = boundingRect(entry);
   return Number.isFinite(rect.width) && Number.isFinite(rect.height)
     ? Math.max(rect.width, 0) * Math.max(rect.height, 0)
     : 0;
@@ -170,21 +235,7 @@ function visibleArea(el: Element): number {
  * outrank cursor-only descendants; this prevents an icon or text node inside
  * a button-like surface from producing a tiny, inconsistent annotation box.
  */
-function findInteractiveTargetFromNodes(nodes: Iterable<unknown>): Element | null {
-  const candidates: Array<{ el: Element; kind: InteractionKind; depth: number }> = [];
-
-  for (const [depth, node] of Array.from(nodes).entries()) {
-    if (!(node instanceof Element)) continue;
-    if (node === document.body || node === document.documentElement) break;
-
-    const kind = interactionKind(node);
-    if (!kind || isDecorativeLeaf(node, kind) || isElementUnavailable(node)) continue;
-    if (visibleArea(node) === 0) continue;
-    candidates.push({ el: node, kind, depth });
-  }
-
-  if (candidates.length === 0) return null;
-
+function findInteractiveTargetFromEntries(entries: AnalyzedElement[]): Element | null {
   const kindScore: Record<InteractionKind, number> = {
     native: 5,
     role: 4,
@@ -193,25 +244,37 @@ function findInteractiveTargetFromNodes(nodes: Iterable<unknown>): Element | nul
     cursor: 1,
   };
 
-  return candidates
-    .sort((a, b) => {
-      const kindDifference = kindScore[b.kind] - kindScore[a.kind];
-      if (kindDifference !== 0) return kindDifference;
+  let best: { entry: AnalyzedElement; cursorScore: number } | null = null;
+  for (const entry of entries) {
+    if (entry.element === document.body || entry.element === document.documentElement) break;
+    const kind = entry.kind;
+    if (
+      !kind ||
+      isDecorativeLeaf(entry.element, kind) ||
+      entry.interactionUnavailable ||
+      entry.visuallyUnavailable ||
+      visibleArea(entry) === 0
+    ) {
+      continue;
+    }
 
-      // For cursor-only controls, prefer a usable hit surface over a tiny
-      // nested label/icon, while avoiding selection of a page-sized parent.
-      if (a.kind === 'cursor' && b.kind === 'cursor') {
-        const aArea = visibleArea(a.el);
-        const bArea = visibleArea(b.el);
-        const aMinSide = Math.min(a.el.getBoundingClientRect().width, a.el.getBoundingClientRect().height);
-        const bMinSide = Math.min(b.el.getBoundingClientRect().width, b.el.getBoundingClientRect().height);
-        const aScore = Math.min(aMinSide, 44) * 100 - Math.min(aArea, 40_000) / 100;
-        const bScore = Math.min(bMinSide, 44) * 100 - Math.min(bArea, 40_000) / 100;
-        if (aScore !== bScore) return bScore - aScore;
-      }
+    const rect = boundingRect(entry);
+    const cursorScore = kind === 'cursor'
+      ? Math.min(Math.min(rect.width, rect.height), 44) * 100 - Math.min(visibleArea(entry), 40_000) / 100
+      : 0;
+    if (
+      !best ||
+      kindScore[kind] > kindScore[best.entry.kind!] ||
+      (kind === best.entry.kind && kind === 'cursor' && cursorScore > best.cursorScore)
+    ) {
+      best = { entry, cursorScore };
+    }
+  }
+  return best?.entry.element ?? null;
+}
 
-      return a.depth - b.depth;
-    })[0].el;
+function findInteractiveTargetFromNodes(nodes: Iterable<unknown>): Element | null {
+  return findInteractiveTargetFromEntries(analyzeElements(nodes));
 }
 
 export function findInteractiveTarget(event: Event): Element | null {
@@ -240,7 +303,7 @@ function elementAndComposedAncestors(target: Element): Element[] {
 
   while (current) {
     nodes.push(current);
-    current = composedParent(current);
+    current = getComposedParent(current);
   }
   return nodes;
 }
@@ -272,14 +335,34 @@ function visualBoundsKey(bounds: Bounds): string {
     .join(':');
 }
 
-function isVisuallySelectableElement(el: Element): boolean {
-  const tag = el.tagName.toLowerCase();
-  const kind = interactionKind(el);
+function isVisuallySelectableEntry(entry: AnalyzedElement): boolean {
+  const tag = entry.element.tagName.toLowerCase();
   return (
     !NON_SELECTABLE_VISUAL_TAGS.has(tag) &&
-    (!DECORATIVE_SVG_TAGS.has(tag) || (kind !== null && kind !== 'cursor')) &&
-    !isElementVisuallyUnavailable(el)
+    (!DECORATIVE_SVG_TAGS.has(tag) || (entry.kind !== null && entry.kind !== 'cursor')) &&
+    !entry.visuallyUnavailable
   );
+}
+
+function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: number): Bounds | null {
+  if (entry.highlightBounds !== undefined) return entry.highlightBounds;
+  const rects = Array.from(entry.element.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+  if (rects.length === 0) return (entry.highlightBounds = null);
+
+  let smallest = rects[0];
+  let smallestContaining: DOMRect | null = null;
+  for (const rect of rects) {
+    if (rect.width * rect.height < smallest.width * smallest.height) smallest = rect;
+    if (
+      clientX >= rect.left && clientX <= rect.right &&
+      clientY >= rect.top && clientY <= rect.bottom &&
+      (!smallestContaining || rect.width * rect.height < smallestContaining.width * smallestContaining.height)
+    ) {
+      smallestContaining = rect;
+    }
+  }
+  const rect = smallestContaining ?? smallest;
+  return (entry.highlightBounds = { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 }
 
 /** Builds the visually distinct target chain under a point, from the deepest
@@ -290,14 +373,15 @@ export function findVisualTargetCandidates(
   clientX: number,
   clientY: number,
 ): VisualTargetCandidates {
-  const nodes = elementAndComposedAncestors(hit);
-  const interactive = findInteractiveTargetFromNodes(nodes);
+  const entries = analyzeElements(elementAndComposedAncestors(hit));
+  const interactive = findInteractiveTargetFromEntries(entries);
   const candidates: VisualTargetCandidate[] = [];
   const indexByBounds = new Map<string, number>();
 
-  for (const element of nodes) {
-    if (!isVisuallySelectableElement(element)) continue;
-    const bounds = getHighlightBounds(element, clientX, clientY);
+  for (const entry of entries) {
+    const element = entry.element;
+    if (!isVisuallySelectableEntry(entry)) continue;
+    const bounds = highlightBounds(entry, clientX, clientY);
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue;
 
     const key = visualBoundsKey(bounds);
@@ -356,7 +440,14 @@ export function intersectBounds(a: Bounds, b: Bounds): Bounds | null {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 }
 
-function overflowClipBounds(el: Element): Bounds {
+function overflowClipBounds(el: Element, viewport: { width: number; height: number }): Bounds {
+  // Client coordinates are viewport-relative. Root boxes, especially <body>
+  // on pages that set overflow themselves, move to -scrollX/-scrollY in
+  // getBoundingClientRect() as the document scrolls; using that moving rect as
+  // a clip would incorrectly hide every target revealed below the fold.
+  if (el === document.body || el === document.documentElement || el === document.scrollingElement) {
+    return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+  }
   const rect = el.getBoundingClientRect();
   if (!(el instanceof HTMLElement) || el.clientWidth <= 0 || el.clientHeight <= 0) {
     return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
@@ -396,7 +487,7 @@ export function getVisibleHighlightBounds(
   visible = intersectBounds(visible, { x: 0, y: 0, width: viewport.width, height: viewport.height });
   if (!visible) return null;
 
-  let ancestor = composedParent(el);
+  let ancestor = getComposedParent(el);
   while (ancestor) {
     const style = getComputedStyle(ancestor);
     const overflowX = style.overflowX || style.overflow;
@@ -405,7 +496,7 @@ export function getVisibleHighlightBounds(
     const clipsY = Boolean(overflowY && overflowY !== 'visible');
     const paintClip = clipsPaint(style);
     if (clipsX || clipsY) {
-      const rect = overflowClipBounds(ancestor);
+      const rect = overflowClipBounds(ancestor, viewport);
       const clip = {
         x: clipsX ? rect.x : visible.x,
         y: clipsY ? rect.y : visible.y,
@@ -420,7 +511,7 @@ export function getVisibleHighlightBounds(
       visible = intersectBounds(visible, { x: rect.left, y: rect.top, width: rect.width, height: rect.height });
       if (!visible) return null;
     }
-    ancestor = composedParent(ancestor);
+    ancestor = getComposedParent(ancestor);
   }
   return visible;
 }

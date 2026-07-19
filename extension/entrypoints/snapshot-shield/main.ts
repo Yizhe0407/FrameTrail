@@ -17,12 +17,12 @@ import {
 import {
   BADGE_RADIUS,
   HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_PADDING,
   HIGHLIGHT_RADIUS,
   LEADER_LINE_WIDTH,
   MARKER_INNER_RADIUS,
   MARKER_RADIUS,
   MARKER_RING_WIDTH,
+  fitHighlightFrame,
   getBadgeFontSize,
   layoutAnnotations,
 } from '@/lib/annotate';
@@ -63,14 +63,11 @@ function ensureKeyboardFocus(): void {
 }
 
 function positionBox(element: HTMLElement, rect: SnapshotShieldRect): void {
-  const left = Math.max(0, rect.x - HIGHLIGHT_PADDING);
-  const top = Math.max(0, rect.y - HIGHLIGHT_PADDING);
-  const right = Math.min(window.innerWidth, rect.x + rect.width + HIGHLIGHT_PADDING);
-  const bottom = Math.min(window.innerHeight, rect.y + rect.height + HIGHLIGHT_PADDING);
-  element.style.left = `${left}px`;
-  element.style.top = `${top}px`;
-  element.style.width = `${Math.max(0, right - left)}px`;
-  element.style.height = `${Math.max(0, bottom - top)}px`;
+  const frame = fitHighlightFrame(rect, window.innerWidth, window.innerHeight);
+  element.style.left = `${frame.x}px`;
+  element.style.top = `${frame.y}px`;
+  element.style.width = `${frame.width}px`;
+  element.style.height = `${frame.height}px`;
 }
 
 function createOverlay() {
@@ -80,6 +77,10 @@ function createOverlay() {
 
   const committedLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   committedLayer.setAttribute('class', 'snapshot-overlay__committed');
+  const leaderLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const targetLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const badgeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  committedLayer.append(leaderLayer, targetLayer, badgeLayer);
   const preview = document.createElement('div');
   preview.className = 'snapshot-box snapshot-box--preview';
   preview.hidden = true;
@@ -96,81 +97,138 @@ function createOverlay() {
   const svgElement = <K extends keyof SVGElementTagNameMap>(name: K): SVGElementTagNameMap[K] =>
     document.createElementNS('http://www.w3.org/2000/svg', name);
 
+  interface AnnotationElements {
+    leader: SVGGElement;
+    target: SVGGElement;
+    badge: SVGGElement;
+  }
+
+  const elementsById = new Map<number, AnnotationElements>();
+  const setAttribute = (element: Element, name: string, value: string) => {
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+  };
+  const elementsFor = (id: number): AnnotationElements => {
+    const existing = elementsById.get(id);
+    if (existing) return existing;
+    const leader = svgElement('g');
+    const target = svgElement('g');
+    const badge = svgElement('g');
+    for (const element of [leader, target, badge]) {
+      element.setAttribute('data-snapshot-selection-id', String(id));
+    }
+    leaderLayer.append(leader);
+    targetLayer.append(target);
+    badgeLayer.append(badge);
+    const created = { leader, target, badge };
+    elementsById.set(id, created);
+    return created;
+  };
+
+  const reconcileLeader = (group: SVGGElement, points: string | null) => {
+    if (!points) {
+      if (group.firstChild) group.replaceChildren();
+      return;
+    }
+    let leader = group.firstElementChild as SVGPolylineElement | null;
+    if (!leader) {
+      leader = svgElement('polyline');
+      leader.setAttribute('class', 'snapshot-annotation__leader');
+      leader.setAttribute('stroke-width', String(LEADER_LINE_WIDTH));
+      group.append(leader);
+    }
+    setAttribute(leader, 'points', points);
+  };
+
+  const reconcileTarget = (group: SVGGElement, layout: ReturnType<typeof layoutAnnotations>[number]) => {
+    const wantsMarker = layout.markerOnly;
+    const hasMarker = group.firstElementChild?.classList.contains('snapshot-annotation__marker') ?? false;
+    if (!group.firstElementChild || wantsMarker !== hasMarker) {
+      if (wantsMarker) {
+        const marker = svgElement('circle');
+        marker.setAttribute('class', 'snapshot-annotation__marker');
+        marker.setAttribute('r', String(MARKER_RADIUS - MARKER_RING_WIDTH / 2));
+        marker.setAttribute('stroke-width', String(MARKER_RING_WIDTH));
+        const inner = svgElement('circle');
+        inner.setAttribute('class', 'snapshot-annotation__marker-inner');
+        inner.setAttribute('r', String(MARKER_INNER_RADIUS));
+        group.replaceChildren(marker, inner);
+      } else {
+        const frame = svgElement('rect');
+        frame.setAttribute('class', 'snapshot-annotation__frame');
+        frame.setAttribute('rx', String(Math.max(0, HIGHLIGHT_RADIUS - HIGHLIGHT_LINE_WIDTH / 2)));
+        frame.setAttribute('stroke-width', String(HIGHLIGHT_LINE_WIDTH));
+        group.replaceChildren(frame);
+      }
+    }
+
+    if (wantsMarker) {
+      for (const marker of Array.from(group.children) as SVGCircleElement[]) {
+        setAttribute(marker, 'cx', String(layout.anchor.x));
+        setAttribute(marker, 'cy', String(layout.anchor.y));
+      }
+      return;
+    }
+
+    const frame = group.firstElementChild!;
+    setAttribute(frame, 'x', String(layout.frame.x + HIGHLIGHT_LINE_WIDTH / 2));
+    setAttribute(frame, 'y', String(layout.frame.y + HIGHLIGHT_LINE_WIDTH / 2));
+    setAttribute(frame, 'width', String(Math.max(0, layout.frame.width - HIGHLIGHT_LINE_WIDTH)));
+    setAttribute(frame, 'height', String(Math.max(0, layout.frame.height - HIGHLIGHT_LINE_WIDTH)));
+  };
+
+  const reconcileBadge = (group: SVGGElement, point: { x: number; y: number } | null, labelValue: number) => {
+    if (!point) {
+      if (group.firstChild) group.replaceChildren();
+      return;
+    }
+    let badge = group.children[0] as SVGCircleElement | undefined;
+    let label = group.children[1] as SVGTextElement | undefined;
+    if (!badge || !label) {
+      badge = svgElement('circle');
+      badge.setAttribute('class', 'snapshot-annotation__badge');
+      badge.setAttribute('r', String(BADGE_RADIUS));
+      label = svgElement('text');
+      label.setAttribute('class', 'snapshot-annotation__badge-label');
+      group.replaceChildren(badge, label);
+    }
+    setAttribute(badge, 'cx', String(point.x));
+    setAttribute(badge, 'cy', String(point.y));
+    setAttribute(label, 'x', String(point.x));
+    setAttribute(label, 'y', String(point.y));
+    setAttribute(label, 'font-size', String(getBadgeFontSize(labelValue)));
+    if (label.textContent !== String(labelValue)) label.textContent = String(labelValue);
+  };
+
   const renderCommitted = () => {
     committedLayer.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
     committedLayer.setAttribute('preserveAspectRatio', 'none');
     const layouts = layoutAnnotations(
       committedSelections.map((selection) => ({
         bounds: selection.rect,
-        order: selection.label ?? selection.id,
+        order: selection.id,
       })),
       window.innerWidth,
       window.innerHeight,
     );
-    const selectionByOrder = new Map(
-      committedSelections.map((selection) => [selection.label ?? selection.id, selection]),
-    );
-    const leaders = document.createDocumentFragment();
-    const targets = document.createDocumentFragment();
-    const badges = document.createDocumentFragment();
+    const selectionById = new Map(committedSelections.map((selection) => [selection.id, selection]));
 
     for (const layout of layouts) {
-      if (layout.callout && layout.leader.length > 1) {
-        const leader = svgElement('polyline');
-        leader.setAttribute('class', 'snapshot-annotation__leader');
-        leader.setAttribute('points', layout.leader.map((point) => `${point.x},${point.y}`).join(' '));
-        leader.setAttribute('stroke-width', String(LEADER_LINE_WIDTH));
-        leaders.append(leader);
-      }
-
-      if (layout.markerOnly) {
-        const marker = svgElement('circle');
-        marker.setAttribute('class', 'snapshot-annotation__marker');
-        marker.setAttribute('cx', String(layout.anchor.x));
-        marker.setAttribute('cy', String(layout.anchor.y));
-        marker.setAttribute('r', String(MARKER_RADIUS - MARKER_RING_WIDTH / 2));
-        marker.setAttribute('stroke-width', String(MARKER_RING_WIDTH));
-        targets.append(marker);
-
-        const markerInner = svgElement('circle');
-        markerInner.setAttribute('class', 'snapshot-annotation__marker-inner');
-        markerInner.setAttribute('cx', String(layout.anchor.x));
-        markerInner.setAttribute('cy', String(layout.anchor.y));
-        markerInner.setAttribute('r', String(MARKER_INNER_RADIUS));
-        targets.append(markerInner);
-      } else {
-        const frame = svgElement('rect');
-        frame.setAttribute('class', 'snapshot-annotation__frame');
-        frame.setAttribute('x', String(layout.frame.x + HIGHLIGHT_LINE_WIDTH / 2));
-        frame.setAttribute('y', String(layout.frame.y + HIGHLIGHT_LINE_WIDTH / 2));
-        frame.setAttribute('width', String(Math.max(0, layout.frame.width - HIGHLIGHT_LINE_WIDTH)));
-        frame.setAttribute('height', String(Math.max(0, layout.frame.height - HIGHLIGHT_LINE_WIDTH)));
-        frame.setAttribute('rx', String(Math.max(0, HIGHLIGHT_RADIUS - HIGHLIGHT_LINE_WIDTH / 2)));
-        frame.setAttribute('stroke-width', String(HIGHLIGHT_LINE_WIDTH));
-        targets.append(frame);
-      }
-
-      const selection = selectionByOrder.get(layout.order);
-      if (selection?.label !== null || layout.callout) {
-        const badgePoint = layout.callout ?? layout.badgeAnchor;
-        const badge = svgElement('circle');
-        badge.setAttribute('class', 'snapshot-annotation__badge');
-        badge.setAttribute('cx', String(badgePoint.x));
-        badge.setAttribute('cy', String(badgePoint.y));
-        badge.setAttribute('r', String(BADGE_RADIUS));
-        badges.append(badge);
-
-        const label = svgElement('text');
-        label.setAttribute('class', 'snapshot-annotation__badge-label');
-        label.setAttribute('x', String(badgePoint.x));
-        label.setAttribute('y', String(badgePoint.y));
-        label.setAttribute('font-size', String(getBadgeFontSize(layout.order)));
-        label.textContent = String(layout.order);
-        badges.append(label);
-      }
+      const selection = selectionById.get(layout.order)!;
+      const elements = elementsFor(selection.id);
+      reconcileLeader(
+        elements.leader,
+        layout.callout && layout.leader.length > 1
+          ? layout.leader.map((point) => `${point.x},${point.y}`).join(' ')
+          : null,
+      );
+      reconcileTarget(elements.target, layout);
+      const labelValue = selection.label ?? selection.id;
+      reconcileBadge(
+        elements.badge,
+        selection.label !== null || layout.callout ? layout.callout ?? layout.badgeAnchor : null,
+        labelValue,
+      );
     }
-
-    committedLayer.replaceChildren(leaders, targets, badges);
   };
 
   const isCommittedRect = (rect: SnapshotShieldRect) => committedRectKeys.has(rectKey(rect));

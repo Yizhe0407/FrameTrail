@@ -57,6 +57,129 @@ test.describe('step recording', () => {
     await stopRecording(popupPage);
   });
 
+  test('keeps scrolling usable, previews below-the-fold targets, and ignores the scrollbar gutter', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+
+    // Bug A: a nested viewport must keep scrolling while step-recording, and
+    // the stationary pointer must be re-hit-tested against the newly revealed
+    // element rather than keeping a stale preview.
+    await hoverTarget(appPage, '#scroll-first');
+    const previewBeforeScroll = await getStepPreviewStyle(appPage);
+    expect(previewBeforeScroll.hidden).toBe(false);
+    const scrollPoint = await appPage.locator('#scroll-viewport').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    });
+    // Virtualized sites can emit this while replacing the element under a
+    // stationary pointer. It must not clear the last viewport coordinate.
+    await appPage.evaluate(({ x, y }) => {
+      window.dispatchEvent(new PointerEvent('pointerout', {
+        clientX: x,
+        clientY: y,
+        relatedTarget: null,
+      }));
+    }, scrollPoint);
+    await appPage.mouse.wheel(0, 110);
+    await expect.poll(() => appPage.locator('#scroll-viewport').evaluate((element) => element.scrollTop)).toBe(110);
+    await expect.poll(() => appPage.evaluate(
+      ({ x: clientX, y: clientY }) => document.elementFromPoint(clientX, clientY)?.id,
+      scrollPoint,
+    )).toBe('scroll-second');
+    await expect.poll(async () => {
+      const preview = await getStepPreviewStyle(appPage);
+      return !preview.hidden && preview.style !== previewBeforeScroll.style;
+    }).toBe(true);
+
+    // A virtual list may replace the row under a stationary pointer after its
+    // scroll event has settled. The local observer must refresh immediately,
+    // without relying on another pointermove or the low-frequency fallback.
+    const beforeReplacement = await getStepPreviewStyle(appPage);
+    await appPage.evaluate(() => {
+      const current = document.querySelector('#scroll-second')!;
+      const replacement = document.createElement('button');
+      replacement.id = 'scroll-replacement';
+      replacement.textContent = '虛擬列表替換內容';
+      replacement.style.cssText = 'display:block;width:180px;height:70px;margin-left:100px';
+      current.replaceWith(replacement);
+    });
+    await expect.poll(async () => {
+      const preview = await getStepPreviewStyle(appPage);
+      return !preview.hidden && preview.style !== beforeReplacement.style;
+    }, { timeout: 500 }).toBe(true);
+
+    // Page-level wheel scrolling remains native as well. Google News applies
+    // overflow to <body>; after scrolling its border box starts at -scrollY,
+    // while hit-test and preview coordinates remain viewport-relative.
+    await appPage.evaluate(() => {
+      document.body.style.overflowY = 'scroll';
+    });
+    await appPage.mouse.move(900, 400);
+    const startScroll = await appPage.evaluate(() => window.scrollY);
+    await appPage.mouse.wheel(0, 900);
+    await expect.poll(() => appPage.evaluate(() => window.scrollY)).toBeGreaterThan(startScroll);
+    expect(await appPage.evaluate(() => document.body.getBoundingClientRect().top)).toBeLessThan(0);
+
+    // The hover preview follows a target that only exists below the fold.
+    await appPage.locator('#below-fold').scrollIntoViewIfNeeded();
+    await hoverTarget(appPage, '#below-fold');
+    const preview = await getStepPreviewStyle(appPage);
+    expect(preview.hidden).toBe(false);
+
+    // Clicking it captures a step whose rect sits inside the viewport and whose
+    // screenshot never baked the hover frame (preview stayed hidden through capture).
+    await clickTarget(appPage, '#below-fold');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    const [belowFoldStep] = await readSteps(popupPage);
+    expect(belowFoldStep.description).toBe('標記 頁面下方內容');
+    const viewport = await appPage.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    expect(belowFoldStep.bounds).toMatchObject({
+      x: expect.any(Number),
+      y: expect.any(Number),
+      width: expect.any(Number),
+      height: expect.any(Number),
+    });
+    expect(belowFoldStep.bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(belowFoldStep.bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(belowFoldStep.bounds!.x + belowFoldStep.bounds!.width).toBeLessThanOrEqual(viewport.width + 1);
+    expect(belowFoldStep.bounds!.y + belowFoldStep.bounds!.height).toBeLessThanOrEqual(viewport.height + 1);
+    expect(await rawScreenshotRosePixels(popupPage, belowFoldStep.id)).toBe(0);
+
+    // Bug A1: a pointerdown in the native scrollbar gutter must not record a step.
+    const gutter = await appPage.evaluate(() => {
+      const clientWidth = document.documentElement.clientWidth;
+      const clientHeight = document.documentElement.clientHeight;
+      return {
+        x: Math.min(clientWidth + 1, window.innerWidth - 1),
+        y: Math.floor(clientHeight / 2),
+      };
+    });
+    await appPage.mouse.move(gutter.x, gutter.y);
+    await appPage.mouse.down();
+    await appPage.mouse.move(gutter.x, gutter.y + 120, { steps: 4 });
+    await appPage.mouse.up();
+    await appPage.waitForTimeout(300);
+    expect((await readSteps(popupPage)).length).toBe(1);
+
+    // The same rule applies to a nested scrollport: its scrollbar gutter is a
+    // native scroll gesture, never a generic mark on the scroll container.
+    const nestedGutter = await appPage.locator('#scroll-viewport').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.right - 2, y: rect.top + rect.height / 2 };
+    });
+    await appPage.mouse.move(nestedGutter.x, nestedGutter.y);
+    await appPage.mouse.down();
+    await appPage.mouse.move(nestedGutter.x, nestedGutter.y + 30, { steps: 2 });
+    await appPage.mouse.up();
+    await appPage.waitForTimeout(300);
+    expect((await readSteps(popupPage)).length).toBe(1);
+
+    await stopRecording(popupPage);
+  });
+
   test('marks disabled controls, SVG, canvas, and general containers', async ({
     appPage,
     popupPage,

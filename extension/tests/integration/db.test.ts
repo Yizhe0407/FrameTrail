@@ -52,6 +52,13 @@ describe('buildStepEntries', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ kind: 'single', step: { id: legacyAnnotation.id } });
   });
+
+  it('does not render an empty snapshot anchor as a phantom annotated entry', () => {
+    const groupId = crypto.randomUUID();
+    const anchor = makeStep({ id: groupId, groupId, bounds: null, order: 0 });
+
+    expect(buildStepEntries([anchor])).toEqual([]);
+  });
 });
 
 describe('getOrderedAnnotations', () => {

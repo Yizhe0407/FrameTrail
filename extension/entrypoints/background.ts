@@ -1,4 +1,9 @@
 import { browser, type Browser } from 'wxt/browser';
+import {
+  CAPTURE_PRESENTATION_CSS,
+  waitForCapturePresentationPaint,
+  withCapturePresentation,
+} from '@/lib/capture-presentation';
 import { addStep, deleteStep, getSteps } from '@/lib/db';
 import {
   getCaptureGuardFailure,
@@ -12,6 +17,7 @@ import type {
   BackgroundMessage,
   ClickCapture,
   ClickCaptureResult,
+  FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
   RecordingState,
   StartRecordingMessage,
@@ -74,6 +80,28 @@ let controlVersion = 0;
 let acceptingClicks = true;
 let pendingRecorderReady: RecorderReadyGate | null = null;
 let pendingSnapshotContext: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext'] = undefined;
+// A step gesture can time out in the content script while captureVisibleTab is
+// still in flight. Keep cancellation state outside the queued click transaction
+// so the background can invalidate that work before it reaches addStep().
+const cancelledCaptureIds = new Set<string>();
+const committingCaptureIds = new Set<string>();
+
+function cancelCapture(captureId: string): void {
+  if (committingCaptureIds.has(captureId)) return;
+  cancelledCaptureIds.add(captureId);
+  // Bound the set in case a tab disappears before its queued transaction runs.
+  while (cancelledCaptureIds.size > 1_024) {
+    const oldest = cancelledCaptureIds.values().next().value as string | undefined;
+    if (!oldest) break;
+    cancelledCaptureIds.delete(oldest);
+  }
+}
+
+function assertCaptureNotCancelled(captureId: string): void {
+  if (cancelledCaptureIds.has(captureId)) {
+    throw new StaleCaptureError('Capture was cancelled before it could be saved.');
+  }
+}
 
 let stateMutationChain: Promise<unknown> = Promise.resolve();
 function queueStateMutation<T>(task: () => Promise<T>): Promise<T> {
@@ -326,13 +354,19 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
       if (!startedState.sessionId || tab.windowId == null) throw new Error('Snapshot capture context is incomplete.');
 
-      const captured = await captureScreenshot(
-        { runId, ...context },
-        startedState.sessionId,
-        tab.id,
-        tab.windowId,
-        version,
-      );
+      const startupCaptureId = crypto.randomUUID();
+      let captured: { blob: Blob; scale: number };
+      try {
+        captured = await captureScreenshot(
+          { runId, captureId: startupCaptureId, ...context },
+          startedState.sessionId,
+          tab.id,
+          tab.windowId,
+          version,
+        );
+      } finally {
+        cancelledCaptureIds.delete(startupCaptureId);
+      }
       const anchorId = crypto.randomUUID();
       startupAnchorId = anchorId;
       const existingSteps = await getSteps(startedState.sessionId);
@@ -365,6 +399,18 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
         await deleteStep(anchorId);
         startupAnchorId = null;
         throw new StaleCaptureError('Recording changed while saving the snapshot.');
+      }
+      // The anchor and its coordinate contract are now durable. Accept before
+      // revealing the shield's interactive UI so its first visible click can
+      // never land in a background-not-ready gap.
+      acceptingClicks = true;
+      const activateMessage: FrameTrailSnapshotActiveMessage = {
+        type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE',
+        runId,
+      };
+      const activated = await browser.tabs.sendMessage(tab.id, activateMessage, { frameId: 0 });
+      if (activated !== true) {
+        throw new Error('Snapshot recorder could not be activated after saving its base image.');
       }
     }
     const current = await getRecordingState();
@@ -458,16 +504,40 @@ async function deleteEmptySnapshotAnchor(state: RecordingState): Promise<void> {
 }
 
 async function captureScreenshot(
-  message: Pick<ClickCapture, 'runId' | 'url' | 'viewport' | 'devicePixelRatio'>,
+  message: Pick<ClickCapture, 'runId' | 'url' | 'viewport' | 'devicePixelRatio' | 'captureId'>,
   sessionId: string,
   tabId: number,
   windowId: number,
   expectedControlVersion: number,
 ): Promise<{ blob: Blob; scale: number }> {
   return queueCapture(async () => {
-    const guard = () =>
-      assertCaptureContext(expectedControlVersion, message.runId, sessionId, tabId, windowId, message.url);
-    const dataUrl = await captureVisibleTabWithRetry(windowId, guard);
+    const guard = async () => {
+      assertCaptureNotCancelled(message.captureId);
+      await assertCaptureContext(expectedControlVersion, message.runId, sessionId, tabId, windowId, message.url);
+      assertCaptureNotCancelled(message.captureId);
+    };
+    await guard();
+    const dataUrl = await withCapturePresentation(
+      {
+        insert: () => browser.scripting.insertCSS({
+          target: { tabId, frameIds: [0] },
+          css: CAPTURE_PRESENTATION_CSS,
+          origin: 'USER',
+        }),
+        settle: async () => {
+          await browser.scripting.executeScript({
+            target: { tabId, frameIds: [0] },
+            func: waitForCapturePresentationPaint,
+          });
+        },
+        remove: () => browser.scripting.removeCSS({
+          target: { tabId, frameIds: [0] },
+          css: CAPTURE_PRESENTATION_CSS,
+          origin: 'USER',
+        }),
+      },
+      () => captureVisibleTabWithRetry(windowId, guard),
+    );
     const blob = await dataUrlToBlob(dataUrl);
     const scale = await getScreenshotScale(blob, message.viewport, message.devicePixelRatio);
     // Do not persist a screenshot after STOP/RESET/another START arrived while
@@ -534,13 +604,17 @@ async function handleClick(
   sender: Browser.runtime.MessageSender,
   expectedControlVersion: number,
 ): Promise<ClickCaptureResult> {
-  if (expectedControlVersion !== controlVersion) return { ok: false };
+  const rejectBeforeTransaction = (): ClickCaptureResult => {
+    cancelledCaptureIds.delete(message.captureId);
+    return { ok: false };
+  };
+  if (expectedControlVersion !== controlVersion) return rejectBeforeTransaction();
   const state = await getRecordingState();
-  if (!state.isRecording || !state.sessionId || state.runId !== message.runId) return { ok: false };
-  if (sender.tab?.id !== state.tabId) return { ok: false };
+  if (!state.isRecording || !state.sessionId || state.runId !== message.runId) return rejectBeforeTransaction();
+  if (sender.tab?.id !== state.tabId) return rejectBeforeTransaction();
   const windowId = sender.tab?.windowId;
   const tabId = sender.tab?.id;
-  if (windowId == null || tabId == null) return { ok: false };
+  if (windowId == null || tabId == null) return rejectBeforeTransaction();
 
   try {
     if (state.mode === 'snapshot') {
@@ -555,6 +629,11 @@ async function handleClick(
       if (expectedControlVersion !== controlVersion) {
         throw new StaleCaptureError('Recording control changed while saving the step.');
       }
+      assertCaptureNotCancelled(message.captureId);
+      // No await may occur between this synchronous commit marker and addStep:
+      // a cancellation arriving afterwards must not create a half-cancelled
+      // transaction that writes a step after the gesture has been replayed.
+      committingCaptureIds.add(message.captureId);
       await addStep({
         id: crypto.randomUUID(),
         sessionId: state.sessionId,
@@ -577,6 +656,9 @@ async function handleClick(
       await setRunError(message.runId, messageText);
     }
     return { ok: false };
+  } finally {
+    committingCaptureIds.delete(message.captureId);
+    cancelledCaptureIds.delete(message.captureId);
   }
 }
 
@@ -593,6 +675,9 @@ export default defineBackground(() => {
           const expectedControlVersion = controlVersion;
           return queueClick(() => handleClick(message, sender, expectedControlVersion));
         }
+      case 'FRAME_TRAIL_CANCEL_CAPTURE':
+        cancelCapture(message.captureId);
+        return Promise.resolve({ ok: true } satisfies ClickCaptureResult);
       case 'FRAME_TRAIL_READY':
         return handleRecorderReady(message, sender);
     }

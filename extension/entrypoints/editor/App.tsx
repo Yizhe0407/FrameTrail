@@ -131,18 +131,27 @@ function App() {
   async function handleDeleteAnnotation(step: Step) {
     if (dataOperation || isRecording) return;
     const previousEntries = entries;
-    const nextEntries = previousEntries.map((entry) =>
-      entry.kind === 'group' && entry.anchor.id === step.groupId
-        ? { ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }
-        : entry,
+    const deletingGroup = previousEntries.find(
+      (entry): entry is Extract<StepEntry, { kind: 'group' }> =>
+        entry.kind === 'group' && entry.anchor.id === step.groupId,
     );
+    const removesEmptyGroup = deletingGroup?.annotations.length === 1;
+    const nextEntries = previousEntries.flatMap((entry) => {
+      if (entry.kind !== 'group' || entry.anchor.id !== step.groupId) return [entry];
+      if (removesEmptyGroup) return [];
+      return [{ ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }];
+    });
 
     setOptimisticEntries(nextEntries);
     setDataOperation('正在刪除標注…');
     setOperationError(null);
     try {
       if (!sessionId) throw new Error('Cannot delete an annotation without an active session.');
-      await deleteStepsAndReorder(sessionId, [step.id], flattenEntries(nextEntries));
+      await deleteStepsAndReorder(
+        sessionId,
+        removesEmptyGroup ? [step.id, deletingGroup!.anchor.id] : [step.id],
+        flattenEntries(nextEntries),
+      );
       await refresh();
     } catch (err) {
       console.error('刪除標注失敗', err);
