@@ -3,10 +3,13 @@ import { RECORDING_STATE_KEY, type RecordingState } from './messages';
 
 const DEFAULT_STATE: RecordingState = {
   isRecording: false,
+  phase: 'idle',
   sessionId: null,
   tabId: null,
   error: null,
+  recoverableError: null,
   mode: 'steps',
+  itemCount: 0,
   numbered: true,
   groupAnchorId: null,
   runId: null,
@@ -22,9 +25,29 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
   const normalized = { ...DEFAULT_STATE, ...stored };
   // A state persisted before the mode rename can hold a legacy value
   // ('multi'/'single'); normalize anything unrecognized back to the default.
-  return normalized.mode === 'steps' || normalized.mode === 'snapshot'
-    ? normalized
-    : { ...normalized, mode: DEFAULT_STATE.mode };
+  const withMode =
+    normalized.mode === 'steps' || normalized.mode === 'snapshot'
+      ? normalized
+      : { ...normalized, mode: DEFAULT_STATE.mode };
+  const validPhases = new Set<RecordingState['phase']>([
+    'idle',
+    'starting',
+    'recording',
+    'paused',
+    'preparing-next',
+    'invalidated',
+    'finishing',
+    'error',
+  ]);
+  return {
+    ...withMode,
+    phase: validPhases.has(withMode.phase)
+      ? withMode.phase
+      : withMode.isRecording
+        ? 'recording'
+        : 'idle',
+    itemCount: Number.isSafeInteger(withMode.itemCount) && withMode.itemCount >= 0 ? withMode.itemCount : 0,
+  };
 }
 
 export async function getRecordingState(): Promise<RecordingState> {

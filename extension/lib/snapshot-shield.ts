@@ -3,13 +3,19 @@ import {
   isSnapshotShieldPortMessage,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
+  SNAPSHOT_SHIELD_CONTROL,
+  SNAPSHOT_SHIELD_CONTROL_RESULT,
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_TOOLBAR_STATE,
+  SNAPSHOT_SHIELD_UNDO,
   type SnapshotShieldCaptureCompleteMessage,
   type SnapshotShieldCommitMessage,
+  type SnapshotShieldControlMessage,
+  type SnapshotShieldControlResultMessage,
   type SnapshotShieldFrameMessage,
   type SnapshotShieldInitMessage,
   type SnapshotShieldPointerDownMessage,
@@ -17,7 +23,10 @@ import {
   type SnapshotShieldPreviewMessage,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldSelection,
+  type SnapshotShieldToolbarStateMessage,
+  type SnapshotShieldUndoMessage,
 } from './snapshot-shield-protocol';
+import type { RecordingControlResult } from './messages';
 
 const SHIELD_PAGE = '/snapshot-shield.html';
 const SHIELD_READY_TIMEOUT_MS = 4_000;
@@ -36,6 +45,7 @@ const SHIELD_BACKDROP_CSS = `
 export interface SnapshotShield {
   ready: Promise<void>;
   runWithoutShield<T>(callback: () => T): T;
+  updateToolbar(state: SnapshotShieldToolbarStateMessage['state']): void;
   remove(): void;
 }
 
@@ -45,6 +55,7 @@ type PointHandler = (
 type HoverHandler = (
   point: SnapshotShieldPointerMoveMessage,
 ) => SnapshotShieldPreviewResult | Promise<SnapshotShieldPreviewResult>;
+type ControlHandler = (message: SnapshotShieldControlMessage) => Promise<RecordingControlResult>;
 
 function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');
@@ -173,7 +184,11 @@ function hardenFrame(frame: HTMLIFrameElement): void {
  * terminate inside the iframe instead of traversing the host page's window,
  * document, or target listeners.
  */
-export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandler): SnapshotShield {
+export function createSnapshotShield(
+  onPoint: PointHandler,
+  onHover?: HoverHandler,
+  onControl?: ControlHandler,
+): SnapshotShield {
   const token = crypto.randomUUID();
   const host = document.createElement('div');
   host.setAttribute('data-frametrail-snapshot-shield', '');
@@ -198,6 +213,8 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
   let channelGeneration = 0;
   let nextSelectionId = 1;
   const committedSelections: Array<SnapshotShieldSelection & { id: number }> = [];
+  let lastUndoneSelection: (SnapshotShieldSelection & { id: number }) | null = null;
+  let toolbarState: SnapshotShieldToolbarStateMessage['state'] | null = null;
   let port: MessagePort | null = null;
   let resolveReady!: () => void;
   let rejectReady!: (reason: Error) => void;
@@ -246,7 +263,10 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
     if (removed) return;
 
     const committed = selection ? { ...selection, id: nextSelectionId++ } : null;
-    if (committed) committedSelections.push(committed);
+    if (committed) {
+      committedSelections.push(committed);
+      lastUndoneSelection = null;
+    }
 
     if (generation === channelGeneration) {
       const completeMessage: SnapshotShieldCaptureCompleteMessage = {
@@ -263,6 +283,42 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
       };
       postToFrame(commitMessage);
     }
+  };
+
+  const handleControl = async (message: SnapshotShieldControlMessage, generation: number): Promise<void> => {
+    let result: RecordingControlResult = { ok: false, error: '目前無法執行這個動作。' };
+    try {
+      if (onControl) result = await onControl(message);
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot toolbar command', error);
+      result = { ok: false, error: '動作失敗，請再試一次。' };
+    }
+    if (removed || generation !== channelGeneration) return;
+
+    if (result.ok && message.action === 'UNDO_LAST_CAPTURE') {
+      lastUndoneSelection = committedSelections.pop() ?? null;
+      if (lastUndoneSelection) {
+        const undoMessage: SnapshotShieldUndoMessage = { type: SNAPSHOT_SHIELD_UNDO, token };
+        postToFrame(undoMessage);
+      }
+    } else if (result.ok && message.action === 'RESTORE_LAST_CAPTURE' && lastUndoneSelection) {
+      committedSelections.push(lastUndoneSelection);
+      const commitMessage: SnapshotShieldCommitMessage = {
+        type: SNAPSHOT_SHIELD_COMMIT,
+        token,
+        selection: lastUndoneSelection,
+      };
+      lastUndoneSelection = null;
+      postToFrame(commitMessage);
+    }
+
+    const response: SnapshotShieldControlResultMessage = {
+      type: SNAPSHOT_SHIELD_CONTROL_RESULT,
+      token,
+      requestId: message.requestId,
+      result,
+    };
+    postToFrame(response);
   };
 
   const runWithoutShieldHitTesting = <T>(callback: () => T): T => {
@@ -385,6 +441,14 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
             };
             postToFrame(commitMessage);
           }
+          if (toolbarState) {
+            const stateMessage: SnapshotShieldToolbarStateMessage = {
+              type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
+              token,
+              state: toolbarState,
+            };
+            postToFrame(stateMessage);
+          }
           return;
         }
         if (event.data.type === SNAPSHOT_SHIELD_POINTER_MOVE) {
@@ -393,6 +457,10 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
         }
         if (event.data.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
           void handlePoint(event.data, generation);
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_CONTROL) {
+          void handleControl(event.data, generation);
         }
       };
       port.onmessageerror = () => fail('snapshot input shield message channel failed');
@@ -415,6 +483,15 @@ export function createSnapshotShield(onPoint: PointHandler, onHover?: HoverHandl
   return {
     ready: readyPromise,
     runWithoutShield: runWithoutShieldHitTesting,
+    updateToolbar(state) {
+      toolbarState = state;
+      const message: SnapshotShieldToolbarStateMessage = {
+        type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
+        token,
+        state,
+      };
+      postToFrame(message);
+    },
     remove,
   };
 }

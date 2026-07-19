@@ -26,6 +26,8 @@ export interface OrderedAnnotation {
 export interface Step {
   id: string;
   sessionId: string;
+  /** Recording run that created this row. Legacy/editor-created rows omit it. */
+  runId?: string;
   order: number;
   /** Raw (un-annotated) screenshot — the highlight box is drawn at render/export time. */
   /** Only ordinary steps and snapshot anchors own image data. Snapshot

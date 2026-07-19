@@ -1,3 +1,10 @@
+import type {
+  RecordingControlMessage,
+  RecordingControlResult,
+  RecordingMode,
+  RecordingPhase,
+} from './messages';
+
 export const SNAPSHOT_SHIELD_INIT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_INIT';
 export const SNAPSHOT_SHIELD_READY = 'FRAME_TRAIL_SNAPSHOT_SHIELD_READY';
 export const SNAPSHOT_SHIELD_POINTER_DOWN = 'FRAME_TRAIL_SNAPSHOT_SHIELD_POINTER_DOWN';
@@ -5,6 +12,10 @@ export const SNAPSHOT_SHIELD_POINTER_MOVE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_POINTER
 export const SNAPSHOT_SHIELD_PREVIEW = 'FRAME_TRAIL_SNAPSHOT_SHIELD_PREVIEW';
 export const SNAPSHOT_SHIELD_CAPTURE_COMPLETE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CAPTURE_COMPLETE';
 export const SNAPSHOT_SHIELD_COMMIT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_COMMIT';
+export const SNAPSHOT_SHIELD_UNDO = 'FRAME_TRAIL_SNAPSHOT_SHIELD_UNDO';
+export const SNAPSHOT_SHIELD_TOOLBAR_STATE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_TOOLBAR_STATE';
+export const SNAPSHOT_SHIELD_CONTROL = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL';
+export const SNAPSHOT_SHIELD_CONTROL_RESULT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL_RESULT';
 export const SNAPSHOT_TARGET_OFFSET_LIMIT = 4_096;
 
 export interface SnapshotShieldRect {
@@ -71,15 +82,51 @@ export interface SnapshotShieldCommitMessage {
   selection: SnapshotShieldSelection & { id: number };
 }
 
+export interface SnapshotShieldUndoMessage {
+  type: typeof SNAPSHOT_SHIELD_UNDO;
+  token: string;
+}
+
+export interface SnapshotShieldToolbarStateMessage {
+  type: typeof SNAPSHOT_SHIELD_TOOLBAR_STATE;
+  token: string;
+  state: {
+    runId: string;
+    mode: RecordingMode;
+    phase: RecordingPhase;
+    itemCount: number;
+    error: string | null;
+  };
+}
+
+export interface SnapshotShieldControlMessage {
+  type: typeof SNAPSHOT_SHIELD_CONTROL;
+  token: string;
+  requestId: number;
+  action: RecordingControlMessage['type'];
+  undoToken?: string;
+}
+
+export interface SnapshotShieldControlResultMessage {
+  type: typeof SNAPSHOT_SHIELD_CONTROL_RESULT;
+  token: string;
+  requestId: number;
+  result: RecordingControlResult;
+}
+
 export type SnapshotShieldPortMessage =
   | SnapshotShieldReadyMessage
   | SnapshotShieldPointerDownMessage
-  | SnapshotShieldPointerMoveMessage;
+  | SnapshotShieldPointerMoveMessage
+  | SnapshotShieldControlMessage;
 
 export type SnapshotShieldFrameMessage =
   | SnapshotShieldPreviewMessage
   | SnapshotShieldCaptureCompleteMessage
-  | SnapshotShieldCommitMessage;
+  | SnapshotShieldCommitMessage
+  | SnapshotShieldUndoMessage
+  | SnapshotShieldToolbarStateMessage
+  | SnapshotShieldControlResultMessage;
 
 function isRequestId(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
@@ -127,9 +174,24 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     clientX?: number;
     clientY?: number;
     candidateOffset?: number;
+    action?: RecordingControlMessage['type'];
+    undoToken?: string;
   };
   if (message.token !== token) return false;
   if (message.type === SNAPSHOT_SHIELD_READY) return true;
+  if (message.type === SNAPSHOT_SHIELD_CONTROL) {
+    return (
+      isRequestId(message.requestId) &&
+      [
+        'PAUSE_RECORDING',
+        'RESUME_RECORDING',
+        'UNDO_LAST_CAPTURE',
+        'RESTORE_LAST_CAPTURE',
+        'FINISH_RECORDING',
+      ].includes(message.action as RecordingControlMessage['type']) &&
+      (message.undoToken === undefined || typeof message.undoToken === 'string')
+    );
+  }
   const hasPoint =
     Number.isFinite(message.clientX) &&
     Number.isFinite(message.clientY) &&
@@ -155,6 +217,8 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     rect?: SnapshotShieldRect | null;
     candidateOffset?: number;
     selection?: (SnapshotShieldSelection & { id: number }) | null;
+    state?: SnapshotShieldToolbarStateMessage['state'];
+    result?: RecordingControlResult;
   };
   if (message.token !== token) return false;
   if (message.type === SNAPSHOT_SHIELD_PREVIEW) {
@@ -167,5 +231,23 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
   if (message.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
     return message.selection === null || isSelection(message.selection);
   }
-  return message.type === SNAPSHOT_SHIELD_COMMIT && isSelection(message.selection);
+  if (message.type === SNAPSHOT_SHIELD_COMMIT) return isSelection(message.selection);
+  if (message.type === SNAPSHOT_SHIELD_UNDO) return true;
+  if (message.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
+    return (
+      Boolean(message.state) &&
+      typeof message.state!.runId === 'string' &&
+      message.state!.mode === 'snapshot' &&
+      typeof message.state!.phase === 'string' &&
+      Number.isSafeInteger(message.state!.itemCount) &&
+      message.state!.itemCount >= 0 &&
+      (message.state!.error === null || typeof message.state!.error === 'string')
+    );
+  }
+  return (
+    message.type === SNAPSHOT_SHIELD_CONTROL_RESULT &&
+    isRequestId(message.requestId) &&
+    Boolean(message.result) &&
+    typeof message.result!.ok === 'boolean'
+  );
 }

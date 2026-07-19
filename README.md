@@ -14,9 +14,11 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 
 ### 錄製模式
 
-- **步驟模式**：游標滑過任意可見元素時先顯示預覽框，每次選取都建立一張截圖與一個標註。content script 會在 `pointerdown` 同步攔截原始 gesture 並隱藏預覽，等待兩個 paint frame 後才截圖，避免把 hover 樣式烤進底圖；互動控制項優先於內層文字或圖示。截圖尚未真正完成前，預覽不會重新出現，重播的 `element.click()` 也一定排在截圖之後，因此不會拍到點擊後或帶預覽框的畫面；截圖期間會鎖住捲動位置，讓儲存的座標與截圖像素一致。原始滑鼠 gesture 只是被延後重播，捲動、拖曳與瀏覽器捲軸都維持可用；落在捲軸溝槽的 `pointerdown` 會被忽略，不攔截也不記錄。背景截圖若異常卡住，failsafe 會在時限後照常重播點擊以維持頁面可用，但該步驟會被捨棄。
-- **快照模式**：錄製啟動時只建立一張底圖，游標滑過任意可見元素時先顯示預覽框，之後的選取只在同一張圖新增座標；上下方向鍵可在游標下的父子層級間切換。成功選取後紅框會持續顯示，停止錄製時一次清除；同一 DOM 節點、穩定元素路徑或視覺框不會重複加入。
+- **操作流程**（內部值 `steps`）：游標滑過任意可見元素時先顯示預覽框，每次選取都建立一張截圖與一個標註。content script 會在 `pointerdown` 同步攔截原始 gesture 並隱藏預覽，等待兩個 paint frame 後才截圖，避免把 hover 樣式烤進底圖；互動控制項優先於內層文字或圖示。截圖尚未真正完成前，預覽不會重新出現，重播的 `element.click()` 也一定排在截圖之後，因此不會拍到點擊後或帶預覽框的畫面；截圖期間會鎖住捲動位置，讓儲存的座標與截圖像素一致。原始滑鼠 gesture 只是被延後重播，捲動、拖曳與瀏覽器捲軸都維持可用；落在捲軸溝槽的 `pointerdown` 會被忽略，不攔截也不記錄。背景截圖若異常卡住，failsafe 會在時限後照常重播點擊以維持頁面可用，但該步驟會被捨棄。
+- **單頁標註**（內部值 `snapshot`）：錄製啟動時只建立一張底圖，游標滑過任意可見元素時先顯示預覽框，之後的選取只在同一張圖新增座標；上下方向鍵可在游標下的父子層級間切換。成功選取後紅框會持續顯示；同一 DOM 節點、穩定元素路徑或視覺框不會重複加入。
 - 同一個 session 可以混用兩種模式；每次重新啟動快照錄製都會建立新的快照群組，不會沿用上一輪底圖。只有「重置」會清除整個 session。
+- Popup 只負責選擇模式、是否顯示順序編號與跨頁權限。開始後由頁面右下控制器顯示本輪計數；操作流程可暫停／繼續，兩種模式都可復原上一筆、在 5 秒內還原並完成錄製。
+- 完成後會開啟或聚焦單一 Editor tab，並自動選中本輪最新步驟或快照群組。錄製控制器、hover preview 與 shield UI 都會在截圖前隱藏，不會出現在成品中。
 
 ### 快照輸入隔離
 
@@ -45,7 +47,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 
 ### 編輯、儲存與匯出
 
-- popup 提供錄製控制；獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
+- popup 提供錄製前設定與錄製中摘要；頁面浮動控制器負責錄製中的復原、暫停與完成。獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
 - 拖曳使用 `@dnd-kit`，只由拖曳把手啟動，支援滑鼠、觸控與鍵盤。UI 先做 optimistic reorder，再以單一 IndexedDB transaction 持久化，失敗時復原；不同高度的列只做 translate，不會被縮放閃動。
 - 圖片 Blob 在狀態更新時保留穩定參照，rail、stage 與 lightbox 共用同一個 object URL；最後一個使用者卸載後才 revoke，避免非圖片變更觸發重新解碼與白閃。
 - 刪除步驟、刪除快照群組與重置都使用共用的 shadcn `ConfirmationDialog`。專案不使用 `window.alert()` 或 `window.confirm()`；非阻斷錯誤則顯示在既有 shadcn Alert 區域。
@@ -62,7 +64,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 
 ## 權限
 
-必要權限為 `storage`、`unlimitedStorage`、`activeTab`、`scripting`、`downloads` 與 `clipboardWrite`。`<all_urls>` 是按下「開始錄製」時才請求的 optional host permission，用於跨網域導航與子 frame 注入；拒絕時仍可利用 `activeTab` 錄製目前頂層頁面，但無法存取的子 frame 只會標註外框。
+必要權限為 `storage`、`unlimitedStorage`、`activeTab`、`scripting`、`downloads` 與 `clipboardWrite`。預設以 `activeTab` 錄製目前頁面；只有使用者主動開啟「跨頁錄製」時才請求 `<all_urls>` optional host permission，用於跨網域導航與子 frame 注入。拒絕時仍可錄製目前頂層頁面，但無法存取的子 frame 只會標註外框。
 
 ## 開發流程
 
@@ -96,7 +98,7 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前基準包含 17 個 Vitest 測試檔、64 項 unit/integration 測試，以及 5 個 Playwright spec、18 項真實 Chromium E2E；合計 82 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+目前基準包含 21 個 Vitest 測試檔、99 項 unit/integration 測試，以及 6 個 Playwright spec、28 項真實 Chromium E2E；合計 127 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
 
 Unit 與 integration 覆蓋：
 
@@ -114,15 +116,17 @@ Chromium E2E 覆蓋：
 
 ## 手動端到端測試
 
-1. 載入開發版，在一般網站選「步驟模式」並開始錄製。
+1. 載入開發版，在一般網站選「操作流程」並開始錄製。
 2. 將游標移到按鈕、連結、表單控制、純文字、圖片、一般容器、disabled/inert、open shadow DOM 與多行 inline 元素；確認都先顯示預覽框，選取後產生步驟，互動目標使用「點擊」描述，其餘使用「標記」。
 3. 點擊會導覽的連結，確認保存的是導覽前畫面，完成後頁面互動才被重播。
-4. 停止錄製並開啟編輯器；測試說明編輯、拖曳、刪除、複製、Lightbox 與 ZIP 匯出，確認圖片不白閃且標註位置一致。
-5. 選「快照模式」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
-6. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；用上下方向鍵切換父子層級，點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。
-7. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；停止後確認頁面 overlay 全部消失。
-8. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
-9. 測試刪除單一步驟、整個快照群組與重置，確認文字為「刪除」且只出現 shadcn Dialog，不出現瀏覽器原生 alert/confirm。
+4. 從頁面控制器測試暫停、繼續、復原與還原，再按「完成」；確認 Editor 自動開啟並選中最新步驟。
+5. 測試說明編輯、拖曳、刪除、複製、Lightbox 與 ZIP 匯出，確認圖片不白閃且標註位置一致。
+6. 選「單頁標註」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
+7. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；用上下方向鍵切換父子層級，點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。
+8. 從 shield 內控制器測試復原、還原與「完成快照」，確認 Editor 自動定位到該群組。
+9. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；完成後確認頁面 overlay 全部消失。
+10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
+11. 測試刪除單一步驟、整個快照群組與重置，確認文字為「刪除」且只出現 shadcn Dialog，不出現瀏覽器原生 alert/confirm。
 
 ## 已知限制
 

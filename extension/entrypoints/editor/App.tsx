@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useRecordingSession } from '@/lib/useRecordingSession';
 import {
@@ -36,6 +36,8 @@ function App() {
   const entries = optimisticEntries ?? dbEntries;
 
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const requestedEntryId = useMemo(() => new URLSearchParams(window.location.search).get('entryId'), []);
+  const appliedRequestedEntry = useRef(false);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [entryPendingDelete, setEntryPendingDelete] = useState<StepEntry | null>(null);
 
@@ -48,6 +50,14 @@ function App() {
       return entries.some((entry) => entryId(entry) === current) ? current : entryId(entries[0]);
     });
   }, [entries]);
+
+  useEffect(() => {
+    if (appliedRequestedEntry.current || !requestedEntryId) return;
+    if (!entries.some((entry) => entryId(entry) === requestedEntryId)) return;
+    appliedRequestedEntry.current = true;
+    setSelectedEntryId(requestedEntryId);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('#frametrail-editor-title')?.focus());
+  }, [entries, requestedEntryId]);
 
   const selectedIndex = entries.findIndex((e) => entryId(e) === selectedEntryId);
   const selectedEntry: StepEntry | undefined = selectedIndex === -1 ? undefined : entries[selectedIndex];

@@ -4,6 +4,7 @@ import {
   getStepPreviewStyle,
   hoverTarget,
   rawScreenshotRosePixels,
+  readRecordingState,
   readSteps,
   resetExtensionData,
   startRecording,
@@ -55,6 +56,59 @@ test.describe('step recording', () => {
     expect(step.description).toBe('點擊 執行操作');
 
     await stopRecording(popupPage);
+  });
+
+  test('pauses, undoes, restores, and finishes from the in-page recording lifecycle', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    await expect(appPage.locator('[data-frametrail-recording-toolbar]')).toHaveCount(1);
+    await clickTarget(appPage, '#plain-text');
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+
+    const sendControl = async (type: string, undoToken?: string) => {
+      return popupPage.evaluate(async ({ type, undoToken }) => {
+        const extensionApi = (globalThis as unknown as {
+          chrome: {
+            storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
+            runtime: { sendMessage(message: unknown): Promise<unknown> };
+          };
+        }).chrome;
+        const stored = await extensionApi.storage.local.get('scribe:recordingState');
+        const runId = (stored['scribe:recordingState'] as { runId: string }).runId;
+        return extensionApi.runtime.sendMessage({ type, runId, ...(undoToken ? { undoToken } : {}) });
+      }, { type, undoToken });
+    };
+
+    expect(await sendControl('PAUSE_RECORDING')).toMatchObject({ ok: true });
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('paused');
+    await hoverTarget(appPage, '#action-button');
+    expect((await getStepPreviewStyle(appPage)).hidden).toBe(true);
+
+    expect(await sendControl('RESUME_RECORDING')).toMatchObject({ ok: true });
+    await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('recording');
+    await hoverTarget(appPage, '#action-button');
+    expect((await getStepPreviewStyle(appPage)).hidden).toBe(false);
+
+    const undo = await sendControl('UNDO_LAST_CAPTURE') as { ok: boolean; undoToken: string };
+    expect(undo.ok).toBe(true);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(0);
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(0);
+
+    expect(await sendControl('RESTORE_LAST_CAPTURE', undo.undoToken)).toMatchObject({ ok: true });
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    expect(await sendControl('FINISH_RECORDING')).toMatchObject({ ok: true });
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
+    await expect(appPage.locator('[data-frametrail-recording-toolbar]')).toHaveCount(0);
+    expect(editor.url()).toContain('entryId=');
+    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
   test('keeps scrolling usable, previews below-the-fold targets, and ignores the scrollbar gutter', async ({

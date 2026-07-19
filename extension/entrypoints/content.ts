@@ -26,16 +26,21 @@ import {
   type SnapshotShieldPreviewResult,
   type SnapshotShieldRect,
   type SnapshotShieldSelection,
+  type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
-import { getRecordingState } from '@/lib/storage';
+import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
 import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
 import { createImageCoordinateMapper } from '@/lib/image-geometry';
+import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recording-toolbar-host';
 import type {
   ClickCapture,
   ClickCaptureResult,
   FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
+  RecordingControlMessage,
+  RecordingControlResult,
+  RecordingState,
 } from '@/lib/messages';
 
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
@@ -523,6 +528,7 @@ export default defineContentScript({
     let suppressLateClickTarget: Element | null = null;
     let suppressLateClickUntil = 0;
     let snapshotAnnotationNumber = 0;
+    let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
     let snapshotInteractionsActive = false;
     let stepPreview: StepPreview | null = null;
@@ -534,6 +540,8 @@ export default defineContentScript({
     const selectedSnapshotTargets = new Set<string>();
     const selectedSnapshotElements = new WeakSet<Element>();
     const selectedSnapshotRects = new Set<string>();
+    const selectedSnapshotHistory: ResolvedSnapshotTarget[] = [];
+    let undoneSnapshotTarget: ResolvedSnapshotTarget | null = null;
 
     const beginStepGesture = (target: Element) => {
       let cancel!: () => void;
@@ -610,7 +618,7 @@ export default defineContentScript({
     };
 
     const armStepPreviewFallback = () => {
-      if (!stepPreview || !stepPreviewPoint || stepGesture || stepPreviewFallbackTimer !== null) return;
+      if (recorderPaused || !stepPreview || !stepPreviewPoint || stepGesture || stepPreviewFallbackTimer !== null) return;
       stepPreviewFallbackTimer = setTimeout(() => {
         stepPreviewFallbackTimer = null;
         scheduleStepPreview();
@@ -620,7 +628,7 @@ export default defineContentScript({
 
     const renderStepPreview = () => {
       stepPreviewFrame = null;
-      if (!stepPreview || !stepPreviewPoint || stepGesture) {
+      if (recorderPaused || !stepPreview || !stepPreviewPoint || stepGesture) {
         disconnectStepPreviewObserver();
         stepPreview?.hide();
         return;
@@ -679,6 +687,7 @@ export default defineContentScript({
     };
 
     const onStepPointerMove = (event: PointerEvent) => {
+      if (recorderPaused) return;
       stepPreviewPoint = { clientX: event.clientX, clientY: event.clientY };
       scheduleStepPreview();
       armStepPreviewFallback();
@@ -788,6 +797,8 @@ export default defineContentScript({
     const onPointerDown = async (event: Event) => {
       const pe = event as PointerEvent;
       if (pe.button !== 0 || !pe.isPrimary) return;
+      if (recorderPaused) return;
+      if (pe.target instanceof Element && pe.target.closest('[data-frametrail-recording-toolbar]')) return;
 
       // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
       // step: leave it untouched so the drag scrolls and no bogus step lands.
@@ -916,11 +927,40 @@ export default defineContentScript({
       selectedSnapshotTargets.add(target.identity);
       if (target.element) selectedSnapshotElements.add(target.element);
       selectedSnapshotRects.add(snapshotRectKey(target.rect));
+      selectedSnapshotHistory.push(target);
+      undoneSnapshotTarget = null;
       snapshotAnnotationNumber += 1;
       return {
         rect: target.rect,
         label: recordingState.numbered ? snapshotAnnotationNumber : null,
       };
+    };
+
+    const onSnapshotControl = async (
+      message: SnapshotShieldControlMessage,
+    ): Promise<RecordingControlResult> => {
+      const result = await sendToolbarCommand(message.action, message.undoToken);
+      if (!result.ok) return result;
+
+      if (message.action === 'UNDO_LAST_CAPTURE') {
+        const target = selectedSnapshotHistory.pop() ?? null;
+        if (target) {
+          selectedSnapshotTargets.delete(target.identity);
+          if (target.element) selectedSnapshotElements.delete(target.element);
+          selectedSnapshotRects.delete(snapshotRectKey(target.rect));
+          snapshotAnnotationNumber = Math.max(0, snapshotAnnotationNumber - 1);
+          undoneSnapshotTarget = target;
+        }
+      } else if (message.action === 'RESTORE_LAST_CAPTURE' && undoneSnapshotTarget) {
+        const target = undoneSnapshotTarget;
+        selectedSnapshotTargets.add(target.identity);
+        if (target.element) selectedSnapshotElements.add(target.element);
+        selectedSnapshotRects.add(snapshotRectKey(target.rect));
+        selectedSnapshotHistory.push(target);
+        snapshotAnnotationNumber += 1;
+        undoneSnapshotTarget = null;
+      }
+      return result;
     };
 
     if (!shouldFreezeSnapshot) {
@@ -978,6 +1018,39 @@ export default defineContentScript({
       window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
     }
 
+    const toToolbarState = (state: RecordingState) => ({
+      runId,
+      mode: state.mode,
+      phase: state.phase,
+      itemCount: state.itemCount,
+      error: state.recoverableError?.message ?? state.error,
+    });
+    const sendToolbarCommand = async (
+      action: RecordingControlMessage['type'],
+      undoToken?: string,
+    ): Promise<RecordingControlResult> => {
+      return (await browser.runtime.sendMessage({
+        type: action,
+        runId,
+        ...(undoToken ? { undoToken } : {}),
+      } satisfies RecordingControlMessage)) as RecordingControlResult;
+    };
+
+    let recordingToolbar: MountedRecordingToolbar | null = null;
+    if (!shouldFreezeSnapshot) {
+      recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
+        onCommand: sendToolbarCommand,
+      });
+    }
+
+    const unsubscribeRecordingState = onRecordingStateChange((state) => {
+      if (state.runId !== runId) return;
+      recorderPaused = state.phase === 'paused';
+      if (recorderPaused) suspendStepPreview();
+      recordingToolbar?.update(toToolbarState(state));
+      snapshotShield?.updateToolbar(toToolbarState(state));
+    });
+
     let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
     let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let keepAliveStopped = false;
@@ -1029,6 +1102,8 @@ export default defineContentScript({
       }
       snapshotShield?.remove();
       snapshotShield = null;
+      recordingToolbar?.remove();
+      recordingToolbar = null;
       if (stepPreviewFrame !== null) cancelAnimationFrame(stepPreviewFrame);
       stepPreviewFrame = null;
       stepPreview?.remove();
@@ -1040,6 +1115,7 @@ export default defineContentScript({
       setCaptureScrollLock(null);
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onRecorderMessage);
+      unsubscribeRecordingState();
       keepAliveStopped = true;
       if (keepAliveTimer) clearInterval(keepAliveTimer);
       keepAlivePort?.disconnect();
@@ -1048,7 +1124,7 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(onRecorderMessage);
 
     if (shouldFreezeSnapshot) {
-      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover);
+      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl);
       try {
         await snapshotShield.ready;
         await waitForNextFrame();

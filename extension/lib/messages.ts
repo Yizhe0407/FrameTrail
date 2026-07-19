@@ -24,16 +24,59 @@ export interface ClickCapture {
  * selection in the session is annotated onto one shared screenshot instead. */
 export type RecordingMode = 'steps' | 'snapshot';
 
+export type RecordingPhase =
+  | 'idle'
+  | 'starting'
+  | 'recording'
+  | 'paused'
+  | 'preparing-next'
+  | 'invalidated'
+  | 'finishing'
+  | 'error';
+
+export interface RecoverableRecordingError {
+  code: string;
+  message: string;
+}
+
 export interface StartRecordingMessage {
   type: 'START_RECORDING';
   mode: RecordingMode;
   /** Snapshot mode only: whether boxes get a numbered order badge. */
   numbered: boolean;
+  permissionScope?: 'current-page' | 'cross-page';
 }
 
 export interface StopRecordingMessage {
   type: 'STOP_RECORDING';
 }
+
+export interface RecordingControlMessage {
+  type:
+    | 'PAUSE_RECORDING'
+    | 'RESUME_RECORDING'
+    | 'UNDO_LAST_CAPTURE'
+    | 'RESTORE_LAST_CAPTURE'
+    | 'FINISH_RECORDING';
+  runId: string;
+  undoToken?: string;
+}
+
+export interface FinishResult {
+  sessionId: string;
+  entryId: string | null;
+  groupId: string | null;
+  itemCount: number;
+}
+
+export type RecordingControlResult =
+  | {
+      ok: true;
+      undoToken?: string;
+      removedItemNumber?: number;
+      finish?: FinishResult;
+    }
+  | { ok: false; error: string };
 
 /** Sent background -> content script (not through the BackgroundMessage
  *  union) telling the recorder in a specific tab to tear itself down —
@@ -78,14 +121,18 @@ export type BackgroundMessage =
   | CancelCaptureMessage
   | StartRecordingMessage
   | StopRecordingMessage
+  | RecordingControlMessage
   | RecorderReadyMessage;
 
 export interface RecordingState {
   isRecording: boolean;
+  phase: RecordingPhase;
   sessionId: string | null;
   tabId: number | null;
   error: string | null;
+  recoverableError: RecoverableRecordingError | null;
   mode: RecordingMode;
+  itemCount: number;
   numbered: boolean;
   /** Snapshot mode: id of the current recording run's shared-image anchor
    * step. START_RECORDING captures and creates it before accepting clicks;

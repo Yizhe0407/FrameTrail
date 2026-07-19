@@ -33,11 +33,11 @@ pnpm build
 pnpm build:firefox
 ```
 
-- `pnpm test:unit`：執行 11 個 unit 測試檔、47 項測試。
-- `pnpm test:integration`：執行 6 個 integration 測試檔、17 項測試。
-- `pnpm test`：一次執行上述 17 個 Vitest 測試檔、64 項測試。
-- `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行 5 個 Playwright spec、18 項 Chromium E2E。
-- `pnpm test:all`：依序執行 64 項 Vitest 與 18 項 E2E。
+- `pnpm test:unit`：執行 13 個 unit 測試檔、78 項測試。
+- `pnpm test:integration`：執行 8 個 integration 測試檔、21 項測試。
+- `pnpm test`：一次執行上述 21 個 Vitest 測試檔、99 項測試。
+- `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行 6 個 Playwright spec、28 項 Chromium E2E。
+- `pnpm test:all`：依序執行 99 項 Vitest 與 28 項 E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。

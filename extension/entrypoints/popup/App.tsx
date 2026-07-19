@@ -9,10 +9,18 @@ import ResetButton from '@/components/ResetButton';
 import ExportImagesButton from '@/components/ExportImagesButton';
 
 function App() {
-  const { isRecording, steps, error } = useRecordingSession();
+  const { recording, isRecording, steps, error, recoverableError } = useRecordingSession();
 
-  function openEditor() {
-    browser.tabs.create({ url: browser.runtime.getURL('/editor.html') });
+  async function openEditor() {
+    const url = browser.runtime.getURL('/editor.html');
+    const [existing] = await browser.tabs.query({ url: `${url}*` });
+    if (existing?.id != null) {
+      const tab = await browser.tabs.update(existing.id, { active: true });
+      if (tab?.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
+    } else {
+      await browser.tabs.create({ url });
+    }
+    window.close();
   }
 
   function handleStarted() {
@@ -20,22 +28,22 @@ function App() {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-5 bg-stone-50 px-5 py-6 dark:bg-stone-900">
+    <div className="flex w-80 flex-col gap-5 bg-stone-50 px-5 py-5 dark:bg-stone-900">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-sm font-semibold tracking-[.02em] text-stone-800 dark:text-stone-100">FrameTrail</h1>
-        <span className="text-[11px] tracking-[.14em] text-stone-400 dark:text-stone-500">
-          {isRecording ? '錄製中' : '待命'}
+        <h1 className="text-base font-semibold text-stone-900 dark:text-stone-50">FrameTrail</h1>
+        <span className="text-xs font-medium text-stone-600 dark:text-stone-300">
+          {recording.phase === 'starting' ? '準備中' : isRecording ? '錄製中' : '待命'}
         </span>
       </div>
 
-      {error && (
+      {(recoverableError?.message || error) && !isRecording && (
         <Alert variant="destructive">
           <AlertCircle />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{recoverableError?.message ?? error}</AlertDescription>
         </Alert>
       )}
 
-      <RecordControls isRecording={isRecording} onStarted={handleStarted} />
+      <RecordControls recording={recording} onStarted={handleStarted} />
 
       <Separator className="bg-stone-200 dark:bg-stone-700" />
 
@@ -48,13 +56,15 @@ function App() {
           <PencilLine />
           開啟編輯器
         </Button>
-        <div className="grid grid-cols-2 gap-2">
-          <ExportImagesButton
-            steps={steps}
-            className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
-          />
-          <ResetButton hasSteps={steps.length > 0} variant="outline" className="w-full" />
-        </div>
+        {!isRecording && steps.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            <ExportImagesButton
+              steps={steps}
+              className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
+            />
+            <ResetButton hasSteps variant="outline" className="w-full" />
+          </div>
+        )}
       </div>
     </div>
   );

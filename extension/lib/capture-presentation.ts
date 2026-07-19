@@ -8,7 +8,8 @@ export const CAPTURE_PRESENTATION_CSS = `
  * the document so layout and viewport coordinates remain unchanged, but make
  * them fully transparent while captureVisibleTab samples the page. */
 [data-frametrail-snapshot-shield],
-[data-frametrail-step-preview] {
+[data-frametrail-step-preview],
+[data-frametrail-recording-toolbar] {
   visibility: hidden !important;
   opacity: 0 !important;
 }

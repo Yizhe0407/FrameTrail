@@ -12,10 +12,13 @@ import {
 
 const state: RecordingState = {
   isRecording: true,
+  phase: 'recording',
   sessionId: 'session-1',
   tabId: 7,
   error: null,
+  recoverableError: null,
   mode: 'steps',
+  itemCount: 0,
   numbered: true,
   groupAnchorId: null,
   runId: 'run-1',

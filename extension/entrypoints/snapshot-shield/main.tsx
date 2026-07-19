@@ -1,19 +1,27 @@
+import { createRoot } from 'react-dom/client';
+import RecordingToolbar from '@/components/RecordingToolbar';
 import {
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
+  SNAPSHOT_SHIELD_CONTROL,
+  SNAPSHOT_SHIELD_CONTROL_RESULT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_TOOLBAR_STATE,
+  SNAPSHOT_SHIELD_UNDO,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldReadyMessage,
   type SnapshotShieldRect,
   type SnapshotShieldSelection,
+  type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
+import type { RecordingControlMessage, RecordingControlResult } from '@/lib/messages';
 import {
   BADGE_RADIUS,
   HIGHLIGHT_LINE_WIDTH,
@@ -54,6 +62,7 @@ const token = new URL(location.href).searchParams.get('token');
 let initialized = false;
 
 function consume(event: Event): void {
+  if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
   if (event.cancelable) event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -246,6 +255,19 @@ function createOverlay() {
       committedRectKeys.add(rectKey(selection.rect));
       renderCommitted();
     },
+    undo() {
+      const selection = committedSelections.pop();
+      if (!selection) return;
+      committedIds.delete(selection.id);
+      committedRectKeys.clear();
+      for (const committed of committedSelections) committedRectKeys.add(rectKey(committed.rect));
+      const elements = elementsById.get(selection.id);
+      elements?.leader.remove();
+      elements?.target.remove();
+      elements?.badge.remove();
+      elementsById.delete(selection.id);
+      renderCommitted();
+    },
     relayout() {
       renderCommitted();
     },
@@ -258,6 +280,12 @@ window.addEventListener('message', (event) => {
   if (!port) return;
   initialized = true;
   const overlay = createOverlay();
+  const toolbarContainer = document.createElement('div');
+  toolbarContainer.setAttribute('data-frametrail-shield-toolbar', '');
+  document.body.append(toolbarContainer);
+  const toolbarRoot = createRoot(toolbarContainer);
+  const pendingControls = new Map<number, (result: RecordingControlResult) => void>();
+  let controlSequence = 0;
   let capturing = false;
   let moveFrame: number | null = null;
   let lastPoint: { clientX: number; clientY: number } | null = null;
@@ -309,6 +337,10 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) {
+      clearHover();
+      return;
+    }
     ensureKeyboardFocus();
     if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
       candidateOffset = 0;
@@ -319,6 +351,7 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerDown = (event: PointerEvent) => {
+    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     consume(event);
     ensureKeyboardFocus();
     if (capturing || event.button !== 0 || !event.isPrimary) return;
@@ -343,6 +376,7 @@ window.addEventListener('message', (event) => {
   };
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
+    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
     if (capturing || !lastPoint) return;
@@ -377,6 +411,41 @@ window.addEventListener('message', (event) => {
     }
     if (event.data.type === SNAPSHOT_SHIELD_COMMIT) {
       overlay.commit(event.data.selection);
+      return;
+    }
+    if (event.data.type === SNAPSHOT_SHIELD_UNDO) {
+      overlay.undo();
+      return;
+    }
+    if (event.data.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
+      const state = event.data.state;
+      toolbarRoot.render(
+        state.phase === 'recording' || state.phase === 'finishing' ? (
+          <RecordingToolbar
+            state={state}
+            onCommand={(action: RecordingControlMessage['type'], undoToken?: string) => {
+              const requestId = ++controlSequence;
+              const message: SnapshotShieldControlMessage = {
+                type: SNAPSHOT_SHIELD_CONTROL,
+                token,
+                requestId,
+                action,
+                ...(undoToken ? { undoToken } : {}),
+              };
+              return new Promise<RecordingControlResult>((resolve) => {
+                pendingControls.set(requestId, resolve);
+                port.postMessage(message);
+              });
+            }}
+          />
+        ) : null,
+      );
+      return;
+    }
+    if (event.data.type === SNAPSHOT_SHIELD_CONTROL_RESULT) {
+      const resolve = pendingControls.get(event.data.requestId);
+      pendingControls.delete(event.data.requestId);
+      resolve?.(event.data.result);
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {

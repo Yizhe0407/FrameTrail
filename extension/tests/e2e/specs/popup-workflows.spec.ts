@@ -2,6 +2,7 @@ import { test, expect } from '../support/fixture';
 import {
   readRecordingState,
   resetExtensionData,
+  stopRecording,
 } from '../support/harness';
 
 async function clickPopupCommandWithoutActivatingTab(
@@ -22,21 +23,21 @@ test.describe('popup workflows', () => {
     await resetExtensionData(popupPage);
   });
 
-  test('starts snapshot recording with the selected numbering option and stops from the popup', async ({
+  test('starts snapshot recording with the selected numbering option and shows the active-run summary', async ({
     appPage,
     popupPage,
     extensionContext,
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    const stepsMode = popupPage.getByRole('button', { name: '步驟模式' });
-    const snapshotMode = popupPage.getByRole('button', { name: '快照模式' });
-    await expect(stepsMode).toHaveAttribute('aria-pressed', 'true');
+    const stepsMode = popupPage.getByRole('radio', { name: '操作流程' });
+    const snapshotMode = popupPage.getByRole('radio', { name: '單頁標註' });
+    await expect(stepsMode).toHaveAttribute('aria-checked', 'true');
     await snapshotMode.click();
-    await expect(snapshotMode).toHaveAttribute('aria-pressed', 'true');
-    await expect(popupPage.getByText('滑過任意可見元素會先預覽，選取後疊標在同一張圖。')).toBeVisible();
+    await expect(snapshotMode).toHaveAttribute('aria-checked', 'true');
+    await expect(popupPage.getByText('鎖定目前畫面；在同一張圖加入多個標註。')).toBeVisible();
 
-    const numbering = popupPage.getByRole('switch', { name: '標記順序編號' });
+    const numbering = popupPage.getByRole('switch', { name: '顯示順序編號' });
     await expect(numbering).toBeChecked();
     await numbering.click();
     await expect(numbering).not.toBeChecked();
@@ -47,15 +48,18 @@ test.describe('popup workflows', () => {
       window.close = () => {};
     });
     await appPage.bringToFront();
-    await clickPopupCommandWithoutActivatingTab(popupPage, '開始錄製');
+    await clickPopupCommandWithoutActivatingTab(popupPage, '開始');
 
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(true);
+    await expect.poll(async () => (await readRecordingState(statePage)).phase).toBe('recording');
     await expect.poll(async () => (await readRecordingState(statePage)).mode).toBe('snapshot');
     await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(1);
 
-    await expect(popupPage.getByRole('button', { name: '停止錄製' })).toBeEnabled();
-    await clickPopupCommandWithoutActivatingTab(popupPage, '停止錄製');
+    await expect(popupPage.getByText('單頁標註 · 0 個標註')).toBeVisible();
+    await expect(popupPage.getByRole('button', { name: '回到錄製分頁' })).toBeEnabled();
+    await expect(popupPage.getByRole('button', { name: '停止錄製' })).toHaveCount(0);
+    await stopRecording(statePage);
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
   });
@@ -65,8 +69,8 @@ test.describe('popup workflows', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await expect(popupPage.getByRole('button', { name: '匯出圖片' })).toBeDisabled();
-    await expect(popupPage.getByRole('button', { name: '重置' })).toBeDisabled();
+    await expect(popupPage.getByRole('button', { name: '匯出圖片' })).toHaveCount(0);
+    await expect(popupPage.getByRole('button', { name: '重置' })).toHaveCount(0);
 
     const editorPromise = extensionContext.waitForEvent('page');
     await popupPage.getByRole('button', { name: '開啟編輯器' }).click();

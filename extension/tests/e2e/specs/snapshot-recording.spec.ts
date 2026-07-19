@@ -2,6 +2,7 @@ import { test, expect } from '../support/fixture';
 import {
   clickSnapshotTarget,
   getSnapshotFrame,
+  readRecordingState,
   readSteps,
   resetExtensionData,
   startRecording,
@@ -69,6 +70,38 @@ test.describe('snapshot recording', () => {
     expect(await appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(0);
 
     await stopRecording(popupPage);
+  });
+
+  test('undoes, restores, and finishes through the snapshot shield toolbar', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot', true);
+    const shield = await getSnapshotFrame(appPage);
+    const point = await targetCenter(appPage, '#plain-text');
+    await expect(shield.getByRole('button', { name: '完成快照' })).toBeVisible();
+
+    await clickSnapshotTarget(appPage, point);
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+    await shield.getByRole('button', { name: '復原上一個' }).click();
+    await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(0);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await expect(shield.locator('.ft-snackbar')).toContainText('已移除標註 1');
+
+    await shield.getByRole('button', { name: '還原' }).click();
+    await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(1);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    await shield.getByRole('button', { name: '完成快照' }).click();
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
+    await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
+    expect(editor.url()).toContain('groupId=');
+    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
   test('reuses committed SVG nodes while relayout moves existing annotations', async ({

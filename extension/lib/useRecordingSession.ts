@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getRecordingState, onRecordingStateChange } from './storage';
+import { createDefaultRecordingState, getRecordingState, onRecordingStateChange } from './storage';
 import { getSteps, type Step } from './db';
 
 /** Screenshot blobs are immutable after a step is created. IndexedDB returns
@@ -41,10 +41,8 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
 
 /** Shared popup/editor state: current recording status, steps, and any error. */
 export function useRecordingSession() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [recordingState, setRecordingState] = useState(createDefaultRecordingState);
   const [steps, setSteps] = useState<Step[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const latestStepsRequest = useRef(0);
 
   const refreshSteps = useCallback(async (sid: string | null) => {
@@ -61,9 +59,7 @@ export function useRecordingSession() {
 
     const applyState = (state: Awaited<ReturnType<typeof getRecordingState>>) => {
       if (disposed) return;
-      setIsRecording(state.isRecording);
-      setSessionId(state.sessionId);
-      setError(state.error);
+      setRecordingState(state);
       void refreshSteps(state.sessionId);
     };
 
@@ -89,10 +85,15 @@ export function useRecordingSession() {
   // Background writes new steps to IndexedDB independently of the UI;
   // poll while recording so the list updates without a custom pub/sub channel.
   useEffect(() => {
-    if (!isRecording || !sessionId) return;
-    const interval = setInterval(() => refreshSteps(sessionId), 1000);
+    if (!recordingState.isRecording || !recordingState.sessionId) return;
+    const interval = setInterval(() => refreshSteps(recordingState.sessionId), 1000);
     return () => clearInterval(interval);
-  }, [isRecording, sessionId, refreshSteps]);
+  }, [recordingState.isRecording, recordingState.sessionId, refreshSteps]);
 
-  return { isRecording, sessionId, steps, error, refresh: () => refreshSteps(sessionId) };
+  return {
+    ...recordingState,
+    recording: recordingState,
+    steps,
+    refresh: () => refreshSteps(recordingState.sessionId),
+  };
 }

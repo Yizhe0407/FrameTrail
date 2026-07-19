@@ -21,6 +21,21 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/storage', () => ({
+  createDefaultRecordingState: () => ({
+    isRecording: false,
+    phase: 'idle',
+    sessionId: null,
+    tabId: null,
+    error: null,
+    recoverableError: null,
+    mode: 'steps',
+    itemCount: 0,
+    numbered: true,
+    groupAnchorId: null,
+    runId: null,
+    snapshotViewport: null,
+    snapshotDevicePixelRatio: null,
+  }),
   getRecordingState: mocks.getRecordingState,
   onRecordingStateChange: mocks.onRecordingStateChange,
 }));
@@ -39,10 +54,13 @@ function deferred<T>() {
 function state(sessionId: string) {
   return {
     isRecording: true,
+    phase: 'recording',
     sessionId,
     tabId: 1,
     error: null,
+    recoverableError: null,
     mode: 'steps',
+    itemCount: 0,
     numbered: true,
     groupAnchorId: null,
   };
