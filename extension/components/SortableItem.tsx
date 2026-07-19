@@ -37,7 +37,7 @@ export default function SortableItem({ id, children, className, disabled = false
       {...listeners}
       aria-label="拖曳排序"
       disabled={disabled}
-      className="text-muted-foreground hover:text-foreground shrink-0 cursor-grab touch-none rounded-md p-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+      className="text-muted-foreground hover:text-foreground flex size-10 shrink-0 cursor-grab touch-none items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-40"
     >
       <GripVertical className="size-4" />
     </button>

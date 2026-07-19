@@ -4,15 +4,21 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture-presentation';
-import { addStep, deleteStep, getSteps, type Step } from '@/lib/db';
+import { addStep, deleteStep, deleteStepsForRun, getSteps, type Step } from '@/lib/db';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
+  isValidSnapshotViewportContext,
 } from '@/lib/recording-guards';
 import { RecorderReadyGate } from '@/lib/recorder-ready';
 import { injectRecorderScript } from '@/lib/recorder-injection';
 import { getRecordingState, setRecordingState } from '@/lib/storage';
+import {
+  clearEditorRecovery,
+  markEditorOpenFailed,
+  RECORDED_TAB_CLOSED_ERROR,
+} from '@/lib/recording-recovery';
 import type {
   BackgroundMessage,
   ClickCapture,
@@ -20,9 +26,12 @@ import type {
   FinishResult,
   FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
+  OpenEditorResult,
+  RecoverableRecordingError,
   RecordingControlMessage,
   RecordingControlResult,
   RecordingState,
+  SnapshotInvalidatedMessage,
   StartRecordingMessage,
 } from '@/lib/messages';
 
@@ -126,6 +135,9 @@ function queueStateMutation<T>(task: () => Promise<T>): Promise<T> {
 }
 
 class StaleCaptureError extends Error {}
+class SnapshotViewportChangedError extends Error {}
+
+const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
 
 async function captureVisibleTabWithRetry(
   windowId: number,
@@ -210,17 +222,77 @@ async function setRunError(runId: string, error: string): Promise<void> {
   }));
 }
 
-function stopRunWithError(runId: string, error: string, expectedControlVersion: number): Promise<void> {
+async function invalidateSnapshotRun(
+  runId: string,
+  viewport: ClickCapture['viewport'],
+  devicePixelRatio: number,
+  expectedControlVersion: number,
+): Promise<boolean> {
+  return queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (
+      current.isRecording &&
+      current.runId === runId &&
+      current.mode === 'snapshot' &&
+      current.phase === 'invalidated'
+    ) {
+      return true;
+    }
+    if (
+      expectedControlVersion !== controlVersion ||
+      !current.isRecording ||
+      current.runId !== runId ||
+      current.mode !== 'snapshot' ||
+      current.phase !== 'recording' ||
+      !current.snapshotViewport ||
+      current.snapshotDevicePixelRatio == null ||
+      isMatchingSnapshotViewport(
+        current.snapshotViewport,
+        current.snapshotDevicePixelRatio,
+        viewport,
+        devicePixelRatio,
+      )
+    ) {
+      return false;
+    }
+
+    acceptingClicks = false;
+    pendingUndo = null;
+    controlVersion++;
+    await setRecordingState({
+      ...current,
+      phase: 'invalidated',
+      error: null,
+      recoverableError: {
+        code: 'SNAPSHOT_VIEWPORT_CHANGED',
+        message: SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
+      },
+    });
+    return true;
+  });
+}
+
+function stopRunWithError(
+  runId: string,
+  error: string,
+  expectedControlVersion: number,
+  recoverableError?: RecoverableRecordingError,
+): Promise<void> {
   if (expectedControlVersion !== controlVersion) return Promise.resolve();
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
   pendingSnapshotContext = undefined;
   const version = ++controlVersion;
-  return handleStopRunWithError(runId, error, version);
+  return handleStopRunWithError(runId, error, version, recoverableError);
 }
 
-async function handleStopRunWithError(runId: string, error: string, version: number): Promise<void> {
+async function handleStopRunWithError(
+  runId: string,
+  error: string,
+  version: number,
+  recoverableError?: RecoverableRecordingError,
+): Promise<void> {
   const stoppedTabId = await queueStateMutation(async () => {
     const state = await getRecordingState();
     if (version !== controlVersion || !state.isRecording || state.runId !== runId) return null;
@@ -231,7 +303,7 @@ async function handleStopRunWithError(runId: string, error: string, version: num
       phase: 'error',
       tabId: null,
       error,
-      recoverableError: { code: 'RECORDING_STOPPED', message: error },
+      recoverableError: recoverableError ?? { code: 'RECORDING_STOPPED', message: error },
       groupAnchorId: null,
       runId: null,
       snapshotViewport: null,
@@ -548,6 +620,37 @@ async function handleRecorderReady(
   );
 }
 
+async function handleSnapshotInvalidated(
+  message: SnapshotInvalidatedMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<boolean> {
+  const tabId = sender.tab?.id;
+  if (
+    tabId == null ||
+    sender.frameId !== 0 ||
+    !isValidSnapshotViewportContext(message.viewport, message.devicePixelRatio)
+  ) {
+    return false;
+  }
+  const expectedControlVersion = controlVersion;
+  const state = await getRecordingState();
+  if (
+    !state.isRecording ||
+    state.runId !== message.runId ||
+    state.tabId !== tabId ||
+    state.mode !== 'snapshot'
+  ) {
+    return false;
+  }
+  if (state.phase === 'invalidated') return true;
+  return invalidateSnapshotRun(
+    message.runId,
+    message.viewport,
+    message.devicePixelRatio,
+    expectedControlVersion,
+  );
+}
+
 async function handleStopRecording(version: number): Promise<void> {
   await clickChain;
   if (version !== controlVersion) return;
@@ -751,7 +854,10 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
   return { ok: true };
 }
 
-async function createNextSnapshot(message: RecordingControlMessage): Promise<RecordingControlResult> {
+async function createNextSnapshot(
+  message: RecordingControlMessage,
+  sourcePhase: 'preparing-next' | 'invalidated' = 'preparing-next',
+): Promise<RecordingControlResult> {
   const claimed = await queueStateMutation(async () => {
     const current = await getRecordingState();
     if (
@@ -760,7 +866,7 @@ async function createNextSnapshot(message: RecordingControlMessage): Promise<Rec
       current.tabId == null ||
       current.runId !== message.runId ||
       current.mode !== 'snapshot' ||
-      current.phase !== 'preparing-next'
+      current.phase !== sourcePhase
     ) {
       return null;
     }
@@ -776,14 +882,14 @@ async function createNextSnapshot(message: RecordingControlMessage): Promise<Rec
       recoverableError: null,
     };
     await setRecordingState(next);
-    return { state: next, version };
+    return { state: next, previous: current, version };
   });
   if (!claimed) return controlFailure('目前無法建立下一張快照。');
 
   acceptingClicks = false;
   pendingUndo = null;
   pendingSnapshotContext = undefined;
-  const { state, version } = claimed;
+  const { state, previous, version } = claimed;
   const readyGate = new RecorderReadyGate(
     { runId: message.runId, tabId: state.tabId!, controlVersion: version },
     RECORDER_READY_TIMEOUT_MS,
@@ -817,19 +923,23 @@ async function createNextSnapshot(message: RecordingControlMessage): Promise<Rec
     console.error('[frametrail] failed to create next snapshot', error);
     acceptingClicks = false;
     if (version === controlVersion) {
+      const rebuildingInvalidated = sourcePhase === 'invalidated';
+      const errorMessage = rebuildingInvalidated
+        ? '無法重建快照，請重試。'
+        : '無法建立新快照，請重試。';
       await updateRunState(
         message.runId,
         (current) => ({
           ...current,
-          phase: 'preparing-next',
-          itemCount: 0,
-          groupAnchorId: null,
-          snapshotViewport: null,
-          snapshotDevicePixelRatio: null,
-          error: '無法建立新快照，請重試。',
+          phase: sourcePhase,
+          itemCount: rebuildingInvalidated ? previous.itemCount : 0,
+          groupAnchorId: rebuildingInvalidated ? previous.groupAnchorId : null,
+          snapshotViewport: rebuildingInvalidated ? previous.snapshotViewport : null,
+          snapshotDevicePixelRatio: rebuildingInvalidated ? previous.snapshotDevicePixelRatio : null,
+          error: errorMessage,
           recoverableError: {
-            code: 'CREATE_SNAPSHOT_FAILED',
-            message: '無法建立新快照，請重試。',
+            code: rebuildingInvalidated ? 'REBUILD_SNAPSHOT_FAILED' : 'CREATE_SNAPSHOT_FAILED',
+            message: errorMessage,
           },
         }),
         version,
@@ -840,7 +950,9 @@ async function createNextSnapshot(message: RecordingControlMessage): Promise<Rec
         console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
       }
     }
-    return controlFailure('無法建立新快照，請重試。');
+    return controlFailure(
+      sourcePhase === 'invalidated' ? '無法重建快照，請重試。' : '無法建立新快照，請重試。',
+    );
   } finally {
     if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
     pendingSnapshotContext = undefined;
@@ -848,12 +960,14 @@ async function createNextSnapshot(message: RecordingControlMessage): Promise<Rec
   }
 }
 
-async function openOrFocusEditor(result: FinishResult): Promise<void> {
+async function openOrFocusEditor(result?: FinishResult): Promise<void> {
   const editorBase = browser.runtime.getURL('/editor.html');
   const editorUrl = new URL(editorBase);
-  editorUrl.searchParams.set('sessionId', result.sessionId);
-  if (result.entryId) editorUrl.searchParams.set('entryId', result.entryId);
-  if (result.groupId) editorUrl.searchParams.set('groupId', result.groupId);
+  if (result) {
+    editorUrl.searchParams.set('sessionId', result.sessionId);
+    if (result.entryId) editorUrl.searchParams.set('entryId', result.entryId);
+    if (result.groupId) editorUrl.searchParams.set('groupId', result.groupId);
+  }
 
   const [existing] = await browser.tabs.query({ url: `${editorBase}*` });
   if (existing?.id != null) {
@@ -864,13 +978,49 @@ async function openOrFocusEditor(result: FinishResult): Promise<void> {
   await browser.tabs.create({ url: editorUrl.href, active: true });
 }
 
+async function latestFinishResult(sessionId: string): Promise<FinishResult> {
+  const steps = await getSteps(sessionId);
+  const items = steps.filter((step) => step.bounds !== null);
+  const lastItem = items.at(-1) ?? null;
+  return {
+    sessionId,
+    entryId: lastItem?.groupId ?? lastItem?.id ?? null,
+    groupId: lastItem?.groupId ?? null,
+    itemCount: items.length,
+  };
+}
+
+async function openEditorForStoredSession(): Promise<OpenEditorResult> {
+  const expectedControlVersion = controlVersion;
+  const state = await getRecordingState();
+  try {
+    const result = state.sessionId ? await latestFinishResult(state.sessionId) : undefined;
+    await openOrFocusEditor(result);
+    await writeStateForControl(expectedControlVersion, (current) => {
+      if (current.sessionId !== state.sessionId) return current;
+      return clearEditorRecovery(current);
+    });
+    return { ok: true };
+  } catch (error) {
+    console.error('[frametrail] failed to open editor', error);
+    await writeStateForControl(expectedControlVersion, (current) => {
+      if (current.sessionId !== state.sessionId) return current;
+      return markEditorOpenFailed(current);
+    });
+    return { ok: false, error: '無法開啟編輯器，請再試一次。' };
+  }
+}
+
 async function finishRecording(message: RecordingControlMessage): Promise<RecordingControlResult> {
   const startedAtControlVersion = controlVersion;
   const initial = await getRecordingState();
   if (
     !initial.isRecording ||
     initial.runId !== message.runId ||
-    (initial.phase !== 'recording' && initial.phase !== 'paused' && initial.phase !== 'preparing-next')
+    (initial.phase !== 'recording' &&
+      initial.phase !== 'paused' &&
+      initial.phase !== 'preparing-next' &&
+      initial.phase !== 'invalidated')
   ) {
     return controlFailure(initial.phase === 'finishing' ? '正在完成錄製。' : '這次錄製已經結束。');
   }
@@ -883,7 +1033,10 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     if (
       !current.isRecording ||
       current.runId !== message.runId ||
-      (current.phase !== 'recording' && current.phase !== 'paused' && current.phase !== 'preparing-next')
+      (current.phase !== 'recording' &&
+        current.phase !== 'paused' &&
+        current.phase !== 'preparing-next' &&
+        current.phase !== 'invalidated')
     ) {
       return false;
     }
@@ -931,9 +1084,68 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     await openOrFocusEditor(result);
   } catch (error) {
     console.error('[frametrail] failed to open editor after recording', error);
+    await writeStateForControl(version, markEditorOpenFailed);
     return { ok: true, finish: result };
   }
   return { ok: true, finish: result };
+}
+
+async function discardCurrentRecording(message: RecordingControlMessage): Promise<RecordingControlResult> {
+  const startedAtControlVersion = controlVersion;
+  const initial = await getRecordingState();
+  if (
+    startedAtControlVersion !== controlVersion ||
+    !initial.isRecording ||
+    !initial.sessionId ||
+    initial.runId !== message.runId ||
+    initial.phase === 'starting' ||
+    initial.phase === 'finishing'
+  ) {
+    return controlFailure('這次錄製已經結束或無法放棄。');
+  }
+
+  acceptingClicks = false;
+  pendingUndo = null;
+  const version = ++controlVersion;
+  await clickChain;
+
+  const state = await getRecordingState();
+  if (
+    version !== controlVersion ||
+    !state.isRecording ||
+    !state.sessionId ||
+    state.runId !== message.runId
+  ) {
+    return controlFailure('錄製狀態已改變，請再試一次。');
+  }
+
+  try {
+    await deleteStepsForRun(state.sessionId, message.runId);
+    const stopped = await writeStateForControl(version, (current) => ({
+      ...current,
+      isRecording: false,
+      phase: 'idle',
+      tabId: null,
+      itemCount: 0,
+      error: null,
+      recoverableError: null,
+      groupAnchorId: null,
+      runId: null,
+      snapshotViewport: null,
+      snapshotDevicePixelRatio: null,
+    }));
+    if (!stopped) return controlFailure('無法放棄錄製，請再試一次。');
+    await stopRecorderInTab(state.tabId);
+    return { ok: true };
+  } catch (error) {
+    console.error('[frametrail] failed to discard current recording', error);
+    await writeStateForControl(version, (current) => ({
+      ...current,
+      error: '無法放棄錄製，請再試一次。',
+      recoverableError: { code: 'DISCARD_FAILED', message: '無法放棄錄製，請再試一次。' },
+    }));
+    return controlFailure('無法放棄錄製，請再試一次。');
+  }
 }
 
 function handleRecordingControl(message: RecordingControlMessage): Promise<RecordingControlResult> {
@@ -950,8 +1162,41 @@ function handleRecordingControl(message: RecordingControlMessage): Promise<Recor
       return prepareNextSnapshot(message);
     case 'CREATE_NEXT_SNAPSHOT':
       return createNextSnapshot(message);
+    case 'REBUILD_INVALIDATED_SNAPSHOT':
+      return createNextSnapshot(message, 'invalidated');
+    case 'DISCARD_CURRENT_RECORDING':
+      return discardCurrentRecording(message);
     case 'FINISH_RECORDING':
       return finishRecording(message);
+  }
+}
+
+/**
+ * Routes a configurable browser keyboard shortcut to the active recording's
+ * control handlers (UX_PLAN §8.3). Shortcuts carry no runId, so the current
+ * authoritative state supplies it; the handlers stay the single source of
+ * truth and remain idempotent, so acting in a wrong phase is a safe no-op.
+ */
+async function handleCommandShortcut(command: string): Promise<void> {
+  const state = await getRecordingState();
+  if (!state.isRecording || !state.runId) return;
+  const runId = state.runId;
+  switch (command) {
+    case 'toggle-pause':
+      // Pause/resume is a steps-mode affordance; snapshot has no pause (§9.2).
+      if (state.mode !== 'steps') return;
+      if (state.phase === 'recording') {
+        await handleRecordingControl({ type: 'PAUSE_RECORDING', runId });
+      } else if (state.phase === 'paused') {
+        await handleRecordingControl({ type: 'RESUME_RECORDING', runId });
+      }
+      return;
+    case 'undo-last-capture':
+      await handleRecordingControl({ type: 'UNDO_LAST_CAPTURE', runId });
+      return;
+    case 'finish-recording':
+      await handleRecordingControl({ type: 'FINISH_RECORDING', runId });
+      return;
   }
 }
 
@@ -1017,7 +1262,9 @@ async function handleSnapshotClick(
       message.devicePixelRatio,
     )
   ) {
-    throw new Error('Snapshot annotation skipped because the viewport or scroll position changed.');
+    throw new SnapshotViewportChangedError(
+      'Snapshot annotation skipped because the viewport or scroll position changed.',
+    );
   }
 
   if (!anchorId) throw new Error('Snapshot annotation skipped because its base image is missing.');
@@ -1111,7 +1358,14 @@ async function handleClick(
     }));
     return { ok: true };
   } catch (err) {
-    if (!(err instanceof StaleCaptureError)) {
+    if (err instanceof SnapshotViewportChangedError) {
+      await invalidateSnapshotRun(
+        message.runId,
+        message.viewport,
+        message.devicePixelRatio,
+        expectedControlVersion,
+      );
+    } else if (!(err instanceof StaleCaptureError)) {
       const messageText = err instanceof Error ? err.message : 'Failed to capture and save this step.';
       console.error('[frametrail] failed to capture/annotate/save step', err);
       await setRunError(message.runId, messageText);
@@ -1130,14 +1384,20 @@ export default defineBackground(() => {
         return startRecording(message);
       case 'STOP_RECORDING':
         return stopRecording();
+      case 'OPEN_EDITOR':
+        return openEditorForStoredSession();
       case 'PAUSE_RECORDING':
       case 'RESUME_RECORDING':
       case 'UNDO_LAST_CAPTURE':
       case 'RESTORE_LAST_CAPTURE':
       case 'PREPARE_NEXT_SNAPSHOT':
       case 'CREATE_NEXT_SNAPSHOT':
+      case 'REBUILD_INVALIDATED_SNAPSHOT':
+      case 'DISCARD_CURRENT_RECORDING':
       case 'FINISH_RECORDING':
         return handleRecordingControl(message);
+      case 'SNAPSHOT_INVALIDATED':
+        return handleSnapshotInvalidated(message, sender);
       case 'FRAME_TRAIL_CLICK':
         if (!acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {
@@ -1150,6 +1410,10 @@ export default defineBackground(() => {
       case 'FRAME_TRAIL_READY':
         return handleRecorderReady(message, sender);
     }
+  });
+
+  browser.commands?.onCommand.addListener((command) => {
+    void handleCommandShortcut(command);
   });
 
   browser.runtime.onConnect.addListener((port) => {
@@ -1231,6 +1495,7 @@ export default defineBackground(() => {
       state.runId,
       'Recording stopped because the recorded tab was closed.',
       expectedControlVersion,
+      RECORDED_TAB_CLOSED_ERROR,
     );
   });
 });

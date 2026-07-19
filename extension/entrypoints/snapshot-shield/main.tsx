@@ -3,6 +3,7 @@ import RecordingToolbar from '@/components/RecordingToolbar';
 import {
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
+  SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
   SNAPSHOT_SHIELD_CONTROL,
@@ -14,6 +15,7 @@ import {
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
+  type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldReadyMessage,
@@ -22,6 +24,8 @@ import {
   type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/messages';
+import { featureFlags } from '@/lib/feature-flags';
+import { nextCandidateIndex } from '@/lib/snapshot-candidates';
 import {
   BADGE_RADIUS,
   HIGHLIGHT_LINE_WIDTH,
@@ -62,7 +66,12 @@ const token = new URL(location.href).searchParams.get('token');
 let initialized = false;
 
 function consume(event: Event): void {
-  if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
+  if (
+    event.target instanceof Element &&
+    event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip]')
+  ) {
+    return;
+  }
   if (event.cancelable) event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -296,9 +305,16 @@ window.addEventListener('message', (event) => {
   let pendingHoverRequestId: number | null = null;
   let pendingHoverPointRevision: number | null = null;
   let candidateOffset = 0;
+  let interactionsEnabled = false;
+  let lastPreviewRect: SnapshotShieldRect | null = null;
+  let lastCommitViaKeyboard = false;
+  let keyboardAnchors: SnapshotShieldKeyboardAnchor[] = [];
+  let keyboardIndex = -1;
+  let focusInitialized = false;
 
   const scheduleHover = () => {
     if (
+      !interactionsEnabled ||
       capturing ||
       !lastPoint ||
       moveFrame !== null ||
@@ -309,7 +325,15 @@ window.addEventListener('message', (event) => {
     }
     moveFrame = requestAnimationFrame(() => {
       moveFrame = null;
-      if (capturing || !lastPoint || pendingHoverRequestId !== null || sentPointRevision === pointRevision) return;
+      if (
+        !interactionsEnabled ||
+        capturing ||
+        !lastPoint ||
+        pendingHoverRequestId !== null ||
+        sentPointRevision === pointRevision
+      ) {
+        return;
+      }
       latestRequestId = ++requestSequence;
       pendingHoverRequestId = latestRequestId;
       sentPointRevision = pointRevision;
@@ -337,6 +361,10 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    if (!interactionsEnabled) {
+      clearHover();
+      return;
+    }
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) {
       clearHover();
       return;
@@ -350,36 +378,48 @@ window.addEventListener('message', (event) => {
     scheduleHover();
   };
 
-  const onPointerDown = (event: PointerEvent) => {
-    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
-    consume(event);
-    ensureKeyboardFocus();
-    if (capturing || event.button !== 0 || !event.isPrimary) return;
-    if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
-      candidateOffset = 0;
-    }
+  const commitAt = (clientX: number, clientY: number, viaKeyboard: boolean) => {
+    if (!interactionsEnabled || capturing) return;
     capturing = true;
-    lastPoint = { clientX: event.clientX, clientY: event.clientY };
+    lastCommitViaKeyboard = viaKeyboard;
+    lastPoint = { clientX, clientY };
     pointRevision++;
     latestRequestId = ++requestSequence;
     if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     moveFrame = null;
     overlay.preview(null);
+    lastPreviewRect = null;
     const message: SnapshotShieldPointerDownMessage = {
       type: SNAPSHOT_SHIELD_POINTER_DOWN,
       token,
-      clientX: event.clientX,
-      clientY: event.clientY,
+      clientX,
+      clientY,
       candidateOffset,
     };
     port.postMessage(message);
+  };
+
+  const onPointerDown = (event: PointerEvent) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip]')
+    ) {
+      return;
+    }
+    consume(event);
+    ensureKeyboardFocus();
+    if (!interactionsEnabled || capturing || event.button !== 0 || !event.isPrimary) return;
+    if (!lastPoint || lastPoint.clientX !== event.clientX || lastPoint.clientY !== event.clientY) {
+      candidateOffset = 0;
+    }
+    commitAt(event.clientX, event.clientY, false);
   };
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
-    if (capturing || !lastPoint) return;
+    if (!interactionsEnabled || capturing || !lastPoint) return;
     const delta = event.key === 'ArrowUp' ? 1 : -1;
     candidateOffset = Math.max(
       -SNAPSHOT_TARGET_OFFSET_LIMIT,
@@ -388,6 +428,130 @@ window.addEventListener('message', (event) => {
     pointRevision++;
     scheduleHover();
   };
+
+  // Keyboard-only annotation traversal (§9.5). Roving over the parent-supplied
+  // candidate anchors reuses the same probe/preview/commit engine as pointing.
+  let liveRegion: HTMLElement | null = null;
+  let skipLink: HTMLButtonElement | null = null;
+
+  const announce = (message: string) => {
+    if (liveRegion) liveRegion.textContent = message;
+  };
+
+  const focusToolbar = () => {
+    const control = toolbarContainer.querySelector<HTMLElement>('button, [tabindex]');
+    control?.focus();
+  };
+
+  const sendShieldControl = (
+    action: RecordingControlMessage['type'],
+    undoToken?: string,
+  ): Promise<RecordingControlResult> => {
+    const requestId = ++controlSequence;
+    const message: SnapshotShieldControlMessage = {
+      type: SNAPSHOT_SHIELD_CONTROL,
+      token,
+      requestId,
+      action,
+      ...(undoToken ? { undoToken } : {}),
+    };
+    return new Promise<RecordingControlResult>((resolve) => {
+      pendingControls.set(requestId, resolve);
+      port.postMessage(message);
+    });
+  };
+
+  const roveTo = (delta: number) => {
+    if (!keyboardAnchors.length) {
+      announce('目前沒有可用鍵盤標註的元素');
+      return;
+    }
+    // Leave the skip link so Enter commits the candidate instead of being read
+    // as the skip link's own activation; the iframe keeps document focus.
+    if (skipLink && document.activeElement === skipLink) skipLink.blur();
+    keyboardIndex = nextCandidateIndex(keyboardIndex, keyboardAnchors.length, delta);
+    const anchor = keyboardAnchors[keyboardIndex];
+    candidateOffset = 0;
+    lastPoint = { clientX: anchor.x, clientY: anchor.y };
+    pointRevision++;
+    scheduleHover();
+    announce(`候選 ${keyboardIndex + 1} / ${keyboardAnchors.length}：${anchor.label || '未命名元素'}`);
+  };
+
+  const commitCurrent = () => {
+    if (keyboardIndex < 0 || keyboardIndex >= keyboardAnchors.length) return;
+    if (lastPreviewRect === null) {
+      announce('此處無法標註，請選擇其他元素');
+      return;
+    }
+    const anchor = keyboardAnchors[keyboardIndex];
+    commitAt(anchor.x, anchor.y, true);
+  };
+
+  const resetKeyboard = () => {
+    keyboardIndex = -1;
+  };
+
+  // Unlike consume(), this always prevents the default. The keys handled here
+  // are fully owned by the traversal, so even when the skip link is focused
+  // (exempt from consume) their native behaviour must not also fire.
+  const stopEvent = (event: Event) => {
+    if (event.cancelable) event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
+  const onShieldKeyDown = (event: KeyboardEvent) => {
+    if (!featureFlags.snapshotKeyboardNav) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('[data-frametrail-shield-toolbar]')) return;
+    if (event.key === 'Escape') {
+      if (!skipLink) return;
+      stopEvent(event);
+      resetKeyboard();
+      overlay.preview(null);
+      skipLink.focus();
+      return;
+    }
+    if (!interactionsEnabled || capturing) return;
+    const inSkip = target instanceof Element && target.closest('[data-frametrail-shield-skip]');
+    switch (event.key) {
+      case 'Tab':
+        stopEvent(event);
+        roveTo(event.shiftKey ? -1 : 1);
+        return;
+      case 'Enter':
+      case ' ':
+      case 'Spacebar':
+        // Let a focused skip link activate natively (jump to controls).
+        if (inSkip) return;
+        stopEvent(event);
+        commitCurrent();
+        return;
+      case 'Delete':
+      case 'Backspace':
+        stopEvent(event);
+        void sendShieldControl('UNDO_LAST_CAPTURE');
+        return;
+    }
+  };
+
+  if (featureFlags.snapshotKeyboardNav) {
+    const skipContainer = document.createElement('div');
+    skipContainer.setAttribute('data-frametrail-shield-skip', '');
+    skipLink = document.createElement('button');
+    skipLink.type = 'button';
+    skipLink.className = 'snapshot-skip-link';
+    skipLink.textContent = '跳至錄製控制';
+    skipLink.addEventListener('click', () => focusToolbar());
+    skipContainer.append(skipLink);
+    document.body.append(skipContainer);
+
+    liveRegion = document.createElement('div');
+    liveRegion.className = 'snapshot-live-region';
+    liveRegion.setAttribute('role', 'status');
+    liveRegion.setAttribute('aria-live', 'polite');
+    document.body.append(liveRegion);
+  }
 
   port.onmessage = (event) => {
     if (!isSnapshotShieldFrameMessage(event.data, token)) return;
@@ -405,8 +569,14 @@ window.addEventListener('message', (event) => {
         return;
       }
       candidateOffset = event.data.candidateOffset;
+      lastPreviewRect = event.data.rect;
       overlay.preview(event.data.rect);
       scheduleHover();
+      return;
+    }
+    if (event.data.type === SNAPSHOT_SHIELD_CANDIDATES) {
+      keyboardAnchors = event.data.anchors;
+      keyboardIndex = -1;
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_COMMIT) {
@@ -419,27 +589,28 @@ window.addEventListener('message', (event) => {
     }
     if (event.data.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
       const state = event.data.state;
+      interactionsEnabled = state.phase === 'recording';
+      if (!interactionsEnabled) {
+        capturing = false;
+        clearHover();
+        resetKeyboard();
+      }
       toolbarRoot.render(
-        state.phase === 'recording' || state.phase === 'finishing' ? (
+        state.phase === 'recording' || state.phase === 'invalidated' || state.phase === 'finishing' ? (
           <RecordingToolbar
             state={state}
-            onCommand={(action: RecordingControlMessage['type'], undoToken?: string) => {
-              const requestId = ++controlSequence;
-              const message: SnapshotShieldControlMessage = {
-                type: SNAPSHOT_SHIELD_CONTROL,
-                token,
-                requestId,
-                action,
-                ...(undoToken ? { undoToken } : {}),
-              };
-              return new Promise<RecordingControlResult>((resolve) => {
-                pendingControls.set(requestId, resolve);
-                port.postMessage(message);
-              });
-            }}
+            onCommand={(action: RecordingControlMessage['type'], undoToken?: string) =>
+              sendShieldControl(action, undoToken)
+            }
           />
         ) : null,
       );
+      // Land keyboard users on the skip link once, so the first Tab enters the
+      // candidate list rather than being swallowed by the frozen page.
+      if (interactionsEnabled && !focusInitialized && skipLink) {
+        focusInitialized = true;
+        skipLink.focus({ preventScroll: true });
+      }
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CONTROL_RESULT) {
@@ -449,10 +620,19 @@ window.addEventListener('message', (event) => {
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
-      if (event.data.selection) overlay.commit(event.data.selection);
+      if (event.data.selection) {
+        overlay.commit(event.data.selection);
+        if (lastCommitViaKeyboard) {
+          const label = event.data.selection.label;
+          announce(label !== null ? `已加入標註 ${label}` : '已加入標註');
+        }
+      } else if (lastCommitViaKeyboard) {
+        announce('未建立標註，請再選一次');
+      }
+      lastCommitViaKeyboard = false;
       capturing = false;
       sentPointRevision = -1;
-      scheduleHover();
+      if (interactionsEnabled) scheduleHover();
     }
   };
 
@@ -461,6 +641,7 @@ window.addEventListener('message', (event) => {
     if (!event.relatedTarget) clearHover();
   }, { capture: true });
   window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: false });
+  window.addEventListener('keydown', onShieldKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
   for (const type of FREEZE_EVENTS) {
     window.addEventListener(type, consume, { capture: true, passive: false });

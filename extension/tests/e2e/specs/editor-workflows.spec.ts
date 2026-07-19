@@ -112,14 +112,14 @@ test.describe('editor workflows', () => {
 
     const description = editor.getByPlaceholder('輸入步驟說明…');
     await description.fill('更新後的步驟說明');
-    await description.press('Tab');
+    await expect(editor.getByText('尚未儲存', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage))[0]?.description).toBe('更新後的步驟說明');
+    await expect(editor.getByText('已儲存', { exact: true })).toBeVisible();
 
     await editor.getByRole('button', { name: '選取步驟 2' }).click();
     await expect(editor.getByText('快照模式 · 2 個標注', { exact: true })).toBeVisible();
     const annotations = editor.getByPlaceholder('輸入標注說明…');
     await annotations.nth(0).fill('更新後的快照標注');
-    await annotations.nth(0).press('Tab');
     await expect.poll(async () => (await readSteps(popupPage)).some(
       (step) => step.description === '更新後的快照標注',
     )).toBe(true);
@@ -156,7 +156,7 @@ test.describe('editor workflows', () => {
     await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '刪除標注 1' }).click();
 
-    await expect(editor.getByText('尚未錄製任何步驟', { exact: true })).toBeVisible();
+    await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveCount(0);
     await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.id)).toEqual([]);
   });
@@ -337,6 +337,7 @@ test.describe('editor workflows', () => {
     const downloadRecord = await readLatestDownload(popupPage);
     expect(downloadRecord?.mime).toBe('application/zip');
     expect(path.extname(download.suggestedFilename())).toBe('.zip');
+    await expect(editor.getByText(/已匯出 frame-trail-images-\d{4}-\d{2}-\d{2}\.zip，共 3 張/)).toBeVisible();
 
     const files = unzipSync(new Uint8Array(await readFile(archivePath)));
     expect(Object.keys(files).sort()).toEqual(['1.jpg', '2.jpg', '3.jpg']);
@@ -347,7 +348,49 @@ test.describe('editor workflows', () => {
     }
   });
 
-  test('requires confirmation before deleting an entry and resetting the session', async ({
+  test('keeps the editor usable at 320px and 768px without horizontal overflow', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text']);
+    await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button']);
+    const editor = await openEditor(extensionContext, extensionId, 2);
+
+    for (const width of [320, 768]) {
+      await editor.setViewportSize({ width, height: 700 });
+      await expect(editor.getByRole('navigation', { name: '步驟導覽' })).toBeVisible();
+      await expect(editor.getByRole('button', { name: '匯出圖片' })).toBeVisible();
+      const layout = await editor.evaluate(() => {
+        const nav = document.querySelector('nav[aria-label="步驟導覽"]')!.getBoundingClientRect();
+        return {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          scrollWidth: document.documentElement.scrollWidth,
+          nav: { left: nav.left, right: nav.right, top: nav.top, bottom: nav.bottom },
+        };
+      });
+      expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+      expect(layout.nav.left).toBeGreaterThanOrEqual(0);
+      expect(layout.nav.right).toBeLessThanOrEqual(layout.viewportWidth);
+      expect(layout.nav.top).toBeGreaterThanOrEqual(0);
+      expect(layout.nav.bottom).toBeLessThanOrEqual(layout.viewportHeight);
+    }
+
+    await editor.setViewportSize({ width: 320, height: 700 });
+    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    const annotationPanel = editor.locator('main aside');
+    await annotationPanel.scrollIntoViewIfNeeded();
+    const panelBox = await annotationPanel.boundingBox();
+    if (!panelBox) throw new Error('Annotation panel has no bounding box');
+    expect(panelBox.x).toBeGreaterThanOrEqual(0);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(320);
+    await expect(annotationPanel.getByLabel('標註 1 說明')).toBeVisible();
+  });
+
+  test('undoes direct entry deletion and keeps confirmation for session reset', async ({
     appPage,
     popupPage,
     extensionContext,
@@ -360,13 +403,15 @@ test.describe('editor workflows', () => {
 
     await editor.getByRole('button', { name: '選取步驟 2' }).click();
     await editor.getByRole('button', { name: '刪除', exact: true }).click();
-    const deleteDialog = editor.getByRole('dialog');
-    await expect(deleteDialog).toContainText('刪除步驟？');
-    await deleteDialog.getByRole('button', { name: '取消' }).click();
+    await expect(editor.getByText('已刪除步驟 2', { exact: true })).toBeVisible();
+    await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+
+    await editor.getByRole('button', { name: '還原', exact: true }).click();
     await expect(editor.getByText('步驟 · 2', { exact: true })).toBeVisible();
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
 
     await editor.getByRole('button', { name: '刪除', exact: true }).click();
-    await editor.getByRole('dialog').getByRole('button', { name: '刪除步驟' }).click();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
 
@@ -374,7 +419,7 @@ test.describe('editor workflows', () => {
     const resetDialog = editor.getByRole('dialog');
     await expect(resetDialog).toContainText('重置目前錄製？');
     await resetDialog.getByRole('button', { name: '重置', exact: true }).click();
-    await expect(editor.getByText('尚未錄製任何步驟')).toBeVisible();
+    await expect(editor.getByText('尚未建立內容')).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(0);
   });
 });

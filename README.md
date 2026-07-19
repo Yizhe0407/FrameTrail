@@ -98,7 +98,7 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前基準包含 21 個 Vitest 測試檔、100 項 unit/integration 測試，以及 6 個 Playwright spec、29 項真實 Chromium E2E；合計 129 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+目前基準包含 27 個 Vitest 測試檔、124 項 unit/integration 測試，以及 6 個 Playwright spec、34 項真實 Chromium E2E；合計 158 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
 
 Unit 與 integration 覆蓋：
 
@@ -120,13 +120,13 @@ Chromium E2E 覆蓋：
 2. 將游標移到按鈕、連結、表單控制、純文字、圖片、一般容器、disabled/inert、open shadow DOM 與多行 inline 元素；確認都先顯示預覽框，選取後產生步驟，互動目標使用「點擊」描述，其餘使用「標記」。
 3. 點擊會導覽的連結，確認保存的是導覽前畫面，完成後頁面互動才被重播。
 4. 從頁面控制器測試暫停、繼續、復原與還原，再按「完成」；確認 Editor 自動開啟並選中最新步驟。
-5. 測試說明編輯、拖曳、刪除、複製、Lightbox 與 ZIP 匯出，確認圖片不白閃且標註位置一致。
+5. 測試說明 autosave、拖曳、刪除還原、複製、Lightbox 與 ZIP 匯出取消／成功摘要；再以 320px 與 768px 寬度確認底部 StepRail、圖片及標註面板不重疊或水平溢出。
 6. 選「單頁標註」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
 7. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；用上下方向鍵切換父子層級，點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。
 8. 從 shield 內控制器測試復原、還原與「完成快照」，確認 Editor 自動定位到該群組。
 9. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；完成後確認頁面 overlay 全部消失。
 10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
-11. 測試刪除單一步驟、整個快照群組與重置，確認文字為「刪除」且只出現 shadcn Dialog，不出現瀏覽器原生 alert/confirm。
+11. 測試刪除單一步驟與整個快照群組，確認會直接刪除並可在 5 秒內還原；重置整個 session 才顯示 shadcn Dialog，且不出現瀏覽器原生 alert/confirm。
 
 ## 已知限制
 

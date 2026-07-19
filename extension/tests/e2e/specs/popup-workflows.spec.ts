@@ -1,7 +1,10 @@
 import { test, expect } from '../support/fixture';
 import {
+  clickTarget,
   readRecordingState,
+  readSteps,
   resetExtensionData,
+  startRecording,
   stopRecording,
 } from '../support/harness';
 
@@ -78,8 +81,38 @@ test.describe('popup workflows', () => {
     await editor.waitForLoadState('domcontentloaded');
 
     expect(editor.url()).toMatch(/^chrome-extension:\/\/[^/]+\/editor\.html$/);
-    await expect(editor.getByText('尚未錄製任何步驟')).toBeVisible();
+    await expect(editor.getByText('尚未建立內容')).toBeVisible();
+    await expect(editor.getByRole('button', { name: '回到網頁開始錄製' })).toBeVisible();
     await expect(editor.getByRole('button', { name: '匯出圖片' })).toBeDisabled();
     await expect(editor.getByRole('button', { name: '重置' })).toBeDisabled();
+  });
+
+  test('keeps recorded data recoverable when the source tab closes', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    await clickTarget(appPage, '#plain-text');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+
+    await appPage.close();
+
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
+    await expect.poll(async () => {
+      const error = (await readRecordingState(popupPage)).recoverableError as { code?: string } | undefined;
+      return error?.code;
+    }).toBe('RECORDED_TAB_CLOSED');
+    await expect(popupPage.getByText('錄製分頁已關閉。已錄內容仍保留，可完成並開啟編輯器。')).toBeVisible();
+    await expect(popupPage.getByRole('button', { name: '完成並開啟編輯器' })).toBeVisible();
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    await popupPage.getByRole('button', { name: '完成並開啟編輯器' }).click();
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+    expect(editor.url()).toContain('entryId=');
+    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+    await expect.poll(async () => (await readRecordingState(editor)).recoverableError).toBeNull();
   });
 });

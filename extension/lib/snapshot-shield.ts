@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import {
   isSnapshotShieldPortMessage,
+  SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
   SNAPSHOT_SHIELD_CONTROL,
@@ -13,6 +14,7 @@ import {
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
   type SnapshotShieldCaptureCompleteMessage,
+  type SnapshotShieldCandidatesMessage,
   type SnapshotShieldCommitMessage,
   type SnapshotShieldControlMessage,
   type SnapshotShieldControlResultMessage,
@@ -21,6 +23,7 @@ import {
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldPreviewMessage,
+  type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldSelection,
   type SnapshotShieldToolbarStateMessage,
@@ -46,6 +49,7 @@ export interface SnapshotShield {
   ready: Promise<void>;
   runWithoutShield<T>(callback: () => T): T;
   updateToolbar(state: SnapshotShieldToolbarStateMessage['state']): void;
+  sendKeyboardCandidates(anchors: SnapshotShieldKeyboardAnchor[]): void;
   remove(): void;
 }
 
@@ -215,6 +219,7 @@ export function createSnapshotShield(
   const committedSelections: Array<SnapshotShieldSelection & { id: number }> = [];
   let lastUndoneSelection: (SnapshotShieldSelection & { id: number }) | null = null;
   let toolbarState: SnapshotShieldToolbarStateMessage['state'] | null = null;
+  let keyboardAnchors: SnapshotShieldKeyboardAnchor[] | null = null;
   let port: MessagePort | null = null;
   let resolveReady!: () => void;
   let rejectReady!: (reason: Error) => void;
@@ -449,6 +454,14 @@ export function createSnapshotShield(
             };
             postToFrame(stateMessage);
           }
+          if (keyboardAnchors) {
+            const candidatesMessage: SnapshotShieldCandidatesMessage = {
+              type: SNAPSHOT_SHIELD_CANDIDATES,
+              token,
+              anchors: keyboardAnchors,
+            };
+            postToFrame(candidatesMessage);
+          }
           return;
         }
         if (event.data.type === SNAPSHOT_SHIELD_POINTER_MOVE) {
@@ -489,6 +502,15 @@ export function createSnapshotShield(
         type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
         token,
         state,
+      };
+      postToFrame(message);
+    },
+    sendKeyboardCandidates(anchors) {
+      keyboardAnchors = anchors;
+      const message: SnapshotShieldCandidatesMessage = {
+        type: SNAPSHOT_SHIELD_CANDIDATES,
+        token,
+        anchors,
       };
       postToFrame(message);
     },

@@ -224,6 +224,21 @@ export async function deleteStepsForSession(sessionId: string): Promise<void> {
   await tx.done;
 }
 
+/** Deletes only one recording run and closes order gaps without disturbing
+ * content from earlier runs that share the same editor session. */
+export async function deleteStepsForRun(sessionId: string, runId: string): Promise<void> {
+  const db = await dbPromise;
+  const tx = db.transaction('steps', 'readwrite');
+  const sessionSteps = await tx.store.index('by-session').getAll(sessionId);
+  const removedIds = new Set(sessionSteps.filter((step) => step.runId === runId).map((step) => step.id));
+  await Promise.all([...removedIds].map((id) => tx.store.delete(id)));
+  const remaining = sessionSteps
+    .filter((step) => !removedIds.has(step.id))
+    .sort((first, second) => first.order - second.order);
+  await Promise.all(remaining.map((step, order) => tx.store.put({ ...step, order })));
+  await tx.done;
+}
+
 function sortSessionSteps(sessionSteps: Step[], orderedIds: string[]): Step[] {
   const byId = new Map(sessionSteps.map((step) => [step.id, step]));
   const seen = new Set<string>();
@@ -269,6 +284,31 @@ export async function deleteStepsAndReorder(
   await Promise.all(deletedIds.map((id) => tx.store.delete(id)));
   const remaining = await tx.store.index('by-session').getAll(sessionId);
   const reordered = sortSessionSteps(remaining, orderedIds);
+  await Promise.all(reordered.map((step, order) => tx.store.put({ ...step, order })));
+  await tx.done;
+}
+
+/** Restores editor-deleted rows and reapplies the requested order atomically.
+ * This is intentionally a short-lived UI undo primitive, not a persistent
+ * history system. */
+export async function restoreStepsAndReorder(
+  sessionId: string,
+  restoredSteps: Step[],
+  orderedIds: string[],
+): Promise<void> {
+  const db = await dbPromise;
+  const tx = db.transaction('steps', 'readwrite');
+  await Promise.all(
+    restoredSteps.map((step) => {
+      if (step.groupId && step.id !== step.groupId) {
+        const { screenshotBlob: _duplicateScreenshot, ...annotation } = step;
+        return tx.store.put(annotation);
+      }
+      return tx.store.put(step);
+    }),
+  );
+  const sessionSteps = await tx.store.index('by-session').getAll(sessionId);
+  const reordered = sortSessionSteps(sessionSteps, orderedIds);
   await Promise.all(reordered.map((step, order) => tx.store.put({ ...step, order })));
   await tx.done;
 }

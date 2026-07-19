@@ -8,6 +8,7 @@ import {
   isInScrollbarGutter,
   isMatchingSnapshotViewport,
   isPointInsideViewport,
+  isValidSnapshotViewportContext,
 } from '@/lib/recording-guards';
 
 const state: RecordingState = {
@@ -60,6 +61,18 @@ describe('isMatchingSnapshotViewport', () => {
     expect(isMatchingSnapshotViewport(viewport, 2, { ...viewport, width: 1279 }, 2)).toBe(false);
     expect(isMatchingSnapshotViewport(viewport, 2, { ...viewport, scrollY: 42 }, 2)).toBe(false);
     expect(isMatchingSnapshotViewport(viewport, 2, viewport, 1)).toBe(false);
+  });
+});
+
+describe('isValidSnapshotViewportContext', () => {
+  const viewport = { width: 1280, height: 720, scrollX: 0, scrollY: 40 };
+
+  it('accepts finite positive geometry and rejects malformed invalidation payloads', () => {
+    expect(isValidSnapshotViewportContext(viewport, 2)).toBe(true);
+    expect(isValidSnapshotViewportContext({ ...viewport, width: 0 }, 2)).toBe(false);
+    expect(isValidSnapshotViewportContext({ ...viewport, scrollY: Number.NaN }, 2)).toBe(false);
+    expect(isValidSnapshotViewportContext(viewport, 0)).toBe(false);
+    expect(isValidSnapshotViewportContext(null, 2)).toBe(false);
   });
 });
 

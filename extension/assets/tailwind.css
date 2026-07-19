@@ -2,45 +2,80 @@
 
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
+/*
+ * Japanese-modern token system (UX_PLAN §12). Values are the plan's verified
+ * hex, not converted to oklch, so the documented contrast ratios stay exact.
+ * shadcn semantic names are preserved and remapped, so existing utilities
+ * (bg-primary, text-muted-foreground, …) inherit the new palette unchanged.
+ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* Panels/cards 6-8px; only the recording pill uses a full radius. */
+  --radius: 0.5rem;
+
+  --canvas: #fafaf9;
+  --surface: #ffffff;
+  --surface-muted: #f5f5f4;
+  --text: #1c1917;
+  --text-muted: #57534e;
+  --line: #d6d3d1;
+  --moss: #4d7c0f;
+  --moss-text: #ffffff;
+  --recording: #be123c;
+  --recording-text: #ffffff;
+  --warning: #a16207;
+  --focus: #2563eb;
+
+  --background: var(--canvas);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --primary: var(--moss);
+  --primary-foreground: var(--moss-text);
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-muted);
+  --accent-foreground: var(--text);
+  --destructive: var(--recording);
+  --destructive-foreground: var(--recording-text);
+  --border: var(--line);
+  --input: var(--line);
+  /* Focus is deliberately separate from primary (blue, not moss). */
+  --ring: var(--focus);
 }
 
+:root.dark,
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --canvas: #1c1917;
+  --surface: #292524;
+  --surface-muted: #292524;
+  --text: #fafaf9;
+  --text-muted: #d6d3d1;
+  --line: #57534e;
+  --moss: #a3e635;
+  --moss-text: #1c1917;
+  --recording: #fb7185;
+  --recording-text: #1c1917;
+  --warning: #facc15;
+  --focus: #60a5fa;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --canvas: #1c1917;
+    --surface: #292524;
+    --surface-muted: #292524;
+    --text: #fafaf9;
+    --text-muted: #d6d3d1;
+    --line: #57534e;
+    --moss: #a3e635;
+    --moss-text: #1c1917;
+    --recording: #fb7185;
+    --recording-text: #1c1917;
+    --warning: #facc15;
+    --focus: #60a5fa;
+  }
 }
 
 @theme inline {
@@ -61,30 +96,19 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --color-recording: var(--recording);
+  --color-recording-foreground: var(--recording-text);
+  --color-warning: var(--warning);
+  --color-focus: var(--focus);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.985 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-  }
+  /* Traditional-Chinese-first stack; Noto Sans JP is avoided so TW glyph
+   * forms are not replaced by JP variants (UX_PLAN §12.3). */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
+    'Microsoft JhengHei', sans-serif;
 }
 
 * {
@@ -94,6 +118,9 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
+  font-family: var(--font-sans);
+  /* No CJK tracking — pulled-apart spacing is not "Japanese feel" (§12.1). */
+  letter-spacing: 0;
 }
 
 /* Native controls outside the shadcn Button component keep semantic cursor
@@ -106,6 +133,17 @@ body {
 
   :where(label:has(input:not(:disabled)), label:has(button:not(:disabled))) {
     cursor: pointer;
+  }
+}
+
+/* Reduced-motion: strip the recording dot's continuous ping (§12.4). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
 

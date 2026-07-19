@@ -536,6 +536,7 @@ interface RecordingUiState {
 | `FINISH_RECORDING` | flush 後停止，回傳 Editor 定位資訊 |
 | `PREPARE_NEXT_SNAPSHOT` | 封存群組、移除 shield，進入準備下一張 |
 | `CREATE_NEXT_SNAPSHOT` | 重新安裝 shield 並擷取底圖 |
+| `REBUILD_INVALIDATED_SNAPSHOT` | 保留失效群組並以目前 viewport 原子建立新底圖 |
 | `DISCARD_CURRENT_RECORDING` | 確認後移除本輪資料 |
 
 事件：
@@ -611,7 +612,7 @@ interface FinishResult {
 
 #### 實作進度（2026-07-19）
 
-本輪已完成 Phase 1、Phase 2 的多快照核心流程，並提前完成部分 Phase 3 項目：
+本輪已完成 Phase 1、Phase 3，以及 Phase 2 的多快照核心流程：
 
 - 背景程序成為錄製狀態真相來源，加入 `phase`、`mode`、`itemCount`、`runId` 與 recoverable error。
 - 加入 `PAUSE_RECORDING`、`RESUME_RECORDING`、`UNDO_LAST_CAPTURE`、`RESTORE_LAST_CAPTURE`、`FINISH_RECORDING` 控制指令；復原只處理本輪內容，並提供 5 秒還原。
@@ -619,16 +620,26 @@ interface FinishResult {
 - 單頁標註將同一套控制器放在 shield iframe，支援計數、復原、還原與完成快照。
 - 加入 `PREPARE_NEXT_SNAPSHOT` 與 `CREATE_NEXT_SNAPSHOT`：封存目前群組後進入 `preparing-next`、移除 shield 並恢復頁面操作，再以全新 anchor、viewport 契約與歸零計數建立下一張。
 - `preparing-next` 可跨頁導覽並重新掛載輕量控制器；快速重複建立只允許一個指令取得狀態轉移，不會建立重複 anchor 或混用 `groupId`。
+- 加入 `SNAPSHOT_INVALIDATED` 與 `REBUILD_INVALIDATED_SNAPSHOT`：top frame 偵測 resize、scroll 與 DPR 變動後立即停用標註，background 驗證 tab、`runId`、數值與 anchor viewport 契約後冪等進入 `invalidated`。
+- `invalidated` 控制器顯示阻斷訊息、`保留並重建` 與 `完成錄製`；重建會保留舊 anchor／annotations，以新 viewport 建立獨立群組，失敗則恢復舊群組資訊供再次操作。
 - 截圖前會隱藏控制器、hover preview 與 shield UI，避免擴充功能介面進入成品。
 - Popup 已改用「操作流程／單頁標註」名稱、漸進式跨頁權限及錄製中摘要；完成後會開啟或聚焦單一 Editor tab，並選中本輪最新步驟或群組。
-- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 100 項 Vitest 與 29 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
+- Editor 的步驟與標註說明改為 650ms debounce autosave，固定顯示尚未儲存、正在儲存、已儲存或失敗狀態；失敗時保留草稿並可重試。
+- 切換項目、排序、刪除與匯出前會先 flush 待存說明；匯出重新讀取 IndexedDB，避免畫面 state 尚未刷新時輸出舊內容。
+- 單一步驟、快照群組與標註改為直接刪除，排序與刪除皆顯示 5 秒 Undo snackbar；還原使用單一 IndexedDB transaction 回復資料與順序。
+- Editor 在 1024px 以下改用固定底部水平 StepRail，支援左右鍵與水平拖曳；stage、快照圖與標註面板改成可捲動單欄，320px 與 768px 不產生水平溢出。
+- 空狀態提供主要動作，可回到進行中的錄製分頁，或回到最近使用的網頁並開啟錄製設定。
+- 匯出支援處理中取消，取消後不建立下載；成功狀態會回報 ZIP 檔名與實際輸出張數。
+- 控制器可用滑鼠拖曳並在放開後 snap 到 viewport 四角，位置以全域偏好保存；方向鍵提供等價移動方式，resize 與窄 viewport 會立即 clamp，避免動畫途中越界。
+- 收合與放棄移入更多選單；放棄本輪需二次確認，並以單一 IndexedDB transaction 只刪除目前 `runId` 的資料、保留同一 session 先前內容與連續順序。
+- 錄製分頁關閉時會保留已提交內容並寫入 `RECORDED_TAB_CLOSED` 恢復狀態；Popup 改以 `完成並開啟編輯器` 作為唯一主要動作，重試時仍會定位最新項目。
+- 完成錄製後若 Editor 分頁無法建立或聚焦，會寫入 `EDITOR_OPEN_FAILED`，Popup 可透過 background 的 `OPEN_EDITOR` 重試；成功後才清除恢復狀態。
+- 補齊舊 `runId` 與快速重複 `FINISH_RECORDING` 的真實瀏覽器競態覆蓋，確認舊指令不影響新 run、同一輪只完成一次且只開啟一個 Editor。
+- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 124 項 Vitest 與 34 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
 
 本輪尚未實作：
 
 - Phase 0 的量測基線與桌面錄影。
-- Phase 2 的完整 viewport invalidation 恢復、分頁關閉／Editor 開啟失敗等 recoverable error，以及其餘舊 `runId`／finish race tests。
-- Phase 3 的 Editor debounced autosave、儲存狀態、刪除／排序 Undo、responsive rail/drawer、空狀態與匯出進度。
-- 控制器拖曳／四角 snap、位置保存、更多選單與放棄本輪流程。
 - 快照鍵盤候選巡覽、browser commands，以及 Phase 4／5 的完整無障礙、視覺與可選 Side Panel 工作。
 
 ### Phase 2：多快照與錯誤恢復（P0/P1，2 至 4 天）
@@ -658,11 +669,34 @@ interface FinishResult {
 
 完成條件：核心流程無 axe serious/critical issue，並通過第 13 節的手動檢核。
 
+#### 實作進度（2026-07-19）
+
+本輪推進 Phase 4 的視覺 token 收斂與部分無障礙項目：
+
+- `assets/tailwind.css` 改用第 12.2 節的日式現代 token：以 hex 直接對應已驗證對比值，並保留 shadcn 語意名稱（`--primary`、`--muted-foreground` 等）重新映射，讓既有 utility 自動套用新色。新增 `--recording`、`--warning`、`--focus` token 與對應 `color-*`；focus ring 刻意採藍色與 moss primary 分離。
+- 導入 Noto Sans TC 優先字型堆疊（避免 JP 字形）、`letter-spacing: 0`，面板圓角收斂為 8px，並加入 `prefers-reduced-motion` 全域降級以移除錄製紅點的持續動畫。
+- 修正低於樓地板的關鍵文字：標註序號徽章 11px→12px 並改用 rose 對齊實際 marker 色；StepRail 快照角標 10px→11px（非關鍵 metadata 下限）。
+- 加入 browser `commands`：`toggle-pause`、`undo-last-capture`、`finish-recording`，路由到既有背景控制指令；不設預設鍵，改由 chrome://extensions/shortcuts 綁定，暫停切換僅在操作流程生效。Chrome MV3 與 Firefox MV2 build 均含 commands。
+- 實作快照鍵盤候選巡覽（§9.5），以 `lib/feature-flags.ts` 的 `snapshotKeyboardNav` 旗標隔離（§19）：
+  - 頁面凍結期間 top frame 只列舉一次可標註的語意候選（`isInteractiveElement` 過濾、reading order 排序、去重、上限 150），並在 idle callback 送入 shield，避免拖慢乾淨底圖交接。
+  - shield 以 index 驅動既有 probe／preview／commit 引擎：`Tab`／`Shift+Tab` 巡覽候選、`Enter`／`Space` 加入、`Delete`／`Backspace` 復原、方向鍵維持父子層級；`Escape` 回到 skip link。
+  - 新增「跳至錄製控制」skip link 與 `aria-live` polite 宣告（候選位置、加入標註、無法標註）。
+  - 純邏輯（排序／去重／roving index）與新 `SNAPSHOT_SHIELD_CANDIDATES` 訊息 schema 有 unit 覆蓋；新增鍵盤 only 的 Chromium E2E 驗證 Tab→加入→復原且底層頁面不被觸發。
+- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。134 項 Vitest、35 項 Chromium E2E、TypeScript、雙瀏覽器 build 通過。
+
+本節尚未實作（需真實瀏覽器與輔助科技手動驗證，非程式碼可自動完成）：
+
+- axe / VoiceOver / NVDA / 高對比 / reduced-motion 的手動驗證與 §17.4 視覺回歸截圖。
+- dark theme 各 foreground/background 組合的自動化對比逐一驗證。
+- 鍵盤候選巡覽的跨 frame 支援（目前僅 top frame；子 frame 候選維持指標可達）與大型頁面上的實機節奏調校。
+
 ### Phase 5：可選增強（不阻擋上線）
 
 - 僅為操作流程評估 Side Panel 即時步驟歷史。
 - 讓使用者在設定中選擇 `浮動控制器`、`側欄歷史 + 控制器` 或 `最小控制器`。
 - 先做實驗驗證是否真的降低錯誤率，再決定是否長期維護。
+
+> 狀態（2026-07-19）：本階段刻意保留未實作。依計畫，Side Panel 需先以 usability 實驗確認能降低錯誤率，才值得投入跨瀏覽器維護成本；在取得該證據前不預先建置。
 
 ## 17. 測試與驗收
 

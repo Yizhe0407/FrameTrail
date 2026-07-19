@@ -3,6 +3,7 @@ import {
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
   isSnapshotShieldPortMessage,
+  SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
   SNAPSHOT_SHIELD_CONTROL,
@@ -118,7 +119,12 @@ describe('snapshot shield protocol', () => {
   });
 
   it('accepts the multi-snapshot controls and rejects unknown actions', () => {
-    for (const action of ['PREPARE_NEXT_SNAPSHOT', 'CREATE_NEXT_SNAPSHOT']) {
+    for (const action of [
+      'PREPARE_NEXT_SNAPSHOT',
+      'CREATE_NEXT_SNAPSHOT',
+      'REBUILD_INVALIDATED_SNAPSHOT',
+      'DISCARD_CURRENT_RECORDING',
+    ]) {
       expect(
         isSnapshotShieldPortMessage(
           { type: SNAPSHOT_SHIELD_CONTROL, token, requestId: 8, action },
@@ -131,6 +137,34 @@ describe('snapshot shield protocol', () => {
         { type: SNAPSHOT_SHIELD_CONTROL, token, requestId: 8, action: 'REPLACE_SNAPSHOT' },
         token,
       ),
+    ).toBe(false);
+  });
+
+  it('validates keyboard candidate messages', () => {
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [{ x: 10, y: 20, label: 'Submit' }] },
+        token,
+      ),
+    ).toBe(true);
+    expect(
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [] }, token),
+    ).toBe(true);
+    // Non-finite coordinate and non-string label are rejected.
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [{ x: Number.NaN, y: 0, label: 'x' }] },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [{ x: 0, y: 0, label: 42 }] },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CANDIDATES, token: 'old', anchors: [] }, token),
     ).toBe(false);
   });
 });

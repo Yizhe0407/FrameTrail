@@ -17,10 +17,13 @@ import { orchestrateStepCapture, type ScrollSnapshot } from '@/lib/step-capture'
 import {
   isInScrollableElementGutter,
   isInScrollbarGutter,
+  isMatchingSnapshotViewport,
   isPointInsideViewport,
 } from '@/lib/recording-guards';
 import {
+  SNAPSHOT_KEYBOARD_LABEL_LIMIT,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
+  type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldPreviewResult,
@@ -28,6 +31,8 @@ import {
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
+import { featureFlags } from '@/lib/feature-flags';
+import { orderKeyboardCandidates, type RawKeyboardCandidate } from '@/lib/snapshot-candidates';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
 import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
@@ -41,6 +46,7 @@ import type {
   RecordingControlMessage,
   RecordingControlResult,
   RecordingState,
+  SnapshotInvalidatedMessage,
 } from '@/lib/messages';
 
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
@@ -167,6 +173,44 @@ function describeElement(el: Element): string {
     el.getAttribute('alt')?.trim() ||
     ''
   ).slice(0, 200);
+}
+
+const KEYBOARD_CANDIDATE_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'summary',
+  'label',
+  '[role]',
+  '[tabindex]',
+  '[contenteditable]',
+].join(',');
+
+/**
+ * Enumerates top-frame annotation candidates for keyboard traversal (§9.5).
+ * The page is frozen while annotating, so this runs once. Ordering, dedup and
+ * capping are delegated to the pure helper; cross-frame candidates are out of
+ * scope for this flag-gated first pass and remain pointer-reachable.
+ */
+function collectKeyboardCandidateAnchors(): SnapshotShieldKeyboardAnchor[] {
+  const raw: RawKeyboardCandidate[] = [];
+  const seen = new Set<Element>();
+  for (const el of document.querySelectorAll(KEYBOARD_CANDIDATE_SELECTOR)) {
+    if (seen.has(el) || !isInteractiveElement(el)) continue;
+    seen.add(el);
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    raw.push({
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      label: (describeElement(el) || el.tagName.toLowerCase()).slice(0, SNAPSHOT_KEYBOARD_LABEL_LIMIT),
+    });
+  }
+  return orderKeyboardCandidates(raw, window.innerWidth, window.innerHeight);
 }
 
 function replayElementClick(el: Element): void {
@@ -509,10 +553,13 @@ export default defineContentScript({
       if (shouldFreezeSnapshot) installSnapshotFrameProbe(runId);
       return;
     }
-    const snapshotOrigin = {
+    const snapshotViewportContract = recordingState.snapshotViewport ?? {
+      width: window.innerWidth,
+      height: window.innerHeight,
       scrollX: window.scrollX,
       scrollY: window.scrollY,
     };
+    const snapshotDevicePixelRatioContract = recordingState.snapshotDevicePixelRatio ?? window.devicePixelRatio;
 
     let lastTarget: Element | null = null;
     let lastTime = 0;
@@ -533,6 +580,8 @@ export default defineContentScript({
     let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
     let snapshotInteractionsActive = false;
+    let snapshotInvalidationSent = recordingState.phase === 'invalidated';
+    let snapshotDprQuery: MediaQueryList | null = null;
     let stepPreview: StepPreview | null = null;
     let stepPreviewFrame: number | null = null;
     let stepPreviewPoint: { clientX: number; clientY: number } | null = null;
@@ -544,6 +593,43 @@ export default defineContentScript({
     const selectedSnapshotRects = new Set<string>();
     const selectedSnapshotHistory: ResolvedSnapshotTarget[] = [];
     let undoneSnapshotTarget: ResolvedSnapshotTarget | null = null;
+
+    const readSnapshotViewport = (): ClickCapture['viewport'] => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+    const notifySnapshotInvalidated = () => {
+      if (!shouldFreezeSnapshot || !snapshotInteractionsActive || snapshotInvalidationSent) return;
+      const viewport = readSnapshotViewport();
+      if (
+        isMatchingSnapshotViewport(
+          snapshotViewportContract,
+          snapshotDevicePixelRatioContract,
+          viewport,
+          window.devicePixelRatio,
+        )
+      ) {
+        return;
+      }
+      snapshotInvalidationSent = true;
+      snapshotInteractionsActive = false;
+      void browser.runtime.sendMessage({
+        type: 'SNAPSHOT_INVALIDATED',
+        runId,
+        viewport,
+        devicePixelRatio: window.devicePixelRatio,
+      } satisfies SnapshotInvalidatedMessage).catch((error) => {
+        console.error('[frametrail] failed to invalidate changed snapshot viewport', error);
+      });
+    };
+    const onSnapshotDprChange = () => {
+      notifySnapshotInvalidated();
+      snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
+      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
+    };
 
     const beginStepGesture = (target: Element) => {
       let cancel!: () => void;
@@ -895,6 +981,7 @@ export default defineContentScript({
         resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
       );
       if (
+        !snapshotInteractionsActive ||
         !target ||
         (target.element ? selectedSnapshotElements.has(target.element) : false) ||
         selectedSnapshotTargets.has(target.identity) ||
@@ -917,7 +1004,7 @@ export default defineContentScript({
         resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
       );
       const now = Date.now();
-      if (!target) return null;
+      if (!snapshotInteractionsActive || !target) return null;
       if (
         (target.element ? selectedSnapshotElements.has(target.element) : false) ||
         selectedSnapshotTargets.has(target.identity) ||
@@ -1008,16 +1095,15 @@ export default defineContentScript({
       event.preventDefault();
       event.stopImmediatePropagation();
     };
-    const onSnapshotScroll = () => {
-      if (window.scrollX !== snapshotOrigin.scrollX || window.scrollY !== snapshotOrigin.scrollY) {
-        window.scrollTo(snapshotOrigin.scrollX, snapshotOrigin.scrollY);
-      }
-    };
+    const onSnapshotScroll = () => notifySnapshotInvalidated();
     if (shouldFreezeSnapshot) {
       for (const type of SNAPSHOT_FREEZE_EVENTS) {
         window.addEventListener(type, onSnapshotFreeze, { capture: true, passive: false });
       }
       window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
+      window.addEventListener('resize', notifySnapshotInvalidated, { passive: true });
+      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
     }
 
     const toToolbarState = (state: RecordingState) => ({
@@ -1048,6 +1134,10 @@ export default defineContentScript({
     const unsubscribeRecordingState = onRecordingStateChange((state) => {
       if (state.runId !== runId) return;
       recorderPaused = state.phase === 'paused';
+      if (isSnapshotMode) {
+        snapshotInteractionsActive = state.phase === 'recording';
+        if (state.phase === 'invalidated') snapshotInvalidationSent = true;
+      }
       if (recorderPaused) suspendStepPreview();
       recordingToolbar?.update(toToolbarState(state));
       snapshotShield?.updateToolbar(toToolbarState(state));
@@ -1075,6 +1165,7 @@ export default defineContentScript({
       }
       if (message?.type === 'FRAME_TRAIL_SNAPSHOT_ACTIVE' && message.runId === runId) {
         snapshotInteractionsActive = true;
+        notifySnapshotInvalidated();
         return Promise.resolve(true);
       }
     };
@@ -1101,6 +1192,9 @@ export default defineContentScript({
           window.removeEventListener(type, onSnapshotFreeze, { capture: true });
         }
         window.removeEventListener('scroll', onSnapshotScroll, { capture: true });
+        window.removeEventListener('resize', notifySnapshotInvalidated);
+        snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
+        snapshotDprQuery = null;
       }
       snapshotShield?.remove();
       snapshotShield = null;
@@ -1129,6 +1223,21 @@ export default defineContentScript({
       snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl);
       try {
         await snapshotShield.ready;
+        snapshotShield.updateToolbar(toToolbarState(recordingState));
+        if (featureFlags.snapshotKeyboardNav) {
+          // Defer enumeration off the startup path so a large page cannot stall
+          // the clean-base handoff (§9.5). The frozen page keeps anchors valid.
+          const shield = snapshotShield;
+          const sendCandidates = () => {
+            try {
+              shield.sendKeyboardCandidates(collectKeyboardCandidateAnchors());
+            } catch (error) {
+              console.warn('[frametrail] failed to enumerate keyboard candidates', error);
+            }
+          };
+          if (typeof requestIdleCallback === 'function') requestIdleCallback(sendCandidates, { timeout: 500 });
+          else setTimeout(sendCandidates, 0);
+        }
         await waitForNextFrame();
         await waitForNextFrame();
       } catch (err) {

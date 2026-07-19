@@ -109,3 +109,21 @@ export function isMatchingSnapshotViewport(
     expectedDevicePixelRatio === actualDevicePixelRatio
   );
 }
+
+export function isValidSnapshotViewportContext(
+  viewport: unknown,
+  devicePixelRatio: unknown,
+): viewport is ClickCapture['viewport'] {
+  if (!viewport || typeof viewport !== 'object') return false;
+  const candidate = viewport as Partial<ClickCapture['viewport']>;
+  return (
+    Number.isFinite(candidate.width) &&
+    candidate.width! > 0 &&
+    Number.isFinite(candidate.height) &&
+    candidate.height! > 0 &&
+    Number.isFinite(candidate.scrollX) &&
+    Number.isFinite(candidate.scrollY) &&
+    Number.isFinite(devicePixelRatio) &&
+    (devicePixelRatio as number) > 0
+  );
+}

@@ -6,12 +6,13 @@ import type { Step } from '@/lib/db';
 interface Props {
   isRecording: boolean;
   steps: Step[];
+  onBeforeExport?: () => Promise<Step[] | void>;
 }
 
-export default function EditorHeader({ isRecording, steps }: Props) {
+export default function EditorHeader({ isRecording, steps, onBeforeExport }: Props) {
   return (
-    <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-stone-200 bg-stone-50 px-7 dark:border-stone-700 dark:bg-stone-900">
-      <div className="flex items-baseline gap-3.5">
+    <header className="flex min-h-[60px] shrink-0 items-center justify-between gap-2 border-b border-stone-200 bg-stone-50 px-4 py-2 sm:px-7 dark:border-stone-700 dark:bg-stone-900">
+      <div className="flex min-w-0 items-baseline gap-2 sm:gap-3.5">
         <h1
           id="frametrail-editor-title"
           tabIndex={-1}
@@ -19,7 +20,7 @@ export default function EditorHeader({ isRecording, steps }: Props) {
         >
           FrameTrail
         </h1>
-        <span className="text-xs text-stone-500 dark:text-stone-400">編輯器</span>
+        <span className="hidden text-xs text-stone-500 sm:inline dark:text-stone-400">編輯器</span>
         {isRecording && (
           <Badge variant="destructive" className="gap-1.5">
             <span className="size-1.5 animate-pulse rounded-full bg-white" />
@@ -27,9 +28,9 @@ export default function EditorHeader({ isRecording, steps }: Props) {
           </Badge>
         )}
       </div>
-      <div className="flex items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
         <ResetButton hasSteps={steps.length > 0} disabled={isRecording} />
-        <ExportImagesButton steps={steps} variant="default" />
+        <ExportImagesButton steps={steps} variant="default" onBeforeExport={onBeforeExport} />
       </div>
     </header>
   );

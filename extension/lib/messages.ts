@@ -51,6 +51,12 @@ export interface StopRecordingMessage {
   type: 'STOP_RECORDING';
 }
 
+export interface OpenEditorMessage {
+  type: 'OPEN_EDITOR';
+}
+
+export type OpenEditorResult = { ok: true } | { ok: false; error: string };
+
 export interface RecordingControlMessage {
   type:
     | 'PAUSE_RECORDING'
@@ -59,9 +65,20 @@ export interface RecordingControlMessage {
     | 'RESTORE_LAST_CAPTURE'
     | 'PREPARE_NEXT_SNAPSHOT'
     | 'CREATE_NEXT_SNAPSHOT'
+    | 'REBUILD_INVALIDATED_SNAPSHOT'
+    | 'DISCARD_CURRENT_RECORDING'
     | 'FINISH_RECORDING';
   runId: string;
   undoToken?: string;
+}
+
+/** Sent by the top-level snapshot recorder when its immutable base-image
+ * viewport contract no longer matches the live page. */
+export interface SnapshotInvalidatedMessage {
+  type: 'SNAPSHOT_INVALIDATED';
+  runId: string;
+  viewport: ClickCapture['viewport'];
+  devicePixelRatio: number;
 }
 
 export interface FinishResult {
@@ -121,8 +138,10 @@ export interface RecorderReadyMessage {
 export type BackgroundMessage =
   | ClickCapture
   | CancelCaptureMessage
+  | SnapshotInvalidatedMessage
   | StartRecordingMessage
   | StopRecordingMessage
+  | OpenEditorMessage
   | RecordingControlMessage
   | RecorderReadyMessage;
 
