@@ -13,12 +13,30 @@ import {
   serializeProjectArchive,
 } from '@/lib/project-archive';
 
+function pngBlob(width = 2, height = 2): Blob {
+  const bytes = new Uint8Array(24);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  new DataView(bytes.buffer).setUint32(8, 13);
+  bytes.set([73, 72, 68, 82], 12);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return new Blob([bytes], { type: 'image/png' });
+}
+
+function jpegBlob(width = 2, height = 2): Blob {
+  return new Blob([new Uint8Array([
+    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08,
+    (height >>> 8) & 255, height & 255, (width >>> 8) & 255, width & 255,
+    0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
+  ])], { type: 'image/jpeg' });
+}
+
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {
     id: 'step-1',
     sessionId: 'session-1',
     order: 0,
-    screenshotBlob: new Blob([new Uint8Array([0, 1, 2, 127, 128, 255])], { type: 'image/png' }),
+    screenshotBlob: pngBlob(),
     bounds: { x: 12.5, y: -4, width: 100, height: 50 },
     devicePixelRatio: 2,
     description: 'Click the button',
@@ -57,7 +75,7 @@ describe('project archive', () => {
     const anchor = makeStep({
       id: 'anchor',
       order: 1,
-      screenshotBlob: new Blob(['shared jpeg bytes'], { type: 'image/jpeg' }),
+      screenshotBlob: jpegBlob(),
       bounds: null,
       groupId: 'anchor',
       numbered: true,
@@ -109,8 +127,8 @@ describe('project archive', () => {
   });
 
   it('produces deterministic canonical JSON regardless of input step order', async () => {
-    const first = makeStep({ id: 'b', order: 4, screenshotBlob: new Blob(['b'], { type: 'image/png' }) });
-    const second = makeStep({ id: 'a', order: 4, screenshotBlob: new Blob(['a'], { type: 'image/png' }) });
+    const first = makeStep({ id: 'b', order: 4, screenshotBlob: pngBlob(2, 3) });
+    const second = makeStep({ id: 'a', order: 4, screenshotBlob: pngBlob(3, 2) });
 
     const forward = await serializeProjectArchive([first, second]);
     const reverse = await serializeProjectArchive([second, first]);
@@ -341,6 +359,13 @@ describe('project archive', () => {
     svg.blobs[0].mediaType = 'image/svg+xml';
     await expect(importProjectArchive(JSON.stringify(svg))).rejects.toMatchObject({ code: 'INVALID_BLOB' });
 
+    await expect(
+      serializeProjectArchive([makeStep({ screenshotBlob: new Blob([await pngBlob().arrayBuffer()], { type: 'image/jpeg' }) })]),
+    ).rejects.toMatchObject({ code: 'INVALID_BLOB' });
+    await expect(
+      serializeProjectArchive([makeStep({ screenshotBlob: pngBlob(16_384, 16_384) })]),
+    ).rejects.toMatchObject({ code: 'INVALID_BLOB' });
+
     const unused = await archiveObject();
     delete unused.manifest.steps[0].screenshotBlobId;
     await expect(importProjectArchive(JSON.stringify(unused))).rejects.toMatchObject({ code: 'INVALID_BLOB' });
@@ -382,7 +407,7 @@ describe('project archive', () => {
     }
     await expect(
       serializeProjectArchive([
-        makeStep({ screenshotBlob: new AbortingBlob(['image'], { type: 'image/png' }) }),
+        makeStep({ screenshotBlob: new AbortingBlob([await pngBlob().arrayBuffer()], { type: 'image/png' }) }),
       ], { signal: duringRead.signal }),
     ).rejects.toMatchObject({ name: 'AbortError' });
 

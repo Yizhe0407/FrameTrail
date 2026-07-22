@@ -3,7 +3,8 @@ export interface DownloadBlobOptions {
   document?: Document;
 }
 
-const PRINT_URL_REVOKE_FALLBACK_MS = 5_000;
+const DOWNLOAD_URL_REVOKE_DELAY_MS = 60_000;
+const PRINT_URL_REVOKE_FALLBACK_MS = 60_000;
 
 function abortError(signal: AbortSignal): unknown {
   return signal.reason instanceof Error
@@ -28,6 +29,7 @@ export async function downloadBlob(
   const objectUrl = URL.createObjectURL(blob);
   const anchor = ownerDocument.createElement('a');
 
+  let clickDispatched = false;
   try {
     anchor.href = objectUrl;
     anchor.download = filename;
@@ -35,11 +37,17 @@ export async function downloadBlob(
     ownerDocument.body.append(anchor);
     throwIfDownloadAborted(signal);
     anchor.click();
-    // Let the browser consume the click before revoking the backing URL.
-    await Promise.resolve();
+    clickDispatched = true;
   } finally {
     anchor.remove();
-    URL.revokeObjectURL(objectUrl);
+    if (clickDispatched) {
+      // Firefox may not consume an anchor-backed Blob URL until after the
+      // current task. Keep a bounded lease instead of revoking immediately.
+      const timer = setTimeout(() => URL.revokeObjectURL(objectUrl), DOWNLOAD_URL_REVOKE_DELAY_MS);
+      (timer as unknown as { unref?: () => void }).unref?.();
+    } else {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 }
 
@@ -76,7 +84,16 @@ export async function copyRichText(
 
 /** Must be called directly from the user's click handler to avoid popup blocking. */
 export function openPrintPlaceholder(ownerWindow: Window = globalThis.window): Window | null {
-  return ownerWindow.open('about:blank', '_blank');
+  const placeholder = ownerWindow.open('about:blank', '_blank');
+  if (placeholder) {
+    try {
+      placeholder.opener = null;
+    } catch {
+      // A browser may expose a read-only opener; the exported document CSP is
+      // still the primary containment boundary.
+    }
+  }
+  return placeholder;
 }
 
 /**

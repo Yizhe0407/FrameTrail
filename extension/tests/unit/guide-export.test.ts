@@ -10,6 +10,8 @@ vi.mock('@/lib/entry-render', () => ({
 }));
 
 import {
+  GUIDE_EXPORT_LIMITS,
+  GuideExportLimitError,
   generateGuideHtml,
   generateGuideMarkdown,
   generatePrintReadyGuideHtml,
@@ -103,6 +105,12 @@ describe('guide export', () => {
     expect(markdown).toContain('\\<script\\>alert\\(1\\)\\</script\\>');
     expect(markdown).toContain('data:image/jpeg;base64,YW5ub3RhdGVk');
     expect(markdown).not.toContain('Source: <javascript:');
+
+    const credentialHtml = await generateGuideHtml([entry({ url: 'https://user:secret@example.com/private' })], {
+      sourceUrl: 'https://admin:token@example.com/private',
+    });
+    expect(credentialHtml).not.toContain('secret');
+    expect(credentialHtml).not.toContain('token');
   });
 
   it('escapes user HTML and unsafe URLs in self-contained HTML', async () => {
@@ -120,6 +128,11 @@ describe('guide export', () => {
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).toContain('href="https://example.com/?q=%3Cunsafe%3E&amp;x=1"');
     expect(html).toContain('src="data:image/jpeg;base64,YW5ub3RhdGVk"');
+    expect(html).toContain('http-equiv="Content-Security-Policy"');
+    expect(html).toContain("default-src 'none'; img-src data:");
+    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
+    expect(html.match(/<header class="guide-header">/g)).toHaveLength(1);
+    expect(html.match(/<\/header>/g)).toHaveLength(1);
     expect(html).not.toContain('<svg onload=alert(1)>');
     expect(html).not.toContain('<img src=x onerror=alert(1)>');
   });
@@ -199,4 +212,39 @@ describe('guide export', () => {
     });
     expect(mocks.composite).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects an excessive entry count before compositing any image', async () => {
+    const entries = Array.from(
+      { length: GUIDE_EXPORT_LIMITS.maxEntries + 1 },
+      (_, index) => entry({ id: `step-${index}`, order: index }),
+    );
+
+    await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
+    expect(mocks.composite).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized composited image before allocating its ArrayBuffer', async () => {
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
+    mocks.composite.mockResolvedValueOnce({
+      size: GUIDE_EXPORT_LIMITS.maxImageBytes + 1,
+      arrayBuffer,
+    } as unknown as Blob);
+
+    await expect(generateGuideMarkdown([entry()])).rejects.toBeInstanceOf(GuideExportLimitError);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it('enforces the cumulative image budget before converting the overflowing image', async () => {
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
+    mocks.composite.mockResolvedValue({
+      size: GUIDE_EXPORT_LIMITS.maxImageBytes,
+      arrayBuffer,
+    } as unknown as Blob);
+    const entries = Array.from({ length: 5 }, (_, index) => entry({ id: `step-${index}`, order: index }));
+
+    await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
+    expect(mocks.composite).toHaveBeenCalledTimes(5);
+    expect(arrayBuffer).toHaveBeenCalledTimes(4);
+  });
+
 });

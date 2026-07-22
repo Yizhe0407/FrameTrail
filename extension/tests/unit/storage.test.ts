@@ -77,4 +77,83 @@ describe('recording state normalization', () => {
     expect(invalid.recaptureResult).toBeNull();
   });
 
+  it('rebuilds persisted state field-by-field and rejects malformed active recording identity', () => {
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: {} as never,
+      tabId: -1,
+      runId: [] as never,
+      error: [] as never,
+      recoverableError: { code: '', message: 'broken' },
+      itemCount: -4,
+      numbered: 'yes' as never,
+      groupAnchorId: {} as never,
+      snapshotViewport: { width: Number.NaN, height: 100, scrollX: 0, scrollY: 0 },
+      snapshotDevicePixelRatio: Number.POSITIVE_INFINITY,
+      unexpected: 'must not survive',
+    } as never);
+
+    expect(normalized).toEqual(createDefaultRecordingState());
+    expect(normalized).not.toHaveProperty('unexpected');
+  });
+
+  it.each([
+    { viewport: { width: -1, height: 100, scrollX: 0, scrollY: 0 }, ratio: 1, validViewport: false },
+    { viewport: { width: 100, height: 100, scrollX: 10_000_001, scrollY: 0 }, ratio: 1, validViewport: false },
+    { viewport: { width: 100, height: 100, scrollX: 0, scrollY: 0 }, ratio: 0, validViewport: true },
+    { viewport: { width: 100, height: 100, scrollX: 0, scrollY: 0 }, ratio: 33, validViewport: true },
+  ])('drops invalid snapshot geometry while preserving a valid recording identity %#', ({ viewport, ratio, validViewport }) => {
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: 'session-1',
+      tabId: 2,
+      runId: 'run-1',
+      mode: 'snapshot',
+      snapshotViewport: viewport,
+      snapshotDevicePixelRatio: ratio,
+    });
+
+    expect(normalized.operation).toBe('recording');
+    expect(normalized.snapshotViewport).toEqual(validViewport ? viewport : null);
+    expect(normalized.snapshotDevicePixelRatio).toBe(ratio === 1 ? 1 : null);
+  });
+
+  it('clears stale snapshot-only fields when the persisted mode is steps', () => {
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: 'session-1',
+      tabId: 2,
+      runId: 'run-1',
+      mode: 'steps',
+      groupAnchorId: 'anchor-1',
+      snapshotViewport: { width: 100, height: 100, scrollX: 0, scrollY: 0 },
+      snapshotDevicePixelRatio: 2,
+    });
+
+    expect(normalized.groupAnchorId).toBeNull();
+    expect(normalized.snapshotViewport).toBeNull();
+    expect(normalized.snapshotDevicePixelRatio).toBeNull();
+  });
+
+  it('bounds durable recapture result diagnostics and timestamps', () => {
+    const invalid = normalizeRecordingState({
+      recaptureResult: {
+        runId: 'run-1',
+        status: 'failed',
+        sessionId: 'session-1',
+        entryId: 'step-1',
+        completedAt: -1,
+        message: 'x'.repeat(10_001),
+      },
+    });
+
+    expect(invalid.recaptureResult).toBeNull();
+  });
+
 });

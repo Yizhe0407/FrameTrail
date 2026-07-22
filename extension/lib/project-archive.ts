@@ -1,4 +1,6 @@
+import { encodeBase64 } from './base64';
 import { buildStepEntries, type Bounds, type Redaction, type Step } from './db';
+import { RasterImageValidationError, validateRasterImageBlob } from './raster-image-validation';
 import {
   GUIDE_SECTION_LIMITS,
   repairGuideSections,
@@ -581,26 +583,13 @@ function validateScreenshotBlob(blob: Blob, path: string): void {
   }
 }
 
-function bytesToBase64(bytes: Uint8Array, signal?: AbortSignal): string {
-  const parts: string[] = [];
-  let part = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    if ((index & 0xffff) === 0) throwIfAborted(signal);
-    const first = bytes[index];
-    const second = index + 1 < bytes.length ? bytes[index + 1] : 0;
-    const third = index + 2 < bytes.length ? bytes[index + 2] : 0;
-    const combined = (first << 16) | (second << 8) | third;
-    part += BASE64_ALPHABET[(combined >>> 18) & 63];
-    part += BASE64_ALPHABET[(combined >>> 12) & 63];
-    part += index + 1 < bytes.length ? BASE64_ALPHABET[(combined >>> 6) & 63] : '=';
-    part += index + 2 < bytes.length ? BASE64_ALPHABET[combined & 63] : '=';
-    if (part.length >= 32_768) {
-      parts.push(part);
-      part = '';
-    }
+async function validateScreenshotRaster(blob: Blob, path: string): Promise<void> {
+  try {
+    await validateRasterImageBlob(blob);
+  } catch (error) {
+    if (error instanceof RasterImageValidationError) fail('INVALID_BLOB', `${path}: ${error.message}`);
+    throw error;
   }
-  if (part) parts.push(part);
-  return parts.join('');
 }
 
 function decodedBase64Size(data: string, path: string): number {
@@ -720,6 +709,8 @@ async function buildArchiveText(stepsInput: readonly Step[], options: ProjectArc
         fail('LIMIT_EXCEEDED', 'The screenshots exceed the total archive byte limit.');
       }
       blobId = `screenshot-${String(blobs.length + 1).padStart(6, '0')}`;
+      await validateScreenshotRaster(step.screenshotBlob, `steps[${index}].screenshotBlob`);
+      throwIfAborted(signal);
       const bytes = new Uint8Array(await step.screenshotBlob.arrayBuffer());
       throwIfAborted(signal);
       blobs.push({
@@ -727,7 +718,7 @@ async function buildArchiveText(stepsInput: readonly Step[], options: ProjectArc
         mediaType: step.screenshotBlob.type,
         size: bytes.byteLength,
         encoding: 'base64',
-        data: bytesToBase64(bytes, signal),
+        data: encodeBase64(bytes, signal),
       });
     }
     archivedSteps.push(archiveStepFromRuntime(step, blobId));
@@ -805,7 +796,7 @@ function parseArchiveStep(recordValue: unknown, path: string, blobs: Map<string,
   return validateRuntimeStep(runtime, path);
 }
 
-function parseBlobRecords(value: unknown, expectedCount: number, signal?: AbortSignal): Map<string, Blob> {
+async function parseBlobRecords(value: unknown, expectedCount: number, signal?: AbortSignal): Promise<Map<string, Blob>> {
   const records = expectArray(value, 'blobs');
   if (records.length !== expectedCount) fail('INVALID_ARCHIVE', 'manifest.blobCount does not match blobs.length.');
   if (records.length > PROJECT_ARCHIVE_LIMITS.maxScreenshots) {
@@ -837,7 +828,10 @@ function parseBlobRecords(value: unknown, expectedCount: number, signal?: AbortS
       Math.ceil(PROJECT_ARCHIVE_LIMITS.maxScreenshotBytes / 3) * 4,
       false,
     );
-    result.set(id, new Blob([base64ToBytes(data, size, `${path}.data`, signal)], { type: mediaType }));
+    const blob = new Blob([base64ToBytes(data, size, `${path}.data`, signal)], { type: mediaType });
+    await validateScreenshotRaster(blob, path);
+    throwIfAborted(signal);
+    result.set(id, blob);
   }
   return result;
 }
@@ -913,7 +907,7 @@ export async function importProjectArchive(
     fail('LIMIT_EXCEEDED', `An archive may contain at most ${PROJECT_ARCHIVE_LIMITS.maxSteps} steps.`);
   }
 
-  const blobs = parseBlobRecords(envelope.blobs, blobCount, signal);
+  const blobs = await parseBlobRecords(envelope.blobs, blobCount, signal);
   const usedBlobs = new Set<string>();
   const steps = rawSteps.map((step, index) => {
     throwIfAborted(signal);

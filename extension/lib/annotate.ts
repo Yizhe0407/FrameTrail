@@ -1,3 +1,4 @@
+import { validateRasterImageBlob } from './raster-image-validation';
 import type { Bounds, Redaction } from './db';
 import { getValidScreenshotScale, isValidImageBounds } from './image-utils';
 
@@ -1079,6 +1080,7 @@ async function compositeRaster(
     viewportHeight: number,
   ) => void,
 ): Promise<Blob> {
+  await validateRasterImageBlob(screenshot);
   const bitmap = await createImageBitmap(screenshot);
   try {
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);

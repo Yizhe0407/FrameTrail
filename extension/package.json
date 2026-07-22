@@ -47,5 +47,18 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "wxt": "^0.20.27"
+  },
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "shell-quote": "1.9.0",
+      "tmp": "0.2.7",
+      "adm-zip": "0.6.0",
+      "uuid": "11.1.1",
+      "esbuild": "0.28.1"
+    }
   }
 }

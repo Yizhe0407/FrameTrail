@@ -3,6 +3,19 @@ import { browser } from 'wxt/browser';
 import { compositeStepEntry } from './entry-render';
 import { buildStepEntries, getEntryPrivacyState, type Step } from './db';
 
+export const IMAGE_ZIP_EXPORT_LIMITS = Object.freeze({
+  maxEntries: 2_000,
+  maxImageBytes: 16 * 1024 * 1024,
+  maxTotalImageBytes: 128 * 1024 * 1024,
+});
+
+export class ImageZipExportLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImageZipExportLimitError';
+  }
+}
+
 export class RedactionReviewRequiredError extends Error {
   constructor() {
     super('Sensitive-information masks must be reviewed before export.');
@@ -27,6 +40,15 @@ export function isExportCancelledError(error: unknown): boolean {
 function throwIfCancelled(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
   throw signal.reason instanceof Error ? signal.reason : new DOMException('Export cancelled', 'AbortError');
+}
+
+function assertImageZipBudget(imageBytes: number, totalImageBytes: number, ordinal: number): void {
+  if (!Number.isSafeInteger(imageBytes) || imageBytes < 0 || imageBytes > IMAGE_ZIP_EXPORT_LIMITS.maxImageBytes) {
+    throw new ImageZipExportLimitError(`Image ${ordinal} exceeds the per-image ZIP export limit.`);
+  }
+  if (totalImageBytes + imageBytes > IMAGE_ZIP_EXPORT_LIMITS.maxTotalImageBytes) {
+    throw new ImageZipExportLimitError('Images exceed the total ZIP export limit.');
+  }
 }
 
 function createStreamingZip() {
@@ -72,11 +94,16 @@ export async function exportImagesAsZip(
 
   const entries = buildStepEntries(steps);
   if (entries.length === 0) return null;
+  if (entries.length > IMAGE_ZIP_EXPORT_LIMITS.maxEntries) {
+    throw new ImageZipExportLimitError('Guide contains too many images to export safely.');
+  }
   if (entries.some((entry) => getEntryPrivacyState(entry).reviewRequired)) {
     throw new RedactionReviewRequiredError();
   }
   const pad = String(entries.length).length;
   let done = 0;
+  let declaredImageBytes = 0;
+  let actualImageBytes = 0;
   const { archive, result } = createStreamingZip();
 
   try {
@@ -87,8 +114,15 @@ export async function exportImagesAsZip(
       throwIfCancelled(signal);
       const annotated = await compositeStepEntry(entry, 'image/jpeg');
       throwIfCancelled(signal);
+      const ordinal = index + 1;
+      // Reject from Blob metadata before arrayBuffer() duplicates the image in
+      // memory, then verify the owned buffer before adding it to the archive.
+      assertImageZipBudget(annotated.size, declaredImageBytes, ordinal);
+      declaredImageBytes += annotated.size;
       const bytes = new Uint8Array(await annotated.arrayBuffer());
       throwIfCancelled(signal);
+      assertImageZipBudget(bytes.byteLength, actualImageBytes, ordinal);
+      actualImageBytes += bytes.byteLength;
       const file = new ZipPassThrough(`${String(index + 1).padStart(pad, '0')}.jpg`);
       archive.add(file);
       file.push(bytes, true);

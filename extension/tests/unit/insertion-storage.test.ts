@@ -36,6 +36,8 @@ describe('durable insertion recording state', () => {
     { ...validInsertion, side: 'middle' },
     { ...validInsertion, anchorEntryId: '' },
     { ...validInsertion, sourceUrl: '' },
+    { ...validInsertion, sourceUrl: 'javascript:alert(1)' },
+    { ...validInsertion, sourceUrl: 'https://user:secret@example.com/source' },
     { ...validInsertion, startedAt: Number.NaN },
   ])('fails closed for malformed persisted insertion context %#', (insertion) => {
     const normalized = normalizeRecordingState({
@@ -81,4 +83,34 @@ describe('durable insertion recording state', () => {
     expect(ordinary.insertion).toBeNull();
     expect(recapture.insertion).toBeNull();
   });
+
+  it.each([
+    { field: 'editorTabId', value: -1 },
+    { field: 'editorWindowId', value: -1 },
+    { field: 'sourceTabId', value: -1 },
+    { field: 'sourceWindowId', value: -1 },
+    { field: 'sourceUrl', value: 'javascript:alert(1)' },
+    { field: 'sourceUrl', value: 'https://user:secret@example.com/source' },
+  ])('fails closed for an unsafe persisted recapture $field', ({ field, value }) => {
+    const recapture = {
+      runId: 'recapture-1',
+      sessionId: 'guide-a',
+      target: { kind: 'single' as const, stepId: 'step-1' },
+      entryId: 'step-1',
+      phase: 'awaiting-target' as const,
+      editorTabId: 1,
+      editorWindowId: 1,
+      sourceTabId: 2,
+      sourceWindowId: 1,
+      sourceUrl: 'https://example.com/source',
+      sourceTabCreated: false,
+      startedAt: 1,
+      [field]: value,
+    };
+    const normalized = normalizeRecordingState({ operation: 'recapture', recapture });
+
+    expect(normalized.operation).toBeNull();
+    expect(normalized.recapture).toBeNull();
+  });
+
 });

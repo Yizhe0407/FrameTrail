@@ -1,3 +1,4 @@
+import { encodeBase64 } from './base64';
 import { compositeStepEntry } from './entry-render';
 import type { Step, StepEntry } from './db';
 import { repairGuideSections, type GuideSection } from './guide-sections';
@@ -37,6 +38,19 @@ const DEFAULT_TITLE = 'FrameTrail Guide';
 const DEFAULT_DESCRIPTION = 'No description provided.';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 const IMAGE_MIME_TYPE = 'image/jpeg';
+
+export const GUIDE_EXPORT_LIMITS = Object.freeze({
+  maxEntries: 2_000,
+  maxImageBytes: 16 * 1024 * 1024,
+  maxTotalImageBytes: 64 * 1024 * 1024,
+});
+
+export class GuideExportLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GuideExportLimitError';
+  }
+}
 
 /**
  * Produces a stable, filesystem-safe filename without consulting the clock or
@@ -185,7 +199,9 @@ function safeExternalUrl(value: unknown): string | null {
 
   try {
     const url = new URL(text);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    if (url.username || url.password) return null;
+    return url.href;
   } catch {
     return null;
   }
@@ -207,8 +223,23 @@ function entryOwner(entry: StepEntry): Step {
   return entry.kind === 'single' ? entry.step : entry.anchor;
 }
 
+function assertGuideImageBudget(imageBytes: number, totalImageBytes: number, ordinal: number): void {
+  if (!Number.isSafeInteger(imageBytes) || imageBytes < 0 || imageBytes > GUIDE_EXPORT_LIMITS.maxImageBytes) {
+    throw new GuideExportLimitError(`Step ${ordinal} exceeds the per-image guide export limit.`);
+  }
+  if (totalImageBytes + imageBytes > GUIDE_EXPORT_LIMITS.maxTotalImageBytes) {
+    throw new GuideExportLimitError('Guide images exceed the total export limit.');
+  }
+}
+
 async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal): Promise<RenderedEntry[]> {
+  if (entries.length > GUIDE_EXPORT_LIMITS.maxEntries) {
+    throw new GuideExportLimitError('Guide contains too many entries to export safely.');
+  }
+
   const rendered: RenderedEntry[] = [];
+  let declaredImageBytes = 0;
+  let actualImageBytes = 0;
 
   // Deliberately sequential: a large guide never holds decoded canvases or
   // base64 copies for multiple screenshots while an image is being composited.
@@ -218,50 +249,33 @@ async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal
     // In particular, it refuses redaction-review-required entries fail-closed.
     const image = await compositeStepEntry(entry, IMAGE_MIME_TYPE);
     throwIfAborted(signal);
-    const dataUri = await imageDataUri(image, signal);
+    const ordinal = index + 1;
+
+    // Blob.size is available without allocating another full copy, so reject
+    // oversized output before arrayBuffer() and base64's ~4/3 expansion.
+    assertGuideImageBudget(image.size, declaredImageBytes, ordinal);
+    declaredImageBytes += image.size;
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    throwIfAborted(signal);
+    // Recheck the owned buffer as defense-in-depth for non-native Blob-like
+    // implementations used by tests or future adapters.
+    assertGuideImageBudget(bytes.byteLength, actualImageBytes, ordinal);
+    actualImageBytes += bytes.byteLength;
+    const imageDataUri = `data:${IMAGE_MIME_TYPE};base64,${encodeBase64(bytes, signal)}`;
     throwIfAborted(signal);
 
     const owner = entryOwner(entry);
     rendered.push({
       entryId: owner.id,
-      ordinal: index + 1,
+      ordinal,
       description: textValue(owner.description),
       annotations: sortedAnnotations(entry),
       sourceUrl: safeExternalUrl(owner.url),
-      imageDataUri: dataUri,
+      imageDataUri,
     });
   }
 
   return rendered;
-}
-
-async function imageDataUri(image: Blob, signal?: AbortSignal): Promise<string> {
-  const bytes = new Uint8Array(await image.arrayBuffer());
-  throwIfAborted(signal);
-  return `data:${IMAGE_MIME_TYPE};base64,${base64Encode(bytes, signal)}`;
-}
-
-/** Browser- and test-runtime-independent base64 encoding without Buffer. */
-function base64Encode(bytes: Uint8Array, signal?: AbortSignal): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  const chunks: string[] = [];
-
-  for (let index = 0; index < bytes.length; index += 3) {
-    if ((index & 0x3fff) === 0) throwIfAborted(signal);
-    const first = bytes[index];
-    const second = bytes[index + 1];
-    const third = bytes[index + 2];
-    const value = (first << 16) | ((second ?? 0) << 8) | (third ?? 0);
-    chunks.push(
-      alphabet[(value >> 18) & 0x3f],
-      alphabet[(value >> 12) & 0x3f],
-      second === undefined ? '=' : alphabet[(value >> 6) & 0x3f],
-      third === undefined ? '=' : alphabet[value & 0x3f],
-    );
-  }
-
-  throwIfAborted(signal);
-  return chunks.join('');
 }
 
 function appendMarkdownEntryText(lines: string[], entry: RenderedEntry): void {
@@ -320,6 +334,7 @@ async function generateGuideHtmlDocument(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
 <title>${escapeGuideHtml(title)}</title>
 <style>
 ${BASE_STYLE}${printStyle}
@@ -385,7 +400,7 @@ function htmlText(value: string): string {
 
 function htmlLink(url: string): string {
   const escaped = escapeGuideHtml(url);
-  return `<a href="${escaped}" rel="noreferrer">${escaped}</a>`;
+  return `<a href="${escaped}" target="_blank" rel="noopener noreferrer">${escaped}</a>`;
 }
 
 const BASE_STYLE = `

@@ -19,7 +19,13 @@ vi.mock('@/lib/entry-render', () => ({
   compositeStepEntry: mocks.composite,
 }));
 
-import { RedactionReviewRequiredError, exportImagesAsZip, localDateStamp } from '@/lib/export-images';
+import {
+  IMAGE_ZIP_EXPORT_LIMITS,
+  ImageZipExportLimitError,
+  RedactionReviewRequiredError,
+  exportImagesAsZip,
+  localDateStamp,
+} from '@/lib/export-images';
 import type { Step } from '@/lib/db';
 
 function step(order: number): Step {
@@ -104,6 +110,43 @@ describe('image export', () => {
 
     await expect(exportImagesAsZip([pending])).rejects.toBeInstanceOf(RedactionReviewRequiredError);
     expect(mocks.composite).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
+
+  it('rejects an excessive image count before compositing or creating a download', async () => {
+    const steps = Array.from({ length: IMAGE_ZIP_EXPORT_LIMITS.maxEntries + 1 }, (_, index) => step(index));
+
+    await expect(exportImagesAsZip(steps)).rejects.toBeInstanceOf(ImageZipExportLimitError);
+    expect(mocks.composite).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized composited image before allocating its ArrayBuffer', async () => {
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
+    mocks.composite.mockResolvedValueOnce({
+      size: IMAGE_ZIP_EXPORT_LIMITS.maxImageBytes + 1,
+      arrayBuffer,
+    } as unknown as Blob);
+
+    await expect(exportImagesAsZip([step(0)])).rejects.toBeInstanceOf(ImageZipExportLimitError);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
+  it('enforces the cumulative image budget before buffering the overflowing image', async () => {
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
+    mocks.composite.mockResolvedValue({
+      size: IMAGE_ZIP_EXPORT_LIMITS.maxImageBytes,
+      arrayBuffer,
+    } as unknown as Blob);
+    const overflowAt = IMAGE_ZIP_EXPORT_LIMITS.maxTotalImageBytes / IMAGE_ZIP_EXPORT_LIMITS.maxImageBytes + 1;
+
+    await expect(
+      exportImagesAsZip(Array.from({ length: overflowAt }, (_, index) => step(index))),
+    ).rejects.toBeInstanceOf(ImageZipExportLimitError);
+    expect(mocks.composite).toHaveBeenCalledTimes(overflowAt);
+    expect(arrayBuffer).toHaveBeenCalledTimes(overflowAt - 1);
     expect(mocks.download).not.toHaveBeenCalled();
   });
 

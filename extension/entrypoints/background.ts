@@ -1,6 +1,11 @@
 import { browser, type Browser } from 'wxt/browser';
 import { generateActionDescription } from '@/lib/action-description';
 import {
+  isBackgroundMessage,
+  isExtensionPageOnlyMessage,
+  isTrustedExtensionPageSender,
+} from '@/lib/background-message-validation';
+import {
   CAPTURE_PRESENTATION_CSS,
   waitForCapturePresentationPaint,
   withCapturePresentation,
@@ -2718,6 +2723,37 @@ async function handleSnapshotClick(
   }], expectedControlVersion);
 }
 
+function isTrustedRecordedPageSender(
+  messageUrl: string,
+  sender: Browser.runtime.MessageSender,
+  expectedTabId: number,
+): boolean {
+  return (
+    sender.frameId === 0 &&
+    sender.tab?.id === expectedTabId &&
+    sender.url === messageUrl &&
+    sender.tab.url === messageUrl
+  );
+}
+
+async function handleCancelCapture(
+  message: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_CANCEL_CAPTURE' }>,
+  sender: Browser.runtime.MessageSender,
+): Promise<ClickCaptureResult> {
+  const state = await getRecordingState();
+  if (
+    !state.isRecording ||
+    state.operation !== 'recording' ||
+    state.runId !== message.runId ||
+    sender.frameId !== 0 ||
+    sender.tab?.id !== state.tabId
+  ) {
+    return { ok: false };
+  }
+  cancelCapture(message.captureId);
+  return { ok: true };
+}
+
 async function handleClick(
   message: ClickCapture,
   sender: Browser.runtime.MessageSender,
@@ -2731,7 +2767,9 @@ async function handleClick(
   const state = await getRecordingState();
   if (!state.isRecording || !state.sessionId || state.runId !== message.runId) return rejectBeforeTransaction();
   if (state.phase !== 'recording' && state.phase !== 'finishing') return rejectBeforeTransaction();
-  if (sender.tab?.id !== state.tabId) return rejectBeforeTransaction();
+  if (state.tabId == null || !isTrustedRecordedPageSender(message.url, sender, state.tabId)) {
+    return rejectBeforeTransaction();
+  }
   if (state.insertion && (message.url !== state.insertion.sourceUrl || !isInsertionSourceSender(sender, state))) {
     return rejectBeforeTransaction();
   }
@@ -2842,7 +2880,16 @@ async function withMessageFailureFallback<T>(
 }
 
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
+  browser.runtime.onMessage.addListener((message: unknown, sender) => {
+    if (!isBackgroundMessage(message)) return undefined;
+    if (
+      isExtensionPageOnlyMessage(message) &&
+      !isTrustedExtensionPageSender(sender, browser.runtime.getURL('/'))
+    ) {
+      console.warn('[frametrail] rejected an untrusted extension control message', message.type);
+      return undefined;
+    }
+
     switch (message.type) {
       case 'START_RECORDING':
         return withMessageFailureFallback(
@@ -2913,8 +2960,7 @@ export default defineBackground(() => {
           );
         }
       case 'FRAME_TRAIL_CANCEL_CAPTURE':
-        cancelCapture(message.captureId);
-        return Promise.resolve({ ok: true } satisfies ClickCaptureResult);
+        return handleCancelCapture(message, sender);
       case 'FRAME_TRAIL_READY':
         return handleRecorderReady(message, sender);
       case 'FRAME_TRAIL_RECAPTURE_READY':

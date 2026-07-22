@@ -14,7 +14,8 @@ afterEach(() => {
 });
 
 describe('download utilities', () => {
-  it('downloads through a temporary anchor and always revokes the object URL', async () => {
+  it('downloads through a temporary anchor and revokes the object URL after a bounded lease', async () => {
+    vi.useFakeTimers();
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:guide');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -23,7 +24,10 @@ describe('download utilities', () => {
 
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:guide');
+    vi.useRealTimers();
     expect(document.querySelector('a[download="guide.md"]')).toBeNull();
   });
 
@@ -63,11 +67,12 @@ describe('download utilities', () => {
   });
 
   it('opens about:blank synchronously for the print flow', () => {
-    const placeholder = {} as Window;
+    const placeholder = { opener: window } as unknown as Window;
     const open = vi.spyOn(window, 'open').mockReturnValue(placeholder);
 
     expect(openPrintPlaceholder()).toBe(placeholder);
     expect(open).toHaveBeenCalledWith('about:blank', '_blank');
+    expect(placeholder.opener).toBeNull();
   });
 
   it('loads print HTML by Blob navigation without document markup injection and revokes after load', async () => {

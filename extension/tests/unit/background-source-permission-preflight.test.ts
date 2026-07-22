@@ -8,7 +8,7 @@ import type {
 import type { Step } from '@/lib/db';
 
 const mocks = vi.hoisted(() => ({
-  messageListener: null as null | ((message: BackgroundMessage, sender: unknown) => unknown),
+  messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
   getInsertionAnchor: vi.fn(),
   getStep: vi.fn(),
   getSteps: vi.fn(),
@@ -166,6 +166,53 @@ beforeEach(() => {
   });
   mocks.getStep.mockResolvedValue(ordinaryStep());
   mocks.getSteps.mockResolvedValue([ordinaryStep()]);
+});
+
+
+
+describe('background runtime boundary', () => {
+  it.each<unknown>([
+    null,
+    [],
+    { type: 'START_RECORDING', sessionId: '', mode: 'steps', numbered: true },
+    { type: 'FRAME_TRAIL_CLICK', runId: 'run-1' },
+  ])('ignores malformed messages before any privileged work %#', async (message) => {
+    const result = await mocks.messageListener?.(message, editorSender('guide-a'));
+
+    expect(result).toBeUndefined();
+    expectNoPermissionOrOperationSideEffects();
+    expect(mocks.tabsQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'web content script',
+      sender: { frameId: 0, url: 'https://example.com/', tab: { id: 4, url: 'https://example.com/' } },
+    },
+    {
+      name: 'foreign extension page',
+      sender: { url: 'chrome-extension://foreign-extension/popup.html' },
+    },
+    {
+      name: 'extension child frame',
+      sender: {
+        frameId: 1,
+        url: 'chrome-extension://extension-id/editor.html',
+        tab: { id: 4, url: 'chrome-extension://extension-id/editor.html' },
+      },
+    },
+  ])('rejects START_RECORDING from an untrusted $name', async ({ sender }) => {
+    const result = await mocks.messageListener?.({
+      type: 'START_RECORDING',
+      sessionId: 'guide-a',
+      mode: 'steps',
+      numbered: true,
+    }, sender);
+
+    expect(result).toBeUndefined();
+    expectNoPermissionOrOperationSideEffects();
+    expect(mocks.tabsQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe('background source-permission preflight', () => {

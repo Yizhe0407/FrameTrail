@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/raster-image-validation', () => ({
+  validateRasterImageBlob: vi.fn().mockResolvedValue({ width: 100, height: 100, mediaType: 'image/png' }),
+}));
 import {
   BADGE_RADIUS,
   LEADER_LINE_WIDTH,
