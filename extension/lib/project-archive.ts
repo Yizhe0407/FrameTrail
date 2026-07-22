@@ -1,5 +1,6 @@
 import { encodeBase64 } from './base64';
 import { buildStepEntries, type Bounds, type Redaction, type Step } from './db';
+import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import { RasterImageValidationError, validateRasterImageBlob } from './raster-image-validation';
 import {
   GUIDE_SECTION_LIMITS,
@@ -16,21 +17,21 @@ export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.frametrail.project+jso
 /** Public limits are exported so callers can explain rejected imports before retrying. */
 export const PROJECT_ARCHIVE_LIMITS = Object.freeze({
   maxArchiveBytes: 128 * 1024 * 1024,
-  maxTotalScreenshotBytes: 64 * 1024 * 1024,
-  maxScreenshotBytes: 16 * 1024 * 1024,
-  maxSteps: 2_000,
-  maxScreenshots: 2_000,
-  maxRedactionsPerStep: 1_000,
-  maxIdLength: 256,
+  maxTotalScreenshotBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes,
+  maxScreenshotBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
+  maxSteps: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxScreenshots: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxRedactionsPerStep: PERSISTED_STEP_LIMITS.maxRedactionsPerStep,
+  maxIdLength: PERSISTED_STEP_LIMITS.maxIdLength,
   maxTitleLength: 120,
-  maxDescriptionLength: 100_000,
+  maxDescriptionLength: PERSISTED_STEP_LIMITS.maxDescriptionLength,
   maxGuideDescriptionLength: 2_000,
   maxSections: GUIDE_SECTION_LIMITS.maxSections,
   maxSectionTitleLength: GUIDE_SECTION_LIMITS.maxTitleLength,
-  maxUrlLength: 8_192,
-  maxCoordinateMagnitude: 10_000_000,
-  maxBoundsDimension: 1_000_000,
-  maxPixelRatio: 32,
+  maxUrlLength: PERSISTED_STEP_LIMITS.maxUrlLength,
+  maxCoordinateMagnitude: PERSISTED_STEP_LIMITS.maxCoordinateMagnitude,
+  maxBoundsDimension: PERSISTED_STEP_LIMITS.maxBoundsDimension,
+  maxPixelRatio: PERSISTED_STEP_LIMITS.maxPixelRatio,
 });
 
 export type ProjectArchiveErrorCode =

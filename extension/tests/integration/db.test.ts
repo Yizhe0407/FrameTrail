@@ -19,6 +19,8 @@ import {
   replaceStepCaptureAtomically,
   resetGuide,
   restoreStepsAndReorder,
+  STEP_STORAGE_LIMITS,
+  StepStorageValidationError,
   updateGuide,
   updateStep,
   updateStepsAtomically,
@@ -111,6 +113,128 @@ describe('getOrderedAnnotations', () => {
       { bounds: first.bounds, order: 1 },
       { bounds: second.bounds, order: 2 },
     ]);
+  });
+});
+
+describe('step storage boundaries', () => {
+  it('stores a canonical record and strips unknown properties and control characters', async () => {
+    const step = makeStep({ description: 'safe\u0000 text' }) as Step & { attackerPayload?: string };
+    step.attackerPayload = 'must not persist';
+    await addStep(step);
+
+    const stored = (await getSteps(step.sessionId))[0] as Step & { attackerPayload?: string };
+    expect(stored.description).toBe('safe text');
+    expect(stored.attackerPayload).toBeUndefined();
+  });
+
+  it.each([
+    ['id', { id: ' bad-id' }],
+    ['session id', { sessionId: `guide-${'x'.repeat(STEP_STORAGE_LIMITS.maxIdLength)}` }],
+    ['run id', { runId: 'run\npoison' }],
+    ['group id', { groupId: '' }],
+  ])('rejects an invalid %s before writing', async (_label, overrides) => {
+    const step = makeStep(overrides as Partial<Step>);
+    await expect(addStep(step)).rejects.toBeInstanceOf(StepStorageValidationError);
+  });
+
+  it.each([
+    { order: -1 },
+    { timestamp: Number.MAX_SAFE_INTEGER + 1 },
+    { devicePixelRatio: 0 },
+    { screenshotScale: STEP_STORAGE_LIMITS.maxPixelRatio + 1 },
+    { captureRevision: -1 },
+  ])('rejects invalid numeric metadata: %j', async (overrides) => {
+    await expect(addStep(makeStep(overrides))).rejects.toBeInstanceOf(StepStorageValidationError);
+  });
+
+  it('nulls impossible capture bounds and privacy-gates impossible redaction bounds', async () => {
+    const step = makeStep({
+      bounds: { x: STEP_STORAGE_LIMITS.maxCoordinateMagnitude, y: 0, width: 2, height: 2 },
+      manualBounds: { x: 0, y: 0, width: STEP_STORAGE_LIMITS.maxBoundsDimension + 1, height: 2 },
+      redactions: [{
+        id: 'mask',
+        kind: 'solid',
+        bounds: { x: 0, y: 0, width: 2, height: STEP_STORAGE_LIMITS.maxBoundsDimension + 1 },
+      }],
+    });
+    await addStep(step);
+
+    expect((await getSteps(step.sessionId))[0]).toMatchObject({
+      bounds: null,
+      manualBounds: null,
+      redactions: [],
+      redactionReviewRequired: true,
+    });
+  });
+
+  it('rejects descriptions that cannot be represented in project backups', async () => {
+    await expect(addStep(makeStep({
+      description: 'x'.repeat(STEP_STORAGE_LIMITS.maxDescriptionLength + 1),
+    }))).rejects.toBeInstanceOf(StepStorageValidationError);
+  });
+
+  it.each(['javascript:alert(1)', 'https://user:secret@example.com/private', 'x'.repeat(STEP_STORAGE_LIMITS.maxUrlLength + 1)])(
+    'rejects unsafe or oversized persisted URLs',
+    async (url) => {
+      await expect(addStep(makeStep({ url }))).rejects.toBeInstanceOf(StepStorageValidationError);
+    },
+  );
+
+  it('rejects a screenshot above the per-image storage budget', async () => {
+    await expect(addStep(makeStep({
+      screenshotBlob: new Blob([new Uint8Array(STEP_STORAGE_LIMITS.maxScreenshotBytes + 1)]),
+    }))).rejects.toBeInstanceOf(StepStorageValidationError);
+  });
+
+  it('rejects excessive redactions and privacy-gates duplicate identifiers', async () => {
+    const bounds = { x: 1, y: 1, width: 2, height: 2 };
+    await expect(addStep(makeStep({
+      redactions: Array.from({ length: STEP_STORAGE_LIMITS.maxRedactionsPerStep + 1 }, (_, index) => ({
+        id: `mask-${index}`,
+        kind: 'solid' as const,
+        bounds,
+      })),
+    }))).rejects.toBeInstanceOf(StepStorageValidationError);
+
+    const duplicate = makeStep({
+      redactions: [
+        { id: 'mask', kind: 'solid', bounds },
+        { id: 'mask', kind: 'solid', bounds: { x: 3, y: 3, width: 2, height: 2 } },
+      ],
+    });
+    await addStep(duplicate);
+    expect((await getSteps(duplicate.sessionId))[0]).toMatchObject({
+      redactions: [{ id: 'mask', kind: 'solid', bounds }],
+      redactionReviewRequired: true,
+    });
+  });
+
+  it('rejects guides above the durable step and aggregate screenshot budgets', async () => {
+    const sessionId = crypto.randomUUID();
+    const tinyBlob = new Blob(['x']);
+    const tooMany = Array.from({ length: STEP_STORAGE_LIMITS.maxStepsPerGuide + 1 }, (_, order) => makeStep({
+      id: `step-${order}`,
+      sessionId,
+      order,
+      screenshotBlob: tinyBlob,
+    }));
+    await expect(createGuideFromSteps(tooMany)).rejects.toBeInstanceOf(StepStorageValidationError);
+
+    const largeBlob = new Blob([new Uint8Array(STEP_STORAGE_LIMITS.maxScreenshotBytes)]);
+    const tooLarge = Array.from({ length: 5 }, (_, order) => makeStep({
+      id: `large-${order}`,
+      sessionId: crypto.randomUUID(),
+      order,
+      screenshotBlob: largeBlob,
+    }));
+    await expect(createGuideFromSteps(tooLarge)).rejects.toBeInstanceOf(StepStorageValidationError);
+  });
+
+  it('rejects oversized mutation vectors before opening a transaction', async () => {
+    await expect(reorderSteps(
+      'missing-guide',
+      Array.from({ length: STEP_STORAGE_LIMITS.maxMutationItems + 1 }, (_, index) => `step-${index}`),
+    )).rejects.toBeInstanceOf(StepStorageValidationError);
   });
 });
 

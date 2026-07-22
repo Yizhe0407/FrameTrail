@@ -5,6 +5,7 @@ import {
   sanitizeGuideSectionTitle,
   type GuideSection,
 } from './guide-sections';
+import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 export type { GuideSection } from './guide-sections';
 
 export interface Bounds {
@@ -20,8 +21,14 @@ export function isValidBounds(bounds: Bounds): boolean {
     Number.isFinite(bounds.y) &&
     Number.isFinite(bounds.width) &&
     Number.isFinite(bounds.height) &&
+    Math.abs(bounds.x) <= STEP_STORAGE_LIMITS.maxCoordinateMagnitude &&
+    Math.abs(bounds.y) <= STEP_STORAGE_LIMITS.maxCoordinateMagnitude &&
     bounds.width > 0 &&
-    bounds.height > 0
+    bounds.height > 0 &&
+    bounds.width <= STEP_STORAGE_LIMITS.maxBoundsDimension &&
+    bounds.height <= STEP_STORAGE_LIMITS.maxBoundsDimension &&
+    Math.abs(bounds.x + bounds.width) <= STEP_STORAGE_LIMITS.maxCoordinateMagnitude &&
+    Math.abs(bounds.y + bounds.height) <= STEP_STORAGE_LIMITS.maxCoordinateMagnitude
   );
 }
 
@@ -109,6 +116,88 @@ export interface GuideSummary extends Guide {}
 export const GUIDE_TITLE_MAX_LENGTH = 120;
 export const GUIDE_DESCRIPTION_MAX_LENGTH = 2_000;
 
+/** Runtime persistence limits mirror the portable project format so data that
+ * can be recorded locally can always be backed up without unbounded memory or
+ * IndexedDB growth. */
+export const STEP_STORAGE_LIMITS = Object.freeze({
+  ...PERSISTED_STEP_LIMITS,
+  maxMutationItems: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+});
+
+export class StepStorageValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StepStorageValidationError';
+  }
+}
+
+function storageError(message: string): never {
+  throw new StepStorageValidationError(message);
+}
+
+function requireStorageIdentifier(value: unknown, field: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > STEP_STORAGE_LIMITS.maxIdLength ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f-\u009f]/u.test(value)
+  ) {
+    return storageError(`${field} is not a valid storage identifier.`);
+  }
+  return value;
+}
+
+function sanitizeStepText(value: unknown, maximum: number, field: string): string {
+  if (typeof value !== 'string' || value.length > maximum) {
+    return storageError(`${field} exceeds its storage limit.`);
+  }
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
+function sanitizeStepUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.length > STEP_STORAGE_LIMITS.maxUrlLength) {
+    return storageError('Step URL exceeds its storage limit.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return storageError('Step URL must be a valid HTTP(S) URL.');
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+    return storageError('Step URL must be a credential-free HTTP(S) URL.');
+  }
+  return parsed.href;
+}
+
+function sanitizeNonNegativeSafeInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    return storageError(`${field} must be a non-negative safe integer.`);
+  }
+  return value as number;
+}
+
+function sanitizePixelRatio(value: unknown, field: string): number {
+  if (!Number.isFinite(value) || (value as number) <= 0 || (value as number) > STEP_STORAGE_LIMITS.maxPixelRatio) {
+    return storageError(`${field} is outside the supported range.`);
+  }
+  return value as number;
+}
+
+function assertMutationItems(
+  values: readonly unknown[],
+  field: string,
+  identifiers = false,
+): void {
+  if (values.length > STEP_STORAGE_LIMITS.maxMutationItems) {
+    storageError(`${field} exceeds the mutation item limit.`);
+  }
+  if (identifiers) {
+    for (const value of values) requireStorageIdentifier(value, `${field} item`);
+  }
+}
+
 function sanitizeGuideText(value: unknown, maximum: number): string {
   return typeof value === 'string'
     ? value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, maximum)
@@ -194,7 +283,10 @@ function isValidRedaction(value: unknown): value is Redaction {
   const redaction = value as Partial<Redaction>;
   return (
     typeof redaction.id === 'string' &&
-    redaction.id.trim().length > 0 &&
+    redaction.id.length > 0 &&
+    redaction.id.length <= STEP_STORAGE_LIMITS.maxIdLength &&
+    redaction.id.trim() === redaction.id &&
+    !/[\u0000-\u001f\u007f-\u009f]/u.test(redaction.id) &&
     redaction.kind === 'solid' &&
     Boolean(redaction.bounds) &&
     isValidBounds(redaction.bounds as Bounds)
@@ -235,29 +327,79 @@ export function getEntryRedactions(entry: StepEntry): Redaction[] {
 }
 
 function sanitizeStepForStorage(step: Step): Step {
-  const sanitized = { ...step };
-  if (sanitized.groupId && sanitized.id !== sanitized.groupId) {
-    delete sanitized.screenshotBlob;
-    delete sanitized.redactions;
-    delete sanitized.redactionReviewRequired;
+  const id = requireStorageIdentifier(step.id, 'Step id');
+  const sessionId = requireStorageIdentifier(step.sessionId, 'Step session id');
+  const groupId = step.groupId === undefined
+    ? undefined
+    : requireStorageIdentifier(step.groupId, 'Step group id');
+  const isSnapshotAnnotation = groupId !== undefined && id !== groupId;
+
+  if (step.screenshotBlob !== undefined && !(step.screenshotBlob instanceof Blob)) {
+    storageError('Step screenshot must be a Blob.');
   }
-  if (sanitized.manualBounds != null && !isValidBounds(sanitized.manualBounds)) {
-    sanitized.manualBounds = null;
+  if (step.screenshotBlob && step.screenshotBlob.size > STEP_STORAGE_LIMITS.maxScreenshotBytes) {
+    storageError('Step screenshot exceeds the per-image storage limit.');
   }
-  if (sanitized.redactions !== undefined) {
-    if (!Array.isArray(sanitized.redactions)) {
-      // Treat malformed legacy/runtime data as a privacy incident, not as an
-      // empty mask list. The editor must explicitly repair and confirm it.
-      sanitized.redactions = [];
-      sanitized.redactionReviewRequired = true;
+
+  let redactions: Redaction[] | undefined;
+  let redactionReviewRequired = step.redactionReviewRequired === true;
+  if (!isSnapshotAnnotation && step.redactions !== undefined) {
+    if (!Array.isArray(step.redactions)) {
+      redactions = [];
+      redactionReviewRequired = true;
     } else {
-      const originalCount = sanitized.redactions.length;
-      sanitized.redactions = sanitized.redactions.filter(isValidRedaction);
-      if (sanitized.redactions.length !== originalCount) sanitized.redactionReviewRequired = true;
+      if (step.redactions.length > STEP_STORAGE_LIMITS.maxRedactionsPerStep) {
+        storageError('Step contains too many privacy redactions.');
+      }
+      const seen = new Set<string>();
+      redactions = [];
+      for (const redaction of step.redactions as unknown[]) {
+        if (!isValidRedaction(redaction) || seen.has(redaction.id)) {
+          redactionReviewRequired = true;
+          continue;
+        }
+        seen.add(redaction.id);
+        redactions.push({ id: redaction.id, kind: 'solid', bounds: { ...redaction.bounds } });
+      }
     }
   }
+
+  const sanitized: Step = {
+    id,
+    sessionId,
+    order: sanitizeNonNegativeSafeInteger(step.order, 'Step order'),
+    bounds: step.bounds === null || step.bounds === undefined
+      ? null
+      : isValidBounds(step.bounds) ? { ...step.bounds } : null,
+    devicePixelRatio: sanitizePixelRatio(step.devicePixelRatio, 'Step device pixel ratio'),
+    description: sanitizeStepText(step.description, STEP_STORAGE_LIMITS.maxDescriptionLength, 'Step description'),
+    url: sanitizeStepUrl(step.url),
+    timestamp: sanitizeNonNegativeSafeInteger(step.timestamp, 'Step timestamp'),
+  };
+
+  if (step.runId !== undefined) sanitized.runId = requireStorageIdentifier(step.runId, 'Step run id');
+  if (!isSnapshotAnnotation && step.screenshotBlob !== undefined) sanitized.screenshotBlob = step.screenshotBlob;
+  if (step.manualBounds !== undefined) {
+    sanitized.manualBounds = step.manualBounds !== null && isValidBounds(step.manualBounds)
+      ? { ...step.manualBounds }
+      : null;
+  }
+  if (redactions !== undefined) sanitized.redactions = redactions;
+  if (!isSnapshotAnnotation && redactionReviewRequired) sanitized.redactionReviewRequired = true;
+  if (step.screenshotScale !== undefined) {
+    sanitized.screenshotScale = sanitizePixelRatio(step.screenshotScale, 'Step screenshot scale');
+  }
+  if (step.captureRevision !== undefined) {
+    sanitized.captureRevision = sanitizeNonNegativeSafeInteger(step.captureRevision, 'Step capture revision');
+  }
+  if (step.lastCaptureRunId !== undefined) {
+    sanitized.lastCaptureRunId = requireStorageIdentifier(step.lastCaptureRunId, 'Step last capture run id');
+  }
+  if (groupId !== undefined) sanitized.groupId = groupId;
+  if (step.numbered !== undefined) sanitized.numbered = step.numbered === true;
   return sanitized;
 }
+
 
 /**
  * Groups a session's flat, order-sorted step list into displayable entries.
@@ -512,6 +654,24 @@ function summarizeSteps(steps: Iterable<Step>): Pick<Guide, 'stepCount' | 'entry
   return finishSummary(summary);
 }
 
+function assertGuideStorageLimits(
+  summary: Pick<Guide, 'stepCount' | 'storageBytes'>,
+  baseline?: Pick<Guide, 'stepCount' | 'storageBytes'>,
+): void {
+  if (
+    summary.stepCount > STEP_STORAGE_LIMITS.maxStepsPerGuide &&
+    (!baseline || summary.stepCount > baseline.stepCount)
+  ) {
+    storageError('Guide exceeds the maximum persisted step count.');
+  }
+  if (
+    summary.storageBytes > STEP_STORAGE_LIMITS.maxTotalScreenshotBytes &&
+    (!baseline || summary.storageBytes > baseline.storageBytes)
+  ) {
+    storageError('Guide exceeds the total screenshot storage limit.');
+  }
+}
+
 function newGuide(
   id: string,
   now: number,
@@ -524,7 +684,7 @@ function newGuide(
   contentRevision = 0,
 ): Guide {
   return sanitizeGuide({
-    id,
+    id: requireStorageIdentifier(id, 'Guide id'),
     title: initial?.title ?? '',
     description: initial?.description ?? '',
     sections: [],
@@ -555,9 +715,11 @@ async function refreshGuideSummary(
     addStepToSummary(summary, cursor.value);
     cursor = await cursor.continue();
   }
+  const finishedSummary = finishSummary(summary);
+  assertGuideStorageLimits(finishedSummary, guide);
   const updated = sanitizeGuide({
     ...guide,
-    ...finishSummary(summary),
+    ...finishedSummary,
     updatedAt: Math.max(guide.updatedAt, timestamp, Date.now()),
     contentRevision: guide.contentRevision + 1,
   });
@@ -766,7 +928,9 @@ function prepareGuideClone(
   initial?: Partial<Pick<Guide, 'title' | 'description'>>,
   options: CreateGuideFromStepsOptions = {},
 ): PreparedGuideClone {
-  if (sourceSteps.length > 2_000) throw new Error('Guide contains too many steps.');
+  if (sourceSteps.length > STEP_STORAGE_LIMITS.maxStepsPerGuide) {
+    storageError('Guide exceeds the maximum persisted step count.');
+  }
   const now = Date.now();
   const guideId = crypto.randomUUID();
   const ids = new Map<string, string>();
@@ -796,7 +960,9 @@ function prepareGuideClone(
     title: section.title,
     startEntryId: ids.get(section.startEntryId)!,
   }));
-  const guide = newGuide(guideId, now, initial, summarizeSteps(steps), steps.length > 0 ? 1 : 0);
+  const summary = summarizeSteps(steps);
+  assertGuideStorageLimits(summary);
+  const guide = newGuide(guideId, now, initial, summary, steps.length > 0 ? 1 : 0);
   guide.sections = sections;
   return { guide, steps };
 }
@@ -1689,6 +1855,8 @@ export async function getInsertionAnchor(sessionId: string, anchorEntryId: strin
 export async function insertStepsAtEntryBoundary(
   input: InsertStepsAtEntryBoundaryInput,
 ): Promise<{ runBlockIds: string[] }> {
+  assertMutationItems(input.expectedRunBlockIds, 'Expected insertion run block', true);
+  assertMutationItems(input.newSteps, 'New insertion rows');
   if (input.side !== 'before' && input.side !== 'after') {
     return insertionError('RUN_STATE_CHANGED', 'Invalid insertion side.');
   }
@@ -1876,6 +2044,7 @@ function applyStepChanges(existing: Step, changes: Partial<Step>): Step {
 }
 
 export async function updateStepsAtomically(sessionId: string, updates: StepUpdate[]): Promise<void> {
+  assertMutationItems(updates, 'Step updates');
   if (updates.length === 0) return;
   const db = await getDatabase();
   const tx = db.transaction(['guides', 'steps'], 'readwrite');
@@ -2151,6 +2320,7 @@ export async function deleteStepsForRun(sessionId: string, runId: string): Promi
 
 /** Persists a dense new step order, appending rows omitted by a stale editor. */
 export async function reorderSteps(sessionId: string, orderedIds: string[]): Promise<void> {
+  assertMutationItems(orderedIds, 'Step reorder', true);
   const db = await getDatabase();
   const tx = db.transaction(['guides', 'steps'], 'readwrite');
   try {
@@ -2170,6 +2340,8 @@ export async function deleteStepsAndReorder(
   deletedIds: string[],
   orderedIds: string[],
 ): Promise<void> {
+  assertMutationItems(deletedIds, 'Deleted step ids', true);
+  assertMutationItems(orderedIds, 'Step reorder', true);
   const db = await getDatabase();
   const tx = db.transaction(['guides', 'steps'], 'readwrite');
   try {
@@ -2194,6 +2366,8 @@ export async function restoreStepsAndReorder(
   restoredSteps: Step[],
   orderedIds: string[],
 ): Promise<void> {
+  assertMutationItems(restoredSteps, 'Restored steps');
+  assertMutationItems(orderedIds, 'Step reorder', true);
   const db = await getDatabase();
   const tx = db.transaction(['guides', 'steps'], 'readwrite');
   try {
