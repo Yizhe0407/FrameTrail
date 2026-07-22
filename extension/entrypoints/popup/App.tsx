@@ -14,6 +14,7 @@ import { openLibrary } from '@/lib/navigation';
 import { ensureSelectedGuide } from '@/lib/guide-actions';
 import OnboardingDialog from '@/components/OnboardingDialog';
 import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/onboarding';
+import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 function App() {
   const { recording, isRecording, sessionId, steps, error, recoverableError } = useRecordingSession();
@@ -61,10 +62,13 @@ function App() {
       const targetSessionId = editorRecovery
         ? sessionId
         : (await ensureSelectedGuide()).id;
-      const result = await browser.runtime.sendMessage({
-        type: 'OPEN_EDITOR',
-        sessionId: targetSessionId ?? undefined,
-      }) as OpenEditorResult;
+      const result = requireRuntimeMessageResult<OpenEditorResult>(
+        await browser.runtime.sendMessage({
+          type: 'OPEN_EDITOR',
+          sessionId: targetSessionId ?? undefined,
+        }),
+        '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
+      );
       if (!result.ok) {
         setEditorOpenError(result.error);
         return;
@@ -72,7 +76,9 @@ function App() {
       window.close();
     } catch (openError) {
       console.error('[frametrail] failed to request editor navigation', openError);
-      setEditorOpenError('無法開啟編輯器，請再試一次。');
+      setEditorOpenError(
+        openError instanceof Error ? openError.message : '無法開啟編輯器，請再試一次。',
+      );
     } finally {
       setOpeningEditor(false);
     }

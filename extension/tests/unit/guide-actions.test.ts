@@ -101,6 +101,14 @@ describe('Guide UI selection', () => {
     });
   });
 
+
+  it('reports a missing background response instead of dereferencing undefined', async () => {
+    mocks.getGuide.mockResolvedValue(guide('guide-a'));
+    mocks.sendMessage.mockResolvedValue(undefined);
+
+    await expect(openSelectedGuideInEditor('guide-a')).rejects.toThrow('無法連接編輯器服務');
+  });
+
   it('compare-and-clears selection without consulting capture operation state', async () => {
     await clearSelectedGuide('guide-a');
 

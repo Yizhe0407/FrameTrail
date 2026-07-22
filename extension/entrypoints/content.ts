@@ -44,6 +44,7 @@ import {
   type RegionCapture,
 } from '@/lib/region-capture';
 import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recording-toolbar-host';
+import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 import type {
   ClickCapture,
   ClickCaptureResult,
@@ -1429,11 +1430,14 @@ export default defineContentScript({
       action: RecordingControlMessage['type'],
       undoToken?: string,
     ): Promise<RecordingControlResult> => {
-      return (await browser.runtime.sendMessage({
-        type: action,
-        runId,
-        ...(undoToken ? { undoToken } : {}),
-      } satisfies RecordingControlMessage)) as RecordingControlResult;
+      return requireRuntimeMessageResult<RecordingControlResult>(
+        await browser.runtime.sendMessage({
+          type: action,
+          runId,
+          ...(undoToken ? { undoToken } : {}),
+        } satisfies RecordingControlMessage),
+        '錄製服務已中斷，請重新整理頁面後再試一次。',
+      );
     };
 
     if (isStepMode || recordingState.phase === 'preparing-next') {

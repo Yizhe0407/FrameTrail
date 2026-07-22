@@ -70,6 +70,7 @@ import type {
   StartStepRecaptureResult,
   StepRecaptureTarget,
 } from '@/lib/messages';
+import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 const EMPTY_STEP_ENTRIES: StepEntry[] = [];
 
@@ -938,11 +939,13 @@ function EditorApp() {
     if (generation == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
-      const result = (await browser.runtime.sendMessage({
-        type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-        sessionId,
-        anchorEntryId: insertionTarget.anchorEntryId,
-      })) as PreflightInsertionSourcePermissionResult;
+      const result = requireRuntimeMessageResult<PreflightInsertionSourcePermissionResult>(
+        await browser.runtime.sendMessage({
+          type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
+          sessionId,
+          anchorEntryId: insertionTarget.anchorEntryId,
+        }),
+      );
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
       prepared = {
@@ -1000,21 +1003,25 @@ function EditorApp() {
       if (permissionFlowGeneration.current !== generation) return;
 
       if (prepared.action.kind === 'insertion') {
-        const result = (await browser.runtime.sendMessage({
-          type: 'START_INSERTION_RECORDING',
-          sessionId,
-          anchorEntryId: prepared.action.anchorEntryId,
-          side: prepared.action.side,
-          mode: prepared.action.mode,
-          numbered: prepared.action.numbered,
-        })) as StartInsertionRecordingResult;
+        const result = requireRuntimeMessageResult<StartInsertionRecordingResult>(
+          await browser.runtime.sendMessage({
+            type: 'START_INSERTION_RECORDING',
+            sessionId,
+            anchorEntryId: prepared.action.anchorEntryId,
+            side: prepared.action.side,
+            mode: prepared.action.mode,
+            numbered: prepared.action.numbered,
+          }),
+        );
         if (!result.ok) throw new Error(result.error);
       } else {
-        const result = (await browser.runtime.sendMessage({
-          type: 'START_STEP_RECAPTURE',
-          sessionId,
-          target: prepared.action.target,
-        })) as StartStepRecaptureResult;
+        const result = requireRuntimeMessageResult<StartStepRecaptureResult>(
+          await browser.runtime.sendMessage({
+            type: 'START_STEP_RECAPTURE',
+            sessionId,
+            target: prepared.action.target,
+          }),
+        );
         if (!result.ok) throw new Error(result.error);
       }
     } catch (permissionError) {
@@ -1062,11 +1069,13 @@ function EditorApp() {
     if (generation == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
-      const result = (await browser.runtime.sendMessage({
-        type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-        sessionId,
-        target,
-      })) as PreflightStepRecaptureSourcePermissionResult;
+      const result = requireRuntimeMessageResult<PreflightStepRecaptureSourcePermissionResult>(
+        await browser.runtime.sendMessage({
+          type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
+          sessionId,
+          target,
+        }),
+      );
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
       prepared = {
@@ -1092,21 +1101,33 @@ function EditorApp() {
   async function focusRecaptureSource() {
     const runId = recording.recapture?.runId;
     if (!runId) return;
-    const result = (await browser.runtime.sendMessage({
-      type: 'FOCUS_STEP_RECAPTURE_SOURCE',
-      runId,
-    })) as FocusStepRecaptureSourceResult;
-    if (!result.ok) setOperationError(result.error ?? '找不到補拍分頁。');
+    try {
+      const result = requireRuntimeMessageResult<FocusStepRecaptureSourceResult>(
+        await browser.runtime.sendMessage({
+          type: 'FOCUS_STEP_RECAPTURE_SOURCE',
+          runId,
+        }),
+      );
+      if (!result.ok) setOperationError(result.error ?? '找不到補拍分頁。');
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : '找不到補拍分頁。');
+    }
   }
 
   async function cancelRecapture() {
     const runId = recording.recapture?.runId;
     if (!runId) return;
-    const result = (await browser.runtime.sendMessage({
-      type: 'CANCEL_STEP_RECAPTURE',
-      runId,
-    })) as CancelStepRecaptureResult;
-    if (!result.ok) setOperationError(result.error ?? '無法取消補拍，請再試一次。');
+    try {
+      const result = requireRuntimeMessageResult<CancelStepRecaptureResult>(
+        await browser.runtime.sendMessage({
+          type: 'CANCEL_STEP_RECAPTURE',
+          runId,
+        }),
+      );
+      if (!result.ok) setOperationError(result.error ?? '無法取消補拍，請再試一次。');
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : '無法取消補拍，請再試一次。');
+    }
   }
 
   async function handleVisualEdit(commit: VisualEditCommit) {

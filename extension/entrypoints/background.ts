@@ -32,6 +32,7 @@ import {
 import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/recapture-guards';
 import { RecorderReadyGate } from '@/lib/recorder-ready';
 import { injectRecorderScript } from '@/lib/recorder-injection';
+import { describeBrowserError, isMissingTabError } from '@/lib/browser-errors';
 import { getRecordingState, setRecordingState } from '@/lib/storage';
 import {
   clearEditorRecovery,
@@ -564,7 +565,11 @@ async function createAndActivateSnapshotAnchor(
           });
         }
       } catch (cleanupError) {
-        console.error('[frametrail] failed to remove incomplete snapshot', cleanupError);
+        console.error(
+          '[frametrail] failed to remove incomplete snapshot:',
+          describeBrowserError(cleanupError),
+          cleanupError,
+        );
       }
     }
     throw error;
@@ -1649,16 +1654,29 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
     acceptingClicks = current.isRecording && current.runId === runId;
     startupAnchorId = null;
   } catch (err) {
-    console.error('[frametrail] failed to inject recorder', err);
+    console.error('[frametrail] failed to inject recorder:', describeBrowserError(err), err);
     if (startupAnchorId) {
       try {
         await deleteStep(startupAnchorId);
       } catch (cleanupError) {
-        console.error('[frametrail] failed to remove incomplete snapshot', cleanupError);
+        console.error(
+          '[frametrail] failed to remove incomplete snapshot:',
+          describeBrowserError(cleanupError),
+          cleanupError,
+        );
       }
     }
     if (version !== controlVersion) return;
-    await stopRunWithError(runId, 'Failed to start recording on this page. Try a regular website.', version);
+    try {
+      await stopRunWithError(runId, 'Failed to start recording on this page. Try a regular website.', version);
+    } catch (recoveryError) {
+      acceptingClicks = false;
+      console.error(
+        '[frametrail] failed to persist recording startup failure:',
+        describeBrowserError(recoveryError),
+        recoveryError,
+      );
+    }
   } finally {
     if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
     pendingSnapshotContext = undefined;
@@ -2218,9 +2236,11 @@ async function latestFinishResult(sessionId: string): Promise<FinishResult> {
 
 async function openEditorForStoredSession(message: OpenEditorMessage): Promise<OpenEditorResult> {
   const expectedControlVersion = controlVersion;
-  const state = await getRecordingState();
-  const targetSessionId = message.sessionId ?? state.sessionId;
+  let state: RecordingState | null = null;
+  let targetSessionId = message.sessionId;
   try {
+    state = await getRecordingState();
+    targetSessionId ??= state.sessionId ?? undefined;
     if (!targetSessionId) {
       await openOrFocusEditor();
       return { ok: true };
@@ -2238,12 +2258,20 @@ async function openEditorForStoredSession(message: OpenEditorMessage): Promise<O
     }
     return { ok: true };
   } catch (error) {
-    console.error('[frametrail] failed to open editor', error);
-    if (state.sessionId === targetSessionId) {
-      await writeStateForControl(expectedControlVersion, (current) => {
-        if (current.sessionId !== targetSessionId) return current;
-        return markEditorOpenFailed(current);
-      });
+    console.error('[frametrail] failed to open editor:', describeBrowserError(error), error);
+    if (state?.sessionId === targetSessionId) {
+      try {
+        await writeStateForControl(expectedControlVersion, (current) => {
+          if (current.sessionId !== targetSessionId) return current;
+          return markEditorOpenFailed(current);
+        });
+      } catch (recoveryError) {
+        console.error(
+          '[frametrail] failed to persist editor recovery state:',
+          describeBrowserError(recoveryError),
+          recoveryError,
+        );
+      }
     }
     return { ok: false, error: '無法開啟編輯器，請再試一次。' };
   }
@@ -2752,25 +2780,45 @@ async function handleClick(
     }));
     return { ok: true };
   } catch (err) {
-    if (err instanceof SnapshotViewportChangedError) {
-      await invalidateSnapshotRun(
-        message.runId,
-        message.viewport,
-        message.devicePixelRatio,
-        expectedControlVersion,
+    try {
+      if (err instanceof SnapshotViewportChangedError) {
+        await invalidateSnapshotRun(
+          message.runId,
+          message.viewport,
+          message.devicePixelRatio,
+          expectedControlVersion,
+        );
+      } else if (err instanceof InsertionRecordingError || err instanceof InsertionStateCommitError) {
+        const messageText = err instanceof InsertionRecordingError
+          ? '補錄位置或資料狀態已變更；為避免插入錯誤位置，已停止這次補錄。'
+          : '補錄資料同步中斷；為避免插入錯誤位置，已停止這次補錄。';
+        await stopRunWithError(message.runId, messageText, expectedControlVersion, {
+          code: 'INSERTION_STATE_CHANGED',
+          message: messageText,
+        });
+      } else if (isMissingTabError(err)) {
+        await stopRunWithError(
+          message.runId,
+          RECORDED_TAB_CLOSED_ERROR.message,
+          expectedControlVersion,
+          RECORDED_TAB_CLOSED_ERROR,
+        );
+      } else if (!(err instanceof StaleCaptureError)) {
+        const messageText = describeBrowserError(err, 'Failed to capture and save this step.');
+        console.error(
+          '[frametrail] failed to capture/annotate/save step:',
+          messageText,
+          err,
+        );
+        await setRunError(message.runId, messageText);
+      }
+    } catch (recoveryError) {
+      acceptingClicks = false;
+      console.error(
+        '[frametrail] failed to persist capture failure:',
+        describeBrowserError(recoveryError),
+        recoveryError,
       );
-    } else if (err instanceof InsertionRecordingError || err instanceof InsertionStateCommitError) {
-      const messageText = err instanceof InsertionRecordingError
-        ? '補錄位置或資料狀態已變更；為避免插入錯誤位置，已停止這次補錄。'
-        : '補錄資料同步中斷；為避免插入錯誤位置，已停止這次補錄。';
-      await stopRunWithError(message.runId, messageText, expectedControlVersion, {
-        code: 'INSERTION_STATE_CHANGED',
-        message: messageText,
-      });
-    } else if (!(err instanceof StaleCaptureError)) {
-      const messageText = err instanceof Error ? err.message : 'Failed to capture and save this step.';
-      console.error('[frametrail] failed to capture/annotate/save step', err);
-      await setRunError(message.runId, messageText);
     }
     return { ok: false };
   } finally {
@@ -2779,11 +2827,29 @@ async function handleClick(
   }
 }
 
+
+async function withMessageFailureFallback<T>(
+  operation: Promise<T>,
+  label: string,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    console.error(`[frametrail] ${label}:`, describeBrowserError(error), error);
+    return fallback;
+  }
+}
+
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message: BackgroundMessage, sender) => {
     switch (message.type) {
       case 'START_RECORDING':
-        return queueLifecycle(() => startRecording(message));
+        return withMessageFailureFallback(
+          queueLifecycle(() => startRecording(message)),
+          'start recording request failed',
+          { ok: false, error: '無法啟動錄製服務，請重新整理頁面後再試一次。' } satisfies StartRecordingResult,
+        );
       case 'PREFLIGHT_INSERTION_SOURCE_PERMISSION':
         return preflightInsertionSourcePermission(message, sender);
       case 'START_INSERTION_RECORDING':
@@ -2801,9 +2867,17 @@ export default defineBackground(() => {
       case 'STOP_RECORDING':
         return stopRecording();
       case 'RESET_GUIDE':
-        return queueLifecycle(() => resetGuideLifecycle(message));
+        return withMessageFailureFallback(
+          queueLifecycle(() => resetGuideLifecycle(message)),
+          'reset guide request failed',
+          { ok: false, error: '無法重設教學，請再試一次。' } satisfies ResetGuideResult,
+        );
       case 'OPEN_EDITOR':
-        return openEditorForStoredSession(message);
+        return withMessageFailureFallback(
+          openEditorForStoredSession(message),
+          'open editor request failed',
+          { ok: false, error: '無法開啟編輯器，請再試一次。' } satisfies OpenEditorResult,
+        );
       case 'PAUSE_RECORDING':
       case 'RESUME_RECORDING':
       case 'UNDO_LAST_CAPTURE':
@@ -2813,7 +2887,11 @@ export default defineBackground(() => {
       case 'REBUILD_INVALIDATED_SNAPSHOT':
       case 'DISCARD_CURRENT_RECORDING':
       case 'FINISH_RECORDING':
-        return handleRecordingControl(message);
+        return withMessageFailureFallback(
+          handleRecordingControl(message),
+          'recording toolbar request failed',
+          { ok: false, error: '錄製服務發生錯誤，請重新整理頁面後再試一次。' } satisfies RecordingControlResult,
+        );
       case 'SNAPSHOT_INVALIDATED':
         return handleSnapshotInvalidated(message, sender);
       case 'FRAME_TRAIL_RECAPTURE_TARGET':
@@ -2828,7 +2906,11 @@ export default defineBackground(() => {
         if (!acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {
           const expectedControlVersion = controlVersion;
-          return queueClick(() => handleClick(message, sender, expectedControlVersion));
+          return withMessageFailureFallback(
+            queueClick(() => handleClick(message, sender, expectedControlVersion)),
+            'capture request failed',
+            { ok: false } satisfies ClickCaptureResult,
+          );
         }
       case 'FRAME_TRAIL_CANCEL_CAPTURE':
         cancelCapture(message.captureId);
@@ -2910,7 +2992,20 @@ export default defineBackground(() => {
       try {
         await injectRecorder(tabId);
       } catch (err) {
-        console.error('[frametrail] failed to restore snapshot preparation toolbar after navigation', err);
+        if (isMissingTabError(err)) {
+          await stopRunWithError(
+            runId,
+            RECORDED_TAB_CLOSED_ERROR.message,
+            expectedControlVersion,
+            RECORDED_TAB_CLOSED_ERROR,
+          );
+          return;
+        }
+        console.error(
+          '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
+          describeBrowserError(err),
+          err,
+        );
         await setRunError(runId, '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。');
       }
       return;
@@ -2937,7 +3032,20 @@ export default defineBackground(() => {
     try {
       await injectRecorder(tabId);
     } catch (err) {
-      console.error('[frametrail] failed to re-inject recorder after navigation', err);
+      if (isMissingTabError(err)) {
+        await stopRunWithError(
+          runId,
+          RECORDED_TAB_CLOSED_ERROR.message,
+          expectedControlVersion,
+          RECORDED_TAB_CLOSED_ERROR,
+        );
+        return;
+      }
+      console.error(
+        '[frametrail] failed to re-inject recorder after navigation:',
+        describeBrowserError(err),
+        err,
+      );
       await stopRunWithError(
         runId,
         'Recording stopped because the recorder could not be loaded after navigation.',

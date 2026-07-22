@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import type { RecordingMode, RecordingState, StartRecordingResult } from '@/lib/messages';
 import { ensureSelectedGuide } from '@/lib/guide-actions';
 import { needsEditorRecovery } from '@/lib/recording-recovery';
+import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 interface Props {
   recording: RecordingState;
@@ -115,13 +116,16 @@ export default function RecordControls({
         if (granted) permissionScope = 'cross-page';
       }
       const guide = await ensureSelectedGuide();
-      const result = (await browser.runtime.sendMessage({
-        type: 'START_RECORDING',
-        sessionId: guide.id,
-        mode,
-        numbered,
-        permissionScope,
-      })) as StartRecordingResult;
+      const result = requireRuntimeMessageResult<StartRecordingResult>(
+        await browser.runtime.sendMessage({
+          type: 'START_RECORDING',
+          sessionId: guide.id,
+          mode,
+          numbered,
+          permissionScope,
+        }),
+        '無法連接錄製服務，請重新整理頁面後再試一次。',
+      );
       if (!result.ok) throw new Error(result.error);
       onStarted?.();
     } catch (error) {
