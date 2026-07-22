@@ -60,8 +60,8 @@ test.describe('frames and recording lifecycle', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
 
     expect((await readSteps(popupPage)).map((step) => step.description).filter(Boolean)).toEqual([
-      '標記 跨來源 iframe 純文字',
-      '標記 巢狀 iframe 純文字',
+      '標記頁面區域',
+      '標記頁面區域',
     ]);
     await stopRecording(popupPage);
   });
@@ -86,7 +86,7 @@ test.describe('frames and recording lifecycle', () => {
 
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
     const annotation = (await readSteps(popupPage)).find((step) => step.bounds !== null);
-    expect(annotation?.description).toBe('標記 受限框架');
+    expect(annotation?.description).toBe('標記頁面區域');
     expect(annotation?.bounds?.width).toBeGreaterThan(500);
     await stopRecording(popupPage);
   });
@@ -120,7 +120,7 @@ test.describe('frames and recording lifecycle', () => {
     await appPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
-    expect((await readSteps(popupPage))[0]?.description).toBe('標記 已導覽到新文件');
+    expect((await readSteps(popupPage))[0]?.description).toBe('標記頁面區域');
     await stopRecording(popupPage);
   });
 

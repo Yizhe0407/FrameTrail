@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hasMatchingEditorSessionQuery,
   isTrustedEditorSender,
+  isTrustedEditorSenderForSession,
   isTrustedRecaptureSourceSender,
   type RecaptureMessageSender,
 } from '@/lib/recapture-guards';
@@ -32,6 +34,37 @@ describe('isTrustedEditorSender', () => {
       ),
     ).toBe(false);
     expect(isTrustedEditorSender(sender({ url: 'not a url' }), editorUrl)).toBe(false);
+  });
+});
+
+describe('editor session query validation', () => {
+  it('requires the expected session on both the actual frame and top-level tab URLs', () => {
+    const valid = sender({
+      url: `${editorUrl}?sessionId=guide-a&entryId=step-1`,
+      tab: { id: 0, windowId: 7, url: `${editorUrl}?entryId=step-1&sessionId=guide-a` },
+    });
+
+    expect(hasMatchingEditorSessionQuery(valid, 'guide-a')).toBe(true);
+    expect(isTrustedEditorSenderForSession(valid, editorUrl, 'guide-a')).toBe(true);
+    expect(hasMatchingEditorSessionQuery(valid, 'guide-b')).toBe(false);
+    expect(
+      hasMatchingEditorSessionQuery(
+        { ...valid, tab: { ...valid.tab, url: `${editorUrl}?sessionId=guide-b` } },
+        'guide-a',
+      ),
+    ).toBe(false);
+    expect(hasMatchingEditorSessionQuery({ ...valid, url: 'not a url' }, 'guide-a')).toBe(false);
+  });
+
+  it('does not let a matching query bypass editor origin/path trust', () => {
+    const evil = {
+      frameId: 0,
+      url: 'https://evil.example/editor.html?sessionId=guide-a',
+      tab: { id: 3, windowId: 7, url: 'https://evil.example/editor.html?sessionId=guide-a' },
+    };
+
+    expect(hasMatchingEditorSessionQuery(evil, 'guide-a')).toBe(true);
+    expect(isTrustedEditorSenderForSession(evil, editorUrl, 'guide-a')).toBe(false);
   });
 });
 

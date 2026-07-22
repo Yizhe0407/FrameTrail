@@ -1,16 +1,25 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
-  addStep,
+  addStep as addStepToDatabase,
   buildStepEntries,
+  closeDatabase,
+  createGuideFromSteps,
+  deleteGuidePermanently,
   deleteStepsAndReorder,
   deleteStepsForRun,
+  duplicateGuide,
+  ensureGuide,
   getEffectiveBounds,
+  getGuide,
+  getGuideSummaries,
   getOrderedAnnotations,
   getSteps,
   reorderSteps,
   replaceStepCaptureAtomically,
+  resetGuide,
   restoreStepsAndReorder,
+  updateGuide,
   updateStep,
   updateStepsAtomically,
   type Step,
@@ -29,6 +38,11 @@ function makeStep(overrides: Partial<Step> = {}): Step {
     timestamp: Date.now(),
     ...overrides,
   };
+}
+
+async function addStep(step: Step): Promise<void> {
+  await ensureGuide(step.sessionId, step.timestamp);
+  await addStepToDatabase(step);
 }
 
 describe('buildStepEntries', () => {
@@ -390,4 +404,109 @@ describe('atomic visual edits and recapture', () => {
 
     expect(await (await getSteps(sessionId)).find((step) => step.id === anchorId)?.screenshotBlob?.text()).toBe('image');
   });
+});
+
+
+describe('guide transaction safety', () => {
+  it('rejects capture writes to an archived parent guide', async () => {
+    const step = makeStep();
+    await ensureGuide(step.sessionId, step.timestamp);
+    await updateGuide(step.sessionId, { archivedAt: Date.now() });
+
+    await expect(addStepToDatabase(step)).rejects.toThrow('Archived guides cannot be modified.');
+    expect(await getSteps(step.sessionId)).toEqual([]);
+  });
+
+  it('does not resurrect a permanently deleted guide from a stale capture write', async () => {
+    const step = makeStep();
+    await ensureGuide(step.sessionId, step.timestamp);
+    await addStepToDatabase(step);
+    await deleteGuidePermanently(step.sessionId);
+
+    await expect(addStepToDatabase({ ...step, description: 'stale write' })).rejects.toThrow('Guide not found.');
+    expect(await getGuide(step.sessionId)).toBeUndefined();
+    expect(await getSteps(step.sessionId)).toEqual([]);
+  });
+
+  it('resets steps, increments content revision once, and zeroes summary metadata atomically', async () => {
+    const sessionId = crypto.randomUUID();
+    const first = makeStep({ sessionId, order: 0, screenshotBlob: new Blob(['first']) });
+    const second = makeStep({ sessionId, order: 1, screenshotBlob: new Blob(['second']) });
+    await ensureGuide(sessionId);
+    await addStepToDatabase(first);
+    await addStepToDatabase(second);
+    const before = (await getGuide(sessionId))!;
+
+    const reset = await resetGuide(sessionId);
+
+    expect(reset.contentRevision).toBe(before.contentRevision + 1);
+    expect(reset).toMatchObject({ stepCount: 0, entryCount: 0, storageBytes: 0 });
+    expect(await getSteps(sessionId)).toEqual([]);
+    expect(await getGuide(sessionId)).toEqual(reset);
+  });
+
+  it('serves summaries from guide metadata without opening the step index or Blob payload', async () => {
+    const sessionId = crypto.randomUUID();
+    const groupId = crypto.randomUUID();
+    await ensureGuide(sessionId);
+    await addStepToDatabase(makeStep({ sessionId, order: 0, screenshotBlob: new Blob(['plain']) }));
+    await addStepToDatabase(makeStep({ id: groupId, sessionId, groupId, bounds: null, order: 1, screenshotBlob: new Blob(['anchor']) }));
+    await addStepToDatabase(makeStep({ sessionId, groupId, order: 2, screenshotBlob: undefined }));
+
+    const nativeGetAll = IDBIndex.prototype.getAll;
+    const getAllSpy = vi.spyOn(IDBIndex.prototype, 'getAll').mockImplementation(function (this: IDBIndex, ...args) {
+      if (this.name === 'by-session') throw new Error('summary attempted to load step rows');
+      return nativeGetAll.apply(this, args as Parameters<IDBIndex['getAll']>);
+    });
+    const blobTextSpy = vi.spyOn(Blob.prototype, 'text');
+    const blobArrayBufferSpy = vi.spyOn(Blob.prototype, 'arrayBuffer');
+    try {
+      const summary = (await getGuideSummaries()).find((guide) => guide.id === sessionId);
+      expect(summary).toMatchObject({ stepCount: 2, entryCount: 2, storageBytes: 11 });
+      expect(blobTextSpy).not.toHaveBeenCalled();
+      expect(blobArrayBufferSpy).not.toHaveBeenCalled();
+    } finally {
+      getAllSpy.mockRestore();
+      blobTextSpy.mockRestore();
+      blobArrayBufferSpy.mockRestore();
+    }
+  });
+
+  it('rolls back an imported guide when a later cloned step violates a key constraint', async () => {
+    const destinationId = crypto.randomUUID();
+    const duplicateStepId = crypto.randomUUID();
+    const source = [makeStep({ id: 'source-a', order: 0 }), makeStep({ id: 'source-b', order: 1 })];
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce(destinationId)
+      .mockReturnValueOnce(duplicateStepId)
+      .mockReturnValueOnce(duplicateStepId);
+    try {
+      await expect(createGuideFromSteps(source, { title: 'import' })).rejects.toBeTruthy();
+    } finally {
+      uuidSpy.mockRestore();
+    }
+    expect(await getGuide(destinationId)).toBeUndefined();
+    expect(await getSteps(destinationId)).toEqual([]);
+  });
+
+  it('rolls back duplicate guide metadata if cloning a source step fails', async () => {
+    const sourceStep = makeStep();
+    await ensureGuide(sourceStep.sessionId);
+    await addStepToDatabase(sourceStep);
+    const destinationId = crypto.randomUUID();
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce(destinationId)
+      .mockReturnValueOnce(sourceStep.id as ReturnType<Crypto['randomUUID']>);
+    try {
+      await expect(duplicateGuide(sourceStep.sessionId)).rejects.toBeTruthy();
+    } finally {
+      uuidSpy.mockRestore();
+    }
+    expect(await getGuide(destinationId)).toBeUndefined();
+    expect((await getSteps(sourceStep.sessionId)).map((step) => step.id)).toEqual([sourceStep.id]);
+  });
+});
+
+afterAll(async () => {
+  await closeDatabase();
 });

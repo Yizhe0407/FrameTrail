@@ -66,6 +66,34 @@ describe('recording toolbar', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   });
 
+  it('starts an accessible region capture and exposes its active state', () => {
+    const onStartRegionCapture = vi.fn();
+    const { rerender } = render(
+      <RecordingToolbar
+        state={state}
+        onCommand={vi.fn()}
+        onStartRegionCapture={onStartRegionCapture}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '擷取畫面區域' }));
+    expect(onStartRegionCapture).toHaveBeenCalledOnce();
+
+    rerender(
+      <RecordingToolbar
+        state={state}
+        onCommand={vi.fn()}
+        onStartRegionCapture={onStartRegionCapture}
+        regionCaptureActive
+      />,
+    );
+    const activeButton = screen.getByRole('button', { name: '區域擷取進行中' });
+    expect((activeButton as HTMLButtonElement).disabled).toBe(true);
+    expect(activeButton.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('區域擷取中')).toBeTruthy();
+    expect(screen.getByText('區域擷取已啟動，請在畫面上拖曳選取範圍')).toBeTruthy();
+  });
+
   it('moves collapse into the overflow menu and preserves a meaningful compact status', () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '更多錄製動作' }));

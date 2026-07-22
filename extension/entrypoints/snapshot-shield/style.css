@@ -123,3 +123,8 @@ body.has-preview-target {
   text-anchor: middle;
   letter-spacing: 0;
 }
+
+body.has-region-capture,
+body.has-region-capture .snapshot-overlay {
+  cursor: crosshair;
+}

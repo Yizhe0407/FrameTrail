@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { test, expect } from '../support/fixture';
+
 import {
   clickSnapshotTarget,
   clickTarget,
@@ -13,6 +14,14 @@ import {
   stopRecording,
   targetCenter,
 } from '../support/harness';
+
+declare const chrome: {
+  storage: {
+    local: {
+      get(key: string): Promise<Record<string, unknown>>;
+    };
+  };
+};
 
 async function recordStepTargets(appPage: Page, popupPage: Page, selectors: string[]): Promise<void> {
   const initialCount = (await readSteps(popupPage)).length;
@@ -43,10 +52,18 @@ async function recordSnapshotTargets(
 async function openEditor(
   extensionContext: BrowserContext,
   extensionId: string,
+  popupPage: Page,
   expectedEntries: number,
 ): Promise<Page> {
+  const sessionId = await popupPage.evaluate(async () => {
+    const stored = await chrome.storage.local.get('frametrail:activeGuideId');
+    return stored['frametrail:activeGuideId'];
+  });
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw new Error('No active E2E Guide was initialized.');
+  }
   const editor = await extensionContext.newPage();
-  await editor.goto(`chrome-extension://${extensionId}/editor.html`);
+  await editor.goto(`chrome-extension://${extensionId}/editor.html?sessionId=${encodeURIComponent(sessionId)}`);
   await expect(editor.getByText(`步驟 · ${expectedEntries}`, { exact: true })).toBeVisible();
   return editor;
 }
@@ -108,7 +125,7 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
-    const editor = await openEditor(extensionContext, extensionId, 2);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
     const description = editor.getByPlaceholder('輸入步驟說明…');
     await description.fill('更新後的步驟說明');
@@ -116,7 +133,7 @@ test.describe('editor workflows', () => {
     await expect.poll(async () => (await readSteps(popupPage))[0]?.description).toBe('更新後的步驟說明');
     await expect(editor.getByText('已儲存', { exact: true })).toBeVisible();
 
-    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     await expect(editor.getByText('快照模式 · 2 個標注', { exact: true })).toBeVisible();
     const annotations = editor.getByPlaceholder('輸入標注說明…');
     await annotations.nth(0).fill('更新後的快照標注');
@@ -152,12 +169,12 @@ test.describe('editor workflows', () => {
     expect(anchor).toBeDefined();
     expect(annotation).toBeDefined();
 
-    const editor = await openEditor(extensionContext, extensionId, 1);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
     await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '刪除標注 1' }).click();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
-    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveCount(0);
+    await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveCount(0);
     await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.id)).toEqual([]);
   });
 
@@ -171,7 +188,7 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button']);
     await popupPage.evaluate(async () => {
       await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open('scribe', 3);
+        const request = indexedDB.open('scribe', 4);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const db = request.result;
@@ -198,7 +215,7 @@ test.describe('editor workflows', () => {
       });
     });
 
-    const editor = await openEditor(extensionContext, extensionId, 1);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
     const frames = editor.locator('main [data-frametrail-annotation-frame]');
     await expect(frames).toHaveCount(2);
     const first = await frames.nth(0).boundingBox();
@@ -219,38 +236,51 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button', '#fixture-canvas']);
-    const editor = await openEditor(extensionContext, extensionId, 3);
+    const storedBeforeReorder = await readSteps(popupPage);
+    expect(storedBeforeReorder).toHaveLength(6);
+    const ordinarySteps = storedBeforeReorder.filter((step) => step.groupId === undefined).sort((a, b) => a.order - b.order);
+    const groupedSteps = storedBeforeReorder.filter((step) => step.groupId !== undefined).sort((a, b) => a.order - b.order);
+    const snapshotAnchor = groupedSteps.find((step) => step.id === step.groupId);
+    const annotations = groupedSteps.filter((step) => step.id !== step.groupId);
+    const [firstTimelineStep, secondTimelineStep] = ordinarySteps;
+    const [firstAnnotation, secondAnnotation, thirdAnnotation] = annotations;
+    if (!firstTimelineStep || !secondTimelineStep || !snapshotAnchor || !firstAnnotation || !secondAnnotation || !thirdAnnotation) {
+      throw new Error('Expected two ordinary steps and one three-annotation snapshot group.');
+    }
+    const snapshotGroupId = snapshotAnchor.id;
+    expect(groupedSteps).toHaveLength(4);
+    expect(groupedSteps.every((step) => step.groupId === snapshotGroupId)).toBe(true);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 3);
 
     const railHandles = editor.locator('nav').getByRole('button', { name: '拖曳排序' });
     await expect(railHandles).toHaveCount(3);
     await dragBetween(editor, railHandles.nth(0), railHandles.nth(2));
-    await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.description)).toEqual([
-      '標記 一般視覺容器',
-      '',
-      '標記 執行操作',
-      '標記 停用操作',
-      '標記 趨勢圖',
-      '標記 這是一段不可點擊的純文字',
+    await expect.poll(async () => (await readSteps(popupPage)).map(({ id, groupId }) => ({ id, groupId }))).toEqual([
+      { id: secondTimelineStep.id, groupId: undefined },
+      { id: snapshotAnchor.id, groupId: snapshotGroupId },
+      { id: firstAnnotation.id, groupId: snapshotGroupId },
+      { id: secondAnnotation.id, groupId: snapshotGroupId },
+      { id: thirdAnnotation.id, groupId: snapshotGroupId },
+      { id: firstTimelineStep.id, groupId: undefined },
     ]);
 
     await editor.reload();
     await expect(editor.getByText('步驟 · 3', { exact: true })).toBeVisible();
-    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     await expect(editor.getByText('快照模式 · 3 個標注', { exact: true })).toBeVisible();
     const annotationPanel = editor.locator('aside');
     const annotationHandles = annotationPanel.getByRole('button', { name: '拖曳排序' });
     await expect(annotationHandles).toHaveCount(3);
     await dragBetween(editor, annotationHandles.nth(0), annotationHandles.nth(2));
-    await expect.poll(async () => (await readSteps(popupPage)).map((step) => step.description)).toEqual([
-      '標記 一般視覺容器',
-      '',
-      '標記 停用操作',
-      '標記 趨勢圖',
-      '標記 執行操作',
-      '標記 這是一段不可點擊的純文字',
+    await expect.poll(async () => (await readSteps(popupPage)).map(({ id, groupId }) => ({ id, groupId }))).toEqual([
+      { id: secondTimelineStep.id, groupId: undefined },
+      { id: snapshotAnchor.id, groupId: snapshotGroupId },
+      { id: secondAnnotation.id, groupId: snapshotGroupId },
+      { id: thirdAnnotation.id, groupId: snapshotGroupId },
+      { id: firstAnnotation.id, groupId: snapshotGroupId },
+      { id: firstTimelineStep.id, groupId: undefined },
     ]);
-    await expect(annotationPanel.getByPlaceholder('輸入標注說明…').nth(0)).toHaveValue('標記 停用操作');
-    await expect(annotationPanel.getByPlaceholder('輸入標注說明…').nth(2)).toHaveValue('標記 執行操作');
+    await expect(annotationPanel.getByPlaceholder('輸入標注說明…')).toHaveCount(3);
   });
 
   test('navigates every timeline entry in the lightbox with buttons and arrow keys', async ({
@@ -262,7 +292,7 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
-    const editor = await openEditor(extensionContext, extensionId, 3);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 3);
 
     await editor.getByRole('button', { name: '放大圖片' }).click();
     const dialog = editor.getByRole('dialog');
@@ -292,7 +322,7 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
-    const editor = await openEditor(extensionContext, extensionId, 2);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
     await editor.getByRole('button', { name: '複製圖片' }).click();
     await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
@@ -305,7 +335,7 @@ test.describe('editor workflows', () => {
     expect(ordinaryPng.width).toBeGreaterThan(1_000);
     expect(ordinaryPng.height).toBeGreaterThan(600);
 
-    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     await editor.getByRole('button', { name: '複製圖片' }).click();
     await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
     const snapshotPng = await readClipboardPng(editor);
@@ -325,10 +355,13 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text', '#visual-container strong']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
-    const editor = await openEditor(extensionContext, extensionId, 3);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 3);
 
+    await editor.getByRole('button', { name: '發佈', exact: true }).click();
+    const publishDialog = editor.getByRole('dialog', { name: '發佈教學' });
+    await expect(publishDialog).toBeVisible();
     const browserDownload = editor.waitForEvent('download');
-    await editor.getByRole('button', { name: '匯出圖片' }).click();
+    await publishDialog.getByRole('button', { name: /^下載圖片 ZIP/ }).click();
     const download = await browserDownload;
     const archivePath = await download.path();
     if (!archivePath) throw new Error('Export download has no local path');
@@ -337,7 +370,7 @@ test.describe('editor workflows', () => {
     const downloadRecord = await readLatestDownload(popupPage);
     expect(downloadRecord?.mime).toBe('application/zip');
     expect(path.extname(download.suggestedFilename())).toBe('.zip');
-    await expect(editor.getByText(/已匯出 frame-trail-images-\d{4}-\d{2}-\d{2}\.zip，共 3 張/)).toBeVisible();
+    await expect(publishDialog.getByText('圖片 ZIP 已開始下載。', { exact: true })).toBeVisible();
 
     const files = unzipSync(new Uint8Array(await readFile(archivePath)));
     expect(Object.keys(files).sort()).toEqual(['1.jpg', '2.jpg', '3.jpg']);
@@ -357,12 +390,19 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button']);
-    const editor = await openEditor(extensionContext, extensionId, 2);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
     for (const width of [320, 768]) {
       await editor.setViewportSize({ width, height: 700 });
       await expect(editor.getByRole('navigation', { name: '步驟導覽' })).toBeVisible();
-      await expect(editor.getByRole('button', { name: '匯出圖片' })).toBeVisible();
+      const publishButton = editor.getByRole('button', { name: '發佈', exact: true });
+      await expect(publishButton).toBeVisible();
+      await publishButton.click();
+      const publishDialog = editor.getByRole('dialog', { name: '發佈教學' });
+      await expect(publishDialog).toBeVisible();
+      await expect(publishDialog.getByRole('button', { name: /^下載圖片 ZIP/ })).toBeVisible();
+      await publishDialog.getByRole('button', { name: '關閉', exact: true }).last().click();
+      await expect(publishDialog).not.toBeVisible();
       const layout = await editor.evaluate(() => {
         const nav = document.querySelector('nav[aria-label="步驟導覽"]')!.getBoundingClientRect();
         return {
@@ -380,7 +420,7 @@ test.describe('editor workflows', () => {
     }
 
     await editor.setViewportSize({ width: 320, height: 700 });
-    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     const annotationPanel = editor.locator('main aside');
     await annotationPanel.scrollIntoViewIfNeeded();
     const panelBox = await annotationPanel.boundingBox();
@@ -399,9 +439,9 @@ test.describe('editor workflows', () => {
   }) => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
-    const editor = await openEditor(extensionContext, extensionId, 2);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
-    await editor.getByRole('button', { name: '選取步驟 2' }).click();
+    await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     await editor.getByRole('button', { name: '刪除', exact: true }).click();
     await expect(editor.getByText('已刪除步驟 2', { exact: true })).toBeVisible();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();

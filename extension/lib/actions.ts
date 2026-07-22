@@ -1,15 +1,12 @@
 import { browser } from 'wxt/browser';
-import { deleteStepsForSession } from './db';
-import { createDefaultRecordingState, setRecordingState, getRecordingState } from './storage';
+import type { ResetGuideResult } from './messages';
 
-/** Stops any in-progress recording and discards the current session's steps. */
-export async function resetSession(): Promise<void> {
-  await browser.runtime.sendMessage({ type: 'STOP_RECORDING' });
-
-  const state = await getRecordingState();
-  if (state.sessionId) {
-    await deleteStepsForSession(state.sessionId);
-  }
-
-  await setRecordingState(createDefaultRecordingState());
+/** Requests an atomic, Guide-targeted reset from the background lifecycle. */
+export async function resetSession(sessionId: string): Promise<void> {
+  if (!sessionId) throw new Error('找不到要重置的教學。');
+  const result = (await browser.runtime.sendMessage({
+    type: 'RESET_GUIDE',
+    sessionId,
+  })) as ResetGuideResult;
+  if (!result.ok) throw new Error(result.error);
 }

@@ -77,6 +77,7 @@ describe('CAPTURE_PRESENTATION_CSS', () => {
   it('hides FrameTrail interaction hosts without changing page layout', () => {
     expect(CAPTURE_PRESENTATION_CSS).toContain('[data-frametrail-snapshot-shield]');
     expect(CAPTURE_PRESENTATION_CSS).toContain('[data-frametrail-step-preview]');
+    expect(CAPTURE_PRESENTATION_CSS).toContain('[data-frametrail-region-capture]');
     expect(CAPTURE_PRESENTATION_CSS).toContain('visibility: hidden !important');
     expect(CAPTURE_PRESENTATION_CSS).toContain('opacity: 0 !important');
   });

@@ -645,7 +645,7 @@ interface FinishResult {
 - 錄製分頁關閉時會保留已提交內容並寫入 `RECORDED_TAB_CLOSED` 恢復狀態；Popup 改以 `完成並開啟編輯器` 作為唯一主要動作，重試時仍會定位最新項目。
 - 完成錄製後若 Editor 分頁無法建立或聚焦，會寫入 `EDITOR_OPEN_FAILED`，Popup 可透過 background 的 `OPEN_EDITOR` 重試；成功後才清除恢復狀態。
 - 補齊舊 `runId` 與快速重複 `FINISH_RECORDING` 的真實瀏覽器競態覆蓋，確認舊指令不影響新 run、同一輪只完成一次且只開啟一個 Editor。
-- 新增對應 unit／integration 覆蓋；目前工作樹為 34 個 Vitest unit/integration 測試檔、170 項測試。最新本地驗證通過 TypeScript、Chrome MV3 build 與 `git diff --check`；完整 E2E、Firefox build 與實機驗收另列為 release gate。
+- 新增對應 unit／integration 覆蓋；測試套件規模會隨功能演進調整，應以各指令當次輸出確認。完整 E2E、Firefox build 與實機驗收另列為 release gate，本計畫不將其視為已完成。
 
 本計畫仍未完成：
 
@@ -671,6 +671,17 @@ interface FinishResult {
 
 完成條件：無 blur-only save；刪除與排序可復原；320px 寬仍可完成核心任務。
 
+#### 實作進度（2026-07-22，Guide UX 完整化）
+
+Phase 3 的核心摩擦已以本機優先方案完成：
+
+- 新增作品庫與多 Guide DB v4 migration；Guide selection 與 recording state 分離，Editor URL authoritative，遺失 URL／Guide 不會 fallback。
+- 新增首次 onboarding、可重看導覽、精簡／完整模式與完全本機練習頁；自動描述不保存 page text、typed value 或 URL 內容。
+- StepRail 完成搜尋／品質／類型篩選、手機展開入口、lazy thumbnail mounting、多選鍵盤模型與章節 heading；hidden selection 會被移除，批次破壞操作不會影響不可見項目。
+- 完成 entry-safe CAS 批次刪除、移動、複製、快照編號、章節 CRUD 與 revision-guarded Undo；快照群組不可拆，stale transaction rollback。
+- 完成指定位置補錄與手動區域擷取，沿用 sender/session/token 驗證及 durable MV3 restart guards。
+- 完成品質 dialog 與 Markdown、HTML、列印/PDF、rich clipboard、ZIP 發佈；所有公開 raster 維持 redaction fail-closed。`.frametrail` v2 備份加入標題、說明、章節，並保留 v1 import 相容。
+
 ### Phase 4：Accessibility 與視覺收斂（P1，3 至 5 天）
 
 - 實作快照鍵盤候選巡覽與 browser commands。
@@ -693,7 +704,7 @@ interface FinishResult {
   - shield 以 index 驅動既有 probe／preview／commit 引擎：`Tab`／`Shift+Tab` 巡覽候選、`Enter`／`Space` 加入、`Delete`／`Backspace` 復原、方向鍵維持父子層級；`Escape` 回到 skip link。
   - 新增「跳至錄製控制」skip link 與 `aria-live` polite 宣告（候選位置、加入標註、無法標註）。
   - 純邏輯（排序／去重／roving index）與新 `SNAPSHOT_SHIELD_CANDIDATES` 訊息 schema 有 unit 覆蓋；新增鍵盤 only 的 Chromium E2E 驗證 Tab→加入→復原且底層頁面不被觸發。
-- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。最新工作樹有 34 個 Vitest unit/integration 測試檔、170 項測試；TypeScript、Chrome MV3 build 與 `git diff --check` 通過。
+- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。測試套件規模與各驗證結果應以當次指令輸出為準；本計畫不將完整 E2E 視為已完成。
 
 本節尚未實作（需真實瀏覽器與輔助科技手動驗證，非程式碼可自動完成）：
 

@@ -66,11 +66,24 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
     : reconciled;
 }
 
-/** Shared popup/editor state: current recording status, steps, and any error. */
-export function useRecordingSession() {
+/** Shared popup/editor state: current recording status, steps, and any error.
+ * Omitting explicitSessionId follows the active recording (popup behavior).
+ * Passing a string pins the data source to that Guide; passing null explicitly
+ * means the editor URL has no Guide and must not fall back to unrelated global state. */
+export function useRecordingSession(explicitSessionId?: string | null) {
   const [recordingState, setRecordingState] = useState(createDefaultRecordingState);
   const [steps, setSteps] = useState<Step[]>([]);
   const latestStepsRequest = useRef(0);
+  const hasExplicitSession = explicitSessionId !== undefined;
+  const explicitGuideSessionId =
+    typeof explicitSessionId === 'string' && explicitSessionId.length > 0
+      ? explicitSessionId
+      : null;
+  const explicitSessionIdRef = useRef(explicitGuideSessionId);
+  const hasExplicitSessionRef = useRef(hasExplicitSession);
+  explicitSessionIdRef.current = explicitGuideSessionId;
+  hasExplicitSessionRef.current = hasExplicitSession;
+  const sessionId = hasExplicitSession ? explicitGuideSessionId : recordingState.sessionId;
 
   const refreshSteps = useCallback(async (sid: string | null) => {
     const request = ++latestStepsRequest.current;
@@ -87,7 +100,12 @@ export function useRecordingSession() {
     const applyState = (state: Awaited<ReturnType<typeof getRecordingState>>) => {
       if (disposed) return;
       setRecordingState(state);
-      void refreshSteps(state.sessionId);
+      // A same-session state change can signal an IndexedDB write (notably a
+      // completed recapture), so refresh even when the data-source id itself
+      // did not change. An explicit editor URL still wins over that state.
+      void refreshSteps(
+        hasExplicitSessionRef.current ? explicitSessionIdRef.current : state.sessionId,
+      );
     };
 
     const initialVersion = stateVersion;
@@ -107,20 +125,32 @@ export function useRecordingSession() {
       latestStepsRequest.current++;
       unsubscribe();
     };
-  }, [refreshSteps]);
+  }, []);
+
+  // The editor may supply its URL session as the authoritative data source.
+  // Keeping this separate from RecordingState lets an editor continue showing
+  // Guide A while a global operation belongs to Guide B.
+  useEffect(() => {
+    void refreshSteps(sessionId);
+  }, [refreshSteps, sessionId]);
 
   // Background writes new steps to IndexedDB independently of the UI;
   // poll while recording so the list updates without a custom pub/sub channel.
   useEffect(() => {
-    if (!recordingState.isRecording || !recordingState.sessionId) return;
-    const interval = setInterval(() => refreshSteps(recordingState.sessionId), 1000);
+    if (
+      !recordingState.isRecording ||
+      !sessionId ||
+      recordingState.sessionId !== sessionId
+    ) return;
+    const interval = setInterval(() => refreshSteps(sessionId), 1000);
     return () => clearInterval(interval);
-  }, [recordingState.isRecording, recordingState.sessionId, refreshSteps]);
+  }, [recordingState.isRecording, recordingState.sessionId, refreshSteps, sessionId]);
 
   return {
     ...recordingState,
+    sessionId,
     recording: recordingState,
     steps,
-    refresh: () => refreshSteps(recordingState.sessionId),
+    refresh: () => refreshSteps(sessionId),
   };
 }

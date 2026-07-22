@@ -3,6 +3,7 @@ import {
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
   isSnapshotShieldPortMessage,
+  isSnapshotShieldRegionRect,
   SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
@@ -12,6 +13,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_REGION_CAPTURE,
 } from '@/lib/snapshot-shield-protocol';
 
 describe('snapshot shield protocol', () => {
@@ -83,6 +85,34 @@ describe('snapshot shield protocol', () => {
       ),
     ).toBe(false);
     expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_READY, token: 'old-token' }, token)).toBe(false);
+  });
+
+  it('authenticates and validates region capture rectangles', () => {
+    const rect = { x: 10, y: 20, width: 30, height: 40 };
+    expect(isSnapshotShieldRegionRect(rect)).toBe(true);
+    expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, rect }, token)).toBe(true);
+    expect(
+      isSnapshotShieldPortMessage(
+        { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token: 'old-token', rect },
+        token,
+      ),
+    ).toBe(false);
+
+    for (const invalidRect of [
+      { ...rect, x: -1 },
+      { ...rect, width: 7 },
+      { ...rect, height: Number.NaN },
+      { ...rect, x: Number.POSITIVE_INFINITY },
+      { x: 999_990, y: 20, width: 30, height: 40 },
+    ]) {
+      expect(isSnapshotShieldRegionRect(invalidRect)).toBe(false);
+      expect(
+        isSnapshotShieldPortMessage(
+          { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, rect: invalidRect },
+          token,
+        ),
+      ).toBe(false);
+    }
   });
 
   it('validates preview and committed selection messages sent back to the frame', () => {

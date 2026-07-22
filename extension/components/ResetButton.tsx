@@ -7,12 +7,21 @@ import ConfirmationDialog from './ConfirmationDialog';
 
 interface Props {
   hasSteps: boolean;
+  sessionId: string | null;
   className?: string;
   variant?: ComponentProps<typeof Button>['variant'];
   disabled?: boolean;
+  onReset?: () => void | Promise<void>;
 }
 
-export default function ResetButton({ hasSteps, className, variant = 'ghost', disabled = false }: Props) {
+export default function ResetButton({
+  hasSteps,
+  sessionId,
+  className,
+  variant = 'ghost',
+  disabled = false,
+  onReset,
+}: Props) {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
@@ -21,7 +30,9 @@ export default function ResetButton({ hasSteps, className, variant = 'ghost', di
     setResetting(true);
     setResetError(null);
     try {
-      await resetSession();
+      if (!sessionId) throw new Error('找不到要重置的教學。');
+      await resetSession(sessionId);
+      await onReset?.();
       setConfirmationOpen(false);
     } catch (err) {
       console.error('重置錄製失敗', err);
@@ -37,7 +48,7 @@ export default function ResetButton({ hasSteps, className, variant = 'ghost', di
         <Button
           variant={variant}
           onClick={() => setConfirmationOpen(true)}
-          disabled={!hasSteps || disabled || resetting}
+          disabled={!hasSteps || !sessionId || disabled || resetting}
           title={disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}
           className={cn(
             'text-stone-500 hover:bg-red-50 hover:text-red-700 dark:text-stone-400 dark:hover:bg-red-950/40 dark:hover:text-red-400',

@@ -8,11 +8,13 @@ interface Options {
   onCommand: (action: ToolbarAction, undoToken?: string) => Promise<RecordingControlResult>;
   onUndoApplied?: () => void;
   onRestoreApplied?: () => void;
+  onStartRegionCapture?: () => void;
 }
 
 export interface MountedRecordingToolbar {
   host: HTMLElement;
   update(state: RecordingToolbarState): void;
+  setRegionCaptureActive(active: boolean): void;
   remove(): void;
 }
 
@@ -35,8 +37,11 @@ export function mountRecordingToolbar(
   shadowRoot.append(container);
   const root = createRoot(container);
   let removed = false;
+  let currentState = initialState;
+  let regionCaptureActive = false;
 
-  const render = (state: RecordingToolbarState) => {
+  const render = (state: RecordingToolbarState = currentState) => {
+    currentState = state;
     if (removed) return;
     root.render(
       <RecordingToolbar
@@ -44,6 +49,8 @@ export function mountRecordingToolbar(
         onCommand={options.onCommand}
         onUndoApplied={options.onUndoApplied}
         onRestoreApplied={options.onRestoreApplied}
+        onStartRegionCapture={options.onStartRegionCapture}
+        regionCaptureActive={regionCaptureActive}
       />,
     );
   };
@@ -54,6 +61,11 @@ export function mountRecordingToolbar(
   return {
     host,
     update: render,
+    setRegionCaptureActive(active) {
+      if (removed || regionCaptureActive === active) return;
+      regionCaptureActive = active;
+      render();
+    },
     remove() {
       if (removed) return;
       removed = true;

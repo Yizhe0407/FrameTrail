@@ -34,7 +34,7 @@ test.describe('step recording', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
 
     const [step] = await readSteps(popupPage);
-    expect(step.description).toBe('標記 這是一段不可點擊的純文字');
+    expect(step.description).toBe('標記頁面區域');
     expect(step.bounds).toMatchObject({ width: expect.any(Number), height: expect.any(Number) });
     expect(step.hasScreenshot).toBe(true);
     expect(await rawScreenshotRosePixels(popupPage, step.id)).toBe(0);
@@ -54,7 +54,7 @@ test.describe('step recording', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     await expect.poll(() => appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(1);
     const [step] = await readSteps(popupPage);
-    expect(step.description).toBe('點擊 執行操作');
+    expect(step.description).toBe('點擊按鈕');
 
     await stopRecording(popupPage);
   });
@@ -109,7 +109,7 @@ test.describe('step recording', () => {
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
     await expect(appPage.locator('[data-frametrail-recording-toolbar]')).toHaveCount(0);
     expect(editor.url()).toContain('entryId=');
-    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+    await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
   test('rejects an old run and serializes rapid finish commands', async ({
@@ -231,7 +231,7 @@ test.describe('step recording', () => {
     await clickTarget(appPage, '#below-fold');
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     const [belowFoldStep] = await readSteps(popupPage);
-    expect(belowFoldStep.description).toBe('標記 頁面下方內容');
+    expect(belowFoldStep.description).toBe('標記頁面區域');
     const viewport = await appPage.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
     expect(belowFoldStep.bounds).toMatchObject({
       x: expect.any(Number),
@@ -295,10 +295,10 @@ test.describe('step recording', () => {
 
     const descriptions = (await readSteps(popupPage)).map((step) => step.description);
     expect(descriptions).toEqual([
-      '標記 停用操作',
-      '標記 流程圖示',
-      '標記 趨勢圖',
-      '標記 一般視覺容器',
+      '標記頁面區域',
+      '標記頁面區域',
+      '標記頁面區域',
+      '標記頁面區域',
     ]);
 
     await stopRecording(popupPage);

@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { createRegionCapture, type RegionCapture } from '@/lib/region-capture';
 import RecordingToolbar from '@/components/RecordingToolbar';
 import {
   isSnapshotShieldFrameMessage,
@@ -12,6 +13,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_REGION_CAPTURE,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
@@ -19,6 +21,7 @@ import {
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldReadyMessage,
+  type SnapshotShieldRegionCaptureMessage,
   type SnapshotShieldRect,
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
@@ -68,7 +71,7 @@ let initialized = false;
 function consume(event: Event): void {
   if (
     event.target instanceof Element &&
-    event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip]')
+    event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]')
   ) {
     return;
   }
@@ -311,6 +314,10 @@ window.addEventListener('message', (event) => {
   let keyboardAnchors: SnapshotShieldKeyboardAnchor[] = [];
   let keyboardIndex = -1;
   let focusInitialized = false;
+  let regionCapture: RegionCapture | null = null;
+  let pendingRegionCompletion: (() => void) | null = null;
+  let lastCommitWasRegion = false;
+  let toolbarState: import('@/components/RecordingToolbar').RecordingToolbarState | null = null;
 
   const scheduleHover = () => {
     if (
@@ -361,6 +368,7 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerMove = (event: PointerEvent) => {
+    if (regionCapture?.isActive()) return;
     if (!interactionsEnabled) {
       clearHover();
       return;
@@ -400,9 +408,10 @@ window.addEventListener('message', (event) => {
   };
 
   const onPointerDown = (event: PointerEvent) => {
+    if (regionCapture?.isActive()) return;
     if (
       event.target instanceof Element &&
-      event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip]')
+      event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]')
     ) {
       return;
     }
@@ -416,6 +425,7 @@ window.addEventListener('message', (event) => {
   };
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
+    if (regionCapture?.isActive()) return;
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
@@ -461,6 +471,60 @@ window.addEventListener('message', (event) => {
     });
   };
 
+  const renderToolbar = () => {
+    const state = toolbarState;
+    toolbarRoot.render(
+      state && (state.phase === 'recording' || state.phase === 'invalidated' || state.phase === 'finishing') ? (
+        <RecordingToolbar
+          state={state}
+          onCommand={(action: RecordingControlMessage['type'], undoToken?: string) =>
+            sendShieldControl(action, undoToken)
+          }
+          onStartRegionCapture={() => startRegionCapture()}
+          regionCaptureActive={regionCapture?.isActive() ?? false}
+        />
+      ) : null,
+    );
+  };
+
+  const startRegionCapture = () => {
+    if (!interactionsEnabled || capturing || regionCapture?.isActive()) return;
+    clearHover();
+    resetKeyboard();
+    document.body.classList.add('has-region-capture');
+    const controller = createRegionCapture({
+      settleFrames: 0,
+      onCapture: async (rect) => {
+        if (!interactionsEnabled || capturing) return;
+        capturing = true;
+        lastCommitWasRegion = true;
+        const message: SnapshotShieldRegionCaptureMessage = {
+          type: SNAPSHOT_SHIELD_REGION_CAPTURE,
+          token,
+          rect,
+        };
+        await new Promise<void>((resolve) => {
+          pendingRegionCompletion = resolve;
+          port.postMessage(message);
+        });
+      },
+      onCancel: () => {
+        pendingRegionCompletion?.();
+        pendingRegionCompletion = null;
+        lastCommitWasRegion = false;
+        capturing = false;
+      },
+      onClose: () => {
+        if (regionCapture === controller) regionCapture = null;
+        document.body.classList.remove('has-region-capture');
+        renderToolbar();
+        if (interactionsEnabled && !capturing) scheduleHover();
+      },
+    });
+    regionCapture = controller;
+    renderToolbar();
+  };
+
   const roveTo = (delta: number) => {
     if (!keyboardAnchors.length) {
       announce('目前沒有可用鍵盤標註的元素');
@@ -501,6 +565,9 @@ window.addEventListener('message', (event) => {
   };
 
   const onShieldKeyDown = (event: KeyboardEvent) => {
+    // The region controller is registered later on the same capture target; do
+    // not let keyboard traversal consume Escape before the controller sees it.
+    if (regionCapture?.isActive()) return;
     if (!featureFlags.snapshotKeyboardNav) return;
     const target = event.target;
     if (target instanceof Element && target.closest('[data-frametrail-shield-toolbar]')) return;
@@ -589,22 +656,15 @@ window.addEventListener('message', (event) => {
     }
     if (event.data.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
       const state = event.data.state;
+      toolbarState = state;
       interactionsEnabled = state.phase === 'recording';
       if (!interactionsEnabled) {
+        regionCapture?.cancel(state.phase === 'invalidated' ? 'viewport' : 'removed');
         capturing = false;
         clearHover();
         resetKeyboard();
       }
-      toolbarRoot.render(
-        state.phase === 'recording' || state.phase === 'invalidated' || state.phase === 'finishing' ? (
-          <RecordingToolbar
-            state={state}
-            onCommand={(action: RecordingControlMessage['type'], undoToken?: string) =>
-              sendShieldControl(action, undoToken)
-            }
-          />
-        ) : null,
-      );
+      renderToolbar();
       // Land keyboard users on the skip link once, so the first Tab enters the
       // candidate list rather than being swallowed by the frozen page.
       if (interactionsEnabled && !focusInitialized && skipLink) {
@@ -622,17 +682,25 @@ window.addEventListener('message', (event) => {
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
       if (event.data.selection) {
         overlay.commit(event.data.selection);
-        if (lastCommitViaKeyboard) {
+        if (lastCommitWasRegion) {
+          const label = event.data.selection.label;
+          announce(label !== null ? `已加入區域標註 ${label}` : '已加入區域標註');
+        } else if (lastCommitViaKeyboard) {
           const label = event.data.selection.label;
           announce(label !== null ? `已加入標註 ${label}` : '已加入標註');
         }
+      } else if (lastCommitWasRegion) {
+        announce('未建立區域標註，請重新拖曳');
       } else if (lastCommitViaKeyboard) {
         announce('未建立標註，請再選一次');
       }
       lastCommitViaKeyboard = false;
+      lastCommitWasRegion = false;
       capturing = false;
+      pendingRegionCompletion?.();
+      pendingRegionCompletion = null;
       sentPointRevision = -1;
-      if (interactionsEnabled) scheduleHover();
+      if (interactionsEnabled && !regionCapture?.isActive()) scheduleHover();
     }
   };
 
@@ -648,6 +716,7 @@ window.addEventListener('message', (event) => {
   }
   window.addEventListener('resize', () => {
     // A resize invalidates both hit targets and the collision layout.
+    regionCapture?.cancel('viewport');
     clearHover();
     overlay.relayout();
   });

@@ -22,6 +22,14 @@ Firefox 開發模式：
 pnpm dev:firefox
 ```
 
+## 本機 UX 與資料安全
+
+- 作品庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
+- 多選、批次、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
+- 發佈支援 Markdown、HTML、列印/PDF、rich clipboard 與 ZIP，公開圖片統一走遮罩 fail-closed compositor。
+- `.frametrail` 是包含原始未遮罩圖的可編輯本機備份，不應當作公開輸出。
+- 首次導覽、練習頁、搜尋、品質篩選與縮圖 lazy mounting 均不需要網路或後端。
+
 ## 驗證
 
 ```bash
@@ -35,8 +43,8 @@ pnpm build:firefox
 
 - `pnpm test:unit`：執行目前的 unit 測試檔。
 - `pnpm test:integration`：執行目前的 integration 測試檔。
-- `pnpm test`：一次執行 34 個 Vitest unit/integration 測試檔、170 項測試。
-- `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行 6 個 Playwright spec、34 項 Chromium E2E。
+- `pnpm test`：執行目前設定的 Vitest unit/integration 測試套件。
+- `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行目前設定的 Playwright Chromium E2E 測試套件。
 - `pnpm test:all`：依序執行 Vitest 與 Chromium E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。

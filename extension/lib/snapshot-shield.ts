@@ -11,6 +11,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_REGION_CAPTURE,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
   type SnapshotShieldCaptureCompleteMessage,
@@ -23,6 +24,7 @@ import {
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldPreviewMessage,
+  type SnapshotShieldRegionCaptureMessage,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldSelection,
@@ -60,6 +62,9 @@ type HoverHandler = (
   point: SnapshotShieldPointerMoveMessage,
 ) => SnapshotShieldPreviewResult | Promise<SnapshotShieldPreviewResult>;
 type ControlHandler = (message: SnapshotShieldControlMessage) => Promise<RecordingControlResult>;
+type RegionHandler = (
+  message: SnapshotShieldRegionCaptureMessage,
+) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
 
 function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');
@@ -192,6 +197,7 @@ export function createSnapshotShield(
   onPoint: PointHandler,
   onHover?: HoverHandler,
   onControl?: ControlHandler,
+  onRegion?: RegionHandler,
 ): SnapshotShield {
   const token = crypto.randomUUID();
   const host = document.createElement('div');
@@ -258,15 +264,11 @@ export function createSnapshotShield(
     postToFrame(previewMessage);
   };
 
-  const handlePoint = async (message: SnapshotShieldPointerDownMessage, generation: number): Promise<void> => {
-    let selection: SnapshotShieldSelection | null = null;
-    try {
-      selection = (await onPoint(message)) ?? null;
-    } catch (error) {
-      console.error('[frametrail] failed to handle snapshot shield pointer', error);
-    }
+  const completeSelection = (
+    selection: SnapshotShieldSelection | null,
+    generation: number,
+  ): void => {
     if (removed) return;
-
     const committed = selection ? { ...selection, id: nextSelectionId++ } : null;
     if (committed) {
       committedSelections.push(committed);
@@ -288,6 +290,26 @@ export function createSnapshotShield(
       };
       postToFrame(commitMessage);
     }
+  };
+
+  const handlePoint = async (message: SnapshotShieldPointerDownMessage, generation: number): Promise<void> => {
+    let selection: SnapshotShieldSelection | null = null;
+    try {
+      selection = (await onPoint(message)) ?? null;
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot shield pointer', error);
+    }
+    completeSelection(selection, generation);
+  };
+
+  const handleRegion = async (message: SnapshotShieldRegionCaptureMessage, generation: number): Promise<void> => {
+    let selection: SnapshotShieldSelection | null = null;
+    try {
+      selection = (await onRegion?.(message)) ?? null;
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot shield region', error);
+    }
+    completeSelection(selection, generation);
   };
 
   const handleControl = async (message: SnapshotShieldControlMessage, generation: number): Promise<void> => {
@@ -470,6 +492,10 @@ export function createSnapshotShield(
         }
         if (event.data.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
           void handlePoint(event.data, generation);
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_REGION_CAPTURE) {
+          void handleRegion(event.data, generation);
           return;
         }
         if (event.data.type === SNAPSHOT_SHIELD_CONTROL) {

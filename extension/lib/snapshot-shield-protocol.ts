@@ -4,6 +4,7 @@ import type {
   RecordingMode,
   RecordingPhase,
 } from './messages';
+import { REGION_CAPTURE_MIN_SIZE, isRegionRectLargeEnough } from './region-capture';
 
 export const SNAPSHOT_SHIELD_INIT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_INIT';
 export const SNAPSHOT_SHIELD_READY = 'FRAME_TRAIL_SNAPSHOT_SHIELD_READY';
@@ -17,8 +18,10 @@ export const SNAPSHOT_SHIELD_TOOLBAR_STATE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_TOOLBA
 export const SNAPSHOT_SHIELD_CONTROL = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL';
 export const SNAPSHOT_SHIELD_CONTROL_RESULT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL_RESULT';
 export const SNAPSHOT_SHIELD_CANDIDATES = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CANDIDATES';
+export const SNAPSHOT_SHIELD_REGION_CAPTURE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_REGION_CAPTURE';
 export const SNAPSHOT_TARGET_OFFSET_LIMIT = 4_096;
 export const SNAPSHOT_KEYBOARD_LABEL_LIMIT = 200;
+export const SNAPSHOT_REGION_COORDINATE_LIMIT = 1_000_000;
 
 export interface SnapshotShieldRect {
   x: number;
@@ -62,6 +65,12 @@ export interface SnapshotShieldPointerMoveMessage {
   clientX: number;
   clientY: number;
   candidateOffset: number;
+}
+
+export interface SnapshotShieldRegionCaptureMessage {
+  type: typeof SNAPSHOT_SHIELD_REGION_CAPTURE;
+  token: string;
+  rect: SnapshotShieldRect;
 }
 
 export interface SnapshotShieldPreviewMessage {
@@ -134,6 +143,7 @@ export type SnapshotShieldPortMessage =
   | SnapshotShieldReadyMessage
   | SnapshotShieldPointerDownMessage
   | SnapshotShieldPointerMoveMessage
+  | SnapshotShieldRegionCaptureMessage
   | SnapshotShieldControlMessage;
 
 export type SnapshotShieldFrameMessage =
@@ -166,6 +176,20 @@ function isRect(value: unknown): value is SnapshotShieldRect {
   );
 }
 
+export function isSnapshotShieldRegionRect(value: unknown): value is SnapshotShieldRect {
+  if (!value || typeof value !== 'object') return false;
+  const rect = value as Partial<SnapshotShieldRect>;
+  if (!isRegionRectLargeEnough(rect as SnapshotShieldRect, REGION_CAPTURE_MIN_SIZE)) return false;
+  return (
+    rect.x! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    rect.y! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    rect.width! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    rect.height! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    rect.x! + rect.width! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    rect.y! + rect.height! <= SNAPSHOT_REGION_COORDINATE_LIMIT
+  );
+}
+
 function isSelection(value: unknown): value is SnapshotShieldSelection & { id: number } {
   if (!value || typeof value !== 'object') return false;
   const selection = value as Partial<SnapshotShieldSelection & { id: number }>;
@@ -193,9 +217,13 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     candidateOffset?: number;
     action?: RecordingControlMessage['type'];
     undoToken?: string;
+    rect?: SnapshotShieldRect;
   };
   if (message.token !== token) return false;
   if (message.type === SNAPSHOT_SHIELD_READY) return true;
+  if (message.type === SNAPSHOT_SHIELD_REGION_CAPTURE) {
+    return isSnapshotShieldRegionRect(message.rect);
+  }
   if (message.type === SNAPSHOT_SHIELD_CONTROL) {
     return (
       isRequestId(message.requestId) &&

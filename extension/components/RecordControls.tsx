@@ -4,8 +4,8 @@ import { AlertCircle, ExternalLink, Info, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import type { RecordingMode, RecordingState } from '@/lib/messages';
-import { getRecordingState } from '@/lib/storage';
+import type { RecordingMode, RecordingState, StartRecordingResult } from '@/lib/messages';
+import { ensureSelectedGuide } from '@/lib/guide-actions';
 import { needsEditorRecovery } from '@/lib/recording-recovery';
 
 interface Props {
@@ -114,16 +114,15 @@ export default function RecordControls({
         const granted = alreadyGranted || (await requestCrossPagePermission());
         if (granted) permissionScope = 'cross-page';
       }
-      await browser.runtime.sendMessage({
+      const guide = await ensureSelectedGuide();
+      const result = (await browser.runtime.sendMessage({
         type: 'START_RECORDING',
+        sessionId: guide.id,
         mode,
         numbered,
         permissionScope,
-      });
-      const state = await getRecordingState();
-      if (!state.isRecording || state.phase === 'error') {
-        throw new Error(state.recoverableError?.message ?? '無法在這個頁面開始錄製。');
-      }
+      })) as StartRecordingResult;
+      if (!result.ok) throw new Error(result.error);
       onStarted?.();
     } catch (error) {
       console.error('開始錄製失敗', error);

@@ -1,6 +1,6 @@
 # FrameTrail
 
-FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴充功能。每個步驟包含原始截圖、紅框標註與可編輯說明，也可以把結果匯出成 ZIP。所有資料都留在本機，不需要帳號、雲端服務或後端伺服器。
+FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴充功能。每個步驟包含原始截圖、紅框標註與可編輯說明；可在本機作品庫管理多份教學，並發佈成 Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿或圖片 ZIP。所有資料都留在本機，不需要帳號、雲端服務或後端伺服器。
 
 完整架構與技術決策見 [PLAN.md](./PLAN.md)。
 
@@ -48,6 +48,9 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 ### 編輯、儲存與匯出
 
 - popup 提供錄製前設定與錄製中摘要；頁面浮動控制器負責錄製中的復原、暫停與完成。獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
+- **作品庫與多份 Guide**：作品庫可搜尋、新增、改名、複製、封存、永久刪除、匯出或匯入可編輯備份。Editor URL 的 `sessionId` 是唯一資料來源；網址缺少或 Guide 不存在時會安全顯示錯誤，不會 fallback 到其他正在錄製的內容。
+- **多選、批次與章節**：StepRail 提供 checkbox、Ctrl／Cmd 加選、Shift 範圍選取、Ctrl／Cmd+A 與 Escape 收合；可批次刪除、移到開頭／結尾、複製目前項目、切換快照編號，並在完整步驟或快照群組邊界建立、改名、刪除章節。多選期間停用單筆編輯與拖曳，避免操作目標含糊。
+- **指定位置補錄與區域擷取**：可在任一步驟或完整快照群組前後補錄，也可在操作流程模式手動拖曳擷取 viewport 內區域；兩者都沿用 token-auth shield、capture queue、run/session guard，且不重播區域擷取手勢。
 - 拖曳使用 `@dnd-kit`，只由拖曳把手啟動，支援滑鼠、觸控與鍵盤。UI 先做 optimistic reorder，再以單一 IndexedDB transaction 持久化，失敗時復原；不同高度的列只做 translate，不會被縮放閃動。
 - 圖片 Blob 在狀態更新時保留穩定參照，rail、stage 與 lightbox 共用同一個 object URL；最後一個使用者卸載後才 revoke，避免非圖片變更觸發重新解碼與白閃。
 - 刪除步驟、刪除快照群組與重置都使用共用的 shadcn `ConfirmationDialog`。專案不使用 `window.alert()` 或 `window.confirm()`；非阻斷錯誤則顯示在既有 shadcn Alert 區域。
@@ -57,15 +60,16 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
 - **敏感資訊遮罩**：在同一個視覺編輯器新增、移動、縮放或刪除完全不透明的 solid mask。遮罩只保存在圖片 owner（普通步驟或快照 anchor），預覽、Lightbox、剪貼簿 PNG 與 ZIP/JPEG 匯出共用同一條合成管線，並在所有標註與引導線之後繪製，避免下層內容重新露出。
 - **隱私 fail-closed**：補拍含有既有遮罩的圖片，或讀到格式錯誤的隱私 metadata 時，會保留可修正的遮罩草稿並標記「需要重新確認」；確認前圖片預覽全黑，複製與匯出被阻擋，compositor 也會再次全黑處理。只有使用者按下「確認並儲存」後才解除封鎖。
-- 匯出使用 `OffscreenCanvas` 合成並由 `fflate` 產生 ZIP；複製圖片走同一份合成邏輯與 Clipboard API。步驟模式一個步驟一張圖，快照模式一個群組一張圖。
+- 發佈前會執行品質檢查；未確認遮罩、缺圖或缺少框選時 fail-closed 並導向問題清單。Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿與 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。可編輯 `.frametrail` v2 備份另包含標題、說明與章節；因備份保留未遮罩原圖，匯出前會明確警告。
 
 ### 狀態與效能
 
-- IndexedDB 保存截圖與步驟；`chrome.storage.local` 只保存錄製狀態。快照 annotation 只引用持有共用 Blob 的 anchor，不重複保存圖片。
+- IndexedDB 保存 Guide metadata、章節、截圖與步驟；`chrome.storage.local` 只保存錄製狀態與獨立的目前 Guide selection。快照 annotation 只引用持有共用 Blob 的 anchor，不重複保存圖片。
 - START、STOP、RESET、點擊 transaction、截圖 queue 與 DB 寫入都有序列化邊界。`runId` 與 `controlVersion` 會使舊錄製的延遲工作失效，避免舊資料寫進新 session。
 - `captureVisibleTab` 至少間隔 500 ms，quota 錯誤最多重試 5 次並逐步延長等待；每次真正截圖前都重新驗證作用中分頁、URL 與錄製 run。
 - 錄製期間以 keep-alive port 維持 MV3 service worker；補拍的 capture replacement、result handoff 與 ACK 也使用 durable state，避免 worker 暫停造成半完成狀態。
-- 編輯與補拍使用 `captureRevision` compare-and-set：圖片被替換後，舊的遮罩儲存或 Undo 不會覆寫新圖片，也不會錯誤解除隱私封鎖。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
+- 編輯與補拍使用 `captureRevision` compare-and-set；Guide 結構操作另使用 `contentRevision` CAS 與單一 `guides + steps` transaction。stale reorder／delete／restore／move／duplicate／numbering／section mutation 會整筆 rollback，不會把省略的舊 row 默默 append。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
+- StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。首次使用提供版本化 onboarding，並可開啟完全本機、無網路傳輸的練習頁。
 
 ## 編輯與隱私工作流程
 
@@ -127,7 +131,7 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前工作樹包含 34 個 Vitest unit/integration 測試檔、170 項測試；本輪另保留 6 個 Playwright spec 的 Chromium E2E。最新本地驗證已通過 TypeScript 型別檢查、Chrome MV3 production build 與 `git diff --check`；E2E 與 Firefox build 需在具備完整 pnpm/瀏覽器環境時另外執行。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+Vitest unit/integration 與 Playwright Chromium E2E 測試套件會隨功能演進調整；請以各指令當次輸出確認實際執行範圍。E2E 與 Firefox build 仍須在具備完整 pnpm／瀏覽器環境時執行，且不應以本文件視為其驗證結果。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
 
 Unit 與 integration 覆蓋：
 

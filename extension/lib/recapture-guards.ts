@@ -46,6 +46,39 @@ export function isTrustedEditorSender(
   );
 }
 
+function hasSessionQuery(url: string | undefined, expectedSessionId: string): boolean {
+  if (!url || !expectedSessionId) return false;
+  try {
+    return new URL(url).searchParams.get('sessionId') === expectedSessionId;
+  } catch {
+    return false;
+  }
+}
+
+/** Requires both the actual editor frame and its top-level tab to carry the
+ * expected Guide identity. Use this after (or together with) origin/path trust
+ * checks for recapture controls whose payload/context names a session. */
+export function hasMatchingEditorSessionQuery(
+  sender: RecaptureMessageSender,
+  expectedSessionId: string,
+): boolean {
+  return (
+    hasSessionQuery(sender.url, expectedSessionId) &&
+    hasSessionQuery(sender.tab?.url, expectedSessionId)
+  );
+}
+
+export function isTrustedEditorSenderForSession(
+  sender: RecaptureMessageSender,
+  editorUrl: string,
+  expectedSessionId: string,
+): boolean {
+  return (
+    isTrustedEditorSender(sender, editorUrl) &&
+    hasMatchingEditorSessionQuery(sender, expectedSessionId)
+  );
+}
+
 /** Recapture target messages are accepted only from the persisted, exact
  * top-level source document. Message payload URLs remain an additional check. */
 export function isTrustedRecaptureSourceSender(

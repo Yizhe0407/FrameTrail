@@ -7,6 +7,7 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_REGION_CAPTURE,
 } from '@/lib/snapshot-shield-protocol';
 
 const mocks = vi.hoisted(() => ({
@@ -46,7 +47,9 @@ describe('createSnapshotShield', () => {
     const selection = { rect: { x: 20, y: 30, width: 100, height: 40 }, label: 1 };
     const onPoint = vi.fn().mockResolvedValue(selection);
     const onHover = vi.fn(() => ({ rect: selection.rect, candidateOffset: 1 }));
-    const shield = createSnapshotShield(onPoint, onHover);
+    const regionSelection = { rect: { x: 12, y: 18, width: 80, height: 60 }, label: 2 };
+    const onRegion = vi.fn().mockResolvedValue(regionSelection);
+    const shield = createSnapshotShield(onPoint, onHover, undefined, onRegion);
     const frame = shadowRoot!.querySelector('iframe')!;
     const focusFrame = vi.spyOn(frame, 'focus');
 
@@ -113,6 +116,32 @@ describe('createSnapshotShield', () => {
         expect.objectContaining({
           type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
           selection: expect.objectContaining({ id: 1, ...selection }),
+        }),
+      ),
+    );
+
+    framePort.postMessage({
+      type: SNAPSHOT_SHIELD_REGION_CAPTURE,
+      token: initMessage.token,
+      rect: { x: 12, y: 18, width: 7, height: 60 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onRegion).not.toHaveBeenCalled();
+
+    framePort.postMessage({
+      type: SNAPSHOT_SHIELD_REGION_CAPTURE,
+      token: initMessage.token,
+      rect: regionSelection.rect,
+    });
+    await vi.waitFor(() => expect(onRegion).toHaveBeenCalledOnce());
+    expect(onRegion).toHaveBeenCalledWith(
+      expect.objectContaining({ token: initMessage.token, rect: regionSelection.rect }),
+    );
+    await vi.waitFor(() =>
+      expect(frameMessages).toContainEqual(
+        expect.objectContaining({
+          type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
+          selection: expect.objectContaining({ id: 2, ...regionSelection }),
         }),
       ),
     );

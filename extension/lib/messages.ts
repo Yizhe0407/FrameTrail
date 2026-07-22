@@ -4,6 +4,8 @@ export type CaptureIntent = 'click' | 'mark';
 
 export interface ClickCapture {
   type: 'FRAME_TRAIL_CLICK';
+  /** Element selections replay the original page click; region selections are capture-only. */
+  captureKind?: 'element' | 'region';
   /** Identifies one in-flight screenshot so a cancelled gesture can invalidate it. */
   captureId: string;
   /** Identifies the exact recording run that injected the sender. */
@@ -23,6 +25,7 @@ export interface ClickCapture {
 /** 'steps': one screenshot per selection (default). 'snapshot': every
  * selection in the session is annotated onto one shared screenshot instead. */
 export type RecordingMode = 'steps' | 'snapshot';
+export type InsertionSide = 'before' | 'after';
 
 export type RecordingPhase =
   | 'idle'
@@ -41,11 +44,75 @@ export interface RecoverableRecordingError {
 
 export interface StartRecordingMessage {
   type: 'START_RECORDING';
+  /** Explicit Guide target. UI selection is intentionally separate from RecordingState. */
+  sessionId: string;
   mode: RecordingMode;
   /** Snapshot mode only: whether boxes get a numbered order badge. */
   numbered: boolean;
   permissionScope?: 'current-page' | 'cross-page';
 }
+
+export type StartRecordingResult =
+  | { ok: true; sessionId: string; runId: string }
+  | { ok: false; error: string };
+
+export interface SourcePermissionPreflightSuccess {
+  ok: true;
+  /** Exact persisted HTTP(S) URL resolved by background; never accepted from editor state. */
+  sourceUrl: string;
+  /** Parsed origin of sourceUrl, suitable for permission copy/UI. */
+  sourceOrigin: string;
+  /** Browser host-permission match pattern derived from sourceOrigin. */
+  permissionPattern: string;
+}
+
+export interface PreflightInsertionSourcePermissionMessage {
+  type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION';
+  sessionId: string;
+  /** Stable timeline entry id; background resolves its current persisted image owner. */
+  anchorEntryId: string;
+}
+
+export type PreflightInsertionSourcePermissionErrorCode =
+  | 'INVALID_EDITOR'
+  | 'GUIDE_NOT_FOUND'
+  | 'GUIDE_ARCHIVED'
+  | 'ANCHOR_NOT_FOUND'
+  | 'ANCHOR_CHANGED'
+  | 'RESTRICTED_SOURCE';
+
+export type PreflightInsertionSourcePermissionResult =
+  | SourcePermissionPreflightSuccess
+  | { ok: false; code: PreflightInsertionSourcePermissionErrorCode; message: string };
+
+export interface StartInsertionRecordingMessage {
+  type: 'START_INSERTION_RECORDING';
+  sessionId: string;
+  /** Stable timeline entry id: an ordinary step id or a snapshot anchor id. */
+  anchorEntryId: string;
+  side: InsertionSide;
+  mode: RecordingMode;
+  /** Snapshot mode only: whether boxes get a numbered order badge. */
+  numbered: boolean;
+  /** Editor may nominate an already-open exact-URL tab. Background revalidates it. */
+  preferredTabId?: number;
+}
+
+export type StartInsertionRecordingErrorCode =
+  | 'ACTIVE_OPERATION'
+  | 'INVALID_EDITOR'
+  | 'GUIDE_NOT_FOUND'
+  | 'GUIDE_ARCHIVED'
+  | 'ANCHOR_NOT_FOUND'
+  | 'ANCHOR_CHANGED'
+  | 'RESTRICTED_SOURCE'
+  | 'HOST_PERMISSION_REQUIRED'
+  | 'SOURCE_TAB_FAILED'
+  | 'INJECTION_FAILED';
+
+export type StartInsertionRecordingResult =
+  | { ok: true; sessionId: string; runId: string; tabId: number; reusedTab: boolean }
+  | { ok: false; code: StartInsertionRecordingErrorCode; error: string };
 
 export interface StopRecordingMessage {
   type: 'STOP_RECORDING';
@@ -53,7 +120,19 @@ export interface StopRecordingMessage {
 
 export interface OpenEditorMessage {
   type: 'OPEN_EDITOR';
+  /** Explicit Guide target for normal navigation. Omitted only for recovery. */
+  sessionId?: string;
+  entryId?: string;
 }
+
+export interface ResetGuideMessage {
+  type: 'RESET_GUIDE';
+  sessionId: string;
+}
+
+export type ResetGuideResult =
+  | { ok: true; contentRevision?: number }
+  | { ok: false; error: string };
 
 export type OpenEditorResult = { ok: true } | { ok: false; error: string };
 
@@ -144,6 +223,17 @@ export type StepRecaptureTarget =
   | { kind: 'single'; stepId: string }
   | { kind: 'snapshot-singleton'; anchorId: string; annotationId: string };
 
+export interface InsertionRecordingContext {
+  anchorEntryId: string;
+  side: InsertionSide;
+  /** Exact ids committed by this run, in their internal chronological order. */
+  runBlockIds: string[];
+  /** Persisted only after being derived from the DB anchor; never accepted from UI. */
+  sourceUrl: string;
+  sourceTabCreated: boolean;
+  startedAt: number;
+}
+
 export interface StepRecaptureContext {
   runId: string;
   sessionId: string;
@@ -171,6 +261,23 @@ export interface StepRecaptureResult {
   message?: string;
   completedAt: number;
 }
+
+export interface PreflightStepRecaptureSourcePermissionMessage {
+  type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION';
+  sessionId: string;
+  target: StepRecaptureTarget;
+}
+
+export type PreflightStepRecaptureSourcePermissionErrorCode =
+  | 'INVALID_EDITOR'
+  | 'TARGET_NOT_FOUND'
+  | 'TARGET_CHANGED'
+  | 'UNSUPPORTED_SNAPSHOT_GROUP'
+  | 'RESTRICTED_SOURCE';
+
+export type PreflightStepRecaptureSourcePermissionResult =
+  | SourcePermissionPreflightSuccess
+  | { ok: false; code: PreflightStepRecaptureSourcePermissionErrorCode; message: string };
 
 export interface StartStepRecaptureMessage {
   type: 'START_STEP_RECAPTURE';
@@ -228,6 +335,7 @@ export type CancelStepRecaptureResult =
 export interface AckStepRecaptureResultMessage {
   type: 'ACK_STEP_RECAPTURE_RESULT';
   runId: string;
+  sessionId: string;
 }
 
 export interface FocusStepRecaptureSourceMessage {
@@ -244,10 +352,14 @@ export type BackgroundMessage =
   | CancelCaptureMessage
   | SnapshotInvalidatedMessage
   | StartRecordingMessage
+  | PreflightInsertionSourcePermissionMessage
+  | StartInsertionRecordingMessage
   | StopRecordingMessage
   | OpenEditorMessage
+  | ResetGuideMessage
   | RecordingControlMessage
   | RecorderReadyMessage
+  | PreflightStepRecaptureSourcePermissionMessage
   | StartStepRecaptureMessage
   | FrameTrailRecaptureReadyMessage
   | FrameTrailRecaptureTargetMessage
@@ -278,6 +390,8 @@ export interface RecordingState {
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: ClickCapture['viewport'] | null;
   snapshotDevicePixelRatio: number | null;
+  /** Present only for a targeted insertion recording run. */
+  insertion?: InsertionRecordingContext | null;
   recapture: StepRecaptureContext | null;
   /** Durable handoff; the editor clears it with ACK_STEP_RECAPTURE_RESULT. */
   recaptureResult: StepRecaptureResult | null;

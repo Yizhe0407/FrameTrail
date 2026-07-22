@@ -42,17 +42,20 @@ export const test = base.extend<Fixtures>({
     });
     await mkdir(testInfo.outputPath('browser'), { recursive: true });
     await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
-    await use(context);
-    if (testInfo.status !== testInfo.expectedStatus) {
-      for (const [index, page] of context.pages().entries()) {
-        await page.screenshot({ path: testInfo.outputPath(`browser/page-${index}.png`), fullPage: true }).catch(() => {});
+    try {
+      await use(context);
+      if (testInfo.status !== testInfo.expectedStatus) {
+        for (const [index, page] of context.pages().entries()) {
+          await page.screenshot({ path: testInfo.outputPath(`browser/page-${index}.png`), fullPage: true }).catch(() => {});
+        }
+        await context.tracing.stop({ path: testInfo.outputPath('browser/trace.zip') }).catch(() => {});
+      } else {
+        await context.tracing.stop().catch(() => {});
       }
-      await context.tracing.stop({ path: testInfo.outputPath('browser/trace.zip') });
-    } else {
-      await context.tracing.stop();
+    } finally {
+      await context.close().catch(() => {});
+      await rm(userDataDir, { recursive: true, force: true });
     }
-    await context.close();
-    await rm(userDataDir, { recursive: true, force: true });
   },
 
   extensionId: async ({ extensionContext }, use) => {

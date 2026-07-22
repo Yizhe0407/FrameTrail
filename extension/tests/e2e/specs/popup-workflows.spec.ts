@@ -70,20 +70,41 @@ test.describe('popup workflows', () => {
   test('opens the editor and keeps data actions disabled for an empty session', async ({
     popupPage,
     extensionContext,
+    extensionId,
     browserErrors: _browserErrors,
   }) => {
+    // resetExtensionData creates and selects an empty Guide. Keep this id so
+    // the assertion verifies URL-owned Guide selection rather than whatever
+    // recording state happens to be current when the editor initializes.
+    const activeGuideId = await popupPage.evaluate(async () => {
+      const extensionChrome = globalThis as typeof globalThis & {
+        chrome: { storage: { local: { get(keys: string): Promise<Record<string, unknown>> } } };
+      };
+      const stored = await extensionChrome.chrome.storage.local.get('frametrail:activeGuideId');
+      return stored['frametrail:activeGuideId'];
+    });
+    if (typeof activeGuideId !== 'string' || activeGuideId.length === 0) {
+      throw new Error('Expected reset data to select an empty Guide.');
+    }
+
     await expect(popupPage.getByRole('button', { name: '匯出圖片' })).toHaveCount(0);
     await expect(popupPage.getByRole('button', { name: '重置' })).toHaveCount(0);
 
     const editorPromise = extensionContext.waitForEvent('page');
-    await popupPage.getByRole('button', { name: '開啟編輯器' }).click();
+    await popupPage.getByRole('button', { name: '編輯器' }).click();
     const editor = await editorPromise;
     await editor.waitForLoadState('domcontentloaded');
 
-    expect(editor.url()).toMatch(/^chrome-extension:\/\/[^/]+\/editor\.html$/);
-    await expect(editor.getByText('尚未建立內容')).toBeVisible();
+    const editorUrl = new URL(editor.url());
+    expect(editorUrl.protocol).toBe('chrome-extension:');
+    expect(editorUrl.host).toBe(extensionId);
+    expect(editorUrl.pathname).toBe('/editor.html');
+    expect(editorUrl.searchParams.get('sessionId')).toBe(activeGuideId);
+    expect(editorUrl.searchParams.get('entryId')).toBeNull();
+
+    await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: '回到網頁開始錄製' })).toBeVisible();
-    await expect(editor.getByRole('button', { name: '匯出圖片' })).toBeDisabled();
+    await expect(editor.getByRole('button', { name: '發佈' })).toBeDisabled();
     await expect(editor.getByRole('button', { name: '重置' })).toBeDisabled();
   });
 
@@ -112,7 +133,7 @@ test.describe('popup workflows', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     expect(editor.url()).toContain('entryId=');
-    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+    await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
     await expect.poll(async () => (await readRecordingState(editor)).recoverableError).toBeNull();
   });
 });

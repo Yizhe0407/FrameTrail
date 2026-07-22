@@ -10,6 +10,7 @@ import {
 import { browser } from 'wxt/browser';
 import {
   Check,
+  Crop,
   Loader2,
   Minimize2,
   MoreHorizontal,
@@ -53,6 +54,8 @@ interface Props {
   onCommand: (action: ToolbarAction, undoToken?: string) => Promise<RecordingControlResult>;
   onUndoApplied?: () => void;
   onRestoreApplied?: () => void;
+  onStartRegionCapture?: () => void;
+  regionCaptureActive?: boolean;
 }
 
 const styles = `
@@ -180,7 +183,14 @@ const styles = `
   @media (prefers-reduced-motion: reduce) { .ft-layer * { animation: none !important; transition: none !important; } }
 `;
 
-export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRestoreApplied }: Props) {
+export default function RecordingToolbar({
+  state,
+  onCommand,
+  onUndoApplied,
+  onRestoreApplied,
+  onStartRegionCapture,
+  regionCaptureActive = false,
+}: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [pending, setPending] = useState<ToolbarAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -272,6 +282,10 @@ export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRe
     }
     previousCount.current = state.itemCount;
   }, [state.itemCount, state.mode]);
+
+  useEffect(() => {
+    if (regionCaptureActive) setAnnouncement('區域擷取已啟動，請在畫面上拖曳選取範圍');
+  }, [regionCaptureActive]);
 
   useEffect(() => {
     if (!undo) return;
@@ -602,9 +616,24 @@ export default function RecordingToolbar({ state, onCommand, onUndoApplied, onRe
                   >
                     <span className="ft-dot" aria-hidden="true" />
                     <span className="ft-status-text">
-                      {preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : modeLabel} · ${state.itemCount}`}
+                      {regionCaptureActive
+                        ? '區域擷取中'
+                        : preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : modeLabel} · ${state.itemCount}`}
                     </span>
                   </button>
+                  {!preparingNext && onStartRegionCapture && (
+                    <button
+                      type="button"
+                      className="ft-button"
+                      aria-label={regionCaptureActive ? '區域擷取進行中' : '擷取畫面區域'}
+                      title={regionCaptureActive ? '區域擷取進行中' : '拖曳擷取畫面區域'}
+                      aria-pressed={regionCaptureActive}
+                      disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
+                      onClick={() => onStartRegionCapture()}
+                    >
+                      <Crop />
+                    </button>
+                  )}
                   {!preparingNext && (
                     <button
                       type="button"

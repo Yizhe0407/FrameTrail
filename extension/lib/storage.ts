@@ -1,6 +1,7 @@
 import { browser, type Browser } from 'wxt/browser';
 import {
   RECORDING_STATE_KEY,
+  type InsertionRecordingContext,
   type RecordingState,
   type StepRecaptureContext,
   type StepRecaptureResult,
@@ -22,6 +23,7 @@ const DEFAULT_STATE: RecordingState = {
   runId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
+  insertion: null,
   recapture: null,
   recaptureResult: null,
 };
@@ -53,6 +55,32 @@ function normalizeRecaptureTarget(value: unknown): StepRecaptureTarget | null {
     };
   }
   return null;
+}
+
+function normalizeInsertionContext(value: unknown): InsertionRecordingContext | null {
+  if (!value || typeof value !== 'object') return null;
+  const context = value as Partial<InsertionRecordingContext>;
+  if (
+    !isNonEmptyString(context.anchorEntryId) ||
+    (context.side !== 'before' && context.side !== 'after') ||
+    !Array.isArray(context.runBlockIds) ||
+    context.runBlockIds.length > 10_000 ||
+    !context.runBlockIds.every(isNonEmptyString) ||
+    new Set(context.runBlockIds).size !== context.runBlockIds.length ||
+    !isNonEmptyString(context.sourceUrl) ||
+    typeof context.sourceTabCreated !== 'boolean' ||
+    !Number.isFinite(context.startedAt)
+  ) {
+    return null;
+  }
+  return {
+    anchorEntryId: context.anchorEntryId,
+    side: context.side,
+    runBlockIds: [...context.runBlockIds],
+    sourceUrl: context.sourceUrl,
+    sourceTabCreated: context.sourceTabCreated,
+    startedAt: context.startedAt!,
+  };
 }
 
 function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null {
@@ -134,17 +162,21 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     : normalized.isRecording
       ? 'recording'
       : 'idle';
+  const insertion = normalizeInsertionContext(normalized.insertion);
   const recapture = normalizeRecaptureContext(normalized.recapture);
   const storedOperation = normalized.operation;
   // Legacy states predate the discriminator. A malformed persisted recapture
   // fails closed instead of leaving the extension in an un-cancellable mode.
+  const hasMalformedPersistedInsertion = normalized.insertion != null && insertion === null;
   const operation =
     storedOperation === 'recapture'
       ? recapture
         ? 'recapture'
         : null
       : storedOperation === 'recording' || (storedOperation == null && normalized.isRecording)
-        ? 'recording'
+        ? hasMalformedPersistedInsertion
+          ? null
+          : 'recording'
         : null;
 
   return {
@@ -154,9 +186,67 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     phase: operation === 'recording' ? phase : phase === 'error' ? 'error' : 'idle',
     mode,
     itemCount: Number.isSafeInteger(normalized.itemCount) && normalized.itemCount >= 0 ? normalized.itemCount : 0,
+    insertion: operation === 'recording' ? insertion : null,
     recapture: operation === 'recapture' ? recapture : null,
     recaptureResult: normalizeRecaptureResult(normalized.recaptureResult),
   };
+}
+
+
+/** UI-only Guide selection. RecordingState remains the durable owner of an
+ * active capture transaction and must never be rewritten merely to navigate. */
+export const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId';
+
+function normalizeActiveGuideId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+// Serializes same-context selection mutations so a compare-and-clear cannot
+// remove a selection queued after it. browser.storage has no cross-context
+// compare-and-swap primitive, so callers should always use these helpers.
+let activeGuideMutation: Promise<void> = Promise.resolve();
+
+function queueActiveGuideMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const result = activeGuideMutation.then(mutation, mutation);
+  activeGuideMutation = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+export async function getActiveGuideId(): Promise<string | null> {
+  const result = await browser.storage.local.get(ACTIVE_GUIDE_ID_KEY);
+  return normalizeActiveGuideId(result[ACTIVE_GUIDE_ID_KEY]);
+}
+
+export function setActiveGuideId(guideId: string): Promise<void> {
+  const normalized = normalizeActiveGuideId(guideId);
+  if (!normalized) return Promise.reject(new TypeError('Guide id must be a non-empty string.'));
+  return queueActiveGuideMutation(async () => {
+    await browser.storage.local.set({ [ACTIVE_GUIDE_ID_KEY]: normalized });
+  });
+}
+
+/** Removes the UI selection only if it still points at expectedGuideId.
+ * Returns false when another selection has already won the race. */
+export function clearActiveGuideId(expectedGuideId: string): Promise<boolean> {
+  const expected = normalizeActiveGuideId(expectedGuideId);
+  if (!expected) return Promise.reject(new TypeError('Expected Guide id must be a non-empty string.'));
+  return queueActiveGuideMutation(async () => {
+    const current = await getActiveGuideId();
+    if (current !== expected) return false;
+    await browser.storage.local.remove(ACTIVE_GUIDE_ID_KEY);
+    return true;
+  });
+}
+
+/** Subscribes to UI Guide-selection changes; returns an unsubscribe function. */
+export function onActiveGuideIdChange(callback: (guideId: string | null) => void): () => void {
+  const listener = (changes: Record<string, Browser.storage.StorageChange>, areaName: string) => {
+    if (areaName !== 'local') return;
+    const change = changes[ACTIVE_GUIDE_ID_KEY];
+    if (change) callback(normalizeActiveGuideId(change.newValue));
+  };
+  browser.storage.onChanged.addListener(listener);
+  return () => browser.storage.onChanged.removeListener(listener);
 }
 
 export async function getRecordingState(): Promise<RecordingState> {

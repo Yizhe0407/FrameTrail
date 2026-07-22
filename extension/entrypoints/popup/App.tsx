@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { AlertCircle, PencilLine } from 'lucide-react';
+import { AlertCircle, CircleHelp, Library, PencilLine } from 'lucide-react';
 import { useRecordingSession } from '@/lib/useRecordingSession';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -9,20 +9,62 @@ import RecordControls from '@/components/RecordControls';
 import ResetButton from '@/components/ResetButton';
 import ExportImagesButton from '@/components/ExportImagesButton';
 import { needsEditorRecovery } from '@/lib/recording-recovery';
-import type { OpenEditorResult } from '@/lib/messages';
+import type { OpenEditorResult, RecordingMode } from '@/lib/messages';
+import { openLibrary } from '@/lib/navigation';
+import { ensureSelectedGuide } from '@/lib/guide-actions';
+import OnboardingDialog from '@/components/OnboardingDialog';
+import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/onboarding';
 
 function App() {
-  const { recording, isRecording, steps, error, recoverableError } = useRecordingSession();
+  const { recording, isRecording, sessionId, steps, error, recoverableError } = useRecordingSession();
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const editorRecovery = needsEditorRecovery(recoverableError);
+
+  useEffect(() => {
+    let active = true;
+
+    void shouldShowOnboarding()
+      .then((show) => {
+        if (active) setOnboardingOpen(show);
+      })
+      .catch((onboardingError) => {
+        // If local storage is temporarily unavailable, prefer showing the
+        // self-contained guide over silently hiding first-run help.
+        console.error('[frametrail] failed to read onboarding state', onboardingError);
+        if (active) setOnboardingOpen(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function completeOnboarding() {
+    await markOnboardingComplete();
+  }
+
+  async function startPractice(mode: RecordingMode) {
+    await openLocalPracticePage(mode);
+    window.close();
+  }
 
   async function openEditor() {
     if (openingEditor) return;
     setOpeningEditor(true);
     setEditorOpenError(null);
     try {
-      const result = await browser.runtime.sendMessage({ type: 'OPEN_EDITOR' }) as OpenEditorResult;
+      // Recovery must return to the operation owner. Normal navigation resolves
+      // the current UI selection afresh so an idle popup never opens a
+      // guide-less editor or falls back to stale recording state.
+      const targetSessionId = editorRecovery
+        ? sessionId
+        : (await ensureSelectedGuide()).id;
+      const result = await browser.runtime.sendMessage({
+        type: 'OPEN_EDITOR',
+        sessionId: targetSessionId ?? undefined,
+      }) as OpenEditorResult;
       if (!result.ok) {
         setEditorOpenError(result.error);
         return;
@@ -42,11 +84,29 @@ function App() {
 
   return (
     <div className="flex w-80 flex-col gap-5 bg-stone-50 px-5 py-5 dark:bg-stone-900">
-      <div className="flex items-baseline justify-between">
+      <OnboardingDialog
+        open={onboardingOpen}
+        onOpenChange={setOnboardingOpen}
+        onComplete={completeOnboarding}
+        onStartPractice={startPractice}
+      />
+      <div className="flex items-baseline justify-between gap-3">
         <h1 className="text-base font-semibold text-stone-900 dark:text-stone-50">FrameTrail</h1>
-        <span className="text-xs font-medium text-stone-600 dark:text-stone-300">
-          {recording.phase === 'starting' ? '準備中' : isRecording ? '錄製中' : '待命'}
-        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-stone-600 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-50"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            <CircleHelp />
+            教學
+          </Button>
+          <span className="text-xs font-medium text-stone-600 dark:text-stone-300">
+            {recording.phase === 'starting' ? '準備中' : isRecording ? '錄製中' : '待命'}
+          </span>
+        </div>
       </div>
 
       {(editorOpenError || recoverableError?.message || error) && !isRecording && (
@@ -66,21 +126,31 @@ function App() {
       {!editorRecovery && <Separator className="bg-stone-200 dark:bg-stone-700" />}
 
       {!editorRecovery && <div className="flex flex-col gap-2">
-        <Button
-          variant="outline"
-          className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
-          onClick={openEditor}
-        >
-          <PencilLine />
-          開啟編輯器
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
+            onClick={openEditor}
+          >
+            <PencilLine />
+            編輯器
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
+            onClick={() => void openLibrary().then(() => window.close())}
+          >
+            <Library />
+            作品庫
+          </Button>
+        </div>
         {!isRecording && steps.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             <ExportImagesButton
               steps={steps}
               className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
             />
-            <ResetButton hasSteps variant="outline" className="w-full" />
+            <ResetButton hasSteps sessionId={sessionId} variant="outline" className="w-full" />
           </div>
         )}
       </div>}

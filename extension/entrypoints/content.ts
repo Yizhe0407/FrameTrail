@@ -28,6 +28,7 @@ import {
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldRect,
+  type SnapshotShieldRegionCaptureMessage,
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
 } from '@/lib/snapshot-shield-protocol';
@@ -37,6 +38,11 @@ import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
 import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
 import { createImageCoordinateMapper } from '@/lib/image-geometry';
+import {
+  createRegionCapture,
+  isRegionRectInsideViewport,
+  type RegionCapture,
+} from '@/lib/region-capture';
 import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recording-toolbar-host';
 import type {
   ClickCapture,
@@ -806,6 +812,8 @@ export default defineContentScript({
     let snapshotAnnotationNumber = 0;
     let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
+    let manualRegionCapture: RegionCapture | null = null;
+    let recordingToolbar: MountedRecordingToolbar | null = null;
     let snapshotInteractionsActive = false;
     let snapshotInvalidationSent = recordingState.phase === 'invalidated';
     let snapshotDprQuery: MediaQueryList | null = null;
@@ -1002,7 +1010,7 @@ export default defineContentScript({
     };
 
     const onStepPointerMove = (event: PointerEvent) => {
-      if (recorderPaused) return;
+      if (recorderPaused || manualRegionCapture?.isActive()) return;
       stepPreviewPoint = { clientX: event.clientX, clientY: event.clientY };
       scheduleStepPreview();
       armStepPreviewFallback();
@@ -1038,9 +1046,11 @@ export default defineContentScript({
       intent: ClickCapture['intent'],
       now: number,
       captureId: string = crypto.randomUUID(),
+      captureKind: ClickCapture['captureKind'] = 'element',
     ): Promise<boolean> => {
       const payload: ClickCapture = {
         type: 'FRAME_TRAIL_CLICK',
+        captureKind,
         captureId,
         runId,
         rect,
@@ -1061,6 +1071,52 @@ export default defineContentScript({
       if (result?.ok) return true;
       console.warn('[frametrail] step was not captured');
       return false;
+    };
+
+    const startStepRegionCapture = () => {
+      if (!isStepMode || recorderPaused || stepGesture || manualRegionCapture?.isActive()) return;
+      suspendStepPreview();
+      const captureId = crypto.randomUUID();
+      let captureSent = false;
+      const origin: ScrollSnapshot = { x: window.scrollX, y: window.scrollY, containers: [] };
+      setCaptureScrollLock(origin);
+
+      const controller = createRegionCapture({
+        onCapture: async (rect) => {
+          captureSent = true;
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          const outcome = await Promise.race([
+            sendCapture(
+              rect,
+              { text: '', tagName: 'region' },
+              'mark',
+              Date.now(),
+              captureId,
+              'region',
+            ).then((saved) => ({ kind: 'settled' as const, saved })),
+            new Promise<{ kind: 'timeout'; saved: false }>((resolve) => {
+              timeout = setTimeout(() => resolve({ kind: 'timeout', saved: false }), CAPTURE_FAILSAFE_MS);
+            }),
+          ]);
+          if (timeout) clearTimeout(timeout);
+          if (outcome.kind === 'timeout') {
+            await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId });
+            console.warn('[frametrail] region capture exceeded its failsafe budget and was cancelled');
+          }
+        },
+        onCancel: async () => {
+          if (!captureSent) return;
+          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId });
+        },
+        onClose: () => {
+          if (manualRegionCapture === controller) manualRegionCapture = null;
+          setCaptureScrollLock(null);
+          recordingToolbar?.setRegionCaptureActive(false);
+          scheduleStepPreview();
+        },
+      });
+      manualRegionCapture = controller;
+      recordingToolbar?.setRegionCaptureActive(true);
     };
 
     const captureElement = async (
@@ -1112,7 +1168,7 @@ export default defineContentScript({
     const onPointerDown = async (event: Event) => {
       const pe = event as PointerEvent;
       if (pe.button !== 0 || !pe.isPrimary) return;
-      if (recorderPaused) return;
+      if (recorderPaused || manualRegionCapture?.isActive()) return;
       if (pe.target instanceof Element && pe.target.closest('[data-frametrail-recording-toolbar]')) return;
 
       // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
@@ -1252,6 +1308,35 @@ export default defineContentScript({
       };
     };
 
+    const onSnapshotRegion = async (
+      message: SnapshotShieldRegionCaptureMessage,
+    ): Promise<SnapshotShieldSelection | null> => {
+      if (!snapshotInteractionsActive) return null;
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      if (!isRegionRectInsideViewport(message.rect, viewport)) return null;
+      const key = snapshotRectKey(message.rect);
+      if (selectedSnapshotRects.has(key)) return null;
+
+      const target: ResolvedSnapshotTarget = {
+        rect: message.rect,
+        identity: `region:${key}`,
+        text: '',
+        tagName: 'region',
+        candidateOffset: 0,
+      };
+      if (!(await sendCapture(message.rect, target, 'mark', Date.now(), crypto.randomUUID(), 'region'))) return null;
+      if (!snapshotInteractionsActive) return null;
+      selectedSnapshotTargets.add(target.identity);
+      selectedSnapshotRects.add(key);
+      selectedSnapshotHistory.push(target);
+      undoneSnapshotTarget = null;
+      snapshotAnnotationNumber += 1;
+      return {
+        rect: message.rect,
+        label: recordingState.numbered ? snapshotAnnotationNumber : null,
+      };
+    };
+
     const onSnapshotControl = async (
       message: SnapshotShieldControlMessage,
     ): Promise<RecordingControlResult> => {
@@ -1351,10 +1436,10 @@ export default defineContentScript({
       } satisfies RecordingControlMessage)) as RecordingControlResult;
     };
 
-    let recordingToolbar: MountedRecordingToolbar | null = null;
     if (isStepMode || recordingState.phase === 'preparing-next') {
       recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
         onCommand: sendToolbarCommand,
+        ...(isStepMode ? { onStartRegionCapture: startStepRegionCapture } : {}),
       });
     }
 
@@ -1366,6 +1451,7 @@ export default defineContentScript({
         if (state.phase === 'invalidated') snapshotInvalidationSent = true;
       }
       if (recorderPaused) suspendStepPreview();
+      if (state.phase !== 'recording') manualRegionCapture?.cancel('removed');
       recordingToolbar?.update(toToolbarState(state));
       snapshotShield?.updateToolbar(toToolbarState(state));
     });
@@ -1423,6 +1509,8 @@ export default defineContentScript({
         snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
         snapshotDprQuery = null;
       }
+      manualRegionCapture?.cancel('removed');
+      manualRegionCapture = null;
       snapshotShield?.remove();
       snapshotShield = null;
       recordingToolbar?.remove();
@@ -1447,7 +1535,7 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(onRecorderMessage);
 
     if (shouldFreezeSnapshot) {
-      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl);
+      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl, onSnapshotRegion);
       try {
         await snapshotShield.ready;
         snapshotShield.updateToolbar(toToolbarState(recordingState));

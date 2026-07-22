@@ -8,7 +8,9 @@ declare const chrome: {
   storage: {
     local: {
       clear(): Promise<void>;
-      get(key: string): Promise<Record<string, { isRecording?: boolean } | undefined>>;
+      get(key: 'scribe:recordingState'): Promise<Record<string, { isRecording?: boolean } | undefined>>;
+      get(key: string): Promise<Record<string, unknown>>;
+      set(values: Record<string, unknown>): Promise<void>;
     };
   };
   downloads: {
@@ -119,26 +121,64 @@ export interface StoredStep {
 
 export async function resetExtensionData(popup: Page): Promise<void> {
   await popup.evaluate(async () => {
+    const guideId = crypto.randomUUID();
     const state = await chrome.storage.local.get('scribe:recordingState');
     if (state['scribe:recordingState']?.isRecording) {
       await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
     }
     await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 3);
+      const request = indexedDB.open('scribe', 4);
       request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('FrameTrail IndexedDB reset was blocked.'));
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('steps')) {
+          const steps = db.createObjectStore('steps', { keyPath: 'id' });
+          steps.createIndex('by-session', 'sessionId');
+        }
+        if (!db.objectStoreNames.contains('guides')) {
+          const guides = db.createObjectStore('guides', { keyPath: 'id' });
+          guides.createIndex('by-updated-at', 'updatedAt');
+        }
+      };
       request.onsuccess = () => {
         const db = request.result;
-        const tx = db.transaction('steps', 'readwrite');
-        tx.objectStore('steps').clear();
+        const storeNames = ['guides', 'steps'].filter((name) => db.objectStoreNames.contains(name));
+        if (storeNames.length !== 2) {
+          db.close();
+          reject(new Error('FrameTrail IndexedDB v4 stores are incomplete.'));
+          return;
+        }
+        const tx = db.transaction(storeNames, 'readwrite');
+        for (const storeName of storeNames) tx.objectStore(storeName).clear();
+        tx.objectStore('guides').add({
+          id: guideId,
+          title: 'E2E 測試教學',
+          description: '',
+          sections: [],
+          createdAt: 0,
+          updatedAt: 0,
+          archivedAt: null,
+          contentRevision: 0,
+          stepCount: 0,
+          entryCount: 0,
+          storageBytes: 0,
+        });
         tx.oncomplete = () => {
           db.close();
           resolve();
         };
         tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error('Reset transaction was aborted.'));
       };
     });
     await chrome.storage.local.clear();
+    await chrome.storage.local.set({
+      'frametrail:onboarding:v1': { version: 1, completed: true, completedAt: 0 },
+      'frametrail:activeGuideId': guideId,
+    });
   });
+  await popup.reload({ waitUntil: 'domcontentloaded' });
 }
 
 export async function readRecordingState(popup: Page): Promise<Record<string, unknown>> {
@@ -151,7 +191,7 @@ export async function readRecordingState(popup: Page): Promise<Record<string, un
 export async function readSteps(popup: Page): Promise<StoredStep[]> {
   return popup.evaluate(async () => {
     return await new Promise<StoredStep[]>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 3);
+      const request = indexedDB.open('scribe', 4);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -197,7 +237,7 @@ export async function rawScreenshotRosePixels(
 ): Promise<number> {
   return popup.evaluate(async ({ id, boundsOverride }) => {
     return await new Promise<number>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 3);
+      const request = indexedDB.open('scribe', 4);
       request.onerror = () => reject(request.error);
       request.onsuccess = async () => {
         const db = request.result;
@@ -251,7 +291,7 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
       rootSentinelPixels: number;
       nestedSentinelPixels: number;
     }>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 3);
+      const request = indexedDB.open('scribe', 4);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -306,7 +346,29 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
 export async function startRecording(appPage: Page, popup: Page, mode: RecordingMode, numbered = true): Promise<void> {
   await appPage.bringToFront();
   await popup.evaluate(async ({ mode, numbered }) => {
-    await chrome.runtime.sendMessage({ type: 'START_RECORDING', mode, numbered });
+    try {
+      const stored = await chrome.storage.local.get('frametrail:activeGuideId');
+      const sessionId = stored['frametrail:activeGuideId'];
+      if (typeof sessionId !== 'string' || sessionId.length === 0) {
+        throw new Error('No active E2E Guide was initialized.');
+      }
+      const result = await chrome.runtime.sendMessage({
+        type: 'START_RECORDING',
+        sessionId,
+        mode,
+        numbered,
+      }) as { ok: true } | { ok: false; error?: string } | undefined;
+
+      if (!result?.ok) {
+        throw new Error(result?.error ?? 'START_RECORDING failed without a typed result');
+      }
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `START_RECORDING rejected: ${error.message}`
+          : `START_RECORDING rejected: ${String(error)}`,
+      );
+    }
   }, { mode, numbered });
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   if (mode === 'steps') {

@@ -9,7 +9,8 @@ export const CAPTURE_PRESENTATION_CSS = `
  * them fully transparent while captureVisibleTab samples the page. */
 [data-frametrail-snapshot-shield],
 [data-frametrail-step-preview],
-[data-frametrail-recording-toolbar] {
+[data-frametrail-recording-toolbar],
+[data-frametrail-region-capture] {
   visibility: hidden !important;
   opacity: 0 !important;
 }

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, EyeOff, Loader2, ZoomIn } from 'lucide-react';
-import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, updateStep, type Step, type StepEntry } from '@/lib/db';
+import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type Step, type StepEntry } from '@/lib/db';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import HighlightThumbnail from './HighlightThumbnail';
@@ -21,6 +21,7 @@ interface Props {
   onReorderAnnotations: (reordered: Step[]) => Promise<void>;
   onEditVisuals: (commit: VisualEditCommit) => Promise<void>;
   onRecapture: () => Promise<void>;
+  onSetNumbered: (entryId: string, next: boolean) => Promise<void>;
   editingDisabled?: boolean;
 }
 
@@ -34,21 +35,36 @@ export default function StepStage({
   onReorderAnnotations,
   onEditVisuals,
   onRecapture,
+  onSetNumbered,
   editingDisabled = false,
 }: Props) {
   const [numberingPending, setNumberingPending] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const [visualEditorOpen, setVisualEditorOpen] = useState(false);
   const [visualSavePending, setVisualSavePending] = useState(false);
+  const editingDisabledRef = useRef(editingDisabled);
+  const visualSavePendingRef = useRef(false);
   const privacy = getEntryPrivacyState(entry);
+
+  // Keep asynchronous callbacks aligned with the latest parent operation state.
+  // A dialog can have an already-scheduled save callback when recording or a
+  // batch action disables editing.
+  editingDisabledRef.current = editingDisabled;
+
+  useEffect(() => {
+    if (editingDisabled) setVisualEditorOpen(false);
+  }, [editingDisabled]);
+
+  function openVisualEditor() {
+    if (!editingDisabled) setVisualEditorOpen(true);
+  }
 
   async function setNumbered(next: boolean) {
     if (entry.kind !== 'group' || numberingPending || editingDisabled) return;
     setNumberingPending(true);
     setStageError(null);
     try {
-      await Promise.all([entry.anchor, ...entry.annotations].map((s) => updateStep(s.id, { numbered: next })));
-      await onChange();
+      await onSetNumbered(entryId(entry), next);
     } catch (err) {
       console.error('更新標注編號設定失敗', err);
       setStageError('編號設定儲存失敗，請再試一次。');
@@ -89,7 +105,7 @@ export default function StepStage({
           type="button"
           size="sm"
           variant="outline"
-          onClick={() => setVisualEditorOpen(true)}
+          onClick={openVisualEditor}
           disabled={editingDisabled}
           title={editingDisabled ? '錄製或資料操作期間無法編輯圖片' : '修正框選或遮罩敏感資訊'}
         >
@@ -115,7 +131,11 @@ export default function StepStage({
   // instead of opening a second black-only lightbox. This reduces the
   // dead-end path while preserving the normal zoom affordance for reviewed
   // images.
-  const imageAction = privacy.reviewRequired ? () => setVisualEditorOpen(true) : onZoom;
+  const imageAction = privacy.reviewRequired
+    ? openVisualEditor
+    : () => {
+        if (!editingDisabled) onZoom();
+      };
   const imageActionLabel = privacy.reviewRequired ? '確認敏感資訊遮罩' : '放大圖片';
   const imageActionHint = privacy.reviewRequired ? '確認遮罩' : '放大';
   const imageActionIcon = privacy.reviewRequired ? <EyeOff className="size-3.5" /> : <ZoomIn className="size-3.5" />;
@@ -142,15 +162,23 @@ export default function StepStage({
   const visualEditor = (
     <VisualEditDialog
       entry={entry}
-      open={visualEditorOpen}
+      open={visualEditorOpen && !editingDisabled}
       saving={visualSavePending}
-      onOpenChange={setVisualEditorOpen}
+      onOpenChange={(open) => {
+        if (!editingDisabled) setVisualEditorOpen(open);
+      }}
       onSave={async (commit) => {
+        // Do not begin a new write after editing has been disabled. A write
+        // that already reached onEditVisuals is deliberately allowed to finish.
+        if (editingDisabledRef.current || visualSavePendingRef.current) return;
+
+        visualSavePendingRef.current = true;
         setVisualSavePending(true);
         try {
           await onEditVisuals(commit);
           setVisualEditorOpen(false);
         } finally {
+          visualSavePendingRef.current = false;
           setVisualSavePending(false);
         }
       }}
@@ -168,6 +196,7 @@ export default function StepStage({
           <button
             type="button"
             onClick={imageAction}
+            disabled={editingDisabled}
             aria-label={imageActionLabel}
             className={cn(
               'group relative w-full shrink-0 overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm lg:min-h-0 lg:shrink dark:border-stone-700 dark:bg-stone-900',
@@ -210,6 +239,7 @@ export default function StepStage({
           <button
             type="button"
             onClick={imageAction}
+            disabled={editingDisabled}
             aria-label={imageActionLabel}
             className={cn(
               'group relative w-full overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900',

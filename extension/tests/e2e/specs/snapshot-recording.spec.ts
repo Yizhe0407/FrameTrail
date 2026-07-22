@@ -43,7 +43,7 @@ test.describe('snapshot recording', () => {
     const anchor = steps.find((step) => step.bounds === null);
     const annotation = steps.find((step) => step.bounds !== null);
     expect(anchor).toMatchObject({ hasScreenshot: true, groupId: expect.any(String) });
-    expect(annotation).toMatchObject({ hasScreenshot: false, description: '標記 這是一段不可點擊的純文字' });
+    expect(annotation).toMatchObject({ hasScreenshot: false, description: '標記頁面區域' });
     expect(annotation?.groupId).toBe(anchor?.id);
 
     await stopRecording(popupPage);
@@ -102,7 +102,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
     expect(editor.url()).toContain('groupId=');
-    await expect(editor.getByRole('button', { name: '選取步驟 1' })).toHaveAttribute('aria-current', 'step');
+    await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
   test('moves and persists the toolbar, then discards the current run after confirmation', async ({
@@ -205,7 +205,7 @@ test.describe('snapshot recording', () => {
     await secondShield.getByRole('button', { name: '完成快照' }).click();
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
-    await expect(editor.getByRole('button', { name: /選取步驟/ })).toHaveCount(2);
+    await expect(editor.getByRole('button', { name: /開啟步驟/ })).toHaveCount(2);
   });
 
   test('invalidates changed viewports, preserves the old group, and rebuilds onto a new anchor', async ({

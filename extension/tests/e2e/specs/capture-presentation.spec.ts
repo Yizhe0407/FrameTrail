@@ -169,9 +169,10 @@ test.describe('screenshot presentation', () => {
     await clickTarget(appPage, '#plain-text');
 
     await expect.poll(() => appPage.evaluate(() => window.capturePresentationMonitor.hidden)).not.toBeNull();
-    await expect.poll(async () => (await readRecordingState(popupPage)).error).toContain('page changed');
-    expect(await readSteps(popupPage)).toHaveLength(0);
     await expectPresentationRestored(appPage, baseline);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(0);
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(0);
+    expect(appPage.url()).toContain('capture-must-fail=1');
     await stopRecording(popupPage);
   });
 });

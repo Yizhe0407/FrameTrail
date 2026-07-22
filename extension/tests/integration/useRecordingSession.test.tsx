@@ -118,6 +118,80 @@ describe('useRecordingSession', () => {
 
     expect(result.current.steps).toEqual([{ id: 'new-step' }]);
   });
+
+  it('不會讓缺少 sessionId 的編輯器退回顯示其他錄製中的 Guide', async () => {
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step` }]);
+
+    const { result } = renderHook(() => useRecordingSession(null));
+
+    await waitFor(() => expect(result.current.recording.sessionId).toBe('recording-session'));
+    expect(result.current.sessionId).toBeNull();
+    expect(result.current.steps).toEqual([]);
+    expect(mocks.getSteps).not.toHaveBeenCalledWith('recording-session');
+  });
+
+  it('uses an explicit editor session as the authoritative step source', async () => {
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step` }]);
+
+    const { result } = renderHook(() => useRecordingSession('url-session'));
+
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'url-session-step' }]));
+    expect(result.current.sessionId).toBe('url-session');
+    expect(result.current.recording.sessionId).toBe('recording-session');
+
+    act(() => mocks.emit(state('other-recording-session')));
+    await waitFor(() => expect(result.current.recording.sessionId).toBe('other-recording-session'));
+    expect(result.current.sessionId).toBe('url-session');
+    expect(mocks.getSteps).not.toHaveBeenCalledWith('recording-session');
+    expect(mocks.getSteps).not.toHaveBeenCalledWith('other-recording-session');
+  });
+
+  it('refreshes the explicit Guide after same-session recording-state events', async () => {
+    let revision = 1;
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step-${revision}` }]);
+
+    const { result } = renderHook(() => useRecordingSession('url-session'));
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'url-session-step-1' }]));
+
+    revision = 2;
+    act(() => mocks.emit(state('recording-session')));
+
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'url-session-step-2' }]));
+    expect(mocks.getSteps).not.toHaveBeenCalledWith('recording-session');
+  });
+
+  it('protects explicit URL session changes from stale IndexedDB responses', async () => {
+    const oldSteps = deferred<any[]>();
+    const newSteps = deferred<any[]>();
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockImplementation((sessionId: string) =>
+      sessionId === 'old-url-session' ? oldSteps.promise : newSteps.promise,
+    );
+
+    const { result, rerender } = renderHook(
+      ({ sessionId }) => useRecordingSession(sessionId),
+      { initialProps: { sessionId: 'old-url-session' } },
+    );
+    await waitFor(() => expect(mocks.getSteps).toHaveBeenCalledWith('old-url-session'));
+
+    rerender({ sessionId: 'new-url-session' });
+    await act(async () => {
+      newSteps.resolve([{ id: 'new-url-step' }]);
+      await newSteps.promise;
+    });
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'new-url-step' }]));
+
+    await act(async () => {
+      oldSteps.resolve([{ id: 'old-url-step' }]);
+      await oldSteps.promise;
+    });
+
+    expect(result.current.sessionId).toBe('new-url-session');
+    expect(result.current.steps).toEqual([{ id: 'new-url-step' }]);
+  });
 });
 
 describe('reconcileSteps', () => {

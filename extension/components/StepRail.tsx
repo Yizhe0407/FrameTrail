@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { SlidersHorizontal, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -10,6 +11,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/db';
+import type { GuideSection } from '@/lib/guide-sections';
 import {
   reorderById,
   restrictToHorizontalAxis,
@@ -20,19 +22,81 @@ import { cn } from '@/lib/utils';
 import HighlightThumbnail from './HighlightThumbnail';
 import MultiHighlightThumbnail from './MultiHighlightThumbnail';
 import SortableItem from './SortableItem';
+import GuideSectionHeading from './GuideSectionHeading';
+
+
+function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactNode }) {
+  const host = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(eager);
+
+  useEffect(() => {
+    if (eager || visible) {
+      setVisible(true);
+      return;
+    }
+    const element = host.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setVisible(true);
+      observer.disconnect();
+    }, { rootMargin: '320px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [eager, visible]);
+
+  return (
+    <div ref={host} className="relative h-12 w-16 shrink-0 overflow-hidden rounded-[6px] bg-stone-200 lg:h-14 lg:w-20 dark:bg-stone-700">
+      {visible ? children : <span className="sr-only">縮圖尚未載入</span>}
+    </div>
+  );
+}
+
+export interface StepRailSelectionModifiers {
+  additive: boolean;
+  range: boolean;
+}
 
 interface Props {
   entries: StepEntry[];
   selectedEntryId: string | null;
-  onSelect: (id: string) => void;
+  selectedEntryIds?: ReadonlySet<string>;
+  sections?: readonly GuideSection[];
+  onSelect: (id: string, modifiers?: StepRailSelectionModifiers) => void;
+  onSelectAllVisible?: () => void;
+  onCollapseSelection?: () => void;
+  onRenameSection?: (sectionId: string, title: string) => Promise<void>;
+  onDeleteSection?: (sectionId: string) => Promise<void>;
   onReorder: (reordered: StepEntry[]) => Promise<void>;
   reorderDisabled?: boolean;
+  headerContent?: ReactNode;
+  totalCount?: number;
 }
 
-export default function StepRail({ entries, selectedEntryId, onSelect, onReorder, reorderDisabled = false }: Props) {
+export default function StepRail({
+  entries,
+  selectedEntryId,
+  selectedEntryIds,
+  sections = [],
+  onSelect,
+  onSelectAllVisible,
+  onCollapseSelection,
+  onRenameSection,
+  onDeleteSection,
+  onReorder,
+  reorderDisabled = false,
+  headerContent,
+  totalCount,
+}: Props) {
   const sensors = useSortableSensors();
   const selectedItem = useRef<HTMLButtonElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const effectiveSelectedIds = selectedEntryIds ?? new Set(selectedEntryId ? [selectedEntryId] : []);
+  const sectionByStartId = new Map(sections.map((section) => [section.startEntryId, section]));
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1024px)').matches : true,
   );
@@ -68,6 +132,16 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
       if (!activeElement || !railRef.current?.contains(activeElement)) return;
       const tag = activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLocaleLowerCase() === 'a' && onSelectAllVisible) {
+        e.preventDefault();
+        onSelectAllVisible();
+        return;
+      }
+      if (e.key === 'Escape' && onCollapseSelection) {
+        e.preventDefault();
+        onCollapseSelection();
+        return;
+      }
       const previousKey = isDesktop ? 'ArrowUp' : 'ArrowLeft';
       const nextKey = isDesktop ? 'ArrowDown' : 'ArrowRight';
       if (e.key !== previousKey && e.key !== nextKey) return;
@@ -76,11 +150,11 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
       const nextIdx = e.key === previousKey ? idx - 1 : idx + 1;
       if (nextIdx < 0 || nextIdx >= entries.length) return;
       e.preventDefault();
-      onSelect(entryId(entries[nextIdx]));
+      onSelect(entryId(entries[nextIdx]), { additive: false, range: e.shiftKey });
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [entries, isDesktop, selectedEntryId, onSelect]);
+  }, [entries, isDesktop, onCollapseSelection, onSelect, onSelectAllVisible, selectedEntryId]);
 
   function entrySummary(entry: StepEntry): string {
     if (entry.kind === 'group') return `單頁標註 · ${entry.annotations.length} 個標註`;
@@ -134,9 +208,30 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
       aria-label="步驟導覽"
       className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-64 lg:border-t-0 lg:border-r"
     >
-      <div className="shrink-0 px-4 py-2 text-xs font-medium text-stone-600 dark:text-stone-300 lg:px-5 lg:pt-5 lg:pb-3">
-        步驟 · {entries.length}
+      <div className="flex shrink-0 items-center px-4 py-2 text-xs font-medium text-stone-600 dark:text-stone-300 lg:px-5 lg:pt-5 lg:pb-3">
+        <span>步驟 · {entries.length}{totalCount != null && totalCount !== entries.length ? ` / ${totalCount}` : ''}</span>
+        {headerContent && (
+          <button
+            type="button"
+            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-stone-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden dark:hover:bg-stone-800"
+            aria-expanded={mobileFiltersOpen}
+            aria-controls="frametrail-mobile-step-filters"
+            onClick={() => setMobileFiltersOpen((open) => !open)}
+          >
+            {mobileFiltersOpen ? <X className="size-4" aria-hidden="true" /> : <SlidersHorizontal className="size-4" aria-hidden="true" />}
+            {mobileFiltersOpen ? '關閉篩選' : '搜尋／篩選'}
+          </button>
+        )}
       </div>
+      {headerContent && <div className="hidden lg:block">{headerContent}</div>}
+      {headerContent && mobileFiltersOpen && (
+        <div
+          id="frametrail-mobile-step-filters"
+          className="absolute inset-x-0 bottom-full z-40 max-h-[65vh] overflow-y-auto border-t border-stone-200 bg-stone-50 shadow-xl lg:hidden dark:border-stone-700 dark:bg-stone-900"
+        >
+          {headerContent}
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -150,51 +245,77 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
           <ul className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-4">
             {entries.map((entry, index) => {
               const id = entryId(entry);
-              const selected = id === selectedEntryId;
+              const active = id === selectedEntryId;
+              const checked = effectiveSelectedIds.has(id);
+              const section = sectionByStartId.get(id);
               return (
-                <SortableItem key={id} id={id} disabled={reorderDisabled} className="w-44 shrink-0 lg:w-auto">
+                <SortableItem key={id} id={id} disabled={reorderDisabled} className="w-44 shrink-0 [content-visibility:auto] [contain-intrinsic-size:176px_76px] lg:w-auto lg:[contain-intrinsic-size:240px_72px]">
                   {(handle) => (
-                    <div
-                      className={cn(
-                        'group relative flex h-[76px] w-full items-center gap-2 rounded-md p-2 text-left lg:h-auto lg:gap-2.5',
-                        selected
-                          ? 'border border-stone-300 bg-white shadow-sm dark:border-stone-600 dark:bg-stone-800'
-                          : 'hover:bg-stone-100 dark:hover:bg-stone-800',
+                    <div className="flex flex-col gap-1">
+                      {section && onRenameSection && onDeleteSection && (
+                        <GuideSectionHeading
+                          section={section}
+                          disabled={reorderDisabled}
+                          onRename={onRenameSection}
+                          onDelete={onDeleteSection}
+                        />
                       )}
-                    >
-                      <button
-                        ref={selected ? selectedItem : undefined}
-                        type="button"
-                        onClick={() => onSelect(id)}
-                        aria-label={`選取步驟 ${index + 1}`}
-                        aria-current={selected ? 'step' : undefined}
-                        className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
-                      />
-                      <span
+                      <div
                         className={cn(
-                          'pointer-events-none relative z-[1] w-5 shrink-0 text-center text-xs tabular-nums',
-                          selected
-                            ? 'font-semibold text-lime-700 dark:text-lime-400'
-                            : 'text-stone-400 dark:text-stone-500',
+                          'group relative flex h-[76px] w-full items-center gap-2 rounded-md p-2 text-left lg:h-auto lg:gap-2.5',
+                          active
+                            ? 'border border-stone-300 bg-white shadow-sm dark:border-stone-600 dark:bg-stone-800'
+                            : checked
+                              ? 'border border-lime-300 bg-lime-50/70 dark:border-lime-800 dark:bg-lime-950/20'
+                              : 'hover:bg-stone-100 dark:hover:bg-stone-800',
                         )}
                       >
-                        {index + 1}
-                      </span>
-                      <div className="pointer-events-none relative z-[1] h-12 w-16 shrink-0 overflow-hidden rounded-[6px] lg:h-14 lg:w-20">
-                        {renderThumbnail(entry)}
+                        <button
+                          ref={active ? selectedItem : undefined}
+                          type="button"
+                          onClick={(event) => onSelect(id, {
+                            additive: event.ctrlKey || event.metaKey,
+                            range: event.shiftKey,
+                          })}
+                          aria-label={`開啟步驟 ${index + 1}`}
+                          aria-current={active ? 'step' : undefined}
+                          className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
+                        />
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onSelect(id, { additive: true, range: false })}
+                          aria-label={`選取步驟 ${index + 1}`}
+                          className="relative z-[3] size-4 shrink-0 accent-lime-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        />
+                        <span
+                          className={cn(
+                            'pointer-events-none relative z-[1] w-5 shrink-0 text-center text-xs tabular-nums',
+                            active || checked
+                              ? 'font-semibold text-lime-700 dark:text-lime-400'
+                              : 'text-stone-400 dark:text-stone-500',
+                          )}
+                        >
+                          {index + 1}
+                        </span>
+                        <div className="pointer-events-none relative z-[1]">
+                          <LazyRailPreview eager={active}>
+                            {renderThumbnail(entry)}
+                          </LazyRailPreview>
+                        </div>
+                        <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
+                          <span className="line-clamp-2">{entrySummary(entry)}</span>
+                        </span>
+                        <span
+                          className={cn(
+                            'relative z-[2] ml-auto flex shrink-0 items-center gap-1',
+                            active ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100',
+                          )}
+                        >
+                          {handle}
+                          {active && <span className="h-9 w-[3px] rounded-sm bg-lime-700 dark:bg-lime-500" />}
+                        </span>
                       </div>
-                      <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
-                        <span className="line-clamp-2">{entrySummary(entry)}</span>
-                      </span>
-                      <span
-                        className={cn(
-                          'relative z-[2] ml-auto flex shrink-0 items-center gap-1',
-                          selected ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100',
-                        )}
-                      >
-                        {handle}
-                        {selected && <span className="h-9 w-[3px] rounded-sm bg-lime-700 dark:bg-lime-500" />}
-                      </span>
                     </div>
                   )}
                 </SortableItem>
