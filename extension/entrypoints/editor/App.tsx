@@ -70,7 +70,15 @@ import type {
   StartStepRecaptureResult,
   StepRecaptureTarget,
 } from '@/lib/messages';
-import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
+import {
+  isCancelStepRecaptureResult,
+  isFocusStepRecaptureSourceResult,
+  isPreflightInsertionSourcePermissionResult,
+  isPreflightStepRecaptureSourcePermissionResult,
+  isStartInsertionRecordingResult,
+  isStartStepRecaptureResult,
+  requireRuntimeMessageResult,
+} from '@/lib/runtime-message-result';
 
 const EMPTY_STEP_ENTRIES: StepEntry[] = [];
 
@@ -945,6 +953,7 @@ function EditorApp() {
           sessionId,
           anchorEntryId: insertionTarget.anchorEntryId,
         }),
+        isPreflightInsertionSourcePermissionResult,
       );
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
@@ -1012,6 +1021,7 @@ function EditorApp() {
             mode: prepared.action.mode,
             numbered: prepared.action.numbered,
           }),
+          isStartInsertionRecordingResult,
         );
         if (!result.ok) throw new Error(result.error);
       } else {
@@ -1021,6 +1031,7 @@ function EditorApp() {
             sessionId,
             target: prepared.action.target,
           }),
+          isStartStepRecaptureResult,
         );
         if (!result.ok) throw new Error(result.error);
       }
@@ -1075,6 +1086,7 @@ function EditorApp() {
           sessionId,
           target,
         }),
+        isPreflightStepRecaptureSourcePermissionResult,
       );
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
@@ -1107,6 +1119,7 @@ function EditorApp() {
           type: 'FOCUS_STEP_RECAPTURE_SOURCE',
           runId,
         }),
+        isFocusStepRecaptureSourceResult,
       );
       if (!result.ok) setOperationError(result.error ?? '找不到補拍分頁。');
     } catch (error) {
@@ -1123,6 +1136,7 @@ function EditorApp() {
           type: 'CANCEL_STEP_RECAPTURE',
           runId,
         }),
+        isCancelStepRecaptureResult,
       );
       if (!result.ok) setOperationError(result.error ?? '無法取消補拍，請再試一次。');
     } catch (error) {

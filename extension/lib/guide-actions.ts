@@ -6,7 +6,7 @@ import {
   setActiveGuideId,
 } from './storage';
 import type { OpenEditorResult } from './messages';
-import { requireRuntimeMessageResult } from './runtime-message-result';
+import { isOpenEditorResult, requireRuntimeMessageResult } from './runtime-message-result';
 
 // Preserve invocation order across async IndexedDB lookups. Without this, a
 // slow earlier select could overwrite a newer selection after its lookup ends.
@@ -65,6 +65,7 @@ export async function openSelectedGuideInEditor(guideId: string): Promise<void> 
   const message = { type: 'OPEN_EDITOR', sessionId: guide.id } as const;
   const result = requireRuntimeMessageResult<OpenEditorResult>(
     await browser.runtime.sendMessage(message),
+    isOpenEditorResult,
     '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
   );
   if (!result.ok) throw new Error(result.error);

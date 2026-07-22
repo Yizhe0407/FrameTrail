@@ -14,7 +14,7 @@ import { openLibrary } from '@/lib/navigation';
 import { ensureSelectedGuide } from '@/lib/guide-actions';
 import OnboardingDialog from '@/components/OnboardingDialog';
 import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/onboarding';
-import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
+import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 function App() {
   const { recording, isRecording, sessionId, steps, error, recoverableError } = useRecordingSession();
@@ -67,6 +67,7 @@ function App() {
           type: 'OPEN_EDITOR',
           sessionId: targetSessionId ?? undefined,
         }),
+        isOpenEditorResult,
         '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
       );
       if (!result.ok) {

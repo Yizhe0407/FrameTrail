@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { ResetGuideResult } from './messages';
-import { requireRuntimeMessageResult } from './runtime-message-result';
+import { isResetGuideResult, requireRuntimeMessageResult } from './runtime-message-result';
 
 /** Requests an atomic, Guide-targeted reset from the background lifecycle. */
 export async function resetSession(sessionId: string): Promise<void> {
@@ -10,6 +10,7 @@ export async function resetSession(sessionId: string): Promise<void> {
       type: 'RESET_GUIDE',
       sessionId,
     }),
+    isResetGuideResult,
   );
   if (!result.ok) throw new Error(result.error);
 }

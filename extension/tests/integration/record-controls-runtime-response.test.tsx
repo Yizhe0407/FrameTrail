@@ -58,12 +58,19 @@ afterEach(() => {
 });
 
 describe('record controls runtime responses', () => {
-  it('shows a transport error instead of reading ok from a null START_RECORDING response', async () => {
-    render(<RecordControls recording={IDLE_RECORDING} />);
+  it.each([
+    ['missing', null],
+    ['incomplete success', { ok: true, sessionId: 'guide-a' }],
+    ['malformed failure', { ok: false, error: 503 }],
+  ])('shows a transport error for a %s START_RECORDING response', async (_case, response) => {
+    mocks.sendMessage.mockResolvedValue(response);
+    const onStarted = vi.fn();
+    render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
     await waitFor(() => expect(mocks.query).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: '開始' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('無法連接錄製服務');
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });

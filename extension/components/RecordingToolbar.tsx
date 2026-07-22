@@ -38,7 +38,7 @@ import {
   type RecordingToolbarCorner,
   type ToolbarPoint,
 } from '@/lib/recording-toolbar-position';
-import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
+import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 type ToolbarAction = RecordingControlMessage['type'];
 
@@ -302,6 +302,7 @@ export default function RecordingToolbar({
     try {
       const result = requireRuntimeMessageResult<RecordingControlResult>(
         await onCommand(action, token),
+        isRecordingControlResult,
         '錄製服務已中斷，請重新整理頁面後再試一次。',
       );
       if (!result.ok) setMessage(result.error);

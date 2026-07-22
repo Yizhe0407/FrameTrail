@@ -44,7 +44,13 @@ import {
   type RegionCapture,
 } from '@/lib/region-capture';
 import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recording-toolbar-host';
-import { requireRuntimeMessageResult } from '@/lib/runtime-message-result';
+import {
+  isClickCaptureResult,
+  isRecordingControlResult,
+  isRuntimeBoolean,
+  isStepRecaptureTargetResult,
+  requireRuntimeMessageResult,
+} from '@/lib/runtime-message-result';
 import type {
   ClickCapture,
   ClickCaptureResult,
@@ -678,8 +684,12 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
         timestamp: Date.now(),
       };
       try {
-        const result = (await browser.runtime.sendMessage(payload)) as StepRecaptureTargetResult | undefined;
-        if (!result?.ok && result?.status === 'rejected' && !removed) {
+        const result = requireRuntimeMessageResult<StepRecaptureTargetResult>(
+          await browser.runtime.sendMessage(payload),
+          isStepRecaptureTargetResult,
+          '補拍服務回應格式無效，請重新整理頁面後再試一次。',
+        );
+        if (!result.ok && result.status === 'rejected' && !removed) {
           busy = false;
           preview.show(target.rect);
         }
@@ -736,11 +746,15 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
 
   let ready = false;
   try {
-    ready = (await browser.runtime.sendMessage({
-      type: 'FRAME_TRAIL_RECAPTURE_READY',
-      runId,
-      url: location.href,
-    })) as boolean;
+    ready = requireRuntimeMessageResult(
+      await browser.runtime.sendMessage({
+        type: 'FRAME_TRAIL_RECAPTURE_READY',
+        runId,
+        url: location.href,
+      }),
+      isRuntimeBoolean,
+      '補拍服務回應格式無效，請重新整理頁面後再試一次。',
+    );
   } catch (error) {
     console.error('[frametrail] recapture readiness check failed', error);
   }
@@ -1068,8 +1082,12 @@ export default defineContentScript({
         url: location.href,
         timestamp: now,
       };
-      const result = (await browser.runtime.sendMessage(payload)) as ClickCaptureResult | undefined;
-      if (result?.ok) return true;
+      const result = requireRuntimeMessageResult<ClickCaptureResult>(
+        await browser.runtime.sendMessage(payload),
+        isClickCaptureResult,
+        '截圖服務回應格式無效，請重新整理頁面後再試一次。',
+      );
+      if (result.ok) return true;
       console.warn('[frametrail] step was not captured');
       return false;
     };
@@ -1436,6 +1454,7 @@ export default defineContentScript({
           runId,
           ...(undoToken ? { undoToken } : {}),
         } satisfies RecordingControlMessage),
+        isRecordingControlResult,
         '錄製服務已中斷，請重新整理頁面後再試一次。',
       );
     };
@@ -1589,7 +1608,11 @@ export default defineContentScript({
             }
           : {}),
       };
-      isCurrentRecordedTab = (await browser.runtime.sendMessage(readyMessage)) as boolean;
+      isCurrentRecordedTab = requireRuntimeMessageResult(
+        await browser.runtime.sendMessage(readyMessage),
+        isRuntimeBoolean,
+        '錄製服務回應格式無效，請重新整理頁面後再試一次。',
+      );
     } catch (err) {
       console.error('[frametrail] recorder readiness check failed', err);
     }
