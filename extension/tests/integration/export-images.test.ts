@@ -5,22 +5,21 @@ const mocks = vi.hoisted(() => ({
   active: 0,
   maxActive: 0,
   download: vi.fn(),
-  composite: vi.fn(async (blob: Blob) => {
+  composite: vi.fn(async () => {
     mocks.active++;
     mocks.maxActive = Math.max(mocks.maxActive, mocks.active);
     await Promise.resolve();
     mocks.active--;
-    return blob;
+    return new Blob(['annotated'], { type: 'image/jpeg' });
   }),
 }));
 
 vi.mock('wxt/browser', () => ({ browser: { downloads: { download: mocks.download } } }));
-vi.mock('@/lib/annotate', () => ({
-  compositeHighlight: mocks.composite,
-  compositeMultiHighlight: mocks.composite,
+vi.mock('@/lib/entry-render', () => ({
+  compositeStepEntry: mocks.composite,
 }));
 
-import { exportImagesAsZip, localDateStamp } from '@/lib/export-images';
+import { RedactionReviewRequiredError, exportImagesAsZip, localDateStamp } from '@/lib/export-images';
 import type { Step } from '@/lib/db';
 
 function step(order: number): Step {
@@ -58,6 +57,7 @@ describe('image export', () => {
     const result = await exportImagesAsZip([step(0), step(1), step(2)]);
 
     expect(mocks.composite).toHaveBeenCalledTimes(3);
+    expect(mocks.composite).toHaveBeenNthCalledWith(1, expect.objectContaining({ kind: 'single' }), 'image/jpeg');
     expect(mocks.maxActive).toBe(1);
     expect(mocks.download).toHaveBeenCalledWith({
       url: 'blob:archive',
@@ -84,9 +84,9 @@ describe('image export', () => {
 
   it('stops between image composites when the export is cancelled', async () => {
     const controller = new AbortController();
-    mocks.composite.mockImplementationOnce(async (blob: Blob) => {
+    mocks.composite.mockImplementationOnce(async () => {
       controller.abort();
-      return blob;
+      return new Blob(['cancelled']);
     });
 
     await expect(exportImagesAsZip([step(0), step(1)], undefined, controller.signal)).rejects.toMatchObject({
@@ -96,4 +96,15 @@ describe('image export', () => {
     expect(mocks.composite).toHaveBeenCalledTimes(1);
     expect(mocks.download).not.toHaveBeenCalled();
   });
+
+  it('refuses export while any screenshot owner needs privacy review', async () => {
+    const pending = step(0);
+    pending.redactions = [{ id: 'mask', kind: 'solid', bounds: { x: 1, y: 2, width: 3, height: 4 } }];
+    pending.redactionReviewRequired = true;
+
+    await expect(exportImagesAsZip([pending])).rejects.toBeInstanceOf(RedactionReviewRequiredError);
+    expect(mocks.composite).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
 });

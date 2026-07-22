@@ -1,7 +1,14 @@
 import { Zip, ZipPassThrough } from 'fflate';
 import { browser } from 'wxt/browser';
-import { compositeHighlight, compositeMultiHighlight } from './annotate';
-import { buildStepEntries, getOrderedAnnotations, type Step } from './db';
+import { compositeStepEntry } from './entry-render';
+import { buildStepEntries, getEntryPrivacyState, type Step } from './db';
+
+export class RedactionReviewRequiredError extends Error {
+  constructor() {
+    super('Sensitive-information masks must be reviewed before export.');
+    this.name = 'RedactionReviewRequiredError';
+  }
+}
 
 export function localDateStamp(date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
@@ -23,11 +30,10 @@ function throwIfCancelled(signal?: AbortSignal): void {
 }
 
 function createStreamingZip() {
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  let resolveZip!: (value: Uint8Array) => void;
+  const chunks: ArrayBuffer[] = [];
+  let resolveZip!: (value: Blob) => void;
   let rejectZip!: (reason: unknown) => void;
-  const result = new Promise<Uint8Array>((resolve, reject) => {
+  const result = new Promise<Blob>((resolve, reject) => {
     resolveZip = resolve;
     rejectZip = reject;
   });
@@ -37,24 +43,20 @@ function createStreamingZip() {
       rejectZip(error);
       return;
     }
-    chunks.push(chunk);
-    byteLength += chunk.byteLength;
-    if (!final) return;
-
-    const output = new Uint8Array(byteLength);
-    let offset = 0;
-    for (const part of chunks) {
-      output.set(part, offset);
-      offset += part.byteLength;
-    }
-    resolveZip(output);
+    // fflate may reuse its output buffer after this callback. Keep one owned
+    // copy per emitted chunk, but avoid the previous final contiguous copy that
+    // temporarily doubled the entire archive in memory.
+    const owned = new Uint8Array(chunk.byteLength);
+    owned.set(chunk);
+    chunks.push(owned.buffer);
+    if (final) resolveZip(new Blob(chunks, { type: 'application/zip' }));
   });
 
   return { archive, result };
 }
 
 /**
- * Composites the highlight(s) onto each entry's screenshot(s) and packs them
+ * Composites each entry's annotations and privacy redactions onto its screenshot and packs them
  * into a single ZIP (01.jpg, 02.jpg, …), then triggers a download. Gives the
  * user the raw annotated images to assemble a doc however they like. Each
  * single-image group collapses to one file (all its click boxes on the one
@@ -70,6 +72,9 @@ export async function exportImagesAsZip(
 
   const entries = buildStepEntries(steps);
   if (entries.length === 0) return null;
+  if (entries.some((entry) => getEntryPrivacyState(entry).reviewRequired)) {
+    throw new RedactionReviewRequiredError();
+  }
   const pad = String(entries.length).length;
   let done = 0;
   const { archive, result } = createStreamingZip();
@@ -80,19 +85,7 @@ export async function exportImagesAsZip(
     // chunks, avoiding a decoded image for every step at once.
     for (const [index, entry] of entries.entries()) {
       throwIfCancelled(signal);
-      const annotated =
-        entry.kind === 'single'
-          ? await compositeHighlight(
-              entry.step.screenshotBlob,
-              entry.step.bounds,
-              entry.step.screenshotScale ?? entry.step.devicePixelRatio,
-            )
-          : await compositeMultiHighlight(
-              entry.anchor.screenshotBlob,
-              getOrderedAnnotations(entry.annotations),
-              entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio,
-              entry.anchor.numbered ?? false,
-            );
+      const annotated = await compositeStepEntry(entry, 'image/jpeg');
       throwIfCancelled(signal);
       const bytes = new Uint8Array(await annotated.arrayBuffer());
       throwIfCancelled(signal);
@@ -108,10 +101,9 @@ export async function exportImagesAsZip(
     throw error;
   }
 
-  const zipped = await result;
+  const blob = await result;
   throwIfCancelled(signal);
 
-  const blob = new Blob([zipped.slice()], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const filename = `frame-trail-images-${localDateStamp()}.zip`;
   try {

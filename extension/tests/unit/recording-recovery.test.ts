@@ -10,6 +10,9 @@ import {
 
 const idleState: RecordingState = {
   isRecording: false,
+  operation: null,
+  recapture: null,
+  recaptureResult: null,
   phase: 'idle',
   sessionId: 'session-1',
   tabId: null,

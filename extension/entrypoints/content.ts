@@ -41,12 +41,15 @@ import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recor
 import type {
   ClickCapture,
   ClickCaptureResult,
+  FrameTrailRecaptureTargetMessage,
   FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
   RecordingControlMessage,
   RecordingControlResult,
   RecordingState,
   SnapshotInvalidatedMessage,
+  StepRecaptureContext,
+  StepRecaptureTargetResult,
 } from '@/lib/messages';
 
 const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
@@ -529,6 +532,222 @@ function installSnapshotFrameProbe(runId: string): void {
   browser.runtime.onMessage.addListener(onStop);
 }
 
+function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remove(): void } {
+  const host = document.createElement('div');
+  host.setAttribute('data-frametrail-recording-toolbar', '');
+  host.style.setProperty('all', 'initial', 'important');
+  host.style.setProperty('position', 'fixed', 'important');
+  host.style.setProperty('top', '16px', 'important');
+  host.style.setProperty('left', '50%', 'important');
+  host.style.setProperty('transform', 'translateX(-50%)', 'important');
+  host.style.setProperty('z-index', '2147483647', 'important');
+  const root = host.attachShadow({ mode: 'closed' });
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('role', 'status');
+  wrapper.style.cssText = [
+    'all:initial',
+    'display:flex',
+    'align-items:center',
+    'gap:12px',
+    'padding:10px 12px',
+    'border:1px solid rgba(255,255,255,.18)',
+    'border-radius:12px',
+    'background:#111827',
+    'box-shadow:0 12px 32px rgba(0,0,0,.35)',
+    'color:#f9fafb',
+    'font:600 14px/1.3 system-ui,sans-serif',
+  ].join(';');
+  const label = document.createElement('span');
+  label.textContent = '請選取要補拍的目標（Esc 取消）';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = '取消';
+  cancel.style.cssText = [
+    'all:initial',
+    'cursor:pointer',
+    'padding:7px 10px',
+    'border-radius:8px',
+    'background:#374151',
+    'color:#fff',
+    'font:600 14px/1 system-ui,sans-serif',
+  ].join(';');
+  cancel.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onCancel();
+  });
+  wrapper.append(label, cancel);
+  root.append(wrapper);
+  document.documentElement.append(host);
+  return { host, remove: () => host.remove() };
+}
+
+async function installRecaptureRecorder(context: StepRecaptureContext): Promise<void> {
+  const runId = context.runId;
+  let active = false;
+  let busy = false;
+  let removed = false;
+  let hoverVersion = 0;
+  const preview = createStepPreview();
+  let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
+  let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+  let keepAliveStopped = false;
+
+  const cancelWorkflow = () => {
+    if (removed) return;
+    void browser.runtime.sendMessage({ type: 'CANCEL_STEP_RECAPTURE', runId }).catch((error) => {
+      console.error('[frametrail] failed to cancel recapture', error);
+    });
+  };
+  const toolbar = createRecaptureToolbar(cancelWorkflow);
+
+  const connectKeepAlive = () => {
+    const port = browser.runtime.connect({ name: KEEPALIVE_PORT_NAME });
+    keepAlivePort = port;
+    keepAliveTimer = setInterval(() => port.postMessage({ type: 'heartbeat' }), KEEPALIVE_INTERVAL_MS);
+    port.onDisconnect.addListener(() => {
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      if (!keepAliveStopped && !removed) connectKeepAlive();
+    });
+  };
+  connectKeepAlive();
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (!active || busy || toolbar.host === event.target || toolbar.host.contains(event.target as Node)) return;
+    const version = ++hoverVersion;
+    void resolveSnapshotTargetAtPoint(runId, event.clientX, event.clientY).then((target) => {
+      if (removed || busy || version !== hoverVersion) return;
+      if (target) preview.show(target.rect);
+      else preview.hide();
+    });
+  };
+
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    if (event.composedPath().includes(toolbar.host)) return;
+    if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
+    const hit = deepElementFromPoint(event.clientX, event.clientY);
+    let gutterAncestor = hit;
+    while (gutterAncestor) {
+      if (isInScrollableElementGutter(event.clientX, event.clientY, gutterAncestor)) return;
+      gutterAncestor = getComposedParent(gutterAncestor);
+    }
+    if (!active || busy) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    // This gesture only selects a capture target. It is never replayed into the
+    // page, regardless of success, cancellation or screenshot failure.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    busy = true;
+    hoverVersion++;
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    void (async () => {
+      const target = await resolveSnapshotTargetAtPoint(runId, clientX, clientY);
+      if (!target || removed) {
+        busy = false;
+        return;
+      }
+      await preview.prepareForCapture();
+      if (removed) return;
+      const captureId = crypto.randomUUID();
+      const payload: FrameTrailRecaptureTargetMessage = {
+        type: 'FRAME_TRAIL_RECAPTURE_TARGET',
+        runId,
+        captureId,
+        rect: target.rect,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        devicePixelRatio: window.devicePixelRatio,
+        url: location.href,
+        timestamp: Date.now(),
+      };
+      try {
+        const result = (await browser.runtime.sendMessage(payload)) as StepRecaptureTargetResult | undefined;
+        if (!result?.ok && result?.status === 'rejected' && !removed) {
+          busy = false;
+          preview.show(target.rect);
+        }
+      } catch (error) {
+        console.error('[frametrail] recapture target failed', error);
+        cancelWorkflow();
+      }
+    })();
+  };
+
+  const onFollowup = (event: Event) => {
+    if (!busy) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cancelWorkflow();
+  };
+  let unsubscribe = () => {};
+  const onStop = (message: FrameTrailStopMessage) => {
+    if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+  };
+  function cleanup() {
+    if (removed) return;
+    removed = true;
+    active = false;
+    preview.remove();
+    toolbar.remove();
+    window.removeEventListener('pointermove', onPointerMove, { capture: true });
+    document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+    for (const type of STEP_FOLLOWUP_EVENTS) document.removeEventListener(type, onFollowup, { capture: true });
+    window.removeEventListener('keydown', onKeyDown, { capture: true });
+    document.removeEventListener(CLEANUP_EVENT, cleanup);
+    browser.runtime.onMessage.removeListener(onStop);
+    unsubscribe();
+    keepAliveStopped = true;
+    if (keepAliveTimer) clearInterval(keepAliveTimer);
+    keepAlivePort?.disconnect();
+  }
+  unsubscribe = onRecordingStateChange((state) => {
+    if (state.operation !== 'recapture' || state.recapture?.runId !== runId) cleanup();
+    else active = state.recapture.phase === 'awaiting-target';
+  });
+
+  window.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
+  document.addEventListener('pointerdown', onPointerDown, { capture: true });
+  for (const type of STEP_FOLLOWUP_EVENTS) document.addEventListener(type, onFollowup, { capture: true });
+  window.addEventListener('keydown', onKeyDown, { capture: true });
+  document.addEventListener(CLEANUP_EVENT, cleanup);
+  browser.runtime.onMessage.addListener(onStop);
+
+  let ready = false;
+  try {
+    ready = (await browser.runtime.sendMessage({
+      type: 'FRAME_TRAIL_RECAPTURE_READY',
+      runId,
+      url: location.href,
+    })) as boolean;
+  } catch (error) {
+    console.error('[frametrail] recapture readiness check failed', error);
+  }
+  if (!ready || removed) {
+    cleanup();
+    return;
+  }
+  // The durable phase change may land immediately after the ready response.
+  // Storage subscription is authoritative; this read closes the tiny gap when
+  // the change event fired before the listener was installed.
+  const latest = await getRecordingState();
+  active = latest.operation === 'recapture' && latest.recapture?.runId === runId && latest.recapture.phase === 'awaiting-target';
+}
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
@@ -543,7 +762,15 @@ export default defineContentScript({
 
     const recordingState = await getRecordingState();
     if (instanceHost[INSTANCE_KEY] !== instanceId) return;
-    if (!recordingState.isRecording || !recordingState.runId) return;
+    if (recordingState.operation === 'recapture' && recordingState.recapture) {
+      if (window.top !== window) {
+        installSnapshotFrameProbe(recordingState.recapture.runId);
+        return;
+      }
+      await installRecaptureRecorder(recordingState.recapture);
+      return;
+    }
+    if (recordingState.operation !== 'recording' || !recordingState.isRecording || !recordingState.runId) return;
 
     const runId = recordingState.runId;
     const isSnapshotMode = recordingState.mode === 'snapshot';
@@ -935,7 +1162,7 @@ export default defineContentScript({
           ),
         cancelCapture: async () => {
           gesture.cancel();
-          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', captureId: gesture.captureId });
+          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId: gesture.captureId });
         },
         endGesture: () => {
           // Capture window closed: stop swallowing page events. The scroll pin

@@ -53,6 +53,10 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - 刪除步驟、刪除快照群組與重置都使用共用的 shadcn `ConfirmationDialog`。專案不使用 `window.alert()` 或 `window.confirm()`；非阻斷錯誤則顯示在既有 shadcn Alert 區域。
 - 標注說明區使用一致的細型滾動條樣式；所有可操作按鈕、圖片、切換器與拖曳把手都有對應的 pointer、zoom 或 grab 游標。
 - Lightbox 使用 shadcn Dialog，可用按鈕或方向鍵跨步驟模式與快照模式連續瀏覽。
+- **手動修正框選／補拍**：Editor 的「修正／遮罩」可用滑鼠、觸控或鍵盤調整框選，支援拖曳、8 個縮放控制點、CSS px 精確輸入、方向鍵、Undo/Redo 與還原自動框選。修改以非破壞性的 `manualBounds` 保存，不會覆寫錄製時的原始 bounds。
+- **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
+- **敏感資訊遮罩**：在同一個視覺編輯器新增、移動、縮放或刪除完全不透明的 solid mask。遮罩只保存在圖片 owner（普通步驟或快照 anchor），預覽、Lightbox、剪貼簿 PNG 與 ZIP/JPEG 匯出共用同一條合成管線，並在所有標註與引導線之後繪製，避免下層內容重新露出。
+- **隱私 fail-closed**：補拍含有既有遮罩的圖片，或讀到格式錯誤的隱私 metadata 時，會保留可修正的遮罩草稿並標記「需要重新確認」；確認前圖片預覽全黑，複製與匯出被阻擋，compositor 也會再次全黑處理。只有使用者按下「確認並儲存」後才解除封鎖。
 - 匯出使用 `OffscreenCanvas` 合成並由 `fflate` 產生 ZIP；複製圖片走同一份合成邏輯與 Clipboard API。步驟模式一個步驟一張圖，快照模式一個群組一張圖。
 
 ### 狀態與效能
@@ -60,7 +64,32 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - IndexedDB 保存截圖與步驟；`chrome.storage.local` 只保存錄製狀態。快照 annotation 只引用持有共用 Blob 的 anchor，不重複保存圖片。
 - START、STOP、RESET、點擊 transaction、截圖 queue 與 DB 寫入都有序列化邊界。`runId` 與 `controlVersion` 會使舊錄製的延遲工作失效，避免舊資料寫進新 session。
 - `captureVisibleTab` 至少間隔 500 ms，quota 錯誤最多重試 5 次並逐步延長等待；每次真正截圖前都重新驗證作用中分頁、URL 與錄製 run。
-- 錄製期間以 keep-alive port 維持 MV3 service worker。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
+- 錄製期間以 keep-alive port 維持 MV3 service worker；補拍的 capture replacement、result handoff 與 ACK 也使用 durable state，避免 worker 暫停造成半完成狀態。
+- 編輯與補拍使用 `captureRevision` compare-and-set：圖片被替換後，舊的遮罩儲存或 Undo 不會覆寫新圖片，也不會錯誤解除隱私封鎖。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
+
+## 編輯與隱私工作流程
+
+### 修正框選
+
+1. 在 Editor 選取步驟或快照群組，按「修正／遮罩」。
+2. 選取「調整框選」，直接拖曳框、拖曳 8 個控制點，或在右側輸入 X、Y、寬、高（CSS px）。
+3. 可使用方向鍵每次移動 1 px，`Shift` 加速為 10 px；`Ctrl/Cmd+Z`、`Ctrl/Cmd+Y` 可 Undo/Redo。
+4. 「還原自動框選」會移除手動覆寫，恢復錄製時偵測到的 bounds。
+5. 按「儲存修改」後才寫入 IndexedDB；離開有未儲存變更的編輯器會先顯示可存取的確認對話框。
+
+### 補拍
+
+1. 在普通步驟按「補拍」，FrameTrail 會回到來源頁面並顯示一次性補拍控制。
+2. 在來源頁面選取目標後，系統先截圖、驗證來源與版本，再以單一 IndexedDB transaction 替換圖片與 bounds。
+3. 原有說明、排序、步驟 ID 與錄製 provenance 會保留；原有手動框選會清除，原有遮罩則保留為待確認草稿。
+4. 多標註快照不直接補拍，請重新製作整張快照；這是避免新底圖與其他座標錯配的安全限制。
+
+### 敏感資訊遮罩
+
+1. 在「修正／遮罩」選擇「加入遮罩」，框住帳號、姓名、Token、地址或其他不應出現在輸出的區域。
+2. 遮罩使用完全不透明色塊，且會向外擴 2 CSS px，降低抗鋸齒或邊界像素殘留風險。
+3. 只有確認遮罩後才可預覽、複製或匯出；補拍後若圖片曾有遮罩，必須重新檢查遮罩是否仍對準敏感內容。
+4. 原始截圖仍以本機 IndexedDB 保存；遮罩保護的是所有對外輸出的 render path，不代表原始資料已被刪除。
 
 ## 權限
 
@@ -98,7 +127,7 @@ pnpm zip:firefox
 
 ## 驗證基準
 
-目前基準包含 27 個 Vitest 測試檔、124 項 unit/integration 測試，以及 6 個 Playwright spec、34 項真實 Chromium E2E；合計 158 項自動測試，並通過 TypeScript 型別檢查、Chrome MV3 與 Firefox MV2 production build。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
+目前工作樹包含 34 個 Vitest unit/integration 測試檔、170 項測試；本輪另保留 6 個 Playwright spec 的 Chromium E2E。最新本地驗證已通過 TypeScript 型別檢查、Chrome MV3 production build 與 `git diff --check`；E2E 與 Firefox build 需在具備完整 pnpm/瀏覽器環境時另外執行。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
 
 Unit 與 integration 覆蓋：
 
@@ -107,6 +136,8 @@ Unit 與 integration 覆蓋：
 - 同來源、跨來源、巢狀、旋轉與斜切 iframe，以及不可存取 frame 的 timeout fallback。
 - 1,000 個分散標註與 1,000 個重疊標註的有界布局。
 - browser API mock 邊界、編輯器資料 transaction、object URL 共用與匯出資源清理。
+- 手動框選的幾何 clamp、8 向 resize、Undo/Redo、精確輸入與 dirty-close；補拍來源信任、單例快照限制、durable recovery、原子替換與 capture revision conflict。
+- 遮罩的驗證、2 CSS px 外擴、預覽／Clipboard／ZIP render propagation、補拍後 privacy review gate，以及 malformed metadata 的 fail-closed 行為。
 
 Chromium E2E 覆蓋：
 
@@ -127,6 +158,9 @@ Chromium E2E 覆蓋：
 9. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；完成後確認頁面 overlay 全部消失。
 10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
 11. 測試刪除單一步驟與整個快照群組，確認會直接刪除並可在 5 秒內還原；重置整個 session 才顯示 shadcn Dialog，且不出現瀏覽器原生 alert/confirm。
+12. 在 Editor 開啟「修正／遮罩」，測試拖曳、8 個控制點、X/Y/寬/高輸入、方向鍵、Shift 加速、Undo/Redo、還原自動框選與未儲存離開確認。
+13. 對普通步驟補拍；再對含多個標註的快照嘗試補拍，確認前者原子替換、後者明確拒絕且不破壞資料。
+14. 新增遮罩後檢查 Editor、Lightbox、Clipboard PNG 與 ZIP/JPEG 都覆蓋敏感資訊；補拍含既有遮罩的圖片後，確認預覽全黑且必須重新確認才可複製／匯出。
 
 ## 已知限制
 
@@ -137,4 +171,7 @@ Chromium E2E 覆蓋：
 - 未取得跨來源 frame 權限、子 frame 未載入探測器或探測逾時時，只能標註 iframe 可見外框。
 - 極端密度下若 viewport 連一個徽章都放不下，或標註數超過幾何上可用槽位，位置會確定性重用，無法保證完全不重疊；演算法仍保證不產生無限值、不無限搜尋，也不讓工作量失控。
 - Chrome Web Store、`chrome://`、`edge://`、`about:` 與其他瀏覽器受限頁面禁止擴充功能注入或截圖。
+- 原始截圖會留在本機 IndexedDB；敏感資訊遮罩是輸出保護，不是安全刪除或加密儲存。若裝置或瀏覽器 profile 本身遭到入侵，FrameTrail 無法保護本機原始資料。
+- 大量 4K/8K 步驟目前只使用 `loading=lazy`、`decoding=async` 與共享 Blob URL，尚未導入完整 list virtualization 或專用低解析 thumbnail；大量長錄製仍可能有記憶體與解碼壓力。
+- 真實 Chrome MV3 worker 重啟、權限提示、clipboard、4K/8K ZIP、fractional DPR、320×480、鍵盤／螢幕閱讀器與高對比模式仍需實機驗收。
 - 無帳號、雲端儲存、分享連結、多人協作、全頁拼接、PDF 匯出與 AI 描述；互動步驟使用 `點擊 <元素文字>`，一般元素步驟與快照標記使用 `標記 <元素文字>`。

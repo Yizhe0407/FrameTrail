@@ -63,7 +63,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           onPointerDown={(event) => event.preventDefault()}
           disabled={deleteDisabled || deleting}
           aria-label={`刪除標注 ${index + 1}`}
-          title={deleteDisabled ? '錄製期間無法刪除標注' : '刪除標注'}
+          title={deleteDisabled ? '錄製或補拍期間無法刪除標注' : '刪除標注'}
           className="shrink-0 rounded-md p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-stone-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
         >
           {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}

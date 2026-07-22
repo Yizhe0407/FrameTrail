@@ -17,6 +17,9 @@ import type { RecordingState, RecoverableRecordingError } from '@/lib/messages';
 function recoveryState(recoverableError: RecoverableRecordingError): RecordingState {
   return {
     isRecording: false,
+    operation: null,
+    recapture: null,
+    recaptureResult: null,
     phase: 'error',
     sessionId: 'session-1',
     tabId: null,

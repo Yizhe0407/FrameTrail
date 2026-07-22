@@ -12,14 +12,23 @@ import {
   MARKER_RING_WIDTH,
   getBadgeFontSize,
   layoutAnnotations,
+  getExpandedRedactionBounds,
   type Annotation,
 } from '@/lib/annotate';
 import { cn } from '@/lib/utils';
 import { useObjectUrl } from '@/lib/useObjectUrl';
+import type { Redaction } from '@/lib/db';
+import { getValidScreenshotScale } from '@/lib/image-utils';
+
+const NO_REDACTIONS: Redaction[] = [];
 
 interface Props {
   blob: Blob;
   annotations: Annotation[];
+  /** Opaque masks in screenshot CSS coordinates. */
+  redactions?: Redaction[];
+  /** Hide all source pixels until privacy metadata is explicitly reviewed. */
+  privacyReviewRequired?: boolean;
   screenshotScale: number;
   numbered: boolean;
   alt: string;
@@ -28,6 +37,16 @@ interface Props {
   /** 'cover' crops to fill a fixed box. 'contain' shows the full uncropped
    * screenshot at its natural aspect ratio (editor cards). */
   fit?: 'cover' | 'contain';
+  loading?: 'lazy' | 'eager';
+  decoding?: 'async' | 'sync' | 'auto';
+}
+
+interface RedactionStyle {
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 interface BoxStyle {
@@ -62,15 +81,21 @@ interface BoxStyle {
 export default function MultiHighlightThumbnail({
   blob,
   annotations,
+  redactions = NO_REDACTIONS,
+  privacyReviewRequired = false,
   screenshotScale,
   numbered,
   alt,
   className,
   imgClassName,
   fit = 'cover',
+  loading = 'eager',
+  decoding = 'async',
 }: Props) {
   const url = useObjectUrl(blob);
   const [boxes, setBoxes] = useState<BoxStyle[]>([]);
+  const [redactionBoxes, setRedactionBoxes] = useState<RedactionStyle[]>([]);
+  const [mappedRedactionKey, setMappedRedactionKey] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<{ url: string; width: number; height: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const mapFrameRef = useRef<number | null>(null);
@@ -85,7 +110,11 @@ export default function MultiHighlightThumbnail({
     () => annotations.map(({ bounds, order }) => ({ bounds: { ...bounds }, order })),
     [annotationSignature],
   );
-  const dpr = screenshotScale || 1;
+  const redactionSignature = redactions.map((redaction) => `${redaction.id}:${redaction.bounds.x},${redaction.bounds.y},${redaction.bounds.width},${redaction.bounds.height}`).join('|');
+  const redactionMapKey = `${url ?? ''}:${fit}:${screenshotScale}:${redactionSignature}`;
+  const redactionReady = redactions.length === 0 || mappedRedactionKey === redactionMapKey;
+  const showPixels = !privacyReviewRequired && redactionReady;
+  const dpr = getValidScreenshotScale(screenshotScale);
   const layouts = useMemo(() => {
     if (!url || imageSize?.url !== url || !imageSize.width || !imageSize.height) return [];
     return layoutAnnotations(stableAnnotations, imageSize.width / dpr, imageSize.height / dpr);
@@ -95,6 +124,7 @@ export default function MultiHighlightThumbnail({
     const img = imgRef.current;
     if (!img || imageSize?.url !== url || !imageSize.width || !imageSize.height) {
       setBoxes([]);
+      setRedactionBoxes([]);
       return;
     }
     const nw = imageSize.width;
@@ -173,9 +203,29 @@ export default function MultiHighlightThumbnail({
         };
       }),
     );
-  }, [dpr, fit, imageSize, layouts, url]);
+    setRedactionBoxes(
+      redactions.flatMap((redaction) => {
+        const expanded = getExpandedRedactionBounds(redaction.bounds, nw / dpr, nh / dpr);
+        return expanded
+          ? [{
+              id: redaction.id,
+              left: mapX(expanded.x),
+              top: mapY(expanded.y),
+              width: expanded.width * dpr * scale,
+              height: expanded.height * dpr * scale,
+            }]
+          : [];
+      }),
+    );
+    setMappedRedactionKey(redactionMapKey);
+  }, [dpr, fit, imageSize, layouts, redactions, redactionMapKey, url]);
 
   const scheduleMapping = useCallback(() => {
+    // ResizeObserver fires after layout. Invalidate the old pixel mapping before
+    // deferring the expensive remap so source pixels stay hidden for the frame
+    // in which the previous redaction coordinates are stale.
+    if (redactions.length > 0 && imgRef.current) imgRef.current.style.visibility = 'hidden';
+    setMappedRedactionKey(null);
     if (mapFrameRef.current !== null) return;
     mapFrameRef.current = requestAnimationFrame(() => {
       mapFrameRef.current = null;
@@ -210,91 +260,115 @@ export default function MultiHighlightThumbnail({
   const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
 
   return (
-    <div className={cn('relative inline-block leading-none', className)}>
+    <div className={cn('relative inline-block overflow-hidden leading-none', !showPixels && 'bg-black', className)}>
       {url && (
         <img
           ref={imgRef}
           src={url}
-          alt={alt}
+          loading={loading}
+          decoding={decoding}
+          alt={privacyReviewRequired ? '' : alt}
+          aria-hidden={privacyReviewRequired || undefined}
           onLoad={onImageLoad}
           className={cn('block', imgClassName ?? defaultImgClass)}
-          style={imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : undefined}
+          style={{
+            ...(imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : {}),
+            visibility: showPixels ? undefined : 'hidden',
+          }}
         />
       )}
-      <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
-        {boxes.map(
-          (box) =>
-            box.calloutLeft !== null && box.calloutTop !== null && (
-              <polyline
-                key={`leader-${box.order}`}
-                points={box.leaderPoints}
-                fill="none"
-                stroke={HIGHLIGHT_COLOR}
-                strokeWidth={box.leaderWidth}
-              />
-            ),
-        )}
-      </svg>
-      {boxes.map((box) => (
-        <div key={box.order}>
-          {box.markerOnly ? (
-            <div
-              className="pointer-events-none absolute rounded-full bg-white"
-              style={{
-                left: box.anchorLeft,
-                top: box.anchorTop,
-                width: box.markerSize,
-                height: box.markerSize,
-                marginLeft: -box.markerSize / 2,
-                marginTop: -box.markerSize / 2,
-                borderStyle: 'solid',
-                borderWidth: box.markerRingWidth,
-                borderColor: HIGHLIGHT_COLOR,
-              }}
-            >
+      {!privacyReviewRequired && (
+        <>
+        <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
+          {boxes.map(
+            (box) =>
+              box.calloutLeft !== null && box.calloutTop !== null && (
+                <polyline
+                  key={`leader-${box.order}`}
+                  points={box.leaderPoints}
+                  fill="none"
+                  stroke={HIGHLIGHT_COLOR}
+                  strokeWidth={box.leaderWidth}
+                />
+              ),
+          )}
+        </svg>
+        {boxes.map((box) => (
+          <div key={box.order}>
+            {box.markerOnly ? (
               <div
-                className="absolute rounded-full"
+                className="pointer-events-none absolute rounded-full bg-white"
                 style={{
-                  inset: `${(1 - MARKER_INNER_RADIUS / MARKER_RADIUS) * 50}%`,
-                  backgroundColor: HIGHLIGHT_COLOR,
+                  left: box.anchorLeft,
+                  top: box.anchorTop,
+                  width: box.markerSize,
+                  height: box.markerSize,
+                  marginLeft: -box.markerSize / 2,
+                  marginTop: -box.markerSize / 2,
+                  borderStyle: 'solid',
+                  borderWidth: box.markerRingWidth,
+                  borderColor: HIGHLIGHT_COLOR,
+                }}
+              >
+                <div
+                  className="absolute rounded-full"
+                  style={{
+                    inset: `${(1 - MARKER_INNER_RADIUS / MARKER_RADIUS) * 50}%`,
+                    backgroundColor: HIGHLIGHT_COLOR,
+                  }}
+                />
+              </div>
+            ) : (
+              <div
+                data-frametrail-annotation-frame={box.order}
+                className="pointer-events-none absolute box-border"
+                style={{
+                  left: box.left,
+                  top: box.top,
+                  width: box.width,
+                  height: box.height,
+                  border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
+                  borderRadius: `${box.borderRadius}px`,
+                  backgroundColor: HIGHLIGHT_FILL_COLOR,
                 }}
               />
-            </div>
-          ) : (
-            <div
-              data-frametrail-annotation-frame={box.order}
-              className="pointer-events-none absolute box-border"
-              style={{
-                left: box.left,
-                top: box.top,
-                width: box.width,
-                height: box.height,
-                border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
-                borderRadius: `${box.borderRadius}px`,
-                backgroundColor: HIGHLIGHT_FILL_COLOR,
-              }}
-            />
-          )}
-          {(numbered || box.calloutLeft) && (
-            <div
-              className="pointer-events-none absolute flex items-center justify-center rounded-full font-semibold shadow"
-              style={{
-                left: box.calloutLeft ?? box.badgeAnchorLeft,
-                top: box.calloutTop ?? box.badgeAnchorTop,
-                width: box.badgeSize,
-                height: box.badgeSize,
-                marginLeft: -box.badgeSize / 2,
-                marginTop: -box.badgeSize / 2,
-                backgroundColor: HIGHLIGHT_COLOR,
-                color: BADGE_TEXT_COLOR,
-                fontSize: box.badgeFontSize,
-              }}
-            >
-              {box.order}
-            </div>
-          )}
-        </div>
-      ))}
+            )}
+            {(numbered || box.calloutLeft) && (
+              <div
+                className="pointer-events-none absolute flex items-center justify-center rounded-full font-semibold shadow"
+                style={{
+                  left: box.calloutLeft ?? box.badgeAnchorLeft,
+                  top: box.calloutTop ?? box.badgeAnchorTop,
+                  width: box.badgeSize,
+                  height: box.badgeSize,
+                  marginLeft: -box.badgeSize / 2,
+                  marginTop: -box.badgeSize / 2,
+                  backgroundColor: HIGHLIGHT_COLOR,
+                  color: BADGE_TEXT_COLOR,
+                  fontSize: box.badgeFontSize,
+                }}
+              >
+                {box.order}
+              </div>
+            )}
+          </div>
+        ))}
+        {redactionBoxes.map((redaction) => (
+          <div
+            key={redaction.id}
+            data-frametrail-redaction={redaction.id}
+            className="pointer-events-none absolute z-10"
+            style={{
+              left: redaction.left,
+              top: redaction.top,
+              width: redaction.width,
+              height: redaction.height,
+              backgroundColor: '#000',
+            }}
+          />
+        ))}
+        </>
+      )}
     </div>
   );
 }

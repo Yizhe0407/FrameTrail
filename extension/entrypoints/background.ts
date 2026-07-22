@@ -4,13 +4,25 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture-presentation';
-import { addStep, deleteStep, deleteStepsForRun, getSteps, type Step } from '@/lib/db';
+import {
+  addStep,
+  deleteStep,
+  deleteStepsForRun,
+  getEffectiveBounds,
+  getStep,
+  getSteps,
+  replaceStepCaptureAtomically,
+  StepRecaptureError,
+  type Step,
+  type StepRecaptureTarget as DbStepRecaptureTarget,
+} from '@/lib/db';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
   isValidSnapshotViewportContext,
 } from '@/lib/recording-guards';
+import { isTrustedEditorSender, isTrustedRecaptureSourceSender } from '@/lib/recapture-guards';
 import { RecorderReadyGate } from '@/lib/recorder-ready';
 import { injectRecorderScript } from '@/lib/recorder-injection';
 import { getRecordingState, setRecordingState } from '@/lib/storage';
@@ -20,10 +32,17 @@ import {
   RECORDED_TAB_CLOSED_ERROR,
 } from '@/lib/recording-recovery';
 import type {
+  AckStepRecaptureResultMessage,
   BackgroundMessage,
+  CancelStepRecaptureMessage,
+  CancelStepRecaptureResult,
   ClickCapture,
   ClickCaptureResult,
   FinishResult,
+  FocusStepRecaptureSourceMessage,
+  FocusStepRecaptureSourceResult,
+  FrameTrailRecaptureReadyMessage,
+  FrameTrailRecaptureTargetMessage,
   FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
   OpenEditorResult,
@@ -33,6 +52,10 @@ import type {
   RecordingState,
   SnapshotInvalidatedMessage,
   StartRecordingMessage,
+  StartStepRecaptureMessage,
+  StartStepRecaptureResult,
+  StepRecaptureResult,
+  StepRecaptureTargetResult,
 } from '@/lib/messages';
 
 const CONTENT_SCRIPT_FILE = '/content-scripts/content.js';
@@ -91,6 +114,8 @@ function queueClick<T>(task: () => Promise<T>): Promise<T> {
 let controlVersion = 0;
 let acceptingClicks = true;
 let pendingRecorderReady: RecorderReadyGate | null = null;
+let pendingRecaptureReady: RecorderReadyGate | null = null;
+let activeRecaptureCaptureId: string | null = null;
 let pendingSnapshotContext: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext'] = undefined;
 let pendingUndo:
   | {
@@ -205,6 +230,7 @@ async function updateRunState(
     if (
       (expectedControlVersion != null && expectedControlVersion !== controlVersion) ||
       !current.isRecording ||
+      current.operation !== 'recording' ||
       current.runId !== runId
     ) {
       return false;
@@ -299,6 +325,7 @@ async function handleStopRunWithError(
     await deleteEmptySnapshotAnchor(state);
     await setRecordingState({
       ...state,
+      operation: null,
       isRecording: false,
       phase: 'error',
       tabId: null,
@@ -437,7 +464,496 @@ async function createAndActivateSnapshotAnchor(
   }
 }
 
-function startRecording(message: StartRecordingMessage): Promise<void> {
+type ValidatedRecaptureTarget = {
+  target: DbStepRecaptureTarget;
+  entryId: string;
+  sourceUrl: string;
+};
+
+class StepRecaptureStartError extends Error {
+  constructor(
+    readonly code: Exclude<StartStepRecaptureResult, { ok: true }>['code'],
+    message: string,
+  ) {
+    super(message);
+    this.name = 'StepRecaptureStartError';
+  }
+}
+
+let startingRecapture = false;
+
+function recaptureFailure(
+  code: Exclude<StartStepRecaptureResult, { ok: true }>['code'],
+  error: string,
+): StartStepRecaptureResult {
+  return { ok: false, code, error };
+}
+
+function isEditorSender(sender: Browser.runtime.MessageSender): boolean {
+  return isTrustedEditorSender(sender, browser.runtime.getURL('/editor.html'));
+}
+
+function isRecaptureSourceSender(
+  sender: Browser.runtime.MessageSender,
+  context: NonNullable<RecordingState['recapture']>,
+): boolean {
+  return isTrustedRecaptureSourceSender(sender, context);
+}
+
+function recapturePermissionPattern(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return `${parsed.origin}/*`;
+  } catch {
+    return null;
+  }
+}
+
+async function validateRecaptureTarget(
+  sessionId: string,
+  target: StartStepRecaptureMessage['target'],
+): Promise<ValidatedRecaptureTarget> {
+  if (target.kind === 'single') {
+    const step = await getStep(target.stepId);
+    if (!step || step.sessionId !== sessionId) {
+      throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的步驟。');
+    }
+    if (step.groupId || !step.screenshotBlob || !getEffectiveBounds(step)) {
+      throw new StepRecaptureStartError('TARGET_CHANGED', '此步驟已變更，請重新整理編輯器後再試一次。');
+    }
+    return { target, entryId: step.id, sourceUrl: step.url };
+  }
+
+  const [anchor, annotation, steps] = await Promise.all([
+    getStep(target.anchorId),
+    getStep(target.annotationId),
+    getSteps(sessionId),
+  ]);
+  if (!anchor || !annotation || anchor.sessionId !== sessionId || annotation.sessionId !== sessionId) {
+    throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的快照。');
+  }
+  if (
+    anchor.groupId !== anchor.id ||
+    annotation.groupId !== anchor.id ||
+    annotation.id === anchor.id ||
+    !anchor.screenshotBlob ||
+    !getEffectiveBounds(annotation)
+  ) {
+    throw new StepRecaptureStartError('TARGET_CHANGED', '快照結構已變更，請重新整理編輯器後再試一次。');
+  }
+  const annotations = steps.filter(
+    (step) => step.groupId === anchor.id && step.id !== anchor.id && getEffectiveBounds(step),
+  );
+  if (annotations.length !== 1 || annotations[0].id !== annotation.id) {
+    throw new StepRecaptureStartError(
+      'UNSUPPORTED_SNAPSHOT_GROUP',
+      '此快照包含多個標註；更換底圖會使其他標註失效，請改用重拍整張快照。',
+    );
+  }
+  return { target, entryId: anchor.id, sourceUrl: anchor.url };
+}
+
+async function waitForTabComplete(tabId: number, timeoutMs = 15_000): Promise<Browser.tabs.Tab> {
+  const current = await browser.tabs.get(tabId);
+  if (current.status === 'complete') return current;
+  return new Promise<Browser.tabs.Tab>((resolve, reject) => {
+    const timeout = setTimeout(() => finish(new Error('Timed out while loading the source page.')), timeoutMs);
+    const onUpdated = (updatedTabId: number, changeInfo: { status?: string }, tab: Browser.tabs.Tab) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') finish(null, tab);
+    };
+    const onRemoved = (removedTabId: number) => {
+      if (removedTabId === tabId) finish(new Error('The source tab was closed while loading.'));
+    };
+    const finish = (error: Error | null, tab?: Browser.tabs.Tab) => {
+      clearTimeout(timeout);
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      browser.tabs.onRemoved.removeListener(onRemoved);
+      if (error) reject(error);
+      else resolve(tab!);
+    };
+    browser.tabs.onUpdated.addListener(onUpdated);
+    browser.tabs.onRemoved.addListener(onRemoved);
+  });
+}
+
+async function findOrCreateRecaptureSourceTab(
+  sourceUrl: string,
+  preferredTabId?: number,
+): Promise<{ tab: Browser.tabs.Tab; reused: boolean }> {
+  if (preferredTabId != null) {
+    try {
+      const preferred = await browser.tabs.get(preferredTabId);
+      if (preferred.id != null && preferred.url === sourceUrl) {
+        return { tab: await waitForTabComplete(preferred.id), reused: true };
+      }
+    } catch {
+      // The nominated tab disappeared; fall through to another exact match.
+    }
+  }
+  const tabs = await browser.tabs.query({});
+  const exact = tabs.find((tab) => tab.id != null && tab.url === sourceUrl);
+  if (exact?.id != null) return { tab: await waitForTabComplete(exact.id), reused: true };
+  const created = await browser.tabs.create({ url: sourceUrl, active: false });
+  if (created.id == null) throw new Error('Browser did not create a source tab.');
+  return { tab: await waitForTabComplete(created.id), reused: false };
+}
+
+async function returnToRecaptureEditor(context: RecordingState['recapture']): Promise<void> {
+  if (!context) return;
+  try {
+    await browser.tabs.update(context.editorTabId, { active: true });
+    if (context.editorWindowId != null) {
+      await browser.windows.update(context.editorWindowId, { focused: true });
+    }
+    return;
+  } catch {
+    // The initiating editor was closed. Reuse another editor or recreate it.
+  }
+  const editorBase = browser.runtime.getURL('/editor.html');
+  const [existing] = await browser.tabs.query({ url: `${editorBase}*` });
+  if (existing?.id != null) {
+    await browser.tabs.update(existing.id, { active: true });
+    if (existing.windowId != null) await browser.windows.update(existing.windowId, { focused: true });
+    return;
+  }
+  const editorUrl = new URL(editorBase);
+  editorUrl.searchParams.set('sessionId', context.sessionId);
+  editorUrl.searchParams.set('entryId', context.entryId);
+  editorUrl.searchParams.set('recaptureRunId', context.runId);
+  await browser.tabs.create({ url: editorUrl.href, active: true });
+}
+
+async function settleStepRecapture(
+  runId: string,
+  status: StepRecaptureResult['status'],
+  version: number,
+  errorCode?: string,
+  message?: string,
+): Promise<boolean> {
+  const context = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (
+      version !== controlVersion ||
+      current.operation !== 'recapture' ||
+      current.recapture?.runId !== runId
+    ) {
+      return null;
+    }
+    const recapture = current.recapture;
+    const result: StepRecaptureResult = {
+      runId,
+      status,
+      sessionId: recapture.sessionId,
+      entryId: recapture.entryId,
+      ...(errorCode ? { errorCode } : {}),
+      ...(message ? { message } : {}),
+      completedAt: Date.now(),
+    };
+    await setRecordingState({
+      ...current,
+      operation: null,
+      isRecording: false,
+      phase: 'idle',
+      tabId: null,
+      runId: null,
+      recapture: null,
+      recaptureResult: result,
+      error: status === 'failed' ? message ?? '補拍失敗。' : null,
+      recoverableError: null,
+    });
+    return recapture;
+  });
+  if (!context) return false;
+  activeRecaptureCaptureId = null;
+  await stopRecorderInTab(context.sourceTabId);
+  if (context.sourceTabCreated) {
+    await browser.tabs.remove(context.sourceTabId).catch((error) => {
+      console.warn('[frametrail] failed to close temporary recapture tab', error);
+    });
+  }
+  try {
+    await returnToRecaptureEditor(context);
+  } catch (error) {
+    console.error('[frametrail] failed to return to editor after recapture', error);
+  }
+  return true;
+}
+
+async function wasRecaptureCommitted(context: NonNullable<RecordingState['recapture']>): Promise<boolean> {
+  const ownerId = context.target.kind === 'single' ? context.target.stepId : context.target.anchorId;
+  const owner = await getStep(ownerId);
+  return owner?.sessionId === context.sessionId && owner.lastCaptureRunId === context.runId;
+}
+
+/**
+ * MV3 may terminate the service worker between capture and durable result
+ * handoff. A persisted capture marker lets startup distinguish a committed
+ * replacement from abandoned in-flight work instead of leaving the editor
+ * permanently locked in recapture mode.
+ */
+async function recoverInterruptedRecapture(): Promise<void> {
+  const state = await getRecordingState();
+  const context = state.recapture;
+  if (state.operation !== 'recapture' || !context || context.phase === 'awaiting-target') return;
+
+  const committed = context.phase === 'capturing' && await wasRecaptureCommitted(context);
+  acceptingClicks = false;
+  const version = ++controlVersion;
+  if (committed) {
+    await settleStepRecapture(context.runId, 'replaced', version);
+    return;
+  }
+  await settleStepRecapture(
+    context.runId,
+    'failed',
+    version,
+    'WORKER_RESTARTED',
+    '補拍流程曾中斷，原內容未變更；請重新補拍。',
+  );
+}
+
+function failStepRecapture(
+  runId: string,
+  errorCode: string,
+  message: string,
+  expectedControlVersion: number,
+): Promise<boolean> {
+  if (expectedControlVersion !== controlVersion) return Promise.resolve(false);
+  acceptingClicks = false;
+  pendingRecaptureReady?.cancel();
+  pendingRecaptureReady = null;
+  if (activeRecaptureCaptureId) cancelCapture(activeRecaptureCaptureId);
+  const version = ++controlVersion;
+  return settleStepRecapture(runId, 'failed', version, errorCode, message);
+}
+
+async function handleRecaptureReady(
+  message: FrameTrailRecaptureReadyMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<boolean> {
+  const context = (await getRecordingState()).recapture;
+  if (
+    !context ||
+    context.runId !== message.runId ||
+    context.phase !== 'starting' ||
+    !isRecaptureSourceSender(sender, context) ||
+    message.url !== context.sourceUrl
+  ) {
+    return false;
+  }
+  return pendingRecaptureReady?.signal({
+    runId: message.runId,
+    tabId: context.sourceTabId,
+    controlVersion,
+  }) ?? false;
+}
+
+async function handleStartStepRecapture(
+  message: StartStepRecaptureMessage,
+  sender: Browser.runtime.MessageSender,
+  version: number,
+): Promise<StartStepRecaptureResult> {
+  await clickChain;
+  if (version !== controlVersion) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+
+  const editorTab = sender.tab;
+  if (!isEditorSender(sender) || editorTab?.id == null) {
+    return recaptureFailure('INVALID_EDITOR', '只能從 FrameTrail 編輯器啟動補拍。');
+  }
+  const current = await getRecordingState();
+  if (current.operation !== null || current.isRecording) {
+    return recaptureFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
+  }
+
+  let validated: ValidatedRecaptureTarget;
+  try {
+    validated = await validateRecaptureTarget(message.sessionId, message.target);
+  } catch (error) {
+    if (error instanceof StepRecaptureStartError) return recaptureFailure(error.code, error.message);
+    throw error;
+  }
+  const permissionPattern = recapturePermissionPattern(validated.sourceUrl);
+  if (!permissionPattern || isRestrictedUrl(validated.sourceUrl)) {
+    return recaptureFailure('RESTRICTED_SOURCE', '此來源頁面不允許補拍。');
+  }
+  const hasPermission = await browser.permissions.contains({ origins: [permissionPattern] });
+  if (!hasPermission) {
+    return recaptureFailure('HOST_PERMISSION_REQUIRED', '需要先允許 FrameTrail 存取此網站，才能補拍。');
+  }
+
+  let source: Awaited<ReturnType<typeof findOrCreateRecaptureSourceTab>>;
+  try {
+    source = await findOrCreateRecaptureSourceTab(validated.sourceUrl, message.preferredTabId);
+  } catch (error) {
+    console.error('[frametrail] failed to open recapture source tab', error);
+    return recaptureFailure('SOURCE_TAB_FAILED', '無法開啟原始頁面。');
+  }
+  const sourceTab = source.tab;
+  if (sourceTab.id == null || sourceTab.windowId == null || sourceTab.url !== validated.sourceUrl) {
+    return recaptureFailure('SOURCE_TAB_FAILED', '原始頁面已重新導向，未開始補拍。');
+  }
+  if (version !== controlVersion) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+
+  const runId = crypto.randomUUID();
+  const recapture = {
+    runId,
+    sessionId: message.sessionId,
+    target: validated.target,
+    entryId: validated.entryId,
+    phase: 'starting' as const,
+    editorTabId: editorTab.id,
+    editorWindowId: editorTab.windowId ?? null,
+    sourceTabId: sourceTab.id,
+    sourceWindowId: sourceTab.windowId,
+    sourceUrl: validated.sourceUrl,
+    sourceTabCreated: !source.reused,
+    startedAt: Date.now(),
+  };
+  const started = await writeStateForControl(version, (state) => ({
+    ...state,
+    operation: 'recapture',
+    isRecording: false,
+    phase: 'idle',
+    sessionId: message.sessionId,
+    tabId: null,
+    runId: null,
+    error: null,
+    recoverableError: null,
+    recapture,
+    recaptureResult: null,
+  }));
+  if (!started) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+
+  const readyGate = new RecorderReadyGate(
+    { runId, tabId: sourceTab.id, controlVersion: version },
+    RECORDER_READY_TIMEOUT_MS,
+  );
+  pendingRecaptureReady = readyGate;
+  try {
+    const [, ready] = await Promise.all([injectRecorder(sourceTab.id, true), readyGate.promise]);
+    if (!ready) throw new Error('Recapture recorder did not become ready before timeout.');
+    const activated = await queueStateMutation(async () => {
+      const state = await getRecordingState();
+      if (
+        version !== controlVersion ||
+        state.operation !== 'recapture' ||
+        state.recapture?.runId !== runId ||
+        state.recapture.phase !== 'starting'
+      ) {
+        return false;
+      }
+      await setRecordingState({
+        ...state,
+        recapture: { ...state.recapture, phase: 'awaiting-target' },
+      });
+      return true;
+    });
+    if (!activated) throw new StaleCaptureError('Recapture changed during startup.');
+    acceptingClicks = true;
+    await browser.tabs.update(sourceTab.id, { active: true });
+    await browser.windows.update(sourceTab.windowId, { focused: true });
+    return { ok: true, runId, tabId: sourceTab.id, reusedTab: source.reused };
+  } catch (error) {
+    console.error('[frametrail] failed to start recapture recorder', error);
+    if (version === controlVersion) {
+      await failStepRecapture(runId, 'INJECTION_FAILED', '無法在原始頁面啟動補拍。', version);
+    }
+    return recaptureFailure('INJECTION_FAILED', '無法在原始頁面啟動補拍。');
+  } finally {
+    if (pendingRecaptureReady === readyGate) pendingRecaptureReady = null;
+    readyGate.cancel();
+  }
+}
+
+async function startStepRecapture(
+  message: StartStepRecaptureMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<StartStepRecaptureResult> {
+  if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', '目前已有補拍正在啟動。');
+  startingRecapture = true;
+  try {
+    const current = await getRecordingState();
+    if (current.operation !== null || current.isRecording) {
+      return recaptureFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
+    }
+    acceptingClicks = false;
+    pendingRecorderReady?.cancel();
+    pendingRecorderReady = null;
+    pendingRecaptureReady?.cancel();
+    pendingRecaptureReady = null;
+    pendingUndo = null;
+    const version = ++controlVersion;
+    return await handleStartStepRecapture(message, sender, version);
+  } finally {
+    startingRecapture = false;
+  }
+}
+
+async function cancelStepRecapture(
+  message: CancelStepRecaptureMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<CancelStepRecaptureResult> {
+  const state = await getRecordingState();
+  if (state.recaptureResult?.runId === message.runId) return { ok: true, status: 'already-completed' };
+  if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
+    return { ok: false, error: '這次補拍已經結束。' };
+  }
+  const context = state.recapture;
+  if (!isEditorSender(sender) && !isRecaptureSourceSender(sender, context)) {
+    return { ok: false, error: '無效的補拍來源。' };
+  }
+  const captureId = activeRecaptureCaptureId;
+  if (captureId && committingCaptureIds.has(captureId)) {
+    await clickChain;
+    return { ok: true, status: 'already-completed' };
+  }
+  acceptingClicks = false;
+  pendingRecaptureReady?.cancel();
+  pendingRecaptureReady = null;
+  if (captureId) cancelCapture(captureId);
+  const version = ++controlVersion;
+  await clickChain;
+  const settled = await settleStepRecapture(message.runId, 'cancelled', version, 'CANCELLED', '已取消補拍，原內容未變更。');
+  return settled ? { ok: true, status: 'cancelled' } : { ok: true, status: 'already-completed' };
+}
+
+async function ackStepRecaptureResult(
+  message: AckStepRecaptureResultMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<boolean> {
+  if (!isEditorSender(sender)) return false;
+  return queueStateMutation(async () => {
+    const state = await getRecordingState();
+    if (state.recaptureResult?.runId !== message.runId) return false;
+    await setRecordingState({ ...state, recaptureResult: null });
+    return true;
+  });
+}
+
+async function focusStepRecaptureSource(
+  message: FocusStepRecaptureSourceMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<FocusStepRecaptureSourceResult> {
+  if (!isEditorSender(sender)) return { ok: false, error: '無效的編輯器來源。' };
+  const state = await getRecordingState();
+  if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
+    return { ok: false, error: '這次補拍已經結束。' };
+  }
+  try {
+    await browser.tabs.update(state.recapture.sourceTabId, { active: true });
+    await browser.windows.update(state.recapture.sourceWindowId, { focused: true });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: '找不到補拍分頁。' };
+  }
+}
+
+async function startRecording(message: StartRecordingMessage): Promise<void> {
+  const current = await getRecordingState();
+  // Starting ordinary recording must never invalidate an active one-shot
+  // replacement. The popup/editor can retry after that operation settles.
+  if (current.operation === 'recapture' || startingRecapture) return;
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
@@ -462,6 +978,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   if (!tab?.id) {
     await writeStateForControl(version, (current) => ({
       ...current,
+      operation: null,
       isRecording: false,
       phase: 'error',
       tabId: null,
@@ -484,6 +1001,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   if (isRestrictedUrl(tab.url)) {
     await writeStateForControl(version, (current) => ({
       ...current,
+      operation: null,
       isRecording: false,
       phase: 'error',
       sessionId: current.sessionId,
@@ -506,6 +1024,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
 
   const runId = crypto.randomUUID();
   const startedState = await writeStateForControl(version, (current) => ({
+    operation: 'recording',
     isRecording: true,
     phase: 'starting',
     sessionId: current.sessionId ?? crypto.randomUUID(),
@@ -519,6 +1038,8 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
     runId,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
+    recapture: null,
+    recaptureResult: current.recaptureResult,
   }));
   if (!startedState) return;
 
@@ -573,7 +1094,9 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   }
 }
 
-function stopRecording(): Promise<void> {
+async function stopRecording(): Promise<void> {
+  const current = await getRecordingState();
+  if (current.operation !== 'recording' || !current.isRecording) return;
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
@@ -660,6 +1183,7 @@ async function handleStopRecording(version: number): Promise<void> {
   await deleteEmptySnapshotAnchor(current);
   const state = await writeStateForControl(version, (current) => ({
     ...current,
+    operation: null,
     isRecording: false,
     phase: 'idle',
     tabId: null,
@@ -1066,6 +1590,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   const version = ++controlVersion;
   const stopped = await writeStateForControl(version, (current) => ({
     ...current,
+    operation: null,
     isRecording: false,
     phase: 'idle',
     tabId: null,
@@ -1123,6 +1648,7 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
     await deleteStepsForRun(state.sessionId, message.runId);
     const stopped = await writeStateForControl(version, (current) => ({
       ...current,
+      operation: null,
       isRecording: false,
       phase: 'idle',
       tabId: null,
@@ -1200,17 +1726,16 @@ async function handleCommandShortcut(command: string): Promise<void> {
   }
 }
 
-async function captureScreenshot(
-  message: Pick<ClickCapture, 'runId' | 'url' | 'viewport' | 'devicePixelRatio' | 'captureId'>,
-  sessionId: string,
+async function captureScreenshotWithGuard(
+  message: Pick<ClickCapture, 'viewport' | 'devicePixelRatio' | 'captureId'>,
   tabId: number,
   windowId: number,
-  expectedControlVersion: number,
+  assertContext: () => Promise<void>,
 ): Promise<{ blob: Blob; scale: number }> {
   return queueCapture(async () => {
     const guard = async () => {
       assertCaptureNotCancelled(message.captureId);
-      await assertCaptureContext(expectedControlVersion, message.runId, sessionId, tabId, windowId, message.url);
+      await assertContext();
       assertCaptureNotCancelled(message.captureId);
     };
     await guard();
@@ -1237,11 +1762,161 @@ async function captureScreenshot(
     );
     const blob = await dataUrlToBlob(dataUrl);
     const scale = await getScreenshotScale(blob, message.viewport, message.devicePixelRatio);
-    // Do not persist a screenshot after STOP/RESET/another START arrived while
-    // the image was decoded.
+    // Do not persist an image after a stop/cancel/new operation arrives while
+    // captureVisibleTab or image decoding is still in flight.
     await guard();
     return { blob, scale };
   });
+}
+
+async function captureScreenshot(
+  message: Pick<ClickCapture, 'runId' | 'url' | 'viewport' | 'devicePixelRatio' | 'captureId'>,
+  sessionId: string,
+  tabId: number,
+  windowId: number,
+  expectedControlVersion: number,
+): Promise<{ blob: Blob; scale: number }> {
+  return captureScreenshotWithGuard(message, tabId, windowId, () =>
+    assertCaptureContext(expectedControlVersion, message.runId, sessionId, tabId, windowId, message.url),
+  );
+}
+
+async function assertRecaptureCaptureContext(
+  expectedControlVersion: number,
+  runId: string,
+  tabId: number,
+  windowId: number,
+  expectedUrl: string,
+): Promise<void> {
+  if (expectedControlVersion !== controlVersion) {
+    throw new StaleCaptureError('Recapture control changed before the screenshot could be taken.');
+  }
+  const state = await getRecordingState();
+  const [activeTab] = await browser.tabs.query({ active: true, windowId });
+  if (
+    expectedControlVersion !== controlVersion ||
+    state.operation !== 'recapture' ||
+    state.recapture?.runId !== runId ||
+    state.recapture.sourceTabId !== tabId ||
+    state.recapture.sourceWindowId !== windowId ||
+    state.recapture.sourceUrl !== expectedUrl
+  ) {
+    throw new StaleCaptureError('Recapture changed before the screenshot could be taken.');
+  }
+  if (activeTab?.id !== tabId) throw new Error('補拍失敗：原始頁面已不是目前作用中的分頁。');
+  if (activeTab.url !== expectedUrl) throw new Error('補拍失敗：原始頁面已變更。');
+}
+
+async function handleRecaptureTarget(
+  message: FrameTrailRecaptureTargetMessage,
+  sender: Browser.runtime.MessageSender,
+  expectedControlVersion: number,
+): Promise<StepRecaptureTargetResult> {
+  const reject = (status: 'rejected' | 'cancelled' | 'failed', error?: string): StepRecaptureTargetResult => ({
+    ok: false,
+    status,
+    ...(error ? { error } : {}),
+  });
+  if (expectedControlVersion !== controlVersion) return reject('rejected');
+  const state = await getRecordingState();
+  const context = state.recapture;
+  if (
+    state.operation !== 'recapture' ||
+    !context ||
+    context.runId !== message.runId ||
+    context.phase !== 'awaiting-target' ||
+    !isRecaptureSourceSender(sender, context) ||
+    message.url !== context.sourceUrl
+  ) {
+    return reject('rejected');
+  }
+  if (!acceptingClicks || activeRecaptureCaptureId) return reject('rejected');
+  const claimed = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (
+      expectedControlVersion !== controlVersion ||
+      current.operation !== 'recapture' ||
+      current.recapture?.runId !== message.runId ||
+      current.recapture.phase !== 'awaiting-target'
+    ) {
+      return false;
+    }
+    await setRecordingState({
+      ...current,
+      recapture: { ...current.recapture, phase: 'capturing' },
+    });
+    return true;
+  });
+  if (!claimed) return reject('rejected');
+  // Claim globals only after both sender and persisted context validation. An
+  // old or forged content-script message must not consume the one-shot slot.
+  acceptingClicks = false;
+  activeRecaptureCaptureId = message.captureId;
+
+  try {
+    const captured = await captureScreenshotWithGuard(
+      message,
+      context.sourceTabId,
+      context.sourceWindowId,
+      () =>
+        assertRecaptureCaptureContext(
+          expectedControlVersion,
+          message.runId,
+          context.sourceTabId,
+          context.sourceWindowId,
+          context.sourceUrl,
+        ),
+    );
+    assertCaptureNotCancelled(message.captureId);
+    const current = await getRecordingState();
+    if (
+      expectedControlVersion !== controlVersion ||
+      current.operation !== 'recapture' ||
+      current.recapture?.runId !== message.runId ||
+      current.recapture.phase !== 'capturing'
+    ) {
+      throw new StaleCaptureError('Recapture changed before the replacement transaction.');
+    }
+
+    // Synchronous commit marker: cancellation after this point waits for the
+    // atomic IndexedDB replacement and reports the completed result.
+    committingCaptureIds.add(message.captureId);
+    await replaceStepCaptureAtomically(
+      context.sessionId,
+      context.target,
+      {
+        screenshotBlob: captured.blob,
+        bounds: message.rect,
+        devicePixelRatio: message.devicePixelRatio,
+        screenshotScale: captured.scale,
+        url: message.url,
+        timestamp: message.timestamp,
+      },
+      message.runId,
+    );
+    const version = ++controlVersion;
+    await settleStepRecapture(message.runId, 'replaced', version);
+    return { ok: true, status: 'replaced' };
+  } catch (error) {
+    if (error instanceof StaleCaptureError) return reject('cancelled');
+    const errorCode = error instanceof StepRecaptureError ? error.code : 'CAPTURE_FAILED';
+    const errorMessage =
+      error instanceof StepRecaptureError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : '補拍失敗，原內容未變更。';
+    console.error('[frametrail] failed to replace step capture', error);
+    if (expectedControlVersion === controlVersion) {
+      const version = ++controlVersion;
+      await settleStepRecapture(message.runId, 'failed', version, errorCode, errorMessage);
+    }
+    return reject('failed', errorMessage);
+  } finally {
+    committingCaptureIds.delete(message.captureId);
+    cancelledCaptureIds.delete(message.captureId);
+    if (activeRecaptureCaptureId === message.captureId) activeRecaptureCaptureId = null;
+  }
 }
 
 async function handleSnapshotClick(
@@ -1382,6 +2057,14 @@ export default defineBackground(() => {
     switch (message.type) {
       case 'START_RECORDING':
         return startRecording(message);
+      case 'START_STEP_RECAPTURE':
+        return startStepRecapture(message, sender);
+      case 'CANCEL_STEP_RECAPTURE':
+        return cancelStepRecapture(message, sender);
+      case 'ACK_STEP_RECAPTURE_RESULT':
+        return ackStepRecaptureResult(message, sender);
+      case 'FOCUS_STEP_RECAPTURE_SOURCE':
+        return focusStepRecaptureSource(message, sender);
       case 'STOP_RECORDING':
         return stopRecording();
       case 'OPEN_EDITOR':
@@ -1398,6 +2081,14 @@ export default defineBackground(() => {
         return handleRecordingControl(message);
       case 'SNAPSHOT_INVALIDATED':
         return handleSnapshotInvalidated(message, sender);
+      case 'FRAME_TRAIL_RECAPTURE_TARGET':
+        if (!acceptingClicks) {
+          return Promise.resolve({ ok: false, status: 'rejected' } satisfies StepRecaptureTargetResult);
+        }
+        {
+          const expectedControlVersion = controlVersion;
+          return queueClick(() => handleRecaptureTarget(message, sender, expectedControlVersion));
+        }
       case 'FRAME_TRAIL_CLICK':
         if (!acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {
@@ -1409,6 +2100,8 @@ export default defineBackground(() => {
         return Promise.resolve({ ok: true } satisfies ClickCaptureResult);
       case 'FRAME_TRAIL_READY':
         return handleRecorderReady(message, sender);
+      case 'FRAME_TRAIL_RECAPTURE_READY':
+        return handleRecaptureReady(message, sender);
     }
   });
 
@@ -1426,8 +2119,30 @@ export default defineBackground(() => {
     const expectedControlVersion = controlVersion;
     const state = await getRecordingState();
     if (
+      expectedControlVersion === controlVersion &&
+      state.operation === 'recapture' &&
+      state.recapture?.sourceTabId === tabId
+    ) {
+      const context = state.recapture;
+      // Startup intentionally waits for the initial document to finish. Once
+      // selection is enabled, any navigation invalidates this one-shot job.
+      if (
+        context.phase !== 'starting' &&
+        (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== context.sourceUrl))
+      ) {
+        await failStepRecapture(
+          context.runId,
+          'SOURCE_NAVIGATED',
+          '補拍已停止，因為原始頁面在選取期間發生導覽。原內容未變更。',
+          expectedControlVersion,
+        );
+      }
+      return;
+    }
+    if (
       expectedControlVersion !== controlVersion ||
       !state.isRecording ||
+      state.operation !== 'recording' ||
       state.tabId !== tabId ||
       !state.runId
     ) {
@@ -1484,8 +2199,22 @@ export default defineBackground(() => {
     const expectedControlVersion = controlVersion;
     const state = await getRecordingState();
     if (
+      expectedControlVersion === controlVersion &&
+      state.operation === 'recapture' &&
+      state.recapture?.sourceTabId === tabId
+    ) {
+      await failStepRecapture(
+        state.recapture.runId,
+        'SOURCE_TAB_CLOSED',
+        '補拍已停止，因為原始分頁已關閉。原內容未變更。',
+        expectedControlVersion,
+      );
+      return;
+    }
+    if (
       expectedControlVersion !== controlVersion ||
       !state.isRecording ||
+      state.operation !== 'recording' ||
       state.tabId !== tabId ||
       !state.runId
     ) {
@@ -1497,5 +2226,9 @@ export default defineBackground(() => {
       expectedControlVersion,
       RECORDED_TAB_CLOSED_ERROR,
     );
+  });
+
+  void recoverInterruptedRecapture().catch((error) => {
+    console.error('[frametrail] failed to recover interrupted recapture', error);
   });
 });

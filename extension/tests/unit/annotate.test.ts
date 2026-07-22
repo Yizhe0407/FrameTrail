@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   BADGE_RADIUS,
   LEADER_LINE_WIDTH,
   MARKER_RADIUS,
+  REDACTION_COLOR,
+  REDACTION_EXPANSION,
+  compositeHighlight,
   getBadgeFontSize,
+  getExpandedRedactionBounds,
   layoutAnnotations,
   type AnnotationLayout,
 } from '@/lib/annotate';
@@ -462,5 +466,71 @@ describe('layoutAnnotations', () => {
     expect(getBadgeFontSize(1)).toBe(BADGE_RADIUS * 2 * 0.55);
     expect(getBadgeFontSize(1_000)).toBeLessThan(getBadgeFontSize(99));
     expect(getBadgeFontSize(1_000)).toBeGreaterThanOrEqual(7);
+  });
+});
+
+
+describe('raster redactions', () => {
+  it('expands each mask by two CSS pixels and clips it to the screenshot viewport', () => {
+    expect(REDACTION_EXPANSION).toBe(2);
+    expect(getExpandedRedactionBounds({ x: 10, y: 20, width: 30, height: 40 }, 100, 100)).toEqual({
+      x: 8,
+      y: 18,
+      width: 34,
+      height: 44,
+    });
+    expect(getExpandedRedactionBounds({ x: -5, y: 96, width: 20, height: 10 }, 100, 100)).toEqual({
+      x: 0,
+      y: 94,
+      width: 17,
+      height: 6,
+    });
+    expect(getExpandedRedactionBounds({ x: 120, y: 10, width: 4, height: 4 }, 100, 100)).toBeNull();
+  });
+
+  it('draws opaque redactions after annotation strokes in bitmap coordinates', async () => {
+    const calls: Array<[string, ...number[]]> = [];
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      drawImage: () => calls.push(['drawImage']),
+      beginPath: () => calls.push(['beginPath']),
+      roundRect: (...args: number[]) => calls.push(['roundRect', ...args]),
+      fill: () => calls.push(['fill']),
+      stroke: () => calls.push(['stroke']),
+      fillRect: (...args: number[]) => calls.push(['fillRect', ...args]),
+    };
+    class FakeOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+      getContext() {
+        return context;
+      }
+      convertToBlob() {
+        calls.push(['convertToBlob']);
+        return Promise.resolve(new Blob(['rendered'], { type: 'image/png' }));
+      }
+    }
+    const close = vi.fn();
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 200, height: 100, close })));
+
+    try {
+      await compositeHighlight(
+        new Blob(['source']),
+        { x: 20, y: 10, width: 30, height: 20 },
+        2,
+        'image/png',
+        [{ id: 'mask', kind: 'solid', bounds: { x: 98, y: 48, width: 10, height: 10 } }],
+      );
+
+      expect(context.fillStyle).toBe(REDACTION_COLOR);
+      expect(calls).toContainEqual(['fillRect', 192, 92, 8, 8]);
+      expect(calls.findIndex(([name]) => name === 'fillRect')).toBeGreaterThan(calls.findIndex(([name]) => name === 'stroke'));
+      expect(calls.at(-1)).toEqual(['convertToBlob']);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

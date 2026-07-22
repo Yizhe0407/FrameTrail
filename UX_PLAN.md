@@ -2,7 +2,7 @@
 
 > 版本：1.0
 >
-> 查閱與撰寫日期：2026-07-19
+> 查閱與撰寫日期：2026-07-22
 >
 > 適用範圍：瀏覽器擴充功能的 Popup、步驟模式、快照模式與 Editor
 >
@@ -59,6 +59,7 @@
 - Chrome 與 Firefox 都能提供相同的核心體驗，不需要為不同瀏覽器維護兩套主流程。
 - Popup 不具持續性，開始後關閉是合理行為；問題在於目前關閉後沒有錄製中的替代控制介面。
 - 完成後直接進 Editor，能消除「再開 Popup、停止、再點編輯器」的重複往返。
+- 本輪已補上 Editor 的視覺修正與隱私閉環：非破壞性手動 bounds、一次性補拍、owner-level opaque redaction、補拍後 review gate，以及 Preview／Clipboard／ZIP 共用且 fail-closed 的合成路徑。
 
 ## 3. 現況與主要摩擦
 
@@ -401,6 +402,15 @@ annotating → discarding → idle
 - 單一步驟刪除可直接執行再 Undo，減少反覆確認。
 - Undo 必須對應單一 IndexedDB transaction 或可還原快照，重新整理後不承諾保留 snackbar。
 
+### 11.6 視覺修正、補拍與隱私遮罩（已實作）
+
+- **手動修正框選**：在同一個 Dialog 內提供調整框選、拖曳、8 個 resize handles、CSS px 精確輸入、方向鍵（1 px／Shift 10 px）、Undo/Redo 與還原自動框選。手動值寫入 `manualBounds`，原始偵測值永遠保留。
+- **補拍**：普通步驟可回到原始 URL 重新框選；多標註快照拒絕直接替換，單一標註快照才允許 singleton recapture。補拍以來源／分頁／URL／runId／controlVersion 驗證和原子 IndexedDB replacement 結束，並以 durable result + ACK 復原 MV3 worker 中斷。
+- **敏感資訊遮罩**：遮罩是圖片 owner 的 opaque solid layer，快照 annotation 不持有遮罩。Preview、Lightbox、Clipboard PNG 與 ZIP/JPEG 共用同一條 render path，redaction 最後繪製並向外擴 2 CSS px。
+- **Fail-closed**：補拍後保留舊遮罩為 review draft；格式錯誤的 metadata 不會被視為沒有遮罩。確認前預覽全黑、複製／匯出阻擋，compositor 仍會全圖填黑；只有「確認並儲存」解除封鎖。
+- **競態保護**：圖片替換遞增 `captureRevision`，視覺儲存和 Undo 使用 compare-and-set，過期 draft 不可覆寫新圖片或清除 privacy gate。
+- **工作流程限制**：補拍／錄製／刪除／排序／重置等資料操作互斥；多標註快照必須重新製作整張底圖，這是避免座標錯配的刻意安全限制。
+
 ### 11.5 空狀態與匯出
 
 - 完全無內容：顯示 `尚未建立內容`，primary 為 `開始錄製`，不顯示一排無說明的 disabled 匯出或重置。
@@ -610,7 +620,7 @@ interface FinishResult {
 
 完成條件：兩種模式都不需要重新開 Popup 才能完成；控制器不出現在成品。
 
-#### 實作進度（2026-07-19）
+#### 實作進度（2026-07-22）
 
 本輪已完成 Phase 1、Phase 3，以及 Phase 2 的多快照核心流程：
 
@@ -635,12 +645,13 @@ interface FinishResult {
 - 錄製分頁關閉時會保留已提交內容並寫入 `RECORDED_TAB_CLOSED` 恢復狀態；Popup 改以 `完成並開啟編輯器` 作為唯一主要動作，重試時仍會定位最新項目。
 - 完成錄製後若 Editor 分頁無法建立或聚焦，會寫入 `EDITOR_OPEN_FAILED`，Popup 可透過 background 的 `OPEN_EDITOR` 重試；成功後才清除恢復狀態。
 - 補齊舊 `runId` 與快速重複 `FINISH_RECORDING` 的真實瀏覽器競態覆蓋，確認舊指令不影響新 run、同一輪只完成一次且只開啟一個 Editor。
-- 新增對應 unit／integration／E2E 覆蓋，驗證基準為 124 項 Vitest 與 34 項 Chromium E2E；TypeScript、Chrome MV3、Firefox MV2 build 均通過。
+- 新增對應 unit／integration 覆蓋；目前工作樹為 34 個 Vitest unit/integration 測試檔、170 項測試。最新本地驗證通過 TypeScript、Chrome MV3 build 與 `git diff --check`；完整 E2E、Firefox build 與實機驗收另列為 release gate。
 
-本輪尚未實作：
+本計畫仍未完成：
 
 - Phase 0 的量測基線與桌面錄影。
-- 快照鍵盤候選巡覽、browser commands，以及 Phase 4／5 的完整無障礙、視覺與可選 Side Panel 工作。
+- Phase 5 的可選 Side Panel 工作。
+- 真實 Chrome MV3 worker restart、權限 prompt、clipboard、4K/8K ZIP、fractional DPR、320×480、VoiceOver/NVDA/高對比，以及大量步驟 virtualization 的實機驗收。
 
 ### Phase 2：多快照與錯誤恢復（P0/P1，2 至 4 天）
 
@@ -669,7 +680,7 @@ interface FinishResult {
 
 完成條件：核心流程無 axe serious/critical issue，並通過第 13 節的手動檢核。
 
-#### 實作進度（2026-07-19）
+#### 實作進度（2026-07-22）
 
 本輪推進 Phase 4 的視覺 token 收斂與部分無障礙項目：
 
@@ -682,13 +693,14 @@ interface FinishResult {
   - shield 以 index 驅動既有 probe／preview／commit 引擎：`Tab`／`Shift+Tab` 巡覽候選、`Enter`／`Space` 加入、`Delete`／`Backspace` 復原、方向鍵維持父子層級；`Escape` 回到 skip link。
   - 新增「跳至錄製控制」skip link 與 `aria-live` polite 宣告（候選位置、加入標註、無法標註）。
   - 純邏輯（排序／去重／roving index）與新 `SNAPSHOT_SHIELD_CANDIDATES` 訊息 schema 有 unit 覆蓋；新增鍵盤 only 的 Chromium E2E 驗證 Tab→加入→復原且底層頁面不被觸發。
-- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。134 項 Vitest、35 項 Chromium E2E、TypeScript、雙瀏覽器 build 通過。
+- 現況確認：產品元件多已直接使用符合計畫值的 Tailwind stone/lime/rose/amber/blue class（lime-700=#4d7c0f、lime-400=#a3e635、rose-700=#be123c），故本輪 token 收斂主要統一 shadcn 預設元件並集中管理。最新工作樹有 34 個 Vitest unit/integration 測試檔、170 項測試；TypeScript、Chrome MV3 build 與 `git diff --check` 通過。
 
 本節尚未實作（需真實瀏覽器與輔助科技手動驗證，非程式碼可自動完成）：
 
 - axe / VoiceOver / NVDA / 高對比 / reduced-motion 的手動驗證與 §17.4 視覺回歸截圖。
 - dark theme 各 foreground/background 組合的自動化對比逐一驗證。
 - 鍵盤候選巡覽的跨 frame 支援（目前僅 top frame；子 frame 候選維持指標可達）與大型頁面上的實機節奏調校。
+- 真實 Chrome MV3 worker restart、權限 prompt、clipboard、4K/8K ZIP、fractional DPR、320×480、VoiceOver/NVDA/高對比，以及大量步驟的 list virtualization 尚未完成實機驗收；目前 `loading=lazy`／`decoding=async` 只能降低，不能消除，大量高解析圖的解碼與記憶體壓力。
 
 ### Phase 5：可選增強（不阻擋上線）
 
@@ -798,6 +810,7 @@ FrameTrail 不需要立即導入跨站追蹤。可先使用本機、匿名、可
 6. 權限拒絕不阻擋目前頁面錄製，跨頁能力採漸進式請求。
 7. light/dark、320px、200% zoom、鍵盤與螢幕閱讀器核心流程通過驗收。
 8. 新增的 state/message race 有 unit、integration 與 E2E 覆蓋。
+9. 視覺修正／補拍／遮罩的資料模型與 fail-closed 輸出路徑已完成；上線前仍須完成真實瀏覽器 lifecycle、權限、clipboard、輔助科技與高解析效能驗收。
 
 ## 22. 參考資料
 

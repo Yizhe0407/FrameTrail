@@ -213,4 +213,53 @@ describe('MultiHighlightThumbnail', () => {
     expect(fullViewportFrame.style.width).toBe('100px');
     expect(fullViewportFrame.style.height).toBe('50px');
   });
+
+  it('maps opaque redactions above all annotation frames and badges', () => {
+    const view = render(
+      <MultiHighlightThumbnail
+        blob={new Blob(['image'])}
+        annotations={[{ bounds: { x: 10, y: 20, width: 40, height: 30 }, order: 1 }]}
+        redactions={[{ id: 'mask-1', kind: 'solid', bounds: { x: 50, y: 20, width: 30, height: 40 } }]}
+        screenshotScale={1}
+        numbered
+        alt="redacted preview"
+        fit="contain"
+      />,
+    );
+    const image = view.container.querySelector<HTMLImageElement>('img')!;
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 200 },
+      naturalHeight: { configurable: true, value: 100 },
+      offsetLeft: { configurable: true, value: 0 },
+      offsetTop: { configurable: true, value: 0 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
+      },
+    });
+
+    expect(image.style.visibility).toBe('hidden');
+    expect(view.container.firstElementChild?.className).toContain('bg-black');
+
+    act(() => fireEvent.load(image));
+    act(flushAnimationFrames);
+    expect(image.style.visibility).toBe('');
+
+    act(() => resizeCallback([], {} as ResizeObserver));
+    expect(image.style.visibility).toBe('hidden');
+    act(flushAnimationFrames);
+    expect(image.style.visibility).toBe('');
+
+    const frame = view.container.querySelector<HTMLElement>('[data-frametrail-annotation-frame="1"]')!;
+    const badge = view.container.querySelector<HTMLElement>('.pointer-events-none.font-semibold.shadow')!;
+    const redaction = view.container.querySelector<HTMLElement>('[data-frametrail-redaction="mask-1"]')!;
+    expect(redaction.style.left).toBe('24px');
+    expect(redaction.style.top).toBe('9px');
+    expect(redaction.style.width).toBe('17px');
+    expect(redaction.style.height).toBe('22px');
+    expect(redaction.style.backgroundColor).toBe('rgb(0, 0, 0)');
+    expect(redaction.className).toContain('z-10');
+    expect(frame.compareDocumentPosition(redaction) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(badge.compareDocumentPosition(redaction) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
 });

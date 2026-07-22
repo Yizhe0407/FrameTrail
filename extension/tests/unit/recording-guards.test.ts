@@ -13,6 +13,9 @@ import {
 
 const state: RecordingState = {
   isRecording: true,
+  operation: 'recording',
+  recapture: null,
+  recaptureResult: null,
   phase: 'recording',
   sessionId: 'session-1',
   tabId: 7,

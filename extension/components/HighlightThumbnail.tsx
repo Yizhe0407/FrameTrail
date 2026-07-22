@@ -5,14 +5,22 @@ import {
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_RADIUS,
   fitHighlightFrame,
+  getExpandedRedactionBounds,
 } from '@/lib/annotate';
 import { useObjectUrl } from '@/lib/useObjectUrl';
 import { cn } from '@/lib/utils';
-import type { Bounds } from '@/lib/db';
+import type { Bounds, Redaction } from '@/lib/db';
+import { getValidScreenshotScale } from '@/lib/image-utils';
+
+const NO_REDACTIONS: Redaction[] = [];
 
 interface Props {
   blob: Blob;
   bounds: Bounds | null;
+  /** Opaque masks in screenshot CSS coordinates. */
+  redactions?: Redaction[];
+  /** Hide all source pixels until privacy metadata is explicitly reviewed. */
+  privacyReviewRequired?: boolean;
   screenshotScale: number;
   alt: string;
   className?: string;
@@ -20,6 +28,16 @@ interface Props {
   /** 'cover' crops to fill a fixed box (popup thumbnails). 'contain' shows the
    * full uncropped screenshot at its natural aspect ratio (editor cards). */
   fit?: 'cover' | 'contain';
+  loading?: 'lazy' | 'eager';
+  decoding?: 'async' | 'sync' | 'auto';
+}
+
+interface RedactionStyle {
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 interface BoxStyle {
@@ -43,23 +61,36 @@ interface BoxStyle {
 export default function HighlightThumbnail({
   blob,
   bounds,
+  redactions = NO_REDACTIONS,
+  privacyReviewRequired = false,
   screenshotScale,
   alt,
   className,
   imgClassName,
   fit = 'cover',
+  loading = 'eager',
+  decoding = 'async',
 }: Props) {
   const url = useObjectUrl(blob);
   const [box, setBox] = useState<BoxStyle | null>(null);
+  const [redactionBoxes, setRedactionBoxes] = useState<RedactionStyle[]>([]);
+  const [mappedRedactionKey, setMappedRedactionKey] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const mapFrameRef = useRef<number | null>(null);
+
+  const redactionSignature = redactions.map((redaction) => `${redaction.id}:${redaction.bounds.x},${redaction.bounds.y},${redaction.bounds.width},${redaction.bounds.height}`).join('|');
+  const redactionMapKey = `${url ?? ''}:${fit}:${screenshotScale}:${redactionSignature}`;
+  const redactionReady = redactions.length === 0 || mappedRedactionKey === redactionMapKey;
+  const showPixels = !privacyReviewRequired && redactionReady;
 
   const computeBox = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !bounds || !img.naturalWidth || !img.naturalHeight) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) {
       setBox(null);
+      setRedactionBoxes([]);
       return;
     }
-    const dpr = screenshotScale || 1;
+    const dpr = getValidScreenshotScale(screenshotScale);
     const nw = img.naturalWidth;
     const nh = img.naturalHeight;
     const renderedBox = img.getBoundingClientRect();
@@ -70,41 +101,86 @@ export default function HighlightThumbnail({
     const contentHeight = nh * scale;
     const offsetLeft = img.offsetLeft + (boxWidth - contentWidth) / 2;
     const offsetTop = img.offsetTop + (boxHeight - contentHeight) / 2;
-    const frame = fitHighlightFrame(bounds, nw / dpr, nh / dpr);
+    const mapX = (x: number) => offsetLeft + x * dpr * scale;
+    const mapY = (y: number) => offsetTop + y * dpr * scale;
 
-    setBox({
-      left: offsetLeft + frame.x * dpr * scale,
-      top: offsetTop + frame.y * dpr * scale,
-      width: frame.width * dpr * scale,
-      height: frame.height * dpr * scale,
-      borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
-      borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
+    if (bounds) {
+      const frame = fitHighlightFrame(bounds, nw / dpr, nh / dpr);
+      setBox({
+        left: mapX(frame.x),
+        top: mapY(frame.y),
+        width: frame.width * dpr * scale,
+        height: frame.height * dpr * scale,
+        borderWidth: Math.max(HIGHLIGHT_LINE_WIDTH * dpr * scale, 1),
+        borderRadius: Math.max(HIGHLIGHT_RADIUS * dpr * scale, 0),
+      });
+    } else {
+      setBox(null);
+    }
+
+    setRedactionBoxes(
+      redactions.flatMap((redaction) => {
+        const expanded = getExpandedRedactionBounds(redaction.bounds, nw / dpr, nh / dpr);
+        return expanded
+          ? [{
+              id: redaction.id,
+              left: mapX(expanded.x),
+              top: mapY(expanded.y),
+              width: expanded.width * dpr * scale,
+              height: expanded.height * dpr * scale,
+            }]
+          : [];
+      }),
+    );
+    setMappedRedactionKey(redactionMapKey);
+  }, [bounds, fit, redactions, redactionMapKey, screenshotScale]);
+
+  const scheduleMapping = useCallback(() => {
+    // A resize invalidates pixel-space overlays immediately. Recompute on the
+    // next frame so React can first hide the source image behind the black
+    // fail-closed surface instead of briefly showing a stale mask position.
+    if (redactions.length > 0 && imgRef.current) imgRef.current.style.visibility = 'hidden';
+    setMappedRedactionKey(null);
+    if (mapFrameRef.current !== null) return;
+    mapFrameRef.current = requestAnimationFrame(() => {
+      mapFrameRef.current = null;
+      computeBox();
     });
-  }, [bounds, fit, screenshotScale]);
+  }, [computeBox]);
 
   useEffect(() => {
     const img = imgRef.current;
     if (!img) return;
-    const observer = new ResizeObserver(() => computeBox());
+    const observer = new ResizeObserver(scheduleMapping);
     observer.observe(img);
-    return () => observer.disconnect();
-  }, [url, computeBox]);
+    return () => {
+      observer.disconnect();
+      if (mapFrameRef.current !== null) cancelAnimationFrame(mapFrameRef.current);
+      mapFrameRef.current = null;
+    };
+  }, [url, scheduleMapping]);
 
   const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
 
   return (
-    <div className={cn('relative inline-block leading-none', className)}>
+    <div className={cn('relative inline-block overflow-hidden leading-none', !showPixels && 'bg-black', className)}>
       {url && (
         <img
           ref={imgRef}
           src={url}
-          alt={alt}
+          loading={loading}
+          decoding={decoding}
+          alt={privacyReviewRequired ? '' : alt}
+          aria-hidden={privacyReviewRequired || undefined}
           onLoad={computeBox}
           className={cn('block', imgClassName ?? defaultImgClass)}
-          style={fit === 'cover' ? { objectFit: 'cover' } : undefined}
+          style={{
+            ...(fit === 'cover' ? { objectFit: 'cover' } : {}),
+            visibility: showPixels ? undefined : 'hidden',
+          }}
         />
       )}
-      {box && (
+      {!privacyReviewRequired && box && (
         <div
           className="pointer-events-none absolute box-border"
           style={{
@@ -118,6 +194,20 @@ export default function HighlightThumbnail({
           }}
         />
       )}
+      {!privacyReviewRequired && redactionBoxes.map((redaction) => (
+        <div
+          key={redaction.id}
+          data-frametrail-redaction={redaction.id}
+          className="pointer-events-none absolute z-10"
+          style={{
+            left: redaction.left,
+            top: redaction.top,
+            width: redaction.width,
+            height: redaction.height,
+            backgroundColor: '#000',
+          }}
+        />
+      ))}
     </div>
   );
 }

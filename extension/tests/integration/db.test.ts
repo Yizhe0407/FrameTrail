@@ -5,11 +5,14 @@ import {
   buildStepEntries,
   deleteStepsAndReorder,
   deleteStepsForRun,
+  getEffectiveBounds,
   getOrderedAnnotations,
   getSteps,
   reorderSteps,
+  replaceStepCaptureAtomically,
   restoreStepsAndReorder,
   updateStep,
+  updateStepsAtomically,
   type Step,
 } from '@/lib/db';
 
@@ -60,6 +63,25 @@ describe('buildStepEntries', () => {
     const anchor = makeStep({ id: groupId, groupId, bounds: null, order: 0 });
 
     expect(buildStepEntries([anchor])).toEqual([]);
+  });
+});
+
+describe('effective visual data', () => {
+  it('prefers a valid manual override and can restore the detected bounds', () => {
+    const step = makeStep({
+      bounds: { x: 1, y: 2, width: 3, height: 4 },
+      manualBounds: { x: 10, y: 20, width: 30, height: 40 },
+    });
+    expect(getEffectiveBounds(step)).toEqual(step.manualBounds);
+    expect(getEffectiveBounds({ ...step, manualBounds: null })).toEqual(step.bounds);
+  });
+
+  it('uses manual bounds when building snapshot annotation order', () => {
+    const step = makeStep({
+      bounds: { x: 1, y: 2, width: 3, height: 4 },
+      manualBounds: { x: 9, y: 8, width: 7, height: 6 },
+    });
+    expect(getOrderedAnnotations([step])).toEqual([{ bounds: step.manualBounds, order: 1 }]);
   });
 });
 
@@ -183,5 +205,189 @@ describe('step persistence', () => {
       { id: restored.id, order: 1, description: 'restore me' },
       { id: last.id, order: 2, description: '' },
     ]);
+  });
+
+  it('sanitizes malformed manual bounds and redaction records before storage', async () => {
+    const step = makeStep({
+      manualBounds: { x: 1, y: 2, width: Number.NaN, height: 4 },
+      redactions: [
+        { id: '   ', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } },
+        { id: 'invalid-bounds', kind: 'solid', bounds: { x: 1, y: 1, width: 0, height: 2 } },
+        { id: 'valid-mask', kind: 'solid', bounds: { x: 3, y: 4, width: 5, height: 6 } },
+      ],
+    });
+
+    await addStep(step);
+
+    const stored = (await getSteps(step.sessionId))[0];
+    expect(stored.manualBounds).toBeNull();
+    expect(stored.redactions).toEqual([
+      { id: 'valid-mask', kind: 'solid', bounds: { x: 3, y: 4, width: 5, height: 6 } },
+    ]);
+    expect(stored.redactionReviewRequired).toBe(true);
+  });
+
+});
+
+
+describe('atomic visual edits and recapture', () => {
+  it('stores redactions only on the screenshot owner and preserves concurrent metadata', async () => {
+    const sessionId = crypto.randomUUID();
+    const anchorId = crypto.randomUUID();
+    const anchor = makeStep({ id: anchorId, sessionId, groupId: anchorId, bounds: null });
+    const annotation = makeStep({ sessionId, groupId: anchorId, screenshotBlob: undefined, order: 1 });
+    await Promise.all([addStep(anchor), addStep(annotation)]);
+
+    await Promise.all([
+      updateStep(annotation.id, { description: 'new description' }),
+      updateStepsAtomically(sessionId, [
+        { id: annotation.id, changes: { manualBounds: { x: 4, y: 5, width: 6, height: 7 }, redactions: [{ id: 'wrong-owner', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }] } },
+        { id: anchor.id, changes: { redactions: [{ id: 'mask', kind: 'solid', bounds: { x: 8, y: 9, width: 10, height: 11 } }] } },
+      ]),
+    ]);
+
+    const stored = await getSteps(sessionId);
+    expect(stored.find((step) => step.id === annotation.id)).toMatchObject({
+      description: 'new description',
+      manualBounds: { x: 4, y: 5, width: 6, height: 7 },
+    });
+    expect(stored.find((step) => step.id === annotation.id)?.redactions).toBeUndefined();
+    expect(stored.find((step) => step.id === anchor.id)?.redactions?.[0].id).toBe('mask');
+  });
+
+  it('recaptures an ordinary step without changing its identity, order, description or provenance', async () => {
+    const step = makeStep({ order: 7, description: 'keep', runId: 'original-run', manualBounds: { x: 9, y: 9, width: 9, height: 9 }, redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }] });
+    await addStep(step);
+    const screenshotBlob = new Blob(['replacement'], { type: 'image/jpeg' });
+
+    await replaceStepCaptureAtomically(step.sessionId, { kind: 'single', stepId: step.id }, {
+      screenshotBlob,
+      bounds: { x: 20, y: 30, width: 40, height: 50 },
+      devicePixelRatio: 2,
+      screenshotScale: 1.5,
+      url: 'https://example.com/recaptured',
+      timestamp: 123,
+    }, 'recapture-run');
+
+    const stored = (await getSteps(step.sessionId))[0];
+    expect(stored).toMatchObject({
+      id: step.id,
+      sessionId: step.sessionId,
+      order: 7,
+      description: 'keep',
+      runId: 'original-run',
+      bounds: { x: 20, y: 30, width: 40, height: 50 },
+      manualBounds: null,
+      redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }],
+      redactionReviewRequired: true,
+      captureRevision: 1,
+      lastCaptureRunId: 'recapture-run',
+    });
+    expect(await stored.screenshotBlob?.text()).toBe('replacement');
+  });
+
+
+  it('rejects a stale visual save after ordinary recapture without clearing the privacy gate', async () => {
+    const step = makeStep({
+      redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }],
+    });
+    await addStep(step);
+    await replaceStepCaptureAtomically(
+      step.sessionId,
+      { kind: 'single', stepId: step.id },
+      {
+        screenshotBlob: new Blob(['replacement']),
+        bounds: { x: 20, y: 30, width: 40, height: 50 },
+        devicePixelRatio: 1,
+        screenshotScale: 1,
+        url: step.url,
+        timestamp: 123,
+      },
+      'recapture-run',
+    );
+
+    await expect(
+      updateStepsAtomically(step.sessionId, [
+        { id: step.id, changes: { manualBounds: { x: 7, y: 7, width: 7, height: 7 } } },
+        {
+          id: step.id,
+          expectedCaptureRevision: 0,
+          changes: { redactions: [], redactionReviewRequired: false },
+        },
+      ]),
+    ).rejects.toMatchObject({ name: 'StepUpdateConflictError' });
+
+    const stored = (await getSteps(step.sessionId))[0];
+    expect(stored.captureRevision).toBe(1);
+    expect(stored.manualBounds).toBeNull();
+    expect(stored.redactions?.[0]?.id).toBe('old-mask');
+    expect(stored.redactionReviewRequired).toBe(true);
+  });
+
+  it('rolls back stale snapshot annotation edits when the anchor revision changed', async () => {
+    const sessionId = crypto.randomUUID();
+    const anchorId = crypto.randomUUID();
+    const anchor = makeStep({
+      id: anchorId,
+      sessionId,
+      groupId: anchorId,
+      bounds: null,
+      redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }],
+    });
+    const annotation = makeStep({ sessionId, groupId: anchorId, screenshotBlob: undefined, order: 1 });
+    await Promise.all([addStep(anchor), addStep(annotation)]);
+    await replaceStepCaptureAtomically(
+      sessionId,
+      { kind: 'snapshot-singleton', anchorId, annotationId: annotation.id },
+      {
+        screenshotBlob: new Blob(['replacement']),
+        bounds: { x: 20, y: 30, width: 40, height: 50 },
+        devicePixelRatio: 1,
+        screenshotScale: 1,
+        url: anchor.url,
+        timestamp: 123,
+      },
+      'recapture-run',
+    );
+
+    await expect(
+      updateStepsAtomically(sessionId, [
+        { id: annotation.id, changes: { manualBounds: { x: 7, y: 7, width: 7, height: 7 } } },
+        {
+          id: anchorId,
+          expectedCaptureRevision: 0,
+          changes: { redactions: [], redactionReviewRequired: false },
+        },
+      ]),
+    ).rejects.toMatchObject({ name: 'StepUpdateConflictError' });
+
+    const stored = await getSteps(sessionId);
+    const storedAnchor = stored.find((item) => item.id === anchorId)!;
+    const storedAnnotation = stored.find((item) => item.id === annotation.id)!;
+    expect(storedAnchor.captureRevision).toBe(1);
+    expect(storedAnchor.redactions?.[0]?.id).toBe('old-mask');
+    expect(storedAnchor.redactionReviewRequired).toBe(true);
+    expect(storedAnnotation.manualBounds).toBeNull();
+    expect(storedAnnotation.bounds).toEqual({ x: 20, y: 30, width: 40, height: 50 });
+  });
+
+  it('rejects recapturing a snapshot that has multiple annotations without writing', async () => {
+    const sessionId = crypto.randomUUID();
+    const anchorId = crypto.randomUUID();
+    const anchor = makeStep({ id: anchorId, sessionId, groupId: anchorId, bounds: null });
+    const first = makeStep({ sessionId, groupId: anchorId, screenshotBlob: undefined, order: 1 });
+    const second = makeStep({ sessionId, groupId: anchorId, screenshotBlob: undefined, order: 2 });
+    await Promise.all([anchor, first, second].map(addStep));
+
+    await expect(replaceStepCaptureAtomically(sessionId, { kind: 'snapshot-singleton', anchorId, annotationId: first.id }, {
+      screenshotBlob: new Blob(['replacement']),
+      bounds: { x: 10, y: 10, width: 10, height: 10 },
+      devicePixelRatio: 1,
+      screenshotScale: 1,
+      url: anchor.url,
+      timestamp: 999,
+    }, 'recapture-run')).rejects.toMatchObject({ code: 'UNSUPPORTED_SNAPSHOT_GROUP' });
+
+    expect(await (await getSteps(sessionId)).find((step) => step.id === anchorId)?.screenshotBlob?.text()).toBe('image');
   });
 });

@@ -9,7 +9,7 @@ import {
   horizontalListSortingStrategy,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { entryId, getOrderedAnnotations, type StepEntry } from '@/lib/db';
+import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/db';
 import {
   reorderById,
   restrictToHorizontalAxis,
@@ -32,6 +32,7 @@ interface Props {
 export default function StepRail({ entries, selectedEntryId, onSelect, onReorder, reorderDisabled = false }: Props) {
   const sensors = useSortableSensors();
   const selectedItem = useRef<HTMLButtonElement | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1024px)').matches : true,
   );
@@ -59,8 +60,14 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
   // in a description/annotation field elsewhere on the page.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      const tag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.defaultPrevented || e.isComposing) return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      // Keep rail navigation scoped to the rail. Global handling used to also
+      // react to arrow keys inside the visual editor and lightbox, which could
+      // switch entries and discard an in-progress visual draft.
+      if (!activeElement || !railRef.current?.contains(activeElement)) return;
+      const tag = activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
       const previousKey = isDesktop ? 'ArrowUp' : 'ArrowLeft';
       const nextKey = isDesktop ? 'ArrowDown' : 'ArrowRight';
       if (e.key !== previousKey && e.key !== nextKey) return;
@@ -81,14 +88,19 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
   }
 
   function renderThumbnail(entry: StepEntry) {
+    const privacy = getEntryPrivacyState(entry);
     if (entry.kind === 'single') {
       return (
         <HighlightThumbnail
           blob={entry.step.screenshotBlob}
-          bounds={entry.step.bounds}
+          bounds={getEffectiveBounds(entry.step)}
+          redactions={privacy.redactions}
+          privacyReviewRequired={privacy.reviewRequired}
           screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
           alt=""
           fit="cover"
+          loading="lazy"
+          decoding="async"
           className="size-full"
         />
       );
@@ -99,10 +111,14 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
         <MultiHighlightThumbnail
           blob={entry.anchor.screenshotBlob}
           annotations={boxAnnotations}
+          redactions={privacy.redactions}
+          privacyReviewRequired={privacy.reviewRequired}
           screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
           numbered={entry.anchor.numbered ?? false}
           alt=""
           fit="cover"
+          loading="lazy"
+          decoding="async"
           className="size-full"
         />
         <span className="absolute right-1 bottom-1 rounded border border-stone-200 bg-stone-50 px-1 py-px text-[11px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
@@ -114,6 +130,7 @@ export default function StepRail({ entries, selectedEntryId, onSelect, onReorder
 
   return (
     <nav
+      ref={railRef}
       aria-label="步驟導覽"
       className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-64 lg:border-t-0 lg:border-r"
     >

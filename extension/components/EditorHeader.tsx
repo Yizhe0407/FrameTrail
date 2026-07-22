@@ -2,14 +2,16 @@ import { Badge } from '@/components/ui/badge';
 import ExportImagesButton from './ExportImagesButton';
 import ResetButton from './ResetButton';
 import type { Step } from '@/lib/db';
+import type { ActiveOperation } from '@/lib/messages';
 
 interface Props {
-  isRecording: boolean;
+  operationActive: boolean;
+  operation?: ActiveOperation;
   steps: Step[];
   onBeforeExport?: () => Promise<Step[] | void>;
 }
 
-export default function EditorHeader({ isRecording, steps, onBeforeExport }: Props) {
+export default function EditorHeader({ operationActive, operation, steps, onBeforeExport }: Props) {
   return (
     <header className="flex min-h-[60px] shrink-0 items-center justify-between gap-2 border-b border-stone-200 bg-stone-50 px-4 py-2 sm:px-7 dark:border-stone-700 dark:bg-stone-900">
       <div className="flex min-w-0 items-baseline gap-2 sm:gap-3.5">
@@ -21,16 +23,16 @@ export default function EditorHeader({ isRecording, steps, onBeforeExport }: Pro
           FrameTrail
         </h1>
         <span className="hidden text-xs text-stone-500 sm:inline dark:text-stone-400">編輯器</span>
-        {isRecording && (
+        {operationActive && (
           <Badge variant="destructive" className="gap-1.5">
             <span className="size-1.5 animate-pulse rounded-full bg-white" />
-            錄製中
+            {operation === 'recapture' ? '補拍中' : '錄製中'}
           </Badge>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
-        <ResetButton hasSteps={steps.length > 0} disabled={isRecording} />
-        <ExportImagesButton steps={steps} variant="default" onBeforeExport={onBeforeExport} />
+        <ResetButton hasSteps={steps.length > 0} disabled={operationActive} />
+        <ExportImagesButton steps={steps} variant="default" onBeforeExport={onBeforeExport} disabled={operationActive} />
       </div>
     </header>
   );

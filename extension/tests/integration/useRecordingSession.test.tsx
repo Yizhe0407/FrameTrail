@@ -35,6 +35,9 @@ vi.mock('@/lib/storage', () => ({
     runId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
+    operation: null,
+    recapture: null,
+    recaptureResult: null,
   }),
   getRecordingState: mocks.getRecordingState,
   onRecordingStateChange: mocks.onRecordingStateChange,
@@ -123,6 +126,57 @@ describe('reconcileSteps', () => {
     const refreshedBlob = new Blob(['same screenshot'], { type: 'image/jpeg' });
     const previous = [{ id: 'anchor', screenshotBlob: previousBlob, description: 'before' }] as any[];
     const next = [{ id: 'anchor', screenshotBlob: refreshedBlob, description: 'after' }] as any[];
+
+    const [reconciled] = reconcileSteps(previous, next);
+
+    expect(reconciled.screenshotBlob).toBe(previousBlob);
+    expect(reconciled.description).toBe('after');
+  });
+
+  it('applies manual-bound and privacy metadata changes without replacing the Blob', () => {
+    const previousBlob = new Blob(['same'], { type: 'image/jpeg' });
+    const refreshedBlob = new Blob(['same'], { type: 'image/jpeg' });
+    const previous = [{
+      id: 'step',
+      screenshotBlob: previousBlob,
+      captureRevision: 1,
+      manualBounds: null,
+      redactions: [],
+    }] as any[];
+    const next = [{
+      ...previous[0],
+      screenshotBlob: refreshedBlob,
+      manualBounds: { x: 10, y: 20, width: 30, height: 40 },
+      redactions: [{ id: 'mask', kind: 'solid', bounds: { x: 1, y: 2, width: 3, height: 4 } }],
+      redactionReviewRequired: true,
+    }] as any[];
+
+    const [reconciled] = reconcileSteps(previous, next);
+
+    expect(reconciled).not.toBe(previous[0]);
+    expect(reconciled.screenshotBlob).toBe(previousBlob);
+    expect(reconciled.manualBounds).toEqual(next[0].manualBounds);
+    expect(reconciled.redactions).toEqual(next[0].redactions);
+    expect(reconciled.redactionReviewRequired).toBe(true);
+  });
+
+  it('uses the replacement Blob when captureRevision changes', () => {
+    const previousBlob = new Blob(['before'], { type: 'image/jpeg' });
+    const replacementBlob = new Blob(['after'], { type: 'image/jpeg' });
+    const previous = [{ id: 'step', screenshotBlob: previousBlob, captureRevision: 2 }] as any[];
+    const next = [{ id: 'step', screenshotBlob: replacementBlob, captureRevision: 3 }] as any[];
+
+    const [reconciled] = reconcileSteps(previous, next);
+
+    expect(reconciled.screenshotBlob).toBe(replacementBlob);
+    expect(reconciled.captureRevision).toBe(3);
+  });
+
+  it('retains the existing Blob for metadata-only refreshes at the same captureRevision', () => {
+    const previousBlob = new Blob(['same'], { type: 'image/jpeg' });
+    const refreshedBlob = new Blob(['same'], { type: 'image/jpeg' });
+    const previous = [{ id: 'step', screenshotBlob: previousBlob, captureRevision: 4, description: 'before' }] as any[];
+    const next = [{ id: 'step', screenshotBlob: refreshedBlob, captureRevision: 4, description: 'after' }] as any[];
 
     const [reconciled] = reconcileSteps(previous, next);
 

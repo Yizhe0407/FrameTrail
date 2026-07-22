@@ -42,4 +42,4 @@ pnpm test:all
 - 測試固定單 worker 執行，避免 `activeTab`、`captureVisibleTab` quota 與系統剪貼簿互相干擾。
 - 失敗時保存 trace、頁面截圖與 console error；成功案例不保留大型 artifact。
 
-目前 6 個 E2E spec 共 34 項：截圖呈現 3、操作流程 6、單頁標註 8、frame/lifecycle 5、popup 3、editor 9。
+目前 6 個 E2E spec 共 34 項：截圖呈現 3、操作流程 6、單頁標註 8、frame/lifecycle 5、popup 3、editor 9。Vitest 目前包含 34 個 unit/integration 測試檔、170 項測試；視覺編輯、補拍與隱私遮罩的跨 context 實機流程仍列在手動／E2E 後續驗收清單。

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Loader2, Trash2 } from 'lucide-react';
-import { compositeHighlight, compositeMultiHighlight } from '@/lib/annotate';
-import { getOrderedAnnotations, type StepEntry } from '@/lib/db';
+import { Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
+import { compositeStepEntry } from '@/lib/entry-render';
+import { getEntryPrivacyState, type StepEntry } from '@/lib/db';
 
 interface Props {
   entry: StepEntry;
   onDelete: () => Promise<void>;
+  onRecapture?: () => Promise<void>;
   deleteDisabled?: boolean;
+  operationsDisabled?: boolean;
+  recaptureDisabledReason?: string;
 }
 
 const BUTTON_CLASS =
@@ -16,29 +19,24 @@ const BUTTON_CLASS =
  * result straight to the clipboard as PNG — same annotate pipeline the ZIP
  * export uses, just a different output format and destination. */
 async function copyEntryImage(entry: StepEntry): Promise<void> {
-  const blob =
-    entry.kind === 'single'
-      ? await compositeHighlight(
-          entry.step.screenshotBlob,
-          entry.step.bounds,
-          entry.step.screenshotScale ?? entry.step.devicePixelRatio,
-          'image/png',
-        )
-      : await compositeMultiHighlight(
-          entry.anchor.screenshotBlob,
-          getOrderedAnnotations(entry.annotations),
-          entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio,
-          entry.anchor.numbered ?? false,
-          'image/png',
-        );
+  const blob = await compositeStepEntry(entry, 'image/png');
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 }
 
-export default function StepActions({ entry, onDelete, deleteDisabled = false }: Props) {
+export default function StepActions({
+  entry,
+  onDelete,
+  onRecapture,
+  deleteDisabled = false,
+  operationsDisabled = false,
+  recaptureDisabledReason,
+}: Props) {
   const [copying, setCopying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [recapturing, setRecapturing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const privacyReviewRequired = getEntryPrivacyState(entry).reviewRequired;
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -49,7 +47,10 @@ export default function StepActions({ entry, onDelete, deleteDisabled = false }:
   );
 
   async function handleCopy() {
-    if (copying) return;
+    if (copying || operationsDisabled || privacyReviewRequired) {
+      if (privacyReviewRequired) setActionError('請先開啟「修正／遮罩」重新確認敏感資訊遮罩。');
+      return;
+    }
     setCopying(true);
     setCopied(false);
     setActionError(null);
@@ -66,6 +67,20 @@ export default function StepActions({ entry, onDelete, deleteDisabled = false }:
       setActionError('複製失敗，請確認剪貼簿權限後再試一次。');
     } finally {
       setCopying(false);
+    }
+  }
+
+  async function handleRecapture() {
+    if (!onRecapture || recapturing || operationsDisabled || recaptureDisabledReason) return;
+    setRecapturing(true);
+    setActionError(null);
+    try {
+      await onRecapture();
+    } catch (err) {
+      console.error('啟動補拍失敗', err);
+      setActionError(err instanceof Error ? err.message : '無法啟動補拍，請再試一次。');
+    } finally {
+      setRecapturing(false);
     }
   }
 
@@ -90,7 +105,8 @@ export default function StepActions({ entry, onDelete, deleteDisabled = false }:
           type="button"
           onClick={handleCopy}
           onPointerDown={(event) => event.preventDefault()}
-          disabled={copying || deleting}
+          disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
+          title={privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製已套用遮罩的圖片'}
           className={`${BUTTON_CLASS} min-w-[88px] hover:bg-stone-200 hover:text-stone-700 disabled:opacity-50 dark:hover:bg-stone-700 dark:hover:text-stone-100`}
         >
           {copying ? (
@@ -102,12 +118,24 @@ export default function StepActions({ entry, onDelete, deleteDisabled = false }:
           )}
           <span aria-live="polite">{copying ? '複製中' : copied ? '已複製' : '複製圖片'}</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => void handleRecapture()}
+          onPointerDown={(event) => event.preventDefault()}
+          disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
+          title={recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '回到來源頁面重新框選並拍攝')}
+          className={`${BUTTON_CLASS} hover:bg-stone-200 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-stone-700 dark:hover:text-stone-100`}
+        >
+          {recapturing ? <Loader2 className="size-3.5 animate-spin" /> : <Camera className="size-3.5" />}
+          {recapturing ? '準備中' : '補拍'}
+        </button>
         <button
           type="button"
           onClick={handleDelete}
           onPointerDown={(event) => event.preventDefault()}
-          disabled={deleteDisabled || deleting || copying}
-          title={deleteDisabled ? '錄製期間無法刪除步驟' : '刪除步驟'}
+          disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
+          title={deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除步驟'}
           className={`${BUTTON_CLASS} hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-stone-700 dark:hover:text-red-300`}
         >
           {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}

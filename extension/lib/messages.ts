@@ -119,6 +119,7 @@ export interface ClickCaptureResult {
 
 export interface CancelCaptureMessage {
   type: 'FRAME_TRAIL_CANCEL_CAPTURE';
+  runId: string;
   captureId: string;
 }
 
@@ -135,6 +136,109 @@ export interface RecorderReadyMessage {
   };
 }
 
+
+export type ActiveOperation = 'recording' | 'recapture' | null;
+export type RecapturePhase = 'starting' | 'awaiting-target' | 'capturing';
+
+export type StepRecaptureTarget =
+  | { kind: 'single'; stepId: string }
+  | { kind: 'snapshot-singleton'; anchorId: string; annotationId: string };
+
+export interface StepRecaptureContext {
+  runId: string;
+  sessionId: string;
+  target: StepRecaptureTarget;
+  /** Timeline entry that the editor should reselect after the workflow ends. */
+  entryId: string;
+  phase: RecapturePhase;
+  editorTabId: number;
+  editorWindowId: number | null;
+  sourceTabId: number;
+  sourceWindowId: number;
+  sourceUrl: string;
+  sourceTabCreated: boolean;
+  startedAt: number;
+}
+
+export type StepRecaptureResultStatus = 'replaced' | 'cancelled' | 'failed';
+
+export interface StepRecaptureResult {
+  runId: string;
+  status: StepRecaptureResultStatus;
+  sessionId: string;
+  entryId: string;
+  errorCode?: string;
+  message?: string;
+  completedAt: number;
+}
+
+export interface StartStepRecaptureMessage {
+  type: 'START_STEP_RECAPTURE';
+  sessionId: string;
+  target: StepRecaptureTarget;
+  /** Editor may nominate an already-open exact-URL tab. Background revalidates it. */
+  preferredTabId?: number;
+}
+
+export type StartStepRecaptureErrorCode =
+  | 'ACTIVE_OPERATION'
+  | 'INVALID_EDITOR'
+  | 'TARGET_NOT_FOUND'
+  | 'TARGET_CHANGED'
+  | 'UNSUPPORTED_SNAPSHOT_GROUP'
+  | 'RESTRICTED_SOURCE'
+  | 'HOST_PERMISSION_REQUIRED'
+  | 'SOURCE_TAB_FAILED'
+  | 'INJECTION_FAILED';
+
+export type StartStepRecaptureResult =
+  | { ok: true; runId: string; tabId: number; reusedTab: boolean }
+  | { ok: false; code: StartStepRecaptureErrorCode; error: string };
+
+export interface FrameTrailRecaptureReadyMessage {
+  type: 'FRAME_TRAIL_RECAPTURE_READY';
+  runId: string;
+  url: string;
+}
+
+export interface FrameTrailRecaptureTargetMessage {
+  type: 'FRAME_TRAIL_RECAPTURE_TARGET';
+  runId: string;
+  captureId: string;
+  rect: ClickCapture['rect'];
+  viewport: ClickCapture['viewport'];
+  devicePixelRatio: number;
+  url: string;
+  timestamp: number;
+}
+
+export type StepRecaptureTargetResult =
+  | { ok: true; status: 'replaced' }
+  | { ok: false; status: 'rejected' | 'cancelled' | 'failed'; error?: string };
+
+export interface CancelStepRecaptureMessage {
+  type: 'CANCEL_STEP_RECAPTURE';
+  runId: string;
+}
+
+export type CancelStepRecaptureResult =
+  | { ok: true; status: 'cancelled' | 'already-completed' }
+  | { ok: false; error: string };
+
+export interface AckStepRecaptureResultMessage {
+  type: 'ACK_STEP_RECAPTURE_RESULT';
+  runId: string;
+}
+
+export interface FocusStepRecaptureSourceMessage {
+  type: 'FOCUS_STEP_RECAPTURE_SOURCE';
+  runId: string;
+}
+
+export type FocusStepRecaptureSourceResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export type BackgroundMessage =
   | ClickCapture
   | CancelCaptureMessage
@@ -143,9 +247,17 @@ export type BackgroundMessage =
   | StopRecordingMessage
   | OpenEditorMessage
   | RecordingControlMessage
-  | RecorderReadyMessage;
+  | RecorderReadyMessage
+  | StartStepRecaptureMessage
+  | FrameTrailRecaptureReadyMessage
+  | FrameTrailRecaptureTargetMessage
+  | CancelStepRecaptureMessage
+  | AckStepRecaptureResultMessage
+  | FocusStepRecaptureSourceMessage;
 
 export interface RecordingState {
+  /** Explicitly distinguishes ordinary recording from the one-shot recapture workflow. */
+  operation: ActiveOperation;
   isRecording: boolean;
   phase: RecordingPhase;
   sessionId: string | null;
@@ -166,6 +278,9 @@ export interface RecordingState {
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: ClickCapture['viewport'] | null;
   snapshotDevicePixelRatio: number | null;
+  recapture: StepRecaptureContext | null;
+  /** Durable handoff; the editor clears it with ACK_STEP_RECAPTURE_RESULT. */
+  recaptureResult: StepRecaptureResult | null;
 }
 
 // Preserve the existing key so renaming the product does not discard an

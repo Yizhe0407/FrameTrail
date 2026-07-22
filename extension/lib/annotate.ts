@@ -1,4 +1,5 @@
-import type { Bounds } from './db';
+import type { Bounds, Redaction } from './db';
+import { getValidScreenshotScale, isValidImageBounds } from './image-utils';
 
 // Highlight geometry in CSS px, scaled by the screenshot pixel ratio.
 export const HIGHLIGHT_PADDING = 6;
@@ -7,6 +8,11 @@ export const HIGHLIGHT_LINE_WIDTH = 2;
 export const HIGHLIGHT_COLOR = '#f43f5e';
 export const HIGHLIGHT_FILL_COLOR = 'rgba(244, 63, 94, 0.055)';
 export const HIGHLIGHT_PREVIEW_FILL_COLOR = 'rgba(244, 63, 94, 0.09)';
+
+/** Raster redactions deliberately overpaint a small safety margin so no source
+ * pixels can survive from antialiased edges or a slightly imprecise selection. */
+export const REDACTION_EXPANSION = 2;
+export const REDACTION_COLOR = '#000000';
 
 // Order-number badge: a filled circle. A single target's badge straddles its
 // own frame's perimeter; a coincident group's badges sit in a side lane, each
@@ -1023,31 +1029,97 @@ function drawLeader(ctx: OffscreenCanvasRenderingContext2D, points: AnnotationPo
   ctx.stroke();
 }
 
+/** Returns a redaction's expanded CSS-pixel rect clipped to the screenshot.
+ * `null` means the mask lies wholly outside the drawable bitmap. */
+export function getExpandedRedactionBounds(
+  bounds: Bounds,
+  viewportWidth: number,
+  viewportHeight: number,
+): Bounds | null {
+  if (!isValidImageBounds(bounds) || !Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight) || viewportWidth <= 0 || viewportHeight <= 0) {
+    return null;
+  }
+  const left = Math.max(0, bounds.x - REDACTION_EXPANSION);
+  const top = Math.max(0, bounds.y - REDACTION_EXPANSION);
+  const right = Math.min(viewportWidth, bounds.x + bounds.width + REDACTION_EXPANSION);
+  const bottom = Math.min(viewportHeight, bounds.y + bounds.height + REDACTION_EXPANSION);
+  if (right <= left || bottom <= top) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function drawRedactions(
+  ctx: OffscreenCanvasRenderingContext2D,
+  redactions: readonly Redaction[],
+  viewportWidth: number,
+  viewportHeight: number,
+  dpr: number,
+): void {
+  ctx.fillStyle = REDACTION_COLOR;
+  for (const redaction of redactions) {
+    const bounds = getExpandedRedactionBounds(redaction.bounds, viewportWidth, viewportHeight);
+    if (bounds) ctx.fillRect(bounds.x * dpr, bounds.y * dpr, bounds.width * dpr, bounds.height * dpr);
+  }
+}
+
+type RasterFormat = 'image/jpeg' | 'image/png';
+
+/** Draws source pixels, annotations, then privacy masks in that strict order.
+ * Keeping this low-level pipeline shared prevents clipboard and ZIP rendering
+ * from drifting in their final redaction treatment. */
+async function compositeRaster(
+  screenshot: Blob,
+  screenshotScale: number,
+  redactions: readonly Redaction[],
+  privacyBlockRequired: boolean,
+  format: RasterFormat,
+  drawAnnotations: (
+    ctx: OffscreenCanvasRenderingContext2D,
+    dpr: number,
+    viewportWidth: number,
+    viewportHeight: number,
+  ) => void,
+): Promise<Blob> {
+  const bitmap = await createImageBitmap(screenshot);
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Unable to create a 2D canvas context.');
+    ctx.drawImage(bitmap, 0, 0);
+
+    const dpr = getValidScreenshotScale(screenshotScale);
+    const viewportWidth = bitmap.width / dpr;
+    const viewportHeight = bitmap.height / dpr;
+    drawAnnotations(ctx, dpr, viewportWidth, viewportHeight);
+    // Must remain last: a redaction is privacy-critical and intentionally
+    // covers highlight strokes, callouts, markers, and badges beneath it.
+    drawRedactions(ctx, redactions, viewportWidth, viewportHeight, dpr);
+    if (privacyBlockRequired) {
+      ctx.fillStyle = REDACTION_COLOR;
+      ctx.fillRect(0, 0, bitmap.width, bitmap.height);
+    }
+
+    return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
+  } finally {
+    bitmap.close();
+  }
+}
+
 /**
  * Composites the red highlight box onto a raw screenshot and returns a new
- * JPEG blob. Shared by every export path so annotation lives in exactly one
- * place. If bounds is null (legacy step), the screenshot is returned as-is.
+ * image blob. If bounds is null (legacy step), the screenshot is retained and
+ * any privacy redactions are still rendered.
  */
 export async function compositeHighlight(
   screenshot: Blob,
   bounds: Bounds | null,
   screenshotScale: number,
-  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  format: RasterFormat = 'image/jpeg',
+  redactions: readonly Redaction[] = [],
+  privacyBlockRequired = false,
 ): Promise<Blob> {
-  const bitmap = await createImageBitmap(screenshot);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(bitmap, 0, 0);
-  const dpr = screenshotScale || 1;
-  const viewportWidth = bitmap.width / dpr;
-  const viewportHeight = bitmap.height / dpr;
-  bitmap.close();
-
-  if (bounds) {
-    strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
-  }
-
-  return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
+  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
+    if (bounds) strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
+  });
 }
 
 /**
@@ -1060,30 +1132,25 @@ export async function compositeMultiHighlight(
   annotations: Annotation[],
   screenshotScale: number,
   numbered: boolean,
-  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  format: RasterFormat = 'image/jpeg',
+  redactions: readonly Redaction[] = [],
+  privacyBlockRequired = false,
 ): Promise<Blob> {
-  const bitmap = await createImageBitmap(screenshot);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(bitmap, 0, 0);
+  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
+    const layouts = layoutAnnotations(annotations, viewportWidth, viewportHeight);
+    for (const layout of layouts) {
+      if (layout.markerOnly) {
+        strokeTarget(ctx, layout.anchor, dpr);
+      } else {
+        strokeBox(ctx, layout.frame, dpr);
+      }
 
-  const dpr = screenshotScale || 1;
-  const layouts = layoutAnnotations(annotations, bitmap.width / dpr, bitmap.height / dpr);
-  bitmap.close();
-  for (const layout of layouts) {
-    if (layout.markerOnly) {
-      strokeTarget(ctx, layout.anchor, dpr);
-    } else {
-      strokeBox(ctx, layout.frame, dpr);
+      if (layout.callout) {
+        drawLeader(ctx, layout.leader, dpr);
+        drawBadge(ctx, layout.callout, layout.order, dpr);
+      } else if (numbered) {
+        drawBadge(ctx, layout.badgeAnchor, layout.order, dpr);
+      }
     }
-
-    if (layout.callout) {
-      drawLeader(ctx, layout.leader, dpr);
-      drawBadge(ctx, layout.callout, layout.order, dpr);
-    } else if (numbered) {
-      drawBadge(ctx, layout.badgeAnchor, layout.order, dpr);
-    }
-  }
-
-  return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
+  });
 }

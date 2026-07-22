@@ -38,7 +38,7 @@ export default function ResetButton({ hasSteps, className, variant = 'ghost', di
           variant={variant}
           onClick={() => setConfirmationOpen(true)}
           disabled={!hasSteps || disabled || resetting}
-          title={disabled ? '錄製期間無法重置' : '重置目前錄製'}
+          title={disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}
           className={cn(
             'text-stone-500 hover:bg-red-50 hover:text-red-700 dark:text-stone-400 dark:hover:bg-red-950/40 dark:hover:text-red-400',
             variant === 'outline' && 'border-stone-200 hover:border-red-200 dark:border-stone-700',

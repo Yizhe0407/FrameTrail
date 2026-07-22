@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import HighlightThumbnail from './HighlightThumbnail';
 import MultiHighlightThumbnail from './MultiHighlightThumbnail';
-import { getOrderedAnnotations, type StepEntry } from '@/lib/db';
+import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/db';
 
 interface Props {
   entries: StepEntry[];
@@ -24,37 +24,66 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
   useEffect(() => {
     if (!open || index === null) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'ArrowRight' && index! < entries.length - 1) onNavigate(index! + 1);
-      if (e.key === 'ArrowLeft' && index! > 0) onNavigate(index! - 1);
+      if (e.defaultPrevented || e.isComposing) return;
+      if (e.key === 'ArrowRight' && index! < entries.length - 1) {
+        e.preventDefault();
+        onNavigate(index! + 1);
+      }
+      if (e.key === 'ArrowLeft' && index! > 0) {
+        e.preventDefault();
+        onNavigate(index! - 1);
+      }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, index, entries.length, onNavigate]);
 
   if (!entry || index === null) return null;
+  const privacy = getEntryPrivacyState(entry);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-[95vw] max-h-[95vh] border-none bg-transparent p-0 shadow-none">
+        <DialogTitle className="sr-only">步驟 {index + 1} 圖片預覽</DialogTitle>
+        <DialogDescription className="sr-only">
+          {privacy.reviewRequired
+            ? '此圖片因敏感資訊遮罩尚未重新確認而被隱藏。請回到編輯畫面完成確認。'
+            : '使用左右方向鍵或畫面按鈕瀏覽其他步驟。'}
+        </DialogDescription>
         {entry.kind === 'single' ? (
           <HighlightThumbnail
             blob={entry.step.screenshotBlob}
-            bounds={entry.step.bounds}
+            bounds={getEffectiveBounds(entry.step)}
+            redactions={privacy.redactions}
+            privacyReviewRequired={privacy.reviewRequired}
             screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
             alt={`Step ${index + 1} 放大`}
             fit="contain"
-            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto rounded-lg"
+            className="rounded-lg"
+            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto"
           />
         ) : (
           <MultiHighlightThumbnail
             blob={entry.anchor.screenshotBlob}
             annotations={getOrderedAnnotations(entry.annotations)}
+            redactions={privacy.redactions}
+            privacyReviewRequired={privacy.reviewRequired}
             screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
             numbered={entry.anchor.numbered ?? false}
             alt={`Step ${index + 1} 放大`}
             fit="contain"
-            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto rounded-lg"
+            className="rounded-lg"
+            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto"
           />
+        )}
+
+        {privacy.reviewRequired && (
+          <div
+            role="alert"
+            className="fixed top-1/2 left-1/2 z-50 max-w-[min(80vw,34rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm leading-6 text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+          >
+            此圖片因敏感資訊遮罩尚未重新確認而暫時隱藏。請關閉預覽，開啟「修正／遮罩」確認後儲存。
+          </div>
         )}
 
         <Button
