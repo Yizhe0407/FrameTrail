@@ -82,7 +82,7 @@ describe('popup onboarding wiring', () => {
     expect(screen.queryByRole('dialog', { name: '歡迎使用 FrameTrail' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '教學' }));
-    fireEvent.click(await screen.findByRole('button', { name: '練習精簡模式' }));
+    fireEvent.click(await screen.findByRole('button', { name: '練習單頁標註' }));
 
     await waitFor(() => expect(onboarding.openLocalPracticePage).toHaveBeenCalledWith('snapshot'));
     expect(calls).toEqual(['complete', 'practice:snapshot']);

@@ -82,7 +82,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
             role="alert"
             className="fixed top-1/2 left-1/2 z-50 max-w-[min(80vw,34rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm leading-6 text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
           >
-            此圖片因敏感資訊遮罩尚未重新確認而暫時隱藏。請關閉預覽，開啟「修正／遮罩」確認後儲存。
+            此圖片因敏感資訊遮罩尚未重新確認而暫時隱藏。請關閉預覽，開啟「調整圖片」確認後儲存。
           </div>
         )}
 

@@ -139,7 +139,7 @@ describe('StepRail keyboard navigation', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('區分開啟與勾選，並傳遞加選及範圍選取修飾鍵', () => {
+  it('以自訂圓點勾記區分開啟與多選，並保留加選、範圍選取與 aria 狀態', () => {
     const onSelect = vi.fn();
     render(
       <StepRail
@@ -157,10 +157,35 @@ describe('StepRail keyboard navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: '開啟步驟 2' }), { shiftKey: true });
     expect(onSelect).toHaveBeenLastCalledWith('step-2', { additive: false, range: true });
 
+    const selectionButton = screen.getByRole('button', { name: '選取步驟 2' });
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(selectionButton.getAttribute('aria-pressed')).toBe('false');
+
     onSelect.mockClear();
-    fireEvent.click(screen.getByRole('checkbox', { name: '選取步驟 2' }));
+    fireEvent.click(selectionButton);
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith('step-2', { additive: true, range: false });
+  });
+
+  it('讓 active 與 multi-selected 狀態各自有語意標記，並保留拖曳的安全空間', () => {
+    const { container } = render(
+      <StepRail
+        entries={[makeEntry('step-1', 0), makeEntry('step-2', 1)]}
+        selectedEntryId="step-1"
+        selectedEntryIds={new Set(['step-1', 'step-2'])}
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const activeRow = screen.getByRole('button', { name: '開啟步驟 1' }).parentElement;
+    const selectedRow = screen.getByRole('button', { name: '開啟步驟 2' }).parentElement;
+    expect(activeRow?.getAttribute('data-active')).toBe('true');
+    expect(activeRow?.getAttribute('data-selected')).toBe('true');
+    expect(selectedRow?.getAttribute('data-active')).toBeNull();
+    expect(selectedRow?.getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('navigation', { name: '步驟導覽' }).className).toContain('lg:w-[19rem]');
+    expect(container.querySelector('ul')?.className).toContain('lg:overflow-x-visible');
   });
 
   it('僅在 rail 聚焦時處理全選、收合與 Shift 方向鍵範圍選取', () => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Library, ListChecks, Send } from 'lucide-react';
+import { AlertCircle, Library, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import ResetButton from './ResetButton';
 import type { Step } from '@/lib/db';
@@ -79,21 +79,22 @@ export default function EditorHeader({
           </Badge>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <Button variant="ghost" size="icon" aria-label="開啟作品庫" title="作品庫" onClick={() => void openLibrary()}>
           <Library />
         </Button>
-        {onOpenQuality && (
+        {onOpenQuality && qualityIssueCount > 0 && (
           <Button
             variant="ghost"
-            size="icon"
-            aria-label={`開啟教學品質檢查${qualityIssueCount > 0 ? `，${qualityIssueCount} 項提醒` : ''}`}
-            title={qualityIssueCount > 0 ? `品質檢查：${qualityIssueCount} 項提醒` : '品質檢查'}
+            size="sm"
+            aria-label={`開啟發佈前檢查，${qualityIssueCount} 項待確認`}
+            title="查看發佈前需確認的項目"
             onClick={onOpenQuality}
             disabled={unavailable}
+            className="hidden text-amber-800 hover:bg-amber-50 hover:text-amber-900 sm:inline-flex dark:text-amber-300 dark:hover:bg-amber-950/30"
           >
-            <ListChecks />
-            {qualityIssueCount > 0 && <span className="sr-only">{qualityIssueCount} 項提醒</span>}
+            <AlertCircle />
+            發佈前確認 {qualityIssueCount}
           </Button>
         )}
         <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />

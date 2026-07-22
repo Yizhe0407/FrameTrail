@@ -48,7 +48,7 @@ describe('VisualEditDialog', () => {
     loadEditorImage();
 
     fireEvent.click(screen.getByRole('button', { name: '新增遮罩' }));
-    expect(document.querySelector('rect[fill="#171717"]')?.getAttribute('fill-opacity')).toBe('1');
+    expect(document.querySelector('rect[fill="#334155"]')?.getAttribute('fill-opacity')).toBe('1');
     fireEvent.change(screen.getByLabelText('X'), { target: { value: '25' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存修改' }));
 
@@ -81,11 +81,23 @@ describe('VisualEditDialog', () => {
     ]);
   });
 
+  it('keeps the two editing tools clear and updates the canvas guidance', () => {
+    render(<VisualEditDialog entry={entry} open onOpenChange={vi.fn()} onSave={vi.fn()} />);
+
+    expect(screen.getByRole('group', { name: '編輯工具' })).toBeTruthy();
+    expect(screen.getByText('拖曳要隱藏的資訊以新增遮罩；點選現有遮罩即可移動或調整大小。')).toBeTruthy();
+    expect(screen.getByText('還沒有遮罩')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '框選' }));
+    expect(screen.getByText('拖曳圖片以重新設定框選範圍；點選框選後可移動或調整大小。')).toBeTruthy();
+  });
+
   it('keeps dirty edits when the user declines the close confirmation', () => {
     const onOpenChange = vi.fn();
     render(<VisualEditDialog entry={entry} open onOpenChange={onOpenChange} onSave={vi.fn()} />);
     loadEditorImage();
 
+    fireEvent.click(screen.getByRole('button', { name: /框選範圍/ }));
     fireEvent.change(screen.getByLabelText('X'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
 
@@ -105,13 +117,14 @@ describe('VisualEditDialog', () => {
     const save = screen.getByRole('button', { name: '儲存修改' });
     expect(image.className).toContain('invisible');
     expect((save as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: '調整框選' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('button', { name: '加入遮罩' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: '框選' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: '遮罩' }).getAttribute('aria-pressed')).toBe('true');
 
     loadEditorImage();
     expect(image.className).not.toContain('invisible');
     expect((save as HTMLButtonElement).disabled).toBe(true);
 
+    fireEvent.click(screen.getByRole('button', { name: /框選範圍/ }));
     fireEvent.change(screen.getByLabelText('X'), { target: { value: '12' } });
     expect((save as HTMLButtonElement).disabled).toBe(false);
   });

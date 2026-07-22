@@ -31,7 +31,7 @@ export default function ExportImagesButton({ steps, className, variant = 'outlin
   );
 
   const privacyNotice = privacyReviewRequired
-    ? '有圖片待確認敏感資訊遮罩；請在黑色步驟開啟「修正／遮罩」並儲存。'
+    ? '有圖片待確認敏感資訊遮罩；請在顯示為黑色的步驟開啟「調整圖片」並儲存。'
     : null;
 
   useEffect(() => () => abortController.current?.abort(), []);

@@ -142,9 +142,9 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
   const [draft, setDraft] = useState(initialDraft);
   const [past, setPast] = useState<Draft[]>([]);
   const [future, setFuture] = useState<Draft[]>([]);
-  const [tool, setTool] = useState<Tool>('highlight');
+  const [tool, setTool] = useState<Tool>('redaction');
   const [selection, setSelection] = useState<Selection>(() =>
-    initialDraft.highlights[0] ? { kind: 'highlight', id: initialDraft.highlights[0].id } : null,
+    initialDraft.redactions[0] ? { kind: 'redaction', id: initialDraft.redactions[0].id } : null,
   );
   const [viewport, setViewport] = useState<ViewportSize | null>(null);
   const [imageReady, setImageReady] = useState(false);
@@ -160,8 +160,8 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
     setDraft(next);
     setPast([]);
     setFuture([]);
-    setTool('highlight');
-    setSelection(next.highlights[0] ? { kind: 'highlight', id: next.highlights[0].id } : null);
+    setTool('redaction');
+    setSelection(next.redactions[0] ? { kind: 'redaction', id: next.redactions[0].id } : null);
     setViewport(null);
     setImageReady(false);
     setError(null);
@@ -329,6 +329,18 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
     recordChange(setSelectedBounds(draft, selection, clampBounds(highlight.originalBounds, viewport)));
   }
 
+  function addRedaction() {
+    if (!viewport || saving) return;
+    const id = crypto.randomUUID();
+    const bounds = clampBounds(
+      { x: viewport.width * 0.35, y: viewport.height * 0.4, width: viewport.width * 0.3, height: viewport.height * 0.12 },
+      viewport,
+    );
+    recordChange({ ...draft, redactions: [...draft.redactions, { id, kind: 'solid', bounds }] });
+    setTool('redaction');
+    setSelection({ kind: 'redaction', id });
+  }
+
   async function save() {
     if (!dirty || saving) return;
     setError(null);
@@ -405,6 +417,11 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
     recordChange(setSelectedBounds(draft, selection, moveBounds(activeBounds, vector[0], vector[1], viewport)));
   }
 
+  const toolHint =
+    tool === 'redaction'
+      ? '拖曳要隱藏的資訊以新增遮罩；點選現有遮罩即可移動或調整大小。'
+      : '拖曳圖片以重新設定框選範圍；點選框選後可移動或調整大小。';
+
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
       <DialogContent
@@ -414,46 +431,62 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
           requestClose();
         }}
         onPointerDownOutside={(event) => event.preventDefault()}
-        className="flex h-[min(94vh,900px)] w-[min(96vw,1320px)] max-w-none flex-col overflow-hidden border border-stone-300 bg-stone-50 p-0 dark:border-stone-700 dark:bg-stone-900"
+        className="flex h-[min(94vh,900px)] w-[min(96vw,1320px)] max-w-none flex-col overflow-hidden border border-stone-300 bg-stone-50 p-0 shadow-2xl dark:border-stone-700 dark:bg-stone-950"
       >
-        <DialogHeader className="shrink-0 border-b border-stone-200 px-5 py-4 pr-12 dark:border-stone-700">
-          <DialogTitle>修正框選與敏感資訊遮罩</DialogTitle>
-          <DialogDescription>
-            遮罩是可編輯圖層；原始截圖仍保留在此裝置，預覽、複製與匯出都會套用完全不透明色塊。原始框選也會保留，可隨時還原。
+        <DialogHeader className="shrink-0 border-b border-stone-200 px-5 py-4 pr-12 dark:border-stone-800">
+          <DialogTitle className="text-base font-semibold">編輯框選與遮罩</DialogTitle>
+          <DialogDescription className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+            以框選標示操作位置，或以遮罩隱藏敏感資訊。
           </DialogDescription>
         </DialogHeader>
         {privacy.reviewRequired && (
-          <div role="alert" className="shrink-0 border-b border-amber-300 bg-amber-50 px-5 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-            補拍或資料驗證後需要重新確認遮罩；按下「確認並儲存」前，其他預覽、複製與匯出會維持隱私封鎖。
+          <div role="alert" className="shrink-0 border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-sm text-amber-950 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-100">
+            截圖已更新，請確認遮罩仍涵蓋敏感資訊後再儲存。儲存前，預覽、複製與匯出會維持隱私保護。
           </div>
         )}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
-          <section className="flex min-h-[320px] min-w-0 flex-1 flex-col bg-stone-200/60 p-3 dark:bg-stone-950">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" variant={tool === 'highlight' ? 'default' : 'outline'} aria-pressed={tool === 'highlight'} onClick={() => setTool('highlight')}>
-                <Pencil />調整框選
-              </Button>
-              <Button size="sm" variant={tool === 'redaction' ? 'default' : 'outline'} aria-pressed={tool === 'redaction'} onClick={() => setTool('redaction')}>
-                <EyeOff />加入遮罩
-              </Button>
-              <span className="text-xs text-stone-500">在圖片上拖曳建立範圍；拖曳現有範圍可移動。</span>
-              <div className="ml-auto flex gap-1">
-                <Button size="icon" variant="outline" onClick={undo} disabled={past.length === 0} aria-label="復原">
+          <section className="flex min-h-[340px] min-w-0 flex-1 flex-col bg-stone-100 p-3 sm:p-4 dark:bg-stone-950">
+            <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-1 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-800 dark:bg-stone-900" role="group" aria-label="編輯工具">
+                <Button
+                  size="sm"
+                  variant={tool === 'highlight' ? 'default' : 'ghost'}
+                  aria-pressed={tool === 'highlight'}
+                  onClick={() => setTool('highlight')}
+                  className="shrink-0"
+                >
+                  <Pencil />框選
+                </Button>
+                <Button
+                  size="sm"
+                  variant={tool === 'redaction' ? 'default' : 'ghost'}
+                  aria-pressed={tool === 'redaction'}
+                  onClick={() => setTool('redaction')}
+                  className="shrink-0"
+                >
+                  <EyeOff />遮罩
+                </Button>
+              </div>
+              <div className="flex shrink-0 items-center gap-1" aria-label="編輯紀錄">
+                <Button size="icon" variant="ghost" onClick={undo} disabled={past.length === 0} aria-label="復原" title="復原（Ctrl/⌘ + Z）">
                   <Undo2 />
                 </Button>
-                <Button size="icon" variant="outline" onClick={redo} disabled={future.length === 0} aria-label="重做">
+                <Button size="icon" variant="ghost" onClick={redo} disabled={future.length === 0} aria-label="重做" title="重做（Ctrl/⌘ + Shift + Z）">
                   <Redo2 />
                 </Button>
               </div>
             </div>
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md border border-stone-300 bg-stone-950 p-2 dark:border-stone-700">
-              <div className="relative inline-block max-h-full max-w-full leading-none">
+            <p className="mb-3 px-1 text-sm text-stone-600 dark:text-stone-300" role="status" aria-live="polite">
+              {toolHint}
+            </p>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-xl border border-stone-200 bg-stone-900 p-4 shadow-inner dark:border-stone-800">
+              <div className="relative inline-block max-h-full max-w-full overflow-visible leading-none">
                 <img
                   src={imageUrl}
                   alt="待編輯的步驟截圖"
                   draggable={false}
-                  className={cn('block h-auto w-auto max-h-[calc(94vh-190px)] max-w-full select-none object-contain', !imageReady && 'invisible')}
+                  className={cn('block h-auto w-auto max-h-[calc(94vh-224px)] max-w-full select-none object-contain', !imageReady && 'invisible')}
                   onLoad={(event) => {
                     const image = event.currentTarget;
                     if (!image.naturalWidth || !image.naturalHeight) {
@@ -473,7 +506,7 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
                     ref={svgRef}
                     viewBox={`0 0 ${viewport.width} ${viewport.height}`}
                     preserveAspectRatio="none"
-                    className="absolute inset-0 size-full touch-none outline-none"
+                    className="absolute inset-0 size-full touch-none overflow-visible outline-none"
                     role="group"
                     aria-label="框選與遮罩畫布；方向鍵移動所選圖層，Shift 加速移動"
                     aria-keyshortcuts="Control+S Meta+S Control+Z Meta+Z Control+Y Meta+Y"
@@ -514,106 +547,121 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
             </div>
           </section>
 
-          <aside className="w-full shrink-0 overflow-y-auto border-t border-stone-200 bg-white p-4 lg:w-[330px] lg:border-t-0 lg:border-l dark:border-stone-700 dark:bg-stone-900">
-            <h3 className="mb-2 text-sm font-semibold">圖層</h3>
-            <div className="space-y-1">
-              {draft.highlights.map((highlight) => (
-                <button
-                  key={highlight.id}
-                  type="button"
-                  aria-pressed={selection?.kind === 'highlight' && selection.id === highlight.id}
-                  onClick={() => {
-                    setTool('highlight');
-                    setSelection({ kind: 'highlight', id: highlight.id });
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm',
-                    selection?.kind === 'highlight' && selection.id === highlight.id
-                      ? 'bg-stone-800 text-white dark:bg-stone-100 dark:text-stone-900'
-                      : 'hover:bg-stone-100 dark:hover:bg-stone-800',
-                  )}
-                >
-                  <Pencil className="size-4" /> {highlight.label}
-                </button>
-              ))}
-              {draft.redactions.map((redaction, index) => (
-                <button
-                  key={redaction.id}
-                  type="button"
-                  aria-pressed={selection?.kind === 'redaction' && selection.id === redaction.id}
-                  onClick={() => {
-                    setTool('redaction');
-                    setSelection({ kind: 'redaction', id: redaction.id });
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm',
-                    selection?.kind === 'redaction' && selection.id === redaction.id
-                      ? 'bg-stone-800 text-white dark:bg-stone-100 dark:text-stone-900'
-                      : 'hover:bg-stone-100 dark:hover:bg-stone-800',
-                  )}
-                >
-                  <EyeOff className="size-4" /> 遮罩 {index + 1}
-                </button>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2 w-full"
-                onClick={() => {
-                  setTool('redaction');
-                  if (!viewport) return;
-                  const id = crypto.randomUUID();
-                  const bounds = clampBounds(
-                    { x: viewport.width * 0.35, y: viewport.height * 0.4, width: viewport.width * 0.3, height: viewport.height * 0.12 },
-                    viewport,
-                  );
-                  recordChange({ ...draft, redactions: [...draft.redactions, { id, kind: 'solid', bounds }] });
-                  setSelection({ kind: 'redaction', id });
-                }}
-                disabled={!viewport}
-              >
-                <Plus />新增遮罩
-              </Button>
+          <aside className="w-full shrink-0 overflow-y-auto border-t border-stone-200 bg-white lg:w-[340px] lg:border-t-0 lg:border-l dark:border-stone-800 dark:bg-stone-950">
+            <div className="border-b border-stone-200 p-4 dark:border-stone-800">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-stone-900 dark:text-stone-100">圖層</h3>
+                  <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">選擇要調整的框選或遮罩。</p>
+                </div>
+                <Button size="sm" onClick={addRedaction} disabled={!viewport || saving}>
+                  <Plus />新增遮罩
+                </Button>
+              </div>
             </div>
 
-            {selection && activeBounds && (
-              <div className="mt-5 border-t border-stone-200 pt-4 dark:border-stone-700">
-                <h3 className="mb-3 text-sm font-semibold">精確位置（CSS px）</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                    <label key={field} className="space-y-1 text-xs text-stone-500">
-                      <span>{{ x: 'X', y: 'Y', width: '寬', height: '高' }[field]}</span>
-                      <input
-                        type="number"
-                        step="0.25"
-                        min={field === 'width' || field === 'height' ? 1 : 0}
-                        value={activeBounds[field]}
-                        onChange={(event) => updateGeometry(field, event.target.value)}
-                        className="h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm text-stone-900 outline-none focus:ring-2 focus:ring-stone-500 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100"
-                      />
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-stone-500">方向鍵移動 1 px；Shift + 方向鍵移動 10 px。</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {selection.kind === 'highlight' ? (
-                    <Button size="sm" variant="outline" onClick={restoreAutomaticBounds}>
-                      <RotateCcw />還原自動框選
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="destructive" onClick={deleteSelection}>
-                      <Trash2 />刪除遮罩
-                    </Button>
-                  )}
-                </div>
+            <div className="p-3" role="group" aria-label="圖層清單">
+              <div className="space-y-1">
+                {draft.highlights.map((highlight) => (
+                  <button
+                    key={highlight.id}
+                    type="button"
+                    aria-pressed={selection?.kind === 'highlight' && selection.id === highlight.id}
+                    onClick={() => {
+                      setTool('highlight');
+                      setSelection({ kind: 'highlight', id: highlight.id });
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-stone-500',
+                      selection?.kind === 'highlight' && selection.id === highlight.id
+                        ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
+                        : 'border-transparent text-stone-700 hover:border-stone-200 hover:bg-stone-50 dark:text-stone-300 dark:hover:border-stone-800 dark:hover:bg-stone-900',
+                    )}
+                  >
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-current/30"><Pencil className="size-3.5" /></span>
+                    <span className="min-w-0 flex-1 truncate">{highlight.label}</span>
+                    <span className="text-xs opacity-65">框選</span>
+                  </button>
+                ))}
+                {draft.redactions.map((redaction, index) => (
+                  <button
+                    key={redaction.id}
+                    type="button"
+                    aria-pressed={selection?.kind === 'redaction' && selection.id === redaction.id}
+                    onClick={() => {
+                      setTool('redaction');
+                      setSelection({ kind: 'redaction', id: redaction.id });
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-stone-500',
+                      selection?.kind === 'redaction' && selection.id === redaction.id
+                        ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
+                        : 'border-transparent text-stone-700 hover:border-stone-200 hover:bg-stone-50 dark:text-stone-300 dark:hover:border-stone-800 dark:hover:bg-stone-900',
+                    )}
+                  >
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-slate-700 text-white"><EyeOff className="size-3.5" /></span>
+                    <span className="min-w-0 flex-1 truncate">遮罩 {index + 1}</span>
+                    <span className="text-xs opacity-65">隱藏</span>
+                  </button>
+                ))}
+                {draft.redactions.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-stone-300 px-3 py-3 text-sm text-stone-600 dark:border-stone-700 dark:text-stone-400">
+                    <span className="block font-medium text-stone-800 dark:text-stone-200">還沒有遮罩</span>
+                    <span className="mt-1 block text-xs">按上方「新增遮罩」，或選取遮罩工具後在圖片上拖曳。</span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            <div className="border-t border-stone-200 p-4 dark:border-stone-800">
+              <h3 className="text-sm font-semibold text-stone-900 dark:text-stone-100">所選項目</h3>
+              {selection && activeBounds ? (
+                <>
+                  <p className="mt-1 text-sm text-stone-600 dark:text-stone-400">
+                    {selection.kind === 'redaction' ? '遮罩會在預覽、複製與匯出時完全遮住此區域。' : '此框選會標示使用者需要注意的操作位置。'}
+                  </p>
+                  <p className="mt-3 text-xs text-stone-500 dark:text-stone-400">拖曳圖層可移動；拖曳圓點可調整大小。方向鍵可微調位置。</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selection.kind === 'highlight' ? (
+                      <Button size="sm" variant="outline" onClick={restoreAutomaticBounds} disabled={!draft.highlights.find((item) => item.id === selection.id)?.originalBounds}>
+                        <RotateCcw />還原原始框選
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={deleteSelection} className="text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300">
+                        <Trash2 />刪除遮罩
+                      </Button>
+                    )}
+                  </div>
+                  <details className="mt-4 border-t border-stone-200 pt-3 dark:border-stone-800">
+                    <summary className="cursor-pointer text-sm text-stone-600 marker:text-stone-400 dark:text-stone-400">進階微調</summary>
+                    <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">輸入圖片座標與大小（px）。</p>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                        <label key={field} className="space-y-1 text-xs text-stone-500 dark:text-stone-400">
+                          <span>{{ x: 'X', y: 'Y', width: '寬', height: '高' }[field]}</span>
+                          <input
+                            type="number"
+                            step="0.25"
+                            min={field === 'width' || field === 'height' ? 1 : 0}
+                            value={activeBounds[field]}
+                            onChange={(event) => updateGeometry(field, event.target.value)}
+                            className="h-9 w-full rounded-md border border-stone-300 bg-white px-2 text-sm text-stone-900 outline-none focus:ring-2 focus:ring-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">從上方圖層選擇項目，或在圖片上建立新的遮罩。</p>
+              )}
+            </div>
           </aside>
         </div>
 
-        <DialogFooter className="shrink-0 items-center border-t border-stone-200 px-5 py-3 dark:border-stone-700">
+        <DialogFooter className="shrink-0 items-center border-t border-stone-200 px-5 py-3 dark:border-stone-800">
           {error && <span role="alert" className="mr-auto text-sm text-red-600 dark:text-red-400">{error}</span>}
-          <Button variant="outline" onClick={requestClose} disabled={saving}>取消</Button>
+          <Button variant="ghost" onClick={requestClose} disabled={saving}>取消</Button>
           <Button onClick={() => void save()} disabled={saving || !viewport || !dirty}>
             <Save />{saving ? '儲存中…' : privacy.reviewRequired ? '確認並儲存' : '儲存修改'}
           </Button>
@@ -622,7 +670,7 @@ export default function VisualEditDialog({ entry, open, saving = false, onOpenCh
       <ConfirmationDialog
         open={discardConfirmationOpen}
         title="捨棄未儲存的修改？"
-        description="框選與敏感資訊遮罩的修改尚未儲存；離開後這些修改會遺失。"
+        description="框選與遮罩的修改尚未儲存；離開後這些修改會遺失。"
         confirmLabel="捨棄修改"
         onOpenChange={setDiscardConfirmationOpen}
         onConfirm={discardAndClose}
@@ -646,7 +694,8 @@ function EditableRect({
     handle?: ResizeHandle,
   ) => void;
 }) {
-  const color = kind === 'redaction' ? '#171717' : '#f43f5e';
+  const color = kind === 'redaction' ? '#334155' : '#d97706';
+  const selectionColor = kind === 'redaction' ? '#f8fafc' : '#ffffff';
   return (
     <g>
       <rect
@@ -654,9 +703,9 @@ function EditableRect({
         y={bounds.y}
         width={bounds.width}
         height={bounds.height}
-        fill={kind === 'redaction' ? color : 'rgba(244,63,94,0.08)'}
+        fill={kind === 'redaction' ? color : 'rgba(217,119,6,0.10)'}
         fillOpacity={1}
-        stroke={selected ? '#84cc16' : color}
+        stroke={selected ? selectionColor : color}
         strokeWidth={selected ? 3 : 2}
         vectorEffect="non-scaling-stroke"
         className="cursor-move"
@@ -668,8 +717,8 @@ function EditableRect({
           const cy = bounds.y + bounds.height * y;
           return (
             <g key={handle} onPointerDown={(event) => onSelect(event, 'resize', handle)} className="cursor-pointer">
-              <circle cx={cx} cy={cy} r={12} fill="transparent" vectorEffect="non-scaling-stroke" />
-              <circle cx={cx} cy={cy} r={4} fill="#ffffff" stroke="#65a30d" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+              <circle cx={cx} cy={cy} r={11} fill="transparent" vectorEffect="non-scaling-stroke" />
+              <circle cx={cx} cy={cy} r={4.5} fill="#ffffff" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
             </g>
           );
         })}

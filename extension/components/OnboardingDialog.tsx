@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { Check, Image, ListChecks, Loader2, RotateCcw, ShieldCheck } from 'lucide-react';
+import {
+  Check,
+  Download,
+  EyeOff,
+  Image,
+  ListChecks,
+  Loader2,
+  MousePointerClick,
+  PencilLine,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -26,28 +35,48 @@ export interface OnboardingDialogProps {
 
 type PendingAction = 'complete' | RecordingMode | null;
 
-const MODES: Array<{
-  mode: RecordingMode;
-  title: string;
-  modeLabel: string;
-  description: string;
-  detail: string;
-  Icon: typeof ListChecks;
-}> = [
+const WORKFLOW = [
   {
-    mode: 'steps',
-    title: '完整模式',
-    modeLabel: '操作流程',
-    description: '一邊操作網站，一邊把每次選取記成獨立步驟圖。',
-    detail: '適合教學、工作流程與跨頁操作；錄製時仍可正常使用網頁。',
+    number: '01',
+    title: '錄製',
+    description: '選擇錄製方式，在網頁上選取要說明的元素。',
+    Icon: MousePointerClick,
+  },
+  {
+    number: '02',
+    title: '編輯',
+    description: '完成錄製後開啟編輯器，整理步驟並補上說明。',
+    Icon: PencilLine,
+  },
+  {
+    number: '03',
+    title: '遮罩',
+    description: '在「調整圖片」加入敏感資訊遮罩，確認後儲存。',
+    Icon: EyeOff,
+  },
+  {
+    number: '04',
+    title: '匯出',
+    description: '確認內容與遮罩後，從「發佈教學」下載、複製或列印。',
+    Icon: Download,
+  },
+];
+
+const MODES = [
+  {
+    mode: 'steps' as const,
+    title: '操作流程',
+    description: '依實際點選順序建立多張步驟圖。',
+    useCase: '跨頁、表單與連續操作。',
+    practiceLabel: '練習操作流程',
     Icon: ListChecks,
   },
   {
-    mode: 'snapshot',
-    title: '精簡模式',
-    modeLabel: '單頁標註',
-    description: '鎖定目前畫面，在同一張乾淨底圖加入多個標註。',
-    detail: '適合介面總覽或集中說明；要換畫面時可完成並新增快照。',
+    mode: 'snapshot' as const,
+    title: '單頁標註',
+    description: '停在同一畫面，對同一張圖加入多個標註。',
+    useCase: '畫面導覽、欄位總覽與介面說明。',
+    practiceLabel: '練習單頁標註',
     Icon: Image,
   },
 ];
@@ -83,46 +112,68 @@ export default function OnboardingDialog({
         aria-busy={pending || undefined}
         onEscapeKeyDown={(event) => pending && event.preventDefault()}
         onPointerDownOutside={(event) => pending && event.preventDefault()}
-        className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(680px,calc(100vw-32px))] overflow-y-auto border border-stone-200 bg-white p-0 text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+        className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(720px,calc(100vw-32px))] overflow-y-auto border border-stone-200 bg-white p-0 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
       >
-        <DialogHeader className="border-b border-stone-200 px-6 pt-6 pb-5 pr-14 dark:border-stone-700">
-          <p className="text-xs font-semibold text-lime-700 dark:text-lime-300">第一次使用</p>
-          <DialogTitle className="text-xl">歡迎使用 FrameTrail</DialogTitle>
-          <DialogDescription className="max-w-2xl leading-6 text-stone-600 dark:text-stone-300">
-            選擇符合目的的錄製方式。可先選擇精簡或完整模式練習；開始後，頁面上的浮動控制器會陪你完成整段工作。
+        <DialogHeader className="border-b border-stone-200 px-6 pt-7 pb-6 pr-14 dark:border-stone-700 sm:px-8">
+          <p className="text-xs font-medium text-lime-700 dark:text-lime-300">FrameTrail · 開始導覽</p>
+          <DialogTitle className="mt-2 text-2xl font-semibold">歡迎使用 FrameTrail</DialogTitle>
+          <DialogDescription className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-300">
+            把網頁操作整理成教學：錄製、編輯、遮罩，再匯出。每一步都可回來調整。
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 px-6 py-5">
-          <section aria-labelledby="onboarding-modes-title" className="space-y-3">
-            <h2 id="onboarding-modes-title" className="text-sm font-semibold">
-              兩種錄製模式
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {MODES.map(({ mode, title, modeLabel, description, detail, Icon }) => (
-                <article
-                  key={mode}
-                  className="flex flex-col rounded-lg border border-stone-200 bg-stone-50 p-4 dark:border-stone-700 dark:bg-stone-800/60"
-                >
-                  <div className="mb-3 flex items-center gap-2">
-                    <span
-                      aria-hidden="true"
-                      className="flex size-9 items-center justify-center rounded-full bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300"
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    <div>
-                      <h3 className="font-semibold">{title}</h3>
-                      <p className="text-xs text-stone-600 dark:text-stone-300">{modeLabel}</p>
-                    </div>
+        <div className="space-y-8 px-6 py-7 sm:px-8">
+          <section aria-labelledby="onboarding-workflow-title">
+            <div className="flex items-baseline justify-between gap-4">
+              <h2 id="onboarding-workflow-title" className="text-sm font-semibold">
+                四步完成一份教學
+              </h2>
+              <span className="text-xs text-stone-500 dark:text-stone-400">錄製 → 編輯 → 遮罩 → 匯出</span>
+            </div>
+            <ol className="mt-4 grid border-y border-stone-200 dark:border-stone-700 sm:grid-cols-4">
+              {WORKFLOW.map(({ number, title, description, Icon }) => (
+                <li key={number} className="min-w-0 border-stone-200 py-4 sm:border-r sm:px-4 sm:first:pl-0 sm:last:border-r-0 sm:last:pr-0 dark:border-stone-700">
+                  <div className="flex items-center gap-2 text-stone-500 dark:text-stone-400">
+                    <Icon aria-hidden="true" className="size-4" />
+                    <span className="font-mono text-[11px]">{number}</span>
                   </div>
-                  <p className="text-sm leading-6 text-stone-700 dark:text-stone-200">{description}</p>
-                  <p className="mt-1 text-xs leading-5 text-stone-600 dark:text-stone-300">{detail}</p>
+                  <h3 className="mt-3 text-sm font-semibold">{title}</h3>
+                  <p className="mt-1 text-xs leading-5 text-stone-600 dark:text-stone-300">{description}</p>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-3 text-xs leading-5 text-stone-500 dark:text-stone-400">
+              遮罩尚待確認時，預覽、複製與匯出會先被限制；請回到「調整圖片」確認並儲存。
+            </p>
+          </section>
+
+          <section aria-labelledby="onboarding-modes-title">
+            <div className="border-l-2 border-lime-600 pl-3 dark:border-lime-400">
+              <h2 id="onboarding-modes-title" className="text-sm font-semibold">先選錄製方式</h2>
+              <p className="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-300">
+                兩種方式的差別，在於要不要跟著操作順序走。
+              </p>
+            </div>
+
+            <div className="mt-4 divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-700 dark:border-stone-700">
+              {MODES.map(({ mode, title, description, useCase, practiceLabel, Icon }) => (
+                <div key={mode} className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-8">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Icon aria-hidden="true" className="size-4 text-lime-700 dark:text-lime-300" />
+                      <h3 className="text-sm font-semibold">{title}</h3>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-stone-700 dark:text-stone-200">{description}</p>
+                    <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">
+                      <span className="font-medium text-stone-700 dark:text-stone-200">適合：</span>{useCase}
+                    </p>
+                  </div>
                   {onStartPractice && (
                     <Button
                       type="button"
                       variant="outline"
-                      className="mt-4 w-full border-stone-300 bg-white dark:border-stone-600 dark:bg-stone-900"
+                      aria-label={practiceLabel}
+                      className="w-full border-stone-300 bg-transparent text-stone-800 hover:border-lime-700 hover:bg-lime-50 sm:w-auto dark:border-stone-600 dark:text-stone-100 dark:hover:border-lime-400 dark:hover:bg-lime-950/30"
                       disabled={pending}
                       onClick={() => void runAction(mode, async () => {
                         await onComplete?.();
@@ -130,64 +181,25 @@ export default function OnboardingDialog({
                       })}
                     >
                       {pendingAction === mode && <Loader2 className="animate-spin" />}
-                      練習{title}
+                      {practiceLabel}
                     </Button>
                   )}
-                </article>
+                </div>
               ))}
             </div>
           </section>
 
-          <section aria-labelledby="onboarding-controls-title" className="space-y-3">
-            <div className="flex items-start gap-3">
-              <span
-                aria-hidden="true"
-                className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-200"
-              >
-                <RotateCcw className="size-4" />
-              </span>
-              <div>
-                <h2 id="onboarding-controls-title" className="text-sm font-semibold">
-                  如何復原與完成
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-300">
-                  誤選時按浮動控制器的「復原上一個」。完成後按「完成」或「完成快照」，FrameTrail
-                  會開啟編輯器；單頁標註也可用「完成並新增快照」繼續下一張。
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section aria-labelledby="onboarding-privacy-title" className="space-y-3">
-            <div className="flex items-start gap-3">
-              <span
-                aria-hidden="true"
-                className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-200"
-              >
-                <ShieldCheck className="size-4" />
-              </span>
-              <div>
-                <h2 id="onboarding-privacy-title" className="text-sm font-semibold">
-                  內容只留在本機
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-300">
-                  截圖、標註、指南與導覽完成狀態只保存在這個瀏覽器的本機儲存空間，不會上傳到外部服務。你可以在編輯器刪除內容，或清除擴充功能的本機資料。
-                </p>
-              </div>
-            </div>
-          </section>
-
           {actionError && (
-            <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
+            <p role="alert" className="border-l-2 border-rose-600 pl-3 text-sm text-rose-700 dark:border-rose-400 dark:text-rose-300">
               {actionError}
             </p>
           )}
         </div>
 
-        <DialogFooter className="border-t border-stone-200 px-6 py-4 dark:border-stone-700">
+        <DialogFooter className="border-t border-stone-200 px-6 py-4 dark:border-stone-700 sm:px-8">
           <Button
             type="button"
-            className="h-10 bg-lime-700 text-white hover:bg-lime-800 dark:bg-lime-400 dark:text-stone-900 dark:hover:bg-lime-300"
+            className="h-10 bg-lime-700 text-white hover:bg-lime-800 dark:bg-lime-400 dark:text-stone-950 dark:hover:bg-lime-300"
             disabled={pending}
             onClick={() => void runAction('complete', onComplete)}
           >

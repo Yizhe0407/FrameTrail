@@ -40,6 +40,7 @@ describe('InsertionRecordingActions', () => {
     const onStart = vi.fn();
     render(<InsertionRecordingActions onStart={onStart} />);
 
+    fireEvent.click(screen.getByText('在這個步驟附近新增內容'));
     fireEvent.click(screen.getByRole('button', { name: '在前方補錄' }));
     expect(onStart).toHaveBeenLastCalledWith('before', 'steps', false);
 
@@ -53,6 +54,7 @@ describe('InsertionRecordingActions', () => {
   it('prevents duplicate starts while pending or disabled', () => {
     const onStart = vi.fn();
     const { rerender } = render(<InsertionRecordingActions pending onStart={onStart} />);
+    fireEvent.click(screen.getByText('在這個步驟附近新增內容'));
     expect((screen.getByRole('button', { name: '在前方補錄' }) as HTMLButtonElement).disabled).toBe(true);
 
     rerender(<InsertionRecordingActions disabled onStart={onStart} />);

@@ -134,14 +134,14 @@ test.describe('editor workflows', () => {
     await expect(editor.getByText('已儲存', { exact: true })).toBeVisible();
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByText('快照模式 · 2 個標注', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('單頁標註 · 2 個標註', { exact: true })).toBeVisible();
     const annotations = editor.getByPlaceholder('輸入標注說明…');
     await annotations.nth(0).fill('更新後的快照標注');
     await expect.poll(async () => (await readSteps(popupPage)).some(
       (step) => step.description === '更新後的快照標注',
     )).toBe(true);
 
-    const numbering = editor.getByRole('switch', { name: '順序編號' });
+    const numbering = editor.getByRole('switch', { name: '顯示編號' });
     await expect(numbering).toBeChecked();
     await numbering.click();
     await expect(numbering).not.toBeChecked();
@@ -150,7 +150,7 @@ test.describe('editor workflows', () => {
     )).toBe(true);
 
     await editor.getByRole('button', { name: '刪除標注 2' }).click();
-    await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('單頁標註 · 1 個標註', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
     expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
   });
@@ -170,7 +170,7 @@ test.describe('editor workflows', () => {
     expect(annotation).toBeDefined();
 
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
-    await expect(editor.getByText('快照模式 · 1 個標注', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('單頁標註 · 1 個標註', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '刪除標注 1' }).click();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
@@ -267,7 +267,7 @@ test.describe('editor workflows', () => {
     await editor.reload();
     await expect(editor.getByText('步驟 · 3', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByText('快照模式 · 3 個標注', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('單頁標註 · 3 個標註', { exact: true })).toBeVisible();
     const annotationPanel = editor.locator('aside');
     const annotationHandles = annotationPanel.getByRole('button', { name: '拖曳排序' });
     await expect(annotationHandles).toHaveCount(3);
@@ -324,6 +324,7 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
+    await editor.getByLabel('更多步驟操作').click();
     await editor.getByRole('button', { name: '複製圖片' }).click();
     await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
     const ordinaryPng = await readClipboardPng(editor);
@@ -336,6 +337,7 @@ test.describe('editor workflows', () => {
     expect(ordinaryPng.height).toBeGreaterThan(600);
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
+    await editor.getByLabel('更多步驟操作').click();
     await editor.getByRole('button', { name: '複製圖片' }).click();
     await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
     const snapshotPng = await readClipboardPng(editor);
@@ -442,7 +444,8 @@ test.describe('editor workflows', () => {
     const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await editor.getByRole('button', { name: '刪除', exact: true }).click();
+    await editor.getByLabel('更多步驟操作').click();
+    await editor.getByRole('button', { name: '刪除步驟', exact: true }).click();
     await expect(editor.getByText('已刪除步驟 2', { exact: true })).toBeVisible();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
@@ -451,7 +454,8 @@ test.describe('editor workflows', () => {
     await expect(editor.getByText('步驟 · 2', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
 
-    await editor.getByRole('button', { name: '刪除', exact: true }).click();
+    await editor.getByLabel('更多步驟操作').click();
+    await editor.getByRole('button', { name: '刪除步驟', exact: true }).click();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
 

@@ -1165,7 +1165,7 @@ function EditorApp() {
       console.error('儲存框選與遮罩失敗', editError);
       setOperationError(
         editError instanceof StepUpdateConflictError || editError instanceof GuideContentConflictError
-          ? '圖片或教學內容已在其他操作中更新，請重新開啟「修正／遮罩」確認最新內容。'
+          ? '圖片或教學內容已在其他操作中更新，請重新開啟「調整圖片」確認最新內容。'
           : '框選或遮罩儲存失敗，請再試一次。',
       );
       throw editError;
@@ -1406,7 +1406,7 @@ function EditorApp() {
             />
             {selectedEntry ? (
               <div className="flex min-w-0 flex-1 flex-col">
-                <GuideBatchToolbar
+                {multipleEntriesSelected && <GuideBatchToolbar
                   selectedEntryIds={orderedSelectedEntryIds}
                   visibleEntryIds={visibleEntryIds}
                   activeEntryId={selectedEntryId}
@@ -1420,12 +1420,7 @@ function EditorApp() {
                   onCopyActiveEntry={duplicateActiveEntry}
                   onSetSnapshotNumbering={(enabled) => setEntriesNumbered(orderedSelectedEntryIds, enabled)}
                   onAddSectionBefore={addSectionBefore}
-                />
-                {multipleEntriesSelected && (
-                  <div role="status" className="border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
-                    已選取多個項目；單筆內容編輯與拖曳排序暫停，請使用上方批次操作列。
-                  </div>
-                )}
+                />}
                 <InsertionRecordingActions
                   disabled={operationActive || dataOperation !== null || permissionFlowActive || guide?.archivedAt != null || multipleEntriesSelected}
                   pending={insertionPending}

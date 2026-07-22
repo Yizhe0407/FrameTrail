@@ -115,7 +115,7 @@ describe('StepStage numbered snapshots', () => {
     const onSetNumbered = vi.fn().mockReturnValue(pending.promise);
     renderStage({ onSetNumbered });
 
-    const toggle = screen.getByRole('switch', { name: '順序編號' });
+    const toggle = screen.getByRole('switch', { name: '顯示編號' });
     fireEvent.click(toggle);
     fireEvent.click(toggle);
 
@@ -133,18 +133,18 @@ describe('StepStage numbered snapshots', () => {
     const onSetNumbered = vi.fn().mockRejectedValue(new Error('write failed'));
     renderStage({ onSetNumbered });
 
-    fireEvent.click(screen.getByRole('switch', { name: '順序編號' }));
+    fireEvent.click(screen.getByRole('switch', { name: '顯示編號' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('編號設定儲存失敗，請再試一次。');
     expect(onSetNumbered).toHaveBeenCalledOnce();
-    expect((screen.getByRole('switch', { name: '順序編號' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('switch', { name: '顯示編號' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('does not submit when editing is disabled', () => {
     const onSetNumbered = vi.fn().mockResolvedValue(undefined);
     renderStage({ onSetNumbered, editingDisabled: true });
 
-    const toggle = screen.getByRole('switch', { name: '順序編號' });
+    const toggle = screen.getByRole('switch', { name: '顯示編號' });
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(toggle);
 
@@ -158,7 +158,7 @@ describe('StepStage visual editing lock', () => {
     const options = { onEditVisuals };
     const view = renderStage(options);
 
-    fireEvent.click(screen.getByRole('button', { name: '修正／遮罩' }));
+    fireEvent.click(screen.getByRole('button', { name: '調整圖片' }));
     expect(screen.getByRole('dialog', { name: 'VisualEditDialog' })).toBeTruthy();
 
     view.rerender(stage({ ...options, editingDisabled: true }));
@@ -188,7 +188,7 @@ describe('StepStage visual editing lock', () => {
     const options = { onEditVisuals };
     const view = renderStage(options);
 
-    fireEvent.click(screen.getByRole('button', { name: '修正／遮罩' }));
+    fireEvent.click(screen.getByRole('button', { name: '調整圖片' }));
     const scheduledSave = latestVisualDialogProps().onSave;
 
     view.rerender(stage({ ...options, editingDisabled: true }));

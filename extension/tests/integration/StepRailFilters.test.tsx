@@ -68,37 +68,46 @@ function FilterHarness() {
 afterEach(cleanup);
 
 describe('StepRailFilters', () => {
-  it('provides labelled controls and combines search, kind, and issue filters', () => {
+  it('keeps low-frequency controls in a collapsed filter disclosure and combines all filters', () => {
     render(<FilterHarness />);
 
     expect(screen.getByRole('searchbox', { name: '搜尋步驟說明或網址' })).toBeTruthy();
+    const disclosure = screen.getByRole('region', { name: '篩選步驟' }).querySelector('details');
+    expect(disclosure?.open).toBe(false);
+    expect(screen.queryByText(/已篩選：/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '清除所有步驟篩選' })).toBeNull();
+
+    fireEvent.click(disclosure!.querySelector('summary')!);
+    expect(disclosure?.open).toBe(true);
     expect(screen.getByLabelText('類型')).toBeTruthy();
-    expect(screen.getByLabelText('品質問題')).toBeTruthy();
-    expect(screen.getByText('顯示 3 / 3 個步驟')).toBeTruthy();
+    expect(screen.getByLabelText('發佈前狀態')).toBeTruthy();
 
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'billing' } });
-    expect(screen.getByText('顯示 1 / 3 個步驟')).toBeTruthy();
+    expect(screen.getByText('已篩選：搜尋「billing」 · 1 / 3')).toBeTruthy();
     expect(screen.getByRole('list', { name: '篩選結果' }).textContent).toBe('snapshot');
 
     fireEvent.change(screen.getByLabelText('類型'), { target: { value: 'single' } });
-    expect(screen.getByText('顯示 0 / 3 個步驟')).toBeTruthy();
+    expect(screen.getByText('已篩選：搜尋「billing」、操作流程 · 0 / 3')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '清除所有步驟篩選' }));
-    fireEvent.change(screen.getByLabelText('品質問題'), { target: { value: 'missing-bounds' } });
-    expect(screen.getByText('顯示 1 / 3 個步驟')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('發佈前狀態'), { target: { value: 'missing-bounds' } });
+    expect(screen.getByText(/已篩選：缺少有效框選 · 1 \/ 3/)).toBeTruthy();
     expect(screen.getByRole('list', { name: '篩選結果' }).textContent).toBe('broken');
   });
 
-  it('does not show reset until a filter is active', () => {
+  it('only shows the compact active state and reset action after a filter is active', () => {
     render(<FilterHarness />);
     expect(screen.queryByRole('button', { name: '清除所有步驟篩選' })).toBeNull();
-    fireEvent.change(screen.getByLabelText('類型'), { target: { value: 'group' } });
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'settings' } });
+
+    expect(screen.getByText('已篩選：搜尋「settings」 · 1 / 3')).toBeTruthy();
     expect(screen.getByRole('button', { name: '清除所有步驟篩選' })).toBeTruthy();
   });
 });
 
 describe('GuideQualityDialog', () => {
-  it('summarizes issues accessibly and navigates without rendering screenshots', () => {
+  it('separates publication blockers from reading suggestions and navigates without rendering screenshots', () => {
     const onOpenChange = vi.fn();
     const onSelectEntry = vi.fn();
     const report = analyzeGuideQuality(entries);
@@ -112,16 +121,18 @@ describe('GuideQualityDialog', () => {
       />,
     );
 
-    expect(screen.getByRole('dialog', { name: '教學品質檢查' })).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toContain('1 個步驟需要檢查');
+    expect(screen.getByRole('dialog', { name: '發佈前檢查' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /必須處理才能發佈/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /可改善閱讀性/ })).toBeTruthy();
+    expect(screen.getByText(/這不是品質評分/)).toBeTruthy();
     expect(screen.queryByRole('img')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /前往步驟 3/ }));
+    fireEvent.click(screen.getByRole('button', { name: /前往步驟 3：缺少有效框選/ }));
     expect(onSelectEntry).toHaveBeenCalledWith('broken', 2);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('exposes issue statistics as filter actions when requested', () => {
+  it('exposes issue filter actions through progressive disclosure when requested', () => {
     const onFilterIssue = vi.fn();
     render(
       <GuideQualityDialog
@@ -132,7 +143,8 @@ describe('GuideQualityDialog', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /缺少說明：1 個步驟；套用篩選/ }));
+    fireEvent.click(screen.getByText('依問題篩選左側步驟', { selector: 'summary' }));
+    fireEvent.click(screen.getByRole('button', { name: '缺少說明（1）' }));
     expect(onFilterIssue).toHaveBeenCalledWith('empty-description');
   });
 });

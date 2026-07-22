@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { SlidersHorizontal, X } from 'lucide-react';
+import { Check, SlidersHorizontal, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -206,14 +206,14 @@ export default function StepRail({
     <nav
       ref={railRef}
       aria-label="步驟導覽"
-      className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-64 lg:border-t-0 lg:border-r"
+      className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-[19rem] lg:min-w-[18rem] lg:shrink-0 lg:basis-[19rem] lg:border-t-0 lg:border-r"
     >
       <div className="flex shrink-0 items-center px-4 py-2 text-xs font-medium text-stone-600 dark:text-stone-300 lg:px-5 lg:pt-5 lg:pb-3">
         <span>步驟 · {entries.length}{totalCount != null && totalCount !== entries.length ? ` / ${totalCount}` : ''}</span>
         {headerContent && (
           <button
             type="button"
-            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-stone-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden dark:hover:bg-stone-800"
+            className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-stone-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden dark:hover:bg-stone-800"
             aria-expanded={mobileFiltersOpen}
             aria-controls="frametrail-mobile-step-filters"
             onClick={() => setMobileFiltersOpen((open) => !open)}
@@ -242,16 +242,21 @@ export default function StepRail({
           items={entries.map(entryId)}
           strategy={isDesktop ? verticalListSortingStrategy : horizontalListSortingStrategy}
         >
-          <ul className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-hidden lg:overflow-y-auto lg:pb-4">
+          <ul className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-visible lg:overflow-y-auto lg:px-3 lg:pb-4 lg:pr-4">
             {entries.map((entry, index) => {
               const id = entryId(entry);
               const active = id === selectedEntryId;
-              const checked = effectiveSelectedIds.has(id);
+              const selected = effectiveSelectedIds.has(id);
               const section = sectionByStartId.get(id);
               return (
-                <SortableItem key={id} id={id} disabled={reorderDisabled} className="w-44 shrink-0 [content-visibility:auto] [contain-intrinsic-size:176px_76px] lg:w-auto lg:[contain-intrinsic-size:240px_72px]">
+                <SortableItem
+                  key={id}
+                  id={id}
+                  disabled={reorderDisabled}
+                  className="w-44 shrink-0 [content-visibility:auto] [contain-intrinsic-size:176px_76px] lg:w-full lg:min-w-0 lg:[contain-intrinsic-size:288px_76px]"
+                >
                   {(handle) => (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex min-w-0 flex-col gap-1">
                       {section && onRenameSection && onDeleteSection && (
                         <GuideSectionHeading
                           section={section}
@@ -261,13 +266,17 @@ export default function StepRail({
                         />
                       )}
                       <div
+                        data-active={active || undefined}
+                        data-selected={selected || undefined}
                         className={cn(
-                          'group relative flex h-[76px] w-full items-center gap-2 rounded-md p-2 text-left lg:h-auto lg:gap-2.5',
-                          active
-                            ? 'border border-stone-300 bg-white shadow-sm dark:border-stone-600 dark:bg-stone-800'
-                            : checked
-                              ? 'border border-lime-300 bg-lime-50/70 dark:border-lime-800 dark:bg-lime-950/20'
-                              : 'hover:bg-stone-100 dark:hover:bg-stone-800',
+                          "group relative flex min-w-0 items-center gap-2 rounded-md p-2 pr-11 text-left transition-colors before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r-sm before:content-[''] lg:min-h-[76px] lg:gap-2.5",
+                          active && selected
+                            ? 'border border-emerald-300 bg-emerald-50/70 before:bg-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/25 dark:before:bg-emerald-400'
+                            : active
+                              ? 'border border-stone-300 bg-white shadow-sm before:bg-emerald-700 dark:border-stone-600 dark:bg-stone-800 dark:before:bg-emerald-400'
+                              : selected
+                                ? 'border border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20'
+                                : 'border border-transparent hover:bg-stone-100 dark:hover:bg-stone-800',
                         )}
                       >
                         <button
@@ -279,21 +288,30 @@ export default function StepRail({
                           })}
                           aria-label={`開啟步驟 ${index + 1}`}
                           aria-current={active ? 'step' : undefined}
-                          className="absolute inset-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
+                          className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
                         />
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onSelect(id, { additive: true, range: false })}
+                        <button
+                          type="button"
                           aria-label={`選取步驟 ${index + 1}`}
-                          className="relative z-[3] size-4 shrink-0 accent-lime-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-                        />
+                          aria-pressed={selected}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSelect(id, { additive: true, range: false });
+                          }}
+                          className={cn(
+                            'relative z-[3] inline-flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-50 dark:focus-visible:ring-offset-stone-900',
+                            selected
+                              ? 'border-emerald-700 bg-emerald-700 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-stone-950'
+                              : 'border-stone-300 bg-white text-transparent hover:border-emerald-400 hover:bg-emerald-50 dark:border-stone-600 dark:bg-stone-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30',
+                          )}
+                        >
+                          <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
+                        </button>
                         <span
                           className={cn(
                             'pointer-events-none relative z-[1] w-5 shrink-0 text-center text-xs tabular-nums',
-                            active || checked
-                              ? 'font-semibold text-lime-700 dark:text-lime-400'
-                              : 'text-stone-400 dark:text-stone-500',
+                            active ? 'font-semibold text-stone-800 dark:text-stone-100' : selected ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-stone-400 dark:text-stone-500',
                           )}
                         >
                           {index + 1}
@@ -306,14 +324,8 @@ export default function StepRail({
                         <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
                           <span className="line-clamp-2">{entrySummary(entry)}</span>
                         </span>
-                        <span
-                          className={cn(
-                            'relative z-[2] ml-auto flex shrink-0 items-center gap-1',
-                            active ? 'opacity-100' : 'opacity-100 lg:opacity-0 lg:group-hover:opacity-100',
-                          )}
-                        >
+                        <span className="absolute top-1/2 right-1 z-[3] flex -translate-y-1/2 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                           {handle}
-                          {active && <span className="h-9 w-[3px] rounded-sm bg-lime-700 dark:bg-lime-500" />}
                         </span>
                       </div>
                     </div>

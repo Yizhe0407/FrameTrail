@@ -28,7 +28,7 @@ vi.mock('@/components/ui/dialog', () => ({
   DialogDescription: ({ children }: { children?: any }) => children,
 }));
 vi.mock('@/components/ui/button', () => ({ Button: () => null }));
-vi.mock('lucide-react', () => ({ ChevronLeft: () => null, ChevronRight: () => null }));
+vi.mock('lucide-react', () => ({ Check: () => null, ChevronLeft: () => null, ChevronRight: () => null }));
 vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children?: any }) => children,
   closestCenter: () => null,

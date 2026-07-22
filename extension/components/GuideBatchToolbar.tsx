@@ -1,5 +1,6 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import {
+  ChevronDown,
   Copy,
   Hash,
   ListEnd,
@@ -59,12 +60,14 @@ function ToolbarButton({
       disabled={disabled}
       onClick={onClick}
       className={[
-        'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors',
+        'inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2',
         'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
         destructive
-          ? 'border-red-700 bg-red-700 text-white hover:bg-red-800 dark:border-red-600 dark:bg-red-600 dark:hover:bg-red-700'
-          : 'border-stone-300 bg-white text-stone-800 hover:bg-stone-100 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700',
+          ? 'text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30'
+          : pressed
+            ? 'bg-stone-200 text-stone-900 hover:bg-stone-300 dark:bg-stone-700 dark:text-stone-50 dark:hover:bg-stone-600'
+            : 'text-stone-700 hover:bg-stone-200/80 dark:text-stone-200 dark:hover:bg-stone-800',
       ].join(' ')}
     >
       {children}
@@ -73,8 +76,9 @@ function ToolbarButton({
 }
 
 /**
- * A presentation-only action bar for operations on an ordered selection of guide
- * entries. Persisting, confirmation, and selection state remain with the parent.
+ * A compact, contextual action bar for an ordered selection of guide entries.
+ * Frequent editing actions stay visible; less frequent and destructive actions
+ * are deliberately tucked into a native details disclosure.
  */
 export function GuideBatchToolbar({
   selectedEntryIds,
@@ -103,8 +107,7 @@ export function GuideBatchToolbar({
       try {
         await action();
       } catch {
-        // The parent owns operation errors; keeping the toolbar callback-only
-        // also lets it decide how errors should be announced to the user.
+        // The parent owns operation errors and their announcement.
       } finally {
         setSubmitting(false);
       }
@@ -116,82 +119,105 @@ export function GuideBatchToolbar({
   return (
     <section
       aria-label="批次操作列"
-      className="flex flex-col gap-3 border-y border-stone-200 bg-stone-50 px-3 py-3 dark:border-stone-700 dark:bg-stone-900"
+      className="border-y border-stone-200 bg-stone-50/80 px-3 py-2.5 dark:border-stone-700 dark:bg-stone-900/80"
     >
-      <p role="status" aria-live="polite" aria-atomic="true" className="text-sm font-medium text-stone-700 dark:text-stone-200">
-        已選 {selectedEntryIds.length} 個
-        {submitting && <span className="ml-2 text-stone-500 dark:text-stone-400">正在處理批次操作，請稍候。</span>}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+        <div role="status" aria-live="polite" aria-atomic="true" className="mr-auto min-w-0 pr-3">
+          <p className="text-sm font-medium text-stone-700 dark:text-stone-200">
+            已選取 {selectedEntryIds.length} 個步驟
+          </p>
+          <p className="text-xs text-stone-500 dark:text-stone-400">
+            {submitting ? '正在處理，請稍候。' : '批次操作只會套用到這些步驟。'}
+          </p>
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2" aria-label="批次操作">
         <ToolbarButton
-          label="全選目前可見的項目"
-          disabled={disabled}
-          onClick={() => runAction(() => onSelectAllVisible(visibleEntryIds))}
-        >
-          <ListTodo className="size-4" aria-hidden="true" />
-          全選目前可見
-        </ToolbarButton>
-        <ToolbarButton
-          label="清除多重選取"
+          label="結束多選"
           disabled={disabled}
           onClick={() => runAction(onClearSelection)}
         >
           <X className="size-4" aria-hidden="true" />
-          清除多選
+          結束多選
         </ToolbarButton>
         <ToolbarButton
-          label="刪除已選的項目（危險操作）"
+          label="刪除已選步驟（危險操作）"
           destructive
           disabled={disabled}
           onClick={() => runAction(() => onDeleteSelected(selectedEntryIds))}
         >
           <Trash2 className="size-4" aria-hidden="true" />
-          刪除已選項目
+          刪除
         </ToolbarButton>
-        <ToolbarButton
-          label="將已選項目移到開頭"
-          disabled={disabled}
-          onClick={() => runAction(() => onMoveSelectedToStart(selectedEntryIds))}
+
+        <details
+          className="group relative"
+          aria-disabled={disabled || undefined}
         >
-          <ListStart className="size-4" aria-hidden="true" />
-          移到開頭
-        </ToolbarButton>
-        <ToolbarButton
-          label="將已選項目移到結尾"
-          disabled={disabled}
-          onClick={() => runAction(() => onMoveSelectedToEnd(selectedEntryIds))}
-        >
-          <ListEnd className="size-4" aria-hidden="true" />
-          移到結尾
-        </ToolbarButton>
-        <ToolbarButton
-          label="複製目前 active 項目"
-          disabled={disabled || activeEntryId === null}
-          onClick={() => {
-            if (activeEntryId) runAction(() => onCopyActiveEntry(activeEntryId));
-          }}
-        >
-          <Copy className="size-4" aria-hidden="true" />
-          複製目前項目
-        </ToolbarButton>
-        <ToolbarButton
-          label={`快照編號：${snapshotNumberingEnabled ? '開' : '關'}`}
-          pressed={snapshotNumberingEnabled}
-          disabled={disabled}
-          onClick={() => runAction(() => onSetSnapshotNumbering(!snapshotNumberingEnabled))}
-        >
-          <Hash className="size-4" aria-hidden="true" />
-          快照編號：{snapshotNumberingEnabled ? '開' : '關'}
-        </ToolbarButton>
-        <ToolbarButton
-          label="在第一個選取項目前新增章節"
-          disabled={disabled}
-          onClick={() => runAction(() => onAddSectionBefore(firstSelectedEntryId))}
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          新增章節
-        </ToolbarButton>
+          <summary
+            onClick={(event) => {
+              if (disabled) event.preventDefault();
+            }}
+            className="inline-flex h-9 cursor-pointer list-none items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-200/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 group-open:bg-stone-200/80 dark:text-stone-300 dark:hover:bg-stone-800 dark:group-open:bg-stone-800 [&::-webkit-details-marker]:hidden"
+          >
+            更多操作
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="absolute right-0 top-[calc(100%+0.4rem)] z-20 flex w-56 flex-col rounded-lg border border-stone-200 bg-white p-1.5 shadow-lg dark:border-stone-700 dark:bg-stone-900">
+            <ToolbarButton
+              label="選取左側目前顯示的所有步驟"
+              disabled={disabled}
+              onClick={() => runAction(() => onSelectAllVisible(visibleEntryIds))}
+            >
+              <ListTodo className="size-4" aria-hidden="true" />
+              全選左側步驟
+            </ToolbarButton>
+            <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
+            <ToolbarButton
+              label="將已選步驟移至開頭"
+              disabled={disabled}
+              onClick={() => runAction(() => onMoveSelectedToStart(selectedEntryIds))}
+            >
+              <ListStart className="size-4" aria-hidden="true" />
+              移至教學開頭
+            </ToolbarButton>
+            <ToolbarButton
+              label="將已選步驟移至結尾"
+              disabled={disabled}
+              onClick={() => runAction(() => onMoveSelectedToEnd(selectedEntryIds))}
+            >
+              <ListEnd className="size-4" aria-hidden="true" />
+              移至教學結尾
+            </ToolbarButton>
+            <ToolbarButton
+              label="在已選步驟前新增章節"
+              disabled={disabled}
+              onClick={() => runAction(() => onAddSectionBefore(firstSelectedEntryId))}
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              在選取處新增章節
+            </ToolbarButton>
+            <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
+            <ToolbarButton
+              label="複製目前開啟的步驟"
+              disabled={disabled || activeEntryId === null}
+              onClick={() => {
+                if (activeEntryId) runAction(() => onCopyActiveEntry(activeEntryId));
+              }}
+            >
+              <Copy className="size-4" aria-hidden="true" />
+              複製目前步驟
+            </ToolbarButton>
+            <ToolbarButton
+              label="顯示標註編號"
+              pressed={snapshotNumberingEnabled}
+              disabled={disabled}
+              onClick={() => runAction(() => onSetSnapshotNumbering(!snapshotNumberingEnabled))}
+            >
+              <Hash className="size-4" aria-hidden="true" />
+              顯示標註編號
+            </ToolbarButton>
+          </div>
+        </details>
       </div>
     </section>
   );

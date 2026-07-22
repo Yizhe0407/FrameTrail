@@ -76,14 +76,14 @@ export default function StepStage({
   const headerRow = (
     <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
-        <span className="flex size-[30px] items-center justify-center rounded-full bg-stone-800 text-[13px] font-semibold tabular-nums text-stone-50 dark:bg-stone-100 dark:text-stone-900">
+        <span className="flex size-8 items-center justify-center rounded-md border border-stone-300 bg-stone-50 text-xs font-semibold tabular-nums text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
           {index + 1}
         </span>
         <span className="text-xs text-stone-500 dark:text-stone-400">
-          {entry.kind === 'single' ? '步驟模式' : `快照模式 · ${entry.annotations.length} 個標注`}
+          {entry.kind === 'single' ? '操作流程' : `單頁標註 · ${entry.annotations.length} 個標註`}
         </span>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3.5">
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
         {entry.kind === 'group' && (
           <label
             className={cn(
@@ -91,12 +91,11 @@ export default function StepStage({
               editingDisabled || numberingPending ? 'cursor-not-allowed' : 'cursor-pointer',
             )}
           >
-            <span className="text-xs text-stone-500 dark:text-stone-400">順序編號</span>
+            <span className="text-xs text-stone-500 dark:text-stone-400">顯示編號</span>
             <Switch
               checked={entry.anchor.numbered ?? false}
               onCheckedChange={setNumbered}
               disabled={editingDisabled || numberingPending}
-              className="data-[state=checked]:bg-lime-700 dark:data-[state=checked]:bg-lime-500"
             />
           </label>
         )}
@@ -107,9 +106,9 @@ export default function StepStage({
           variant="outline"
           onClick={openVisualEditor}
           disabled={editingDisabled}
-          title={editingDisabled ? '錄製或資料操作期間無法編輯圖片' : '修正框選或遮罩敏感資訊'}
+          title={editingDisabled ? '錄製或資料操作期間無法編輯圖片' : '調整操作框選或遮罩敏感資訊'}
         >
-          <EyeOff />修正／遮罩
+          <EyeOff />調整圖片
         </Button>
         <StepActions
           entry={entry}
@@ -155,7 +154,7 @@ export default function StepStage({
 
   const privacyReviewNotice = privacy.reviewRequired && (
     <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-      此圖片的遮罩需要重新確認；確認前預覽會保持全黑，複製與匯出也會被阻擋。請開啟「修正／遮罩」檢查後儲存。
+      此圖片的遮罩需要重新確認；確認前預覽會保持全黑，複製與匯出也會被阻擋。請開啟「調整圖片」檢查後儲存。
     </div>
   );
 
