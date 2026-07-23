@@ -1,7 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BackgroundMessage,
-  PreflightInsertionSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingState,
 } from '@/lib/runtime/messages';
@@ -9,7 +8,6 @@ import type { Step } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
   messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
-  getInsertionAnchor: vi.fn(),
   getStep: vi.fn(),
   getSteps: vi.fn(),
   getRecordingState: vi.fn(),
@@ -65,7 +63,6 @@ vi.mock('@/lib/storage/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/db')>();
   return {
     ...actual,
-    getInsertionAnchor: mocks.getInsertionAnchor,
     getStep: mocks.getStep,
     getSteps: mocks.getSteps,
   };
@@ -95,7 +92,6 @@ const idleState: RecordingState = {
   runId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
-  insertion: null,
   recapture: null,
   recaptureResult: null,
 };
@@ -170,12 +166,6 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRecordingState.mockResolvedValue(idleState);
-  mocks.getInsertionAnchor.mockResolvedValue({
-    anchorEntryId: 'step-1',
-    kind: 'single',
-    sourceUrl: 'https://persisted.example/path?fresh=1#target',
-    memberIds: ['step-1'],
-  });
   mocks.getStep.mockResolvedValue(ordinaryStep());
   mocks.getSteps.mockResolvedValue([ordinaryStep()]);
 });
@@ -262,50 +252,15 @@ describe('background runtime boundary', () => {
 });
 
 describe('background source-permission preflight', () => {
-  it.each([
-    {
-      name: 'insertion',
-      message: {
-        type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-        sessionId: 'guide-b',
-        anchorEntryId: 'step-1',
-      } as const,
-    },
-    {
-      name: 'recapture',
-      message: {
-        type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-        sessionId: 'guide-b',
-        target: { kind: 'single', stepId: 'step-1' },
-      } as const,
-    },
-  ])('rejects a forged editor/session for $name before reading a target', async ({ message }) => {
-    const result = await send<
-      PreflightInsertionSourcePermissionResult | PreflightStepRecaptureSourcePermissionResult
-    >(message, editorSender('guide-a'));
+  it('rejects a forged editor/session before reading a recapture target', async () => {
+    const result = await send<PreflightStepRecaptureSourcePermissionResult>({
+      type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
+      sessionId: 'guide-b',
+      target: { kind: 'single', stepId: 'step-1' },
+    }, editorSender('guide-a'));
 
     expect(result).toMatchObject({ ok: false, code: 'INVALID_EDITOR' });
-    expect(mocks.getInsertionAnchor).not.toHaveBeenCalled();
     expect(mocks.getStep).not.toHaveBeenCalled();
-    expectNoPermissionOrOperationSideEffects();
-  });
-
-  it.each([
-    ['ANCHOR_NOT_FOUND', 'ANCHOR_NOT_FOUND'],
-    ['ANCHOR_CHANGED', 'ANCHOR_CHANGED'],
-    ['RUN_STATE_CHANGED', 'ANCHOR_CHANGED'],
-  ] as const)('maps insertion DB %s to typed %s', async (dbCode, expectedCode) => {
-    const { InsertionRecordingError } = await import('@/lib/storage/db');
-    mocks.getInsertionAnchor.mockRejectedValue(new InsertionRecordingError(dbCode, 'stale target'));
-
-    const result = await send<PreflightInsertionSourcePermissionResult>({
-      type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
-      anchorEntryId: 'step-1',
-    });
-
-    expect(result).toMatchObject({ ok: false, code: expectedCode });
-    if (!result.ok) expect(result.message).toBeTruthy();
     expectNoPermissionOrOperationSideEffects();
   });
 
@@ -329,63 +284,25 @@ describe('background source-permission preflight', () => {
     expectNoPermissionOrOperationSideEffects();
   });
 
-  it.each([
-    {
-      name: 'insertion',
-      setup: () => mocks.getInsertionAnchor.mockResolvedValue({
-        anchorEntryId: 'step-1',
-        kind: 'single',
-        sourceUrl: 'chrome://settings/privacy',
-        memberIds: ['step-1'],
-      }),
-      message: {
-        type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-        sessionId: 'guide-a',
-        anchorEntryId: 'step-1',
-      } as const,
-    },
-    {
-      name: 'recapture',
-      setup: () => mocks.getStep.mockResolvedValue(ordinaryStep({ url: 'https://chromewebstore.google.com/detail/test' })),
-      message: {
-        type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-        sessionId: 'guide-a',
-        target: { kind: 'single', stepId: 'step-1' },
-      } as const,
-    },
-  ])('rejects a restricted persisted URL for $name', async ({ setup, message }) => {
-    setup();
-    const result = await send<
-      PreflightInsertionSourcePermissionResult | PreflightStepRecaptureSourcePermissionResult
-    >(message);
+  it('rejects a restricted persisted recapture URL', async () => {
+    mocks.getStep.mockResolvedValue(ordinaryStep({ url: 'https://chromewebstore.google.com/detail/test' }));
+    const result = await send<PreflightStepRecaptureSourcePermissionResult>({
+      type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
+      sessionId: 'guide-a',
+      target: { kind: 'single', stepId: 'step-1' },
+    });
 
     expect(result).toMatchObject({ ok: false, code: 'RESTRICTED_SOURCE' });
     expectNoPermissionOrOperationSideEffects();
   });
 
-  it.each([
-    {
-      name: 'insertion',
-      message: {
-        type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-        sessionId: 'guide-a',
-        anchorEntryId: 'step-1',
-        sourceUrl: 'https://stale-ui.example/wrong',
-      } as BackgroundMessage,
-    },
-    {
-      name: 'recapture',
-      message: {
-        type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-        sessionId: 'guide-a',
-        target: { kind: 'single', stepId: 'step-1' },
-        sourceUrl: 'https://stale-ui.example/wrong',
-      } as BackgroundMessage,
-    },
-  ])('returns only the persisted authority for $name and ignores any runtime UI URL', async ({ message }) => {
-    const result = await send<
-      PreflightInsertionSourcePermissionResult | PreflightStepRecaptureSourcePermissionResult
-    >(message);
+  it('uses only persisted recapture authority and ignores a UI-provided URL', async () => {
+    const result = await send<PreflightStepRecaptureSourcePermissionResult>({
+      type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
+      sessionId: 'guide-a',
+      target: { kind: 'single', stepId: 'step-1' },
+      sourceUrl: 'https://stale-ui.example/wrong',
+    } as BackgroundMessage);
 
     expect(result).toEqual({
       ok: true,

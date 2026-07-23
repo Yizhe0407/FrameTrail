@@ -8,7 +8,7 @@ export interface RecorderRuntimeDependencies {
   sendStopMessage: (tabId: number, message: FrameTrailStopMessage) => Promise<unknown>;
 }
 
-/** Browser API adapter shared by recording, insertion, and recapture flows. */
+/** Browser API adapter shared by recording and recapture flows. */
 export function createRecorderRuntime({
   captureVisibleTab,
   executeRecorderScript,

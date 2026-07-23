@@ -1,6 +1,5 @@
 import { browser, type Browser } from 'wxt/browser';
 import {
-  InsertionStateCommitError,
   SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
   SnapshotViewportChangedError,
   StaleCaptureError,
@@ -31,13 +30,9 @@ import {
   deleteStepsForRun,
   getEffectiveBounds,
   getGuide,
-  getInsertionAnchor,
   getStep,
   getSteps,
-  insertStepsAtEntryBoundary,
-  InsertionRecordingError,
   replaceStepCaptureAtomically,
-  validateInsertionRunState,
   resetGuide,
   StepRecaptureError,
   type Step,
@@ -75,8 +70,6 @@ import type {
   FrameTrailStopMessage,
   OpenEditorMessage,
   OpenEditorResult,
-  PreflightInsertionSourcePermissionMessage,
-  PreflightInsertionSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionErrorCode,
   PreflightStepRecaptureSourcePermissionMessage,
   PreflightStepRecaptureSourcePermissionResult,
@@ -88,8 +81,6 @@ import type {
   RecordingState,
   SnapshotInvalidatedMessage,
   SnapshotRecorderFailureMessage,
-  StartInsertionRecordingMessage,
-  StartInsertionRecordingResult,
   StartRecordingMessage,
   StartRecordingResult,
   StartStepRecaptureMessage,
@@ -145,7 +136,6 @@ function assertCaptureNotCancelled(captureId: string): void {
 
 async function stopRecordingSource(state: RecordingState): Promise<void> {
   await recorderRuntime.stopRecorderInTab(state.tabId);
-  if (state.insertion?.sourceTabCreated) await closeTemporarySourceTab(state.tabId ?? undefined);
 }
 
 async function updateRunState(
@@ -264,7 +254,6 @@ async function handleStopRunWithError(
       runId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
-      insertion: null,
     });
     return state;
   });
@@ -329,49 +318,10 @@ function equalIds(left: readonly string[], right: readonly string[]): boolean {
 async function persistRecordingSteps(
   state: RecordingState,
   steps: Step[],
-  expectedControlVersion: number,
+  _expectedControlVersion: number,
 ): Promise<void> {
   if (!state.sessionId || !state.runId) throw new StaleCaptureError('Recording is no longer active.');
-  if (!state.insertion) {
-    for (const step of steps) await addStep(step);
-    return;
-  }
-
-  const insertion = state.insertion;
-  const committed = await insertStepsAtEntryBoundary({
-    sessionId: state.sessionId,
-    runId: state.runId,
-    anchorEntryId: insertion.anchorEntryId,
-    side: insertion.side,
-    expectedRunBlockIds: insertion.runBlockIds,
-    newSteps: steps,
-  });
-
-  const persisted = await queueStateMutation(async () => {
-    if (expectedControlVersion !== controlVersion) return false;
-    const current = await getRecordingState();
-    if (
-      expectedControlVersion !== controlVersion ||
-      current.operation !== 'recording' ||
-      !current.isRecording ||
-      current.sessionId !== state.sessionId ||
-      current.runId !== state.runId ||
-      !current.insertion ||
-      current.insertion.anchorEntryId !== insertion.anchorEntryId ||
-      current.insertion.side !== insertion.side ||
-      !equalIds(current.insertion.runBlockIds, insertion.runBlockIds)
-    ) {
-      return false;
-    }
-    await setRecordingState({
-      ...current,
-      insertion: { ...current.insertion, runBlockIds: committed.runBlockIds },
-    });
-    return true;
-  });
-  if (!persisted) {
-    throw new InsertionStateCommitError('Insertion state changed after the database commit.');
-  }
+  for (const step of steps) await addStep(step);
 }
 
 async function createAndActivateSnapshotAnchor(
@@ -395,7 +345,7 @@ async function createAndActivateSnapshotAnchor(
       version,
     );
     anchorId = crypto.randomUUID();
-    const existingSteps = state.insertion ? [] : await getSteps(sessionId);
+    const existingSteps = await getSteps(sessionId);
     await persistRecordingSteps(state, [{
       id: anchorId,
       sessionId,
@@ -440,24 +390,6 @@ async function createAndActivateSnapshotAnchor(
     if (anchorId) {
       try {
         await deleteStep(anchorId);
-        if (state.insertion) {
-          await queueStateMutation(async () => {
-            const current = await getRecordingState();
-            if (
-              current.operation === 'recording' &&
-              current.runId === state.runId &&
-              current.insertion?.runBlockIds.includes(anchorId!)
-            ) {
-              await setRecordingState({
-                ...current,
-                insertion: {
-                  ...current.insertion,
-                  runBlockIds: current.insertion.runBlockIds.filter((id) => id !== anchorId),
-                },
-              });
-            }
-          });
-        }
       } catch (cleanupError) {
         console.error(
           '[frametrail] failed to remove incomplete snapshot:',
@@ -494,7 +426,6 @@ class StepRecaptureStartError extends Error {
 }
 
 let startingRecapture = false;
-let startingInsertion = false;
 
 function recaptureFailure(
   code: Exclude<StartStepRecaptureResult, { ok: true }>['code'],
@@ -512,21 +443,6 @@ function isRecaptureSourceSender(
   context: NonNullable<RecordingState['recapture']>,
 ): boolean {
   return isTrustedRecaptureSourceSender(sender, context);
-}
-
-function isInsertionSourceSender(
-  sender: Browser.runtime.MessageSender,
-  state: RecordingState,
-): boolean {
-  const sourceUrl = state.insertion?.sourceUrl;
-  return (
-    sourceUrl != null &&
-    state.tabId != null &&
-    sender.frameId === 0 &&
-    sender.tab?.id === state.tabId &&
-    sender.url === sourceUrl &&
-    sender.tab.url === sourceUrl
-  );
 }
 
 function recapturePermissionPattern(url: string): string | null {
@@ -712,7 +628,6 @@ async function settleStepRecapture(
       phase: 'idle',
       tabId: null,
       runId: null,
-      insertion: null,
       recapture: null,
       recaptureResult: result,
       error: status === 'failed' ? message ?? '補拍失敗。' : null,
@@ -767,91 +682,6 @@ async function recoverInterruptedRecapture(): Promise<void> {
     'WORKER_RESTARTED',
     '補拍流程曾中斷，原內容未變更；請重新補拍。',
   );
-}
-
-async function recoverInterruptedInsertionRecording(): Promise<void> {
-  const state = await getRecordingState();
-  const insertion = state.insertion;
-  if (
-    state.operation !== 'recording' ||
-    !state.isRecording ||
-    !state.sessionId ||
-    !state.runId ||
-    !insertion
-  ) {
-    return;
-  }
-
-  const version = ++controlVersion;
-  acceptingClicks = false;
-  pendingUndo = null;
-  await waitForQueuedClicks();
-  try {
-    if (state.phase === 'starting' || state.phase === 'finishing' || state.phase === 'error') {
-      throw new Error(`Insertion cannot resume from phase ${state.phase}.`);
-    }
-    await validateInsertionRunState({
-      sessionId: state.sessionId,
-      runId: state.runId,
-      anchorEntryId: insertion.anchorEntryId,
-      side: insertion.side,
-      runBlockIds: insertion.runBlockIds,
-    });
-    if (state.tabId == null) throw new Error('Insertion source tab is missing.');
-    const tab = await browser.tabs.get(state.tabId);
-    if (tab.url !== insertion.sourceUrl) throw new Error('Insertion source tab changed.');
-
-    const latest = await getRecordingState();
-    if (
-      version !== controlVersion ||
-      latest.operation !== 'recording' ||
-      latest.runId !== state.runId ||
-      latest.sessionId !== state.sessionId ||
-      !latest.insertion ||
-      !equalIds(latest.insertion.runBlockIds, insertion.runBlockIds)
-    ) {
-      throw new Error('Insertion state changed during recovery.');
-    }
-    acceptingClicks = latest.phase === 'recording';
-  } catch (error) {
-    console.error('[frametrail] insertion recovery failed closed', error);
-    try {
-      await deleteStepsForRun(state.sessionId, state.runId);
-    } catch (rollbackError) {
-      // An archived/deleted Guide may reject writes. Clearing the operation is
-      // still fail-closed: no future capture can target another Guide.
-      console.warn('[frametrail] failed to roll back interrupted insertion run', rollbackError);
-    }
-    await queueStateMutation(async () => {
-      const current = await getRecordingState();
-      if (
-        current.operation !== 'recording' ||
-        current.sessionId !== state.sessionId ||
-        current.runId !== state.runId ||
-        !current.insertion
-      ) {
-        return;
-      }
-      await setRecordingState({
-        ...current,
-        operation: null,
-        isRecording: false,
-        phase: 'error',
-        tabId: null,
-        runId: null,
-        groupAnchorId: null,
-        snapshotViewport: null,
-        snapshotDevicePixelRatio: null,
-        insertion: null,
-        error: '補錄流程曾中斷，已停止這次補錄。',
-        recoverableError: {
-          code: 'INSERTION_RECOVERY_FAILED',
-          message: '補錄流程曾中斷；為避免錯插到其他位置，已停止這次補錄。',
-        },
-      });
-    });
-    await stopRecordingSource(state);
-  }
 }
 
 function failStepRecapture(
@@ -997,7 +827,6 @@ async function handleStartStepRecapture(
     runId: null,
     error: null,
     recoverableError: null,
-    insertion: null,
     recapture,
     recaptureResult: null,
   }));
@@ -1051,7 +880,7 @@ async function startStepRecapture(
   if (!isEditorSenderForSession(sender, message.sessionId)) {
     return recaptureFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器啟動補拍。');
   }
-  if (startingRecapture || startingInsertion) return recaptureFailure('ACTIVE_OPERATION', '目前已有補拍或補錄正在啟動。');
+  if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', '目前已有補拍正在啟動。');
   startingRecapture = true;
   try {
     const current = await getRecordingState();
@@ -1135,275 +964,11 @@ async function focusStepRecaptureSource(
   }
 }
 
-function insertionFailure(
-  code: Exclude<StartInsertionRecordingResult, { ok: true }>['code'],
-  error: string,
-): StartInsertionRecordingResult {
-  return { ok: false, code, error };
-}
-
-function insertionDbFailure(error: InsertionRecordingError): StartInsertionRecordingResult {
-  switch (error.code) {
-    case 'GUIDE_NOT_FOUND':
-      return insertionFailure('GUIDE_NOT_FOUND', '找不到要補錄的教學，請回作品庫重新開啟。');
-    case 'GUIDE_ARCHIVED':
-      return insertionFailure('GUIDE_ARCHIVED', '封存的教學無法補錄，請先還原。');
-    case 'ANCHOR_NOT_FOUND':
-      return insertionFailure('ANCHOR_NOT_FOUND', '指定的補錄位置已不存在，請重新整理後再選擇。');
-    case 'ANCHOR_CHANGED':
-    case 'RUN_STATE_CHANGED':
-      return insertionFailure('ANCHOR_CHANGED', '指定的補錄位置已變更，請重新整理後再選擇。');
-  }
-}
-
-function insertionPreflightFailure(
-  code: Exclude<PreflightInsertionSourcePermissionResult, { ok: true }>['code'],
-  message: string,
-): PreflightInsertionSourcePermissionResult {
-  return { ok: false, code, message };
-}
-
-function insertionDbPreflightFailure(
-  error: InsertionRecordingError,
-): PreflightInsertionSourcePermissionResult {
-  switch (error.code) {
-    case 'GUIDE_NOT_FOUND':
-      return insertionPreflightFailure('GUIDE_NOT_FOUND', '找不到要補錄的教學，請回作品庫重新開啟。');
-    case 'GUIDE_ARCHIVED':
-      return insertionPreflightFailure('GUIDE_ARCHIVED', '封存的教學無法補錄，請先還原。');
-    case 'ANCHOR_NOT_FOUND':
-      return insertionPreflightFailure('ANCHOR_NOT_FOUND', '指定的補錄位置已不存在，請重新整理後再選擇。');
-    case 'ANCHOR_CHANGED':
-    case 'RUN_STATE_CHANGED':
-      return insertionPreflightFailure('ANCHOR_CHANGED', '指定的補錄位置已變更，請重新整理後再選擇。');
-  }
-}
-
-async function preflightInsertionSourcePermission(
-  message: PreflightInsertionSourcePermissionMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<PreflightInsertionSourcePermissionResult> {
-  if (
-    typeof message.sessionId !== 'string' ||
-    message.sessionId.trim().length === 0 ||
-    typeof message.anchorEntryId !== 'string' ||
-    message.anchorEntryId.trim().length === 0 ||
-    !isEditorSenderForSession(sender, message.sessionId)
-  ) {
-    return insertionPreflightFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器驗證補錄來源。');
-  }
-
-  try {
-    const anchor = await getInsertionAnchor(message.sessionId, message.anchorEntryId);
-    return (
-      sourcePermissionPreflightSuccess(anchor.sourceUrl) ??
-      insertionPreflightFailure('RESTRICTED_SOURCE', '此來源頁面不允許補錄。')
-    );
-  } catch (error) {
-    if (error instanceof InsertionRecordingError) return insertionDbPreflightFailure(error);
-    throw error;
-  }
-}
-
-function isValidInsertionStartMessage(message: StartInsertionRecordingMessage): boolean {
-  return (
-    typeof message.sessionId === 'string' &&
-    message.sessionId.trim().length > 0 &&
-    typeof message.anchorEntryId === 'string' &&
-    message.anchorEntryId.trim().length > 0 &&
-    (message.side === 'before' || message.side === 'after') &&
-    (message.mode === 'steps' || message.mode === 'snapshot') &&
-    typeof message.numbered === 'boolean' &&
-    (message.preferredTabId === undefined ||
-      (Number.isSafeInteger(message.preferredTabId) && message.preferredTabId! >= 0))
-  );
-}
-
-async function closeTemporarySourceTab(tabId: number | undefined): Promise<void> {
-  if (tabId == null) return;
-  await browser.tabs.remove(tabId).catch((error) => {
-    console.warn('[frametrail] failed to close temporary insertion tab', error);
-  });
-}
-
-async function startInsertionRecording(
-  message: StartInsertionRecordingMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<StartInsertionRecordingResult> {
-  // Validate the exact editor document and both session-bearing URLs before
-  // touching any global gate. A spoofed Guide must not invalidate another run.
-  if (!isValidInsertionStartMessage(message) || !isEditorSenderForSession(sender, message.sessionId)) {
-    return insertionFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器啟動指定位置補錄。');
-  }
-  if (startingInsertion || startingRecapture) {
-    return insertionFailure('ACTIVE_OPERATION', '目前已有錄製、補錄或補拍正在啟動。');
-  }
-
-  startingInsertion = true;
-  let source: Awaited<ReturnType<typeof findOrCreateRecaptureSourceTab>> | null = null;
-  let durableRunStarted = false;
-  try {
-    const initial = await getRecordingState();
-    if (initial.operation !== null || initial.isRecording) {
-      return insertionFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
-    }
-
-    let anchor: Awaited<ReturnType<typeof getInsertionAnchor>>;
-    try {
-      anchor = await getInsertionAnchor(message.sessionId, message.anchorEntryId);
-    } catch (error) {
-      if (error instanceof InsertionRecordingError) return insertionDbFailure(error);
-      throw error;
-    }
-
-    const permissionPattern = recapturePermissionPattern(anchor.sourceUrl);
-    if (!permissionPattern || isRestrictedUrl(anchor.sourceUrl)) {
-      return insertionFailure('RESTRICTED_SOURCE', '此來源頁面不允許補錄。');
-    }
-    const hasPermission = await browser.permissions.contains({ origins: [permissionPattern] });
-    if (!hasPermission) {
-      return insertionFailure('HOST_PERMISSION_REQUIRED', '需要先允許 FrameTrail 存取此網站，才能補錄。');
-    }
-
-    try {
-      source = await findOrCreateRecaptureSourceTab(anchor.sourceUrl, message.preferredTabId);
-    } catch (error) {
-      console.error('[frametrail] failed to open insertion source tab', error);
-      return insertionFailure('SOURCE_TAB_FAILED', '無法開啟指定步驟的原始頁面。');
-    }
-    const sourceTab = source.tab;
-    if (sourceTab.id == null || sourceTab.windowId == null || sourceTab.url !== anchor.sourceUrl) {
-      return insertionFailure('SOURCE_TAB_FAILED', '原始頁面已重新導向，未開始補錄。');
-    }
-
-    // Resolve the persisted owner again after opening the source page. This
-    // closes the deletion/archive/change race before claiming the operation.
-    try {
-      const freshAnchor = await getInsertionAnchor(message.sessionId, message.anchorEntryId);
-      if (freshAnchor.sourceUrl !== anchor.sourceUrl || !equalIds(freshAnchor.memberIds, anchor.memberIds)) {
-        return insertionFailure('ANCHOR_CHANGED', '指定的補錄位置已變更，請重新整理後再選擇。');
-      }
-      anchor = freshAnchor;
-    } catch (error) {
-      if (error instanceof InsertionRecordingError) return insertionDbFailure(error);
-      throw error;
-    }
-
-    const current = await getRecordingState();
-    if (current.operation !== null || current.isRecording || startingRecapture) {
-      return insertionFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
-    }
-
-    acceptingClicks = false;
-    pendingRecorderReady?.cancel();
-    pendingRecorderReady = null;
-    pendingRecaptureReady?.cancel();
-    pendingRecaptureReady = null;
-    pendingSnapshotContext = undefined;
-    pendingUndo = null;
-    const version = ++controlVersion;
-    await waitForQueuedClicks();
-    if (version !== controlVersion) {
-      return insertionFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
-    }
-
-    const runId = crypto.randomUUID();
-    const startedState = await writeStateForControl(version, (state) => ({
-      ...state,
-      operation: 'recording',
-      isRecording: true,
-      phase: 'starting',
-      sessionId: message.sessionId,
-      tabId: sourceTab.id!,
-      error: null,
-      recoverableError: null,
-      mode: message.mode,
-      itemCount: 0,
-      numbered: message.numbered,
-      groupAnchorId: null,
-      runId,
-      snapshotViewport: null,
-      snapshotDevicePixelRatio: null,
-      insertion: {
-        anchorEntryId: message.anchorEntryId,
-        side: message.side,
-        runBlockIds: [],
-        sourceUrl: anchor.sourceUrl,
-        sourceTabCreated: !source!.reused,
-        startedAt: Date.now(),
-      },
-      recapture: null,
-    }));
-    if (!startedState) return insertionFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
-    durableRunStarted = true;
-
-    const readyGate = new RecorderReadyGate(
-      { runId, tabId: sourceTab.id, controlVersion: version },
-      RECORDER_READY_TIMEOUT_MS,
-    );
-    pendingRecorderReady = readyGate;
-    try {
-      const [, ready] = await Promise.all([
-        recorderRuntime.injectRecorder(sourceTab.id, message.mode === 'snapshot'),
-        readyGate.promise,
-      ]);
-      if (!ready || version !== controlVersion) throw new StaleCaptureError('Insertion recorder startup changed.');
-      if (message.mode === 'snapshot') {
-        const context = readPendingSnapshotContext();
-        if (!context || context.url !== anchor.sourceUrl) {
-          throw new Error('Snapshot recorder did not provide the persisted source context.');
-        }
-        await createAndActivateSnapshotAnchor(
-          startedState,
-          sourceTab.id,
-          sourceTab.windowId,
-          context,
-          version,
-        );
-      }
-      const activated = await updateRunState(
-        runId,
-        (state) => ({ ...state, phase: 'recording', error: null, recoverableError: null }),
-        version,
-      );
-      if (!activated) throw new StaleCaptureError('Insertion recording changed during startup.');
-      acceptingClicks = true;
-      await browser.tabs.update(sourceTab.id, { active: true });
-      await browser.windows.update(sourceTab.windowId, { focused: true });
-      return {
-        ok: true,
-        sessionId: message.sessionId,
-        runId,
-        tabId: sourceTab.id,
-        reusedTab: source.reused,
-      };
-    } catch (error) {
-      console.error('[frametrail] failed to start insertion recorder', error);
-      if (version === controlVersion) {
-        await stopRunWithError(runId, '無法在原始頁面啟動指定位置補錄。', version, {
-          code: 'INSERTION_START_FAILED',
-          message: '無法在原始頁面啟動指定位置補錄，現有內容未變更。',
-        });
-      }
-      return insertionFailure('INJECTION_FAILED', '無法在原始頁面啟動指定位置補錄。');
-    } finally {
-      if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
-      pendingSnapshotContext = undefined;
-      readyGate.cancel();
-    }
-  } finally {
-    if (source && !source.reused && !durableRunStarted) {
-      await closeTemporarySourceTab(source.tab.id);
-    }
-    startingInsertion = false;
-  }
-}
-
 async function startRecording(message: StartRecordingMessage): Promise<StartRecordingResult> {
   const current = await getRecordingState();
   // A global capture operation remains single-owner. Never let a second start
   // invalidate another Guide's recording or one-shot replacement.
-  if (current.operation !== null || current.isRecording || startingRecapture || startingInsertion) {
+  if (current.operation !== null || current.isRecording || startingRecapture) {
     return { ok: false, error: '目前已有錄製或補拍正在進行。' };
   }
   const targetGuide = await getGuide(message.sessionId);
@@ -1460,7 +1025,6 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       runId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
-      insertion: null,
     }));
     return;
   }
@@ -1485,7 +1049,6 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       runId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
-      insertion: null,
     }));
     return;
   }
@@ -1506,7 +1069,6 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
     runId,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
-    insertion: null,
     recapture: null,
     recaptureResult: current.recaptureResult,
   }));
@@ -1603,7 +1165,7 @@ async function handleRecorderReady(
     !state.isRecording ||
     state.runId !== message.runId ||
     state.tabId !== tabId ||
-    (state.insertion != null && !isInsertionSourceSender(sender, state))
+    !isTrustedRecorderControlSender(sender, state.tabId)
   ) {
     return false;
   }
@@ -1703,7 +1265,6 @@ async function handleStopRecording(version: number): Promise<void> {
     runId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
-    insertion: null,
   }));
   if (!state) return;
   await stopRecordingSource(current);
@@ -1776,46 +1337,22 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
       .reverse()
       .find((step) => step.runId === message.runId && step.bounds !== null);
     if (!last || state.itemCount === 0) return controlFailure('目前沒有可復原的錄製內容。');
-    if (state.insertion && !state.insertion.runBlockIds.includes(last.id)) {
-      return controlFailure('補錄狀態已變更，為避免移除錯誤內容，請重新開始補錄。');
-    }
 
     await deleteStep(last.id);
     const nextCount = Math.max(0, state.itemCount - 1);
-    const remainingRunBlockIds = state.insertion
-      ? state.insertion.runBlockIds.filter((id) => id !== last.id)
-      : null;
     const updated = await updateRunState(
       message.runId,
       (current) => ({
         ...current,
         itemCount: nextCount,
-        insertion: current.insertion && remainingRunBlockIds
-          ? { ...current.insertion, runBlockIds: remainingRunBlockIds }
-          : current.insertion,
         error: null,
         recoverableError: null,
       }),
       expectedControlVersion,
     );
     if (!updated) {
-      if (state.insertion && remainingRunBlockIds) {
-        try {
-          await insertStepsAtEntryBoundary({
-            sessionId: state.sessionId,
-            runId: state.runId,
-            anchorEntryId: state.insertion.anchorEntryId,
-            side: state.insertion.side,
-            expectedRunBlockIds: remainingRunBlockIds,
-            newSteps: [last],
-          });
-        } catch (rollbackError) {
-          console.error('[frametrail] failed to roll back insertion undo', rollbackError);
-        }
-      } else {
-        await addStep(last);
-      }
-      return controlFailure('錄製狀態已改變，未移除內容。');
+      await addStep(last);
+      return controlFailure('錄製狀態已變更，未移除內容。');
     }
 
     const token = crypto.randomUUID();
@@ -1850,29 +1387,12 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
       return controlFailure('已無法還原這筆內容。');
     }
 
-    let committedRunBlockIds: string[] | null = null;
-    if (state.insertion) {
-      const committed = await insertStepsAtEntryBoundary({
-        sessionId: state.sessionId,
-        runId: state.runId,
-        anchorEntryId: state.insertion.anchorEntryId,
-        side: state.insertion.side,
-        expectedRunBlockIds: state.insertion.runBlockIds,
-        newSteps: [undo.step],
-      });
-      committedRunBlockIds = committed.runBlockIds;
-    } else {
-      await addStep(undo.step);
-    }
-
+    await addStep(undo.step);
     const updated = await updateRunState(
       message.runId,
       (current) => ({
         ...current,
         itemCount: current.itemCount + 1,
-        insertion: current.insertion && committedRunBlockIds
-          ? { ...current.insertion, runBlockIds: committedRunBlockIds }
-          : current.insertion,
         error: null,
         recoverableError: null,
       }),
@@ -1880,7 +1400,7 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
     );
     if (!updated) {
       await deleteStep(undo.step.id);
-      return controlFailure('錄製狀態已改變，未還原內容。');
+      return controlFailure('錄製狀態已變更，未還原內容。');
     }
     pendingUndo = null;
     return { ok: true };
@@ -1927,22 +1447,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
   });
   if (!previous) return controlFailure('錄製狀態已改變，未建立下一張快照。');
 
-  const removedAnchorId = await deleteEmptySnapshotAnchor(previous);
-  if (removedAnchorId && previous.insertion) {
-    const synced = await updateRunState(message.runId, (current) => ({
-      ...current,
-      insertion: current.insertion
-        ? {
-            ...current.insertion,
-            runBlockIds: current.insertion.runBlockIds.filter((id) => id !== removedAnchorId),
-          }
-        : null,
-    }));
-    if (!synced) {
-      await setRunError(message.runId, '補錄狀態同步失敗；為避免插入錯誤位置，請結束這次補錄後重試。');
-      return controlFailure('無法安全準備下一張快照，已停止接受新的補錄內容。');
-    }
-  }
+  await deleteEmptySnapshotAnchor(previous);
   try {
     if (previous.tabId == null) throw new Error('Recorded tab is no longer available.');
     // Re-injection tears down the shield instance and mounts the lightweight
@@ -2011,10 +1516,6 @@ async function createNextSnapshot(
     }
     const context = readPendingSnapshotContext();
     if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
-    if (state.insertion && context.url !== state.insertion.sourceUrl) {
-      throw new Error('Insertion source changed before the snapshot capture.');
-    }
-
     await createAndActivateSnapshotAnchor(state, state.tabId!, tab.windowId, context, version);
     const updated = await updateRunState(
       message.runId,
@@ -2067,7 +1568,7 @@ async function createNextSnapshot(
 
 async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGuideResult> {
   const initial = await getRecordingState();
-  if (initial.operation !== null || initial.isRecording || startingRecapture || startingInsertion) {
+  if (initial.operation !== null || initial.isRecording || startingRecapture) {
     return { ok: false, error: '錄製或補拍期間無法重置教學。' };
   }
   const guide = await getGuide(message.sessionId);
@@ -2102,7 +1603,6 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
             runId: null,
             snapshotViewport: null,
             snapshotDevicePixelRatio: null,
-            insertion: null,
           }
         : latest);
     }
@@ -2264,7 +1764,6 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     runId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
-    insertion: null,
   }));
   if (!stopped) return controlFailure('無法完成錄製，請再試一次。');
 
@@ -2323,7 +1822,6 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
       runId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
-      insertion: null,
     }));
     if (!stopped) return controlFailure('無法放棄錄製，請再試一次。');
     await stopRecordingSource(state);
@@ -2637,7 +2135,7 @@ async function handleSnapshotClick(
   if (!current.isRecording || current.runId !== message.runId || current.sessionId !== sessionId) {
     throw new StaleCaptureError('Recording changed while saving the annotation.');
   }
-  existingSteps = state.insertion ? existingSteps : await getSteps(sessionId);
+  existingSteps = await getSteps(sessionId);
   await persistRecordingSteps(state, [{
     id: crypto.randomUUID(),
     sessionId,
@@ -2701,9 +2199,6 @@ async function handleClick(
   if (state.tabId == null || !isTrustedRecordedPageSender(message.url, sender, state.tabId)) {
     return rejectBeforeTransaction();
   }
-  if (state.insertion && (message.url !== state.insertion.sourceUrl || !isInsertionSourceSender(sender, state))) {
-    return rejectBeforeTransaction();
-  }
   const windowId = sender.tab?.windowId;
   const tabId = sender.tab?.id;
   if (windowId == null || tabId == null) return rejectBeforeTransaction();
@@ -2714,7 +2209,7 @@ async function handleClick(
       await handleSnapshotClick(message, state.sessionId, state, expectedControlVersion);
     } else {
       const captured = await captureScreenshot(message, state.sessionId, tabId, windowId, expectedControlVersion);
-      const existingSteps = state.insertion ? [] : await getSteps(state.sessionId);
+      const existingSteps = await getSteps(state.sessionId);
       const current = await getRecordingState();
       if (!current.isRecording || current.runId !== message.runId || current.sessionId !== state.sessionId) {
         throw new StaleCaptureError('Recording changed while saving the step.');
@@ -2757,14 +2252,6 @@ async function handleClick(
           message.devicePixelRatio,
           expectedControlVersion,
         );
-      } else if (err instanceof InsertionRecordingError || err instanceof InsertionStateCommitError) {
-        const messageText = err instanceof InsertionRecordingError
-          ? '補錄位置或資料狀態已變更；為避免插入錯誤位置，已停止這次補錄。'
-          : '補錄資料同步中斷；為避免插入錯誤位置，已停止這次補錄。';
-        await stopRunWithError(message.runId, messageText, expectedControlVersion, {
-          code: 'INSERTION_STATE_CHANGED',
-          message: messageText,
-        });
       } else if (isMissingTabError(err)) {
         await stopRunWithError(
           message.runId,
@@ -2828,10 +2315,6 @@ export default defineBackground(() => {
           'start recording request failed',
           { ok: false, error: '無法啟動錄製服務，請重新整理頁面後再試一次。' } satisfies StartRecordingResult,
         );
-      case 'PREFLIGHT_INSERTION_SOURCE_PERMISSION':
-        return preflightInsertionSourcePermission(message, sender);
-      case 'START_INSERTION_RECORDING':
-        return queueLifecycle(() => startInsertionRecording(message, sender));
       case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
         return preflightStepRecaptureSourcePermission(message, sender);
       case 'START_STEP_RECAPTURE':
@@ -2981,22 +2464,6 @@ export default defineBackground(() => {
       }
       const runId = state.runId;
 
-      if (
-        state.insertion &&
-        (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== state.insertion.sourceUrl))
-      ) {
-        await stopRunWithError(
-          runId,
-          '補錄已停止，因為原始頁面發生導覽。',
-          expectedControlVersion,
-          {
-            code: 'INSERTION_SOURCE_NAVIGATED',
-            message: '補錄已停止，因為原始頁面發生導覽；已保留先前成功補錄的內容。',
-          },
-        );
-        return;
-      }
-
       if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
         if (changeInfo.status !== 'complete') return;
         if (isRestrictedUrl(tab.url)) {
@@ -3110,8 +2577,5 @@ export default defineBackground(() => {
 
   void recoverInterruptedRecapture().catch((error) => {
     console.error('[frametrail] failed to recover interrupted recapture', error);
-  });
-  void recoverInterruptedInsertionRecording().catch((error) => {
-    console.error('[frametrail] failed to recover interrupted insertion recording', error);
   });
 });

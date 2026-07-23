@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, SlidersHorizontal, X } from 'lucide-react';
+import { Check } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -76,8 +76,6 @@ interface Props {
   onDeleteSection?: (sectionId: string) => Promise<void>;
   onReorder: (reordered: StepEntry[]) => Promise<void>;
   reorderDisabled?: boolean;
-  headerContent?: ReactNode;
-  totalCount?: number;
 }
 
 export default function StepRail({
@@ -92,13 +90,10 @@ export default function StepRail({
   onDeleteSection,
   onReorder,
   reorderDisabled = false,
-  headerContent,
-  totalCount,
 }: Props) {
   const sensors = useSortableSensors();
   const selectedItem = useRef<HTMLButtonElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const effectiveSelectedIds = selectedEntryIds ?? new Set(selectedEntryId ? [selectedEntryId] : []);
   const sectionByStartId = new Map(sections.map((section) => [section.startEntryId, section]));
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -217,29 +212,8 @@ export default function StepRail({
       className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-[19rem] lg:min-w-[18rem] lg:shrink-0 lg:basis-[19rem] lg:border-t-0 lg:border-r"
     >
       <div className="flex shrink-0 items-center px-4 py-2 text-xs font-medium text-stone-600 dark:text-stone-300 lg:px-5 lg:pt-5 lg:pb-3">
-        <span>步驟 · {entries.length}{totalCount != null && totalCount !== entries.length ? ` / ${totalCount}` : ''}</span>
-        {headerContent && (
-          <button
-            type="button"
-            className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-stone-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden dark:hover:bg-stone-800"
-            aria-expanded={mobileFiltersOpen}
-            aria-controls="frametrail-mobile-step-filters"
-            onClick={() => setMobileFiltersOpen((open) => !open)}
-          >
-            {mobileFiltersOpen ? <X className="size-4" aria-hidden="true" /> : <SlidersHorizontal className="size-4" aria-hidden="true" />}
-            {mobileFiltersOpen ? '關閉篩選' : '搜尋／篩選'}
-          </button>
-        )}
+        <span>步驟 · {entries.length}</span>
       </div>
-      {headerContent && <div className="hidden lg:block">{headerContent}</div>}
-      {headerContent && mobileFiltersOpen && (
-        <div
-          id="frametrail-mobile-step-filters"
-          className="absolute inset-x-0 bottom-full z-40 max-h-[65vh] overflow-y-auto border-t border-stone-200 bg-stone-50 shadow-xl lg:hidden dark:border-stone-700 dark:bg-stone-900"
-        >
-          {headerContent}
-        </div>
-      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

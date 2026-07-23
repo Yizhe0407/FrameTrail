@@ -1,5 +1,4 @@
-import type { InsertionSide } from '../runtime/messages';
-import type { RecordingMode, StepRecaptureTarget } from '../runtime/messages';
+import type { StepRecaptureTarget } from '../runtime/messages';
 import type { Step, StepEntry } from '../storage/models';
 
 export const EMPTY_STEP_ENTRIES: StepEntry[] = [];
@@ -17,18 +16,10 @@ export type PreparedCapturePermission = {
   sourceOrigin: string;
   permissionPattern: string;
   entryId: string;
-  action:
-    | {
-        kind: 'insertion';
-        anchorEntryId: string;
-        side: InsertionSide;
-        mode: RecordingMode;
-        numbered: boolean;
-      }
-    | {
-        kind: 'recapture';
-        target: StepRecaptureTarget;
-      };
+  action: {
+    kind: 'recapture';
+    target: StepRecaptureTarget;
+  };
 };
 
 export function entrySteps(entry: StepEntry): Step[] {

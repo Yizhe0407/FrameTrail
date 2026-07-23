@@ -25,37 +25,37 @@ import {
   throwIfDownloadAborted,
 } from '@/lib/export/download-utils';
 
-export type ApprovedGuideEntriesSnapshot = {
-  /** Entries accepted by one publication quality-gate run. */
+export type GuideEntriesSnapshot = {
+  /** Entries captured for one publication action. */
   entries: readonly StepEntry[];
-  /** Metadata captured by that same quality-gate run. */
+  /** Metadata captured with those entries. */
   metadata?: GuideExportMetadata;
 };
 
 /**
- * May return legacy entries alone, or an atomic publication snapshot when the
- * quality gate also owns metadata that must stay paired with those entries.
+ * May return entries alone, or an atomic publication snapshot that keeps
+ * metadata paired with the entries used for the action.
  */
-export type ApprovedGuideEntriesProvider = (
+export type GuideEntriesProvider = (
   signal: AbortSignal,
 ) =>
   | readonly StepEntry[]
-  | ApprovedGuideEntriesSnapshot
-  | Promise<readonly StepEntry[] | ApprovedGuideEntriesSnapshot>;
+  | GuideEntriesSnapshot
+  | Promise<readonly StepEntry[] | GuideEntriesSnapshot>;
 
-type ApprovedEntriesSource =
+type GuideEntriesSource =
   | {
-      /** Entries already accepted by the editor's publication quality gate. */
-      approvedEntries: readonly StepEntry[];
-      getApprovedEntries?: never;
+      /** Entries supplied directly to the dialog. */
+      guideEntries: readonly StepEntry[];
+      getGuideEntries?: never;
     }
   | {
-      approvedEntries?: never;
-      /** Flushes edits/runs the quality gate, then returns only approved entries. */
-      getApprovedEntries: ApprovedGuideEntriesProvider;
+      guideEntries?: never;
+      /** Flushes pending edits, then returns the current guide entries. */
+      getGuideEntries: GuideEntriesProvider;
     };
 
-export type PublishGuideDialogProps = ApprovedEntriesSource & {
+export type PublishGuideDialogProps = GuideEntriesSource & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   metadata?: GuideExportMetadata;
@@ -77,9 +77,9 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function isApprovedGuideEntriesSnapshot(
-  value: readonly StepEntry[] | ApprovedGuideEntriesSnapshot,
-): value is ApprovedGuideEntriesSnapshot {
+function isGuideEntriesSnapshot(
+  value: readonly StepEntry[] | GuideEntriesSnapshot,
+): value is GuideEntriesSnapshot {
   return !Array.isArray(value);
 }
 
@@ -91,7 +91,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   const activeController = useRef<AbortController | null>(null);
   const messageId = useId();
   const busy = pendingAction !== null;
-  const knownEmpty = props.approvedEntries?.length === 0;
+  const knownEmpty = props.guideEntries?.length === 0;
 
   useEffect(() => () => activeController.current?.abort(), []);
 
@@ -100,16 +100,16 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     onOpenChange(nextOpen);
   }
 
-  async function resolveApprovedEntries(signal: AbortSignal): Promise<ApprovedGuideEntriesSnapshot> {
-    const result = props.getApprovedEntries
-      ? await props.getApprovedEntries(signal)
-      : { entries: props.approvedEntries, metadata };
+  async function resolveGuideEntries(signal: AbortSignal): Promise<GuideEntriesSnapshot> {
+    const result = props.getGuideEntries
+      ? await props.getGuideEntries(signal)
+      : { entries: props.guideEntries, metadata };
     throwIfDownloadAborted(signal);
 
-    const snapshot = isApprovedGuideEntriesSnapshot(result)
+    const snapshot = isGuideEntriesSnapshot(result)
       ? { entries: result.entries, metadata: result.metadata ?? metadata }
       : { entries: result, metadata };
-    if (snapshot.entries.length === 0) throw new Error('No approved guide entries are available.');
+    if (snapshot.entries.length === 0) throw new Error('No guide entries are available.');
     return snapshot;
   }
 
@@ -156,7 +156,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     void runAction(
       'markdown',
       async (signal) => {
-        const snapshot = await resolveApprovedEntries(signal);
+        const snapshot = await resolveGuideEntries(signal);
         const markdown = await generateGuideMarkdown(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await downloadText(markdown, guideExportFilename(snapshot.metadata, 'markdown'), 'text/markdown;charset=utf-8', { signal });
@@ -169,7 +169,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     void runAction(
       'html',
       async (signal) => {
-        const snapshot = await resolveApprovedEntries(signal);
+        const snapshot = await resolveGuideEntries(signal);
         const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await downloadText(html, guideExportFilename(snapshot.metadata, 'html'), 'text/html;charset=utf-8', { signal });
@@ -179,7 +179,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   }
 
   function openPrintVersion() {
-    // Keep this before every await (including the quality-gate callback).
+    // Keep this before every await, including the entry snapshot callback.
     const printWindow = openPrintPlaceholder();
     if (!printWindow) {
       setNotice(null);
@@ -190,7 +190,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     void runAction(
       'print',
       async (signal) => {
-        const snapshot = await resolveApprovedEntries(signal);
+        const snapshot = await resolveGuideEntries(signal);
         const html = await generatePrintReadyGuideHtml(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await loadHtmlIntoWindow(printWindow, html, signal);
@@ -204,7 +204,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     void runAction(
       'copy',
       async (signal) => {
-        const snapshot = await resolveApprovedEntries(signal);
+        const snapshot = await resolveGuideEntries(signal);
         // Both representations go through the fail-closed publication
         // generators; callers cannot supply pre-rendered, unredacted markup.
         const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
@@ -276,7 +276,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
         <div className="space-y-4 px-6 py-5">
           {knownEmpty && (
             <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-              目前沒有通過品質檢查、可供發佈的步驟。
+              目前沒有可供發佈的步驟。
             </p>
           )}
 

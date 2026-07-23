@@ -65,16 +65,6 @@ export {
   type ReorderGuideEntriesResult,
 } from './guide-structure';
 export {
-  InsertionRecordingError,
-  getInsertionAnchor,
-  insertStepsAtEntryBoundary,
-  validateInsertionRunState,
-  type InsertStepsAtEntryBoundaryInput,
-  type InsertionAnchor,
-  type InsertionErrorCode,
-  type InsertionSide,
-} from './insertion-repository';
-export {
   StepRecaptureError,
   StepUpdateConflictError,
   addStep,

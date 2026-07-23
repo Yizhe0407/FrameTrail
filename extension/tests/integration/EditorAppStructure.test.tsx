@@ -89,31 +89,8 @@ vi.mock('@/lib/editor/editor-autosave', () => ({
   useEditorSaveRegistry: () => ({ flushAll: editorSave.flushAll }),
 }));
 vi.mock('@/lib/export/export-images', () => ({ exportImagesAsZip: vi.fn() }));
-vi.mock('@/lib/export/publication-policy', () => ({ assertPublicationReady: vi.fn() }));
-vi.mock('@/lib/guide/guide-quality', () => ({
-  DEFAULT_GUIDE_ENTRY_FILTERS: { text: '', kind: 'all', issue: 'all' },
-  analyzeGuideQuality: (entries: any[]) => ({
-    entries: entries.map((entry, index) => ({
-      entryId: database.entryId(entry),
-      index,
-      issues: [],
-    })),
-    issueCounts: {
-      'empty-description': 0,
-      'duplicate-description': 0,
-      'redaction-review-required': 0,
-      'missing-image': 0,
-      'missing-bounds': 0,
-      'very-long-guide': 0,
-    },
-    totalIssueCount: 0,
-  }),
-  createGuideEntryIndex: (entries: any[]) => entries.map((entry, index) => ({ entry, index })),
-  filterGuideEntryIndex: (index: any[]) => index,
-}));
 
 vi.mock('@/components/editor/EditorHeader', () => ({ default: () => null }));
-vi.mock('@/components/editor/StepRailFilters', () => ({ default: () => null }));
 vi.mock('@/components/editor/StepRail', () => ({
   default: (props: any) => {
     rendered.stepRailProps = props;
@@ -173,20 +150,9 @@ vi.mock('@/components/editor/GuideBatchToolbar', () => ({
     );
   },
 }));
-vi.mock('@/components/editor/InsertionRecordingActions', () => ({
-  default: ({ disabled, pending, onStart }: any) => (
-    <div data-testid="insertion-actions" data-disabled={String(disabled)} data-pending={String(pending)}>
-      <button type="button" disabled={disabled || pending} onClick={() => void onStart('before', 'steps', false)}>
-        準備在前方補錄
-      </button>
-    </div>
-  ),
-  insertionTargetForEntry: (entry: any) => ({ anchorEntryId: database.entryId(entry) }),
-}));
 vi.mock('@/components/shared/EmptyState', () => ({ default: () => <div>EmptyState</div> }));
 vi.mock('@/components/editor/Lightbox', () => ({ default: () => null }));
 vi.mock('@/components/editor/UndoSnackbar', () => ({ default: () => null }));
-vi.mock('@/components/editor/GuideQualityDialog', () => ({ default: () => null }));
 vi.mock('@/components/editor/PublishGuideDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
@@ -259,7 +225,6 @@ const idleRecording = {
   sessionId: null,
   operation: null,
   isRecording: false,
-  insertion: null,
   recapture: null,
   recaptureResult: null,
   itemCount: 0,
@@ -389,73 +354,6 @@ describe('Editor App structure wiring', () => {
     expect(database.getGuideStructureSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
       database.setGuideEntriesNumberedAtomically.mock.invocationCallOrder[0],
     );
-  });
-
-  it('preflights insertion from persisted data and requests permission only after explicit confirmation', async () => {
-    browserApi.sendMessage.mockImplementation(async (message: any) => {
-      if (message.type === 'PREFLIGHT_INSERTION_SOURCE_PERMISSION') {
-        return {
-          ok: true,
-          sourceUrl: 'https://persisted.example/path',
-          sourceOrigin: 'https://persisted.example',
-          permissionPattern: 'https://persisted.example/*',
-        };
-      }
-      if (message.type === 'START_INSERTION_RECORDING') return { ok: true, runId: 'run-1' };
-      return { ok: true };
-    });
-    render(<EditorApp />);
-
-    await screen.findByRole('button', { name: '準備在前方補錄' });
-    fireEvent.click(screen.getByRole('button', { name: '準備在前方補錄' }));
-
-    expect(await screen.findByText('https://persisted.example')).toBeTruthy();
-    expect(browserApi.sendMessage).toHaveBeenCalledWith({
-      type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-      sessionId: 'guide-1',
-      anchorEntryId: 'entry-1',
-    });
-    expect(browserApi.requestPermission).not.toHaveBeenCalled();
-    expect(editorSave.flushAll).not.toHaveBeenCalled();
-    expect(rendered.stepStageProps.editingDisabled).toBe(true);
-    expect(rendered.stepRailProps.reorderDisabled).toBe(true);
-
-    fireEvent.click(screen.getByRole('button', { name: '允許並開始' }));
-
-    await waitFor(() => expect(browserApi.requestPermission).toHaveBeenCalledWith({
-      origins: ['https://persisted.example/*'],
-    }));
-    await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
-      type: 'START_INSERTION_RECORDING',
-      sessionId: 'guide-1',
-      anchorEntryId: 'entry-1',
-      side: 'before',
-      mode: 'steps',
-      numbered: false,
-    }));
-    expect(editorSave.flushAll).toHaveBeenCalledOnce();
-    expect(browserApi.requestPermission.mock.invocationCallOrder[0]).toBeLessThan(
-      editorSave.flushAll.mock.invocationCallOrder[0],
-    );
-  });
-
-  it('clears prepared permission when the user changes selection', async () => {
-    browserApi.sendMessage.mockResolvedValue({
-      ok: true,
-      sourceUrl: 'https://persisted.example/path',
-      sourceOrigin: 'https://persisted.example',
-      permissionPattern: 'https://persisted.example/*',
-    });
-    render(<EditorApp />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '準備在前方補錄' }));
-    expect(await screen.findByText('https://persisted.example')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Ctrl 選取 entry-2' }));
-
-    await waitFor(() => expect(screen.queryByText('https://persisted.example')).toBeNull());
-    expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1,entry-2');
-    expect(browserApi.requestPermission).not.toHaveBeenCalled();
   });
 
   it('preflights recapture without trusting the step URL and starts only after confirmation', async () => {

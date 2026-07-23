@@ -14,7 +14,7 @@ function adapter(events: string[]): CapturePresentationAdapter {
 }
 
 describe('withCapturePresentation', () => {
-  it('settles after insertion and restores presentation after capture', async () => {
+  it('settles after presentation setup and restores presentation after capture', async () => {
     const events: string[] = [];
     const value = await withCapturePresentation(adapter(events), async () => {
       events.push('capture');
@@ -45,7 +45,7 @@ describe('withCapturePresentation', () => {
     expect(events.at(-1)).toBe('remove');
   });
 
-  it('does not remove CSS when insertion itself fails', async () => {
+  it('does not remove CSS when presentation setup itself fails', async () => {
     const events: string[] = [];
     const insertError = new Error('insert failed');
     const captureAdapter = adapter(events);

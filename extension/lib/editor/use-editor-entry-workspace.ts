@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { StepRailSelectionModifiers } from '@/components/editor/StepRail';
-import type { StepRailFilterValue } from '@/components/editor/StepRailFilters';
-import {
-  analyzeGuideQuality,
-  createGuideEntryIndex,
-  DEFAULT_GUIDE_ENTRY_FILTERS,
-  filterGuideEntryIndex,
-  type EntryQualityIssue,
-} from '@/lib/guide/guide-quality';
 import {
   collapseEntrySelection,
   reconcileEntrySelection,
@@ -21,33 +13,24 @@ interface UseEditorEntryWorkspaceOptions {
   entries: StepEntry[];
   flushDescriptions: () => Promise<void>;
   isSelectionBlocked: () => boolean;
-  isFilterChangeBlocked: () => boolean;
   onSelectionInteraction: () => void;
   onSelectionSaved: () => void;
 }
 
 /**
- * Keeps filters, quality-derived visibility, and timeline selection in one
- * place. The hook deliberately owns only view state: all persistence and
- * permission decisions remain with the editor coordinator.
+ * Keeps timeline selection and view-only state in one place. All entries stay
+ * visible in the rail: the editor intentionally has no search or filtering
+ * controls, so batch operations always operate on the complete guide.
  */
 export function useEditorEntryWorkspace({
   entries,
   flushDescriptions,
   isSelectionBlocked,
-  isFilterChangeBlocked,
   onSelectionInteraction,
   onSelectionSaved,
 }: UseEditorEntryWorkspaceOptions) {
-  const qualityReport = useMemo(() => analyzeGuideQuality(entries), [entries]);
-  const qualityIndex = useMemo(() => createGuideEntryIndex(entries, qualityReport), [entries, qualityReport]);
-  const [filters, setFilters] = useState<StepRailFilterValue>({ ...DEFAULT_GUIDE_ENTRY_FILTERS });
-  const [qualityOpen, setQualityOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const filteredIndex = useMemo(() => filterGuideEntryIndex(qualityIndex, filters), [qualityIndex, filters]);
-  const visibleEntries = useMemo(() => filteredIndex.map((item) => item.entry), [filteredIndex]);
-  const filtersActive = filters.text.trim().length > 0 || filters.kind !== 'all' || filters.issue !== 'all';
-
+  const visibleEntries = entries;
   const [entrySelection, setEntrySelection] = useState<EntrySelectionState>({
     activeId: null,
     selectedIds: new Set(),
@@ -68,8 +51,6 @@ export function useEditorEntryWorkspace({
     if (multipleEntriesSelected) setZoomOpen(false);
   }, [multipleEntriesSelected]);
 
-  // Hidden entries are deliberately removed from the selected set so a batch
-  // operation can never mutate a step that the current filter conceals.
   useEffect(() => {
     setEntrySelection((current) => reconcileEntrySelection(current, visibleEntryIds));
   }, [visibleEntryIds]);
@@ -91,23 +72,6 @@ export function useEditorEntryWorkspace({
     );
   }, [entrySelection.selectedIds, visibleEntries]);
   const snapshotNumberingEnabled = selectedSnapshotEntries.length > 0 && selectedSnapshotEntries.every((entry) => entry.anchor.numbered ?? false);
-
-  async function changeFilters(nextFilters: StepRailFilterValue): Promise<void> {
-    if (isFilterChangeBlocked()) return;
-    try {
-      await flushDescriptions();
-      setFilters(nextFilters);
-    } catch {
-      // Keep the active editor field mounted and preserve the previous filter.
-    }
-  }
-
-  function focusQualityIssue(issue: EntryQualityIssue): void {
-    void changeFilters({ ...DEFAULT_GUIDE_ENTRY_FILTERS, issue });
-    const first = qualityReport.entries.find((entry) => entry.issues.includes(issue));
-    if (first) setEntrySelection({ activeId: first.entryId, selectedIds: new Set([first.entryId]), anchorId: first.entryId });
-    setQualityOpen(false);
-  }
 
   async function selectEntry(id: string, modifiers: StepRailSelectionModifiers = { additive: false, range: false }): Promise<void> {
     if (isSelectionBlocked()) return;
@@ -147,24 +111,17 @@ export function useEditorEntryWorkspace({
   }
 
   return {
-    changeFilters,
     collapseSelection,
     entries,
     entrySelection,
-    filters,
-    filtersActive,
-    focusQualityIssue,
     multipleEntriesSelected,
     orderedSelectedEntryIds,
     publishOpen,
-    qualityOpen,
-    qualityReport,
     selectedEntry,
     selectedEntryId,
     selectedIndex,
     setEntrySelection,
     setPublishOpen,
-    setQualityOpen,
     setZoomOpen,
     snapshotNumberingEnabled,
     selectAllVisible,

@@ -56,7 +56,7 @@ describe('entry selection', () => {
     expect(selected(result)).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('drops hidden selections when filters change', () => {
+  it('drops missing selections when the timeline changes', () => {
     const result = reconcileEntrySelection(state('hidden', ['hidden', 'b'], 'hidden'), ['a', 'b']);
     expect(result.activeId).toBe('a');
     expect(result.anchorId).toBe('a');

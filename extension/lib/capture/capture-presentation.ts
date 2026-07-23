@@ -56,7 +56,7 @@ export interface CapturePresentationAdapter {
 
 /**
  * Applies capture-only presentation without exposing a half-applied state to
- * callers. Removal runs after insertion even when settling or capture fails.
+ * callers. Removal runs after settling or capture fails.
  */
 export async function withCapturePresentation<T>(
   adapter: CapturePresentationAdapter,

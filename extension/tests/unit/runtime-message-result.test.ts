@@ -4,12 +4,10 @@ import {
   isClickCaptureResult,
   isFocusStepRecaptureSourceResult,
   isOpenEditorResult,
-  isPreflightInsertionSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
   isRecordingControlResult,
   isResetGuideResult,
   isRuntimeBoolean,
-  isStartInsertionRecordingResult,
   isStartRecordingResult,
   isStartStepRecaptureResult,
   isStepRecaptureTargetResult,
@@ -60,21 +58,6 @@ describe('runtime response contracts', () => {
       },
     ],
     [
-      'insertion preflight',
-      isPreflightInsertionSourcePermissionResult,
-      {
-        ok: true,
-        sourceUrl: 'https://example.com/page',
-        sourceOrigin: 'https://example.com',
-        permissionPattern: 'https://example.com/*',
-      },
-    ],
-    [
-      'start insertion',
-      isStartInsertionRecordingResult,
-      { ok: true, sessionId: 'guide-1', runId: 'run-1', tabId: 4, reusedTab: false },
-    ],
-    [
       'recapture preflight',
       isPreflightStepRecaptureSourcePermissionResult,
       { ok: false, code: 'TARGET_CHANGED', message: 'target changed' },
@@ -103,17 +86,7 @@ describe('runtime response contracts', () => {
       { ok: true, finish: { sessionId: 'guide-1', entryId: null, groupId: null, itemCount: -1 } },
     ],
     [
-      'insertion preflight with an unknown error code',
-      isPreflightInsertionSourcePermissionResult,
-      { ok: false, code: 'UNKNOWN', message: 'nope' },
-    ],
-    [
-      'start insertion with a non-boolean reuse marker',
-      isStartInsertionRecordingResult,
-      { ok: true, sessionId: 'guide-1', runId: 'run-1', tabId: 4, reusedTab: 'no' },
-    ],
-    [
-      'recapture preflight with insertion-only error code',
+      'recapture preflight with unsupported error code',
       isPreflightStepRecaptureSourcePermissionResult,
       { ok: false, code: 'GUIDE_ARCHIVED', message: 'nope' },
     ],

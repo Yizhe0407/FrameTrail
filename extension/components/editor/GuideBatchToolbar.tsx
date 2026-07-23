@@ -17,7 +17,7 @@ type MaybePromise = void | Promise<void>;
 export interface GuideBatchToolbarProps {
   /** Selected entry ids in their current timeline order. */
   selectedEntryIds: readonly string[];
-  /** Entry ids currently shown after filtering. */
+  /** Entry ids in the current guide timeline. */
   visibleEntryIds: readonly string[];
   /** The entry shown in the editor stage, if there is one. */
   activeEntryId: string | null;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { AlertCircle, ExternalLink, SearchX, X } from 'lucide-react';
+import { AlertCircle, ExternalLink, X } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/useRecordingSession';
 import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
 import {
@@ -42,27 +42,18 @@ import EditorHeader from '@/components/editor/EditorHeader';
 import StepRail from '@/components/editor/StepRail';
 import StepStage from '@/components/editor/StepStage';
 import GuideBatchToolbar from '@/components/editor/GuideBatchToolbar';
-import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/editor/InsertionRecordingActions';
 import EmptyState from '@/components/shared/EmptyState';
 import Lightbox from '@/components/editor/Lightbox';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
-import GuideQualityDialog from '@/components/editor/GuideQualityDialog';
 import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
-import StepRailFilters from '@/components/editor/StepRailFilters';
 import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
-import { DEFAULT_GUIDE_ENTRY_FILTERS } from '@/lib/guide/guide-quality';
 import { Button } from '@/components/ui/button';
 import { exportImagesAsZip } from '@/lib/export/export-images';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 import { useEditorEntryWorkspace } from '@/lib/editor/use-editor-entry-workspace';
-import { assertPublicationReady } from '@/lib/export/publication-policy';
 import type {
   CancelStepRecaptureResult,
-  InsertionSide,
-  PreflightInsertionSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
-  RecordingMode,
-  StartInsertionRecordingResult,
   FocusStepRecaptureSourceResult,
   StartStepRecaptureResult,
   StepRecaptureTarget,
@@ -70,9 +61,7 @@ import type {
 import {
   isCancelStepRecaptureResult,
   isFocusStepRecaptureSourceResult,
-  isPreflightInsertionSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
-  isStartInsertionRecordingResult,
   isStartStepRecaptureResult,
   requireRuntimeMessageResult,
 } from '@/lib/runtime/runtime-message-result';
@@ -105,7 +94,6 @@ function EditorApp() {
   const dataOperationLock = useRef(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<string | null>(null);
-  const [insertionPending, setInsertionPending] = useState(false);
   const [preparedPermission, setPreparedPermission] = useState<PreparedCapturePermission | null>(null);
   const [permissionPending, setPermissionPending] = useState(false);
   const permissionFlowLock = useRef(false);
@@ -121,23 +109,16 @@ function EditorApp() {
   }, [dbEntries, dataOperation]);
   const entries = optimisticEntries ?? dbEntries;
   const {
-    changeFilters,
     collapseSelection,
     entrySelection,
-    filters,
-    filtersActive,
-    focusQualityIssue,
     multipleEntriesSelected,
     orderedSelectedEntryIds,
     publishOpen,
-    qualityOpen,
-    qualityReport,
     selectedEntry,
     selectedEntryId,
     selectedIndex,
     setEntrySelection,
     setPublishOpen,
-    setQualityOpen,
     setZoomOpen,
     snapshotNumberingEnabled,
     selectAllVisible,
@@ -149,7 +130,6 @@ function EditorApp() {
     entries,
     flushDescriptions,
     isSelectionBlocked: () => dataOperationLock.current || permissionPending,
-    isFilterChangeBlocked: () => dataOperationLock.current || permissionFlowLock.current,
     onSelectionInteraction: () => {
       if (permissionFlowLock.current) clearPreparedPermission();
     },
@@ -751,7 +731,6 @@ function EditorApp() {
     permissionFlowSessionId.current = null;
     setPreparedPermission(null);
     setPermissionPending(false);
-    setInsertionPending(false);
   }
 
   function beginPermissionPreflight(entryIdToPrepare: string): number | null {
@@ -768,7 +747,6 @@ function EditorApp() {
     permissionFlowSessionId.current = sessionId;
     setPreparedPermission(null);
     setPermissionPending(true);
-    setInsertionPending(true);
     setOperationError(null);
     setOperationNotice(null);
     return generation;
@@ -777,7 +755,6 @@ function EditorApp() {
   function finishPermissionPreflight(generation: number, prepared: PreparedCapturePermission | null): void {
     if (permissionFlowGeneration.current !== generation) return;
     setPermissionPending(false);
-    setInsertionPending(false);
     if (prepared) {
       setPreparedPermission(prepared);
       return;
@@ -785,54 +762,6 @@ function EditorApp() {
     permissionFlowLock.current = false;
     permissionFlowEntryId.current = null;
     permissionFlowSessionId.current = null;
-  }
-
-  async function handleStartInsertion(
-    side: InsertionSide,
-    mode: RecordingMode,
-    numbered: boolean,
-  ): Promise<void> {
-    if (!sessionId || dataOperationLock.current || permissionFlowLock.current || operationActive) return;
-    const currentEntry = requireSingleSelectedEntry();
-    const insertionTarget = insertionTargetForEntry(currentEntry);
-    const generation = beginPermissionPreflight(insertionTarget.anchorEntryId);
-    if (generation == null) return;
-    let prepared: PreparedCapturePermission | null = null;
-    try {
-      const result = requireRuntimeMessageResult<PreflightInsertionSourcePermissionResult>(
-        await browser.runtime.sendMessage({
-          type: 'PREFLIGHT_INSERTION_SOURCE_PERMISSION',
-          sessionId,
-          anchorEntryId: insertionTarget.anchorEntryId,
-        }),
-        isPreflightInsertionSourcePermissionResult,
-      );
-      if (!result.ok) throw new Error(result.message);
-      validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
-      prepared = {
-        sourceOrigin: result.sourceOrigin,
-        permissionPattern: result.permissionPattern,
-        entryId: insertionTarget.anchorEntryId,
-        action: {
-          kind: 'insertion',
-          anchorEntryId: insertionTarget.anchorEntryId,
-          side,
-          mode,
-          numbered,
-        },
-      };
-    } catch (startError) {
-      console.error('檢查指定位置補錄來源失敗', startError);
-      if (permissionFlowGeneration.current === generation) {
-        setOperationError(
-          startError instanceof Error
-            ? startError.message
-            : '無法安全確認補錄來源；現有內容未變更，請再試一次。',
-        );
-      }
-    } finally {
-      finishPermissionPreflight(generation, prepared);
-    }
   }
 
   async function confirmPreparedPermission(): Promise<void> {
@@ -849,7 +778,6 @@ function EditorApp() {
     validatePreparedPermissionSource(prepared.sourceOrigin, prepared.permissionPattern);
     const generation = permissionFlowGeneration.current;
     setPermissionPending(true);
-    setInsertionPending(prepared.action.kind === 'insertion');
     setOperationError(null);
     setOperationNotice(null);
 
@@ -862,31 +790,15 @@ function EditorApp() {
 
       await flushDescriptions();
       if (permissionFlowGeneration.current !== generation) return;
-
-      if (prepared.action.kind === 'insertion') {
-        const result = requireRuntimeMessageResult<StartInsertionRecordingResult>(
-          await browser.runtime.sendMessage({
-            type: 'START_INSERTION_RECORDING',
-            sessionId,
-            anchorEntryId: prepared.action.anchorEntryId,
-            side: prepared.action.side,
-            mode: prepared.action.mode,
-            numbered: prepared.action.numbered,
-          }),
-          isStartInsertionRecordingResult,
-        );
-        if (!result.ok) throw new Error(result.error);
-      } else {
-        const result = requireRuntimeMessageResult<StartStepRecaptureResult>(
-          await browser.runtime.sendMessage({
-            type: 'START_STEP_RECAPTURE',
-            sessionId,
-            target: prepared.action.target,
-          }),
-          isStartStepRecaptureResult,
-        );
-        if (!result.ok) throw new Error(result.error);
-      }
+      const result = requireRuntimeMessageResult<StartStepRecaptureResult>(
+        await browser.runtime.sendMessage({
+          type: 'START_STEP_RECAPTURE',
+          sessionId,
+          target: prepared.action.target,
+        }),
+        isStartStepRecaptureResult,
+      );
+      if (!result.ok) throw new Error(result.error);
     } catch (permissionError) {
       console.error('授權並啟動來源錄製失敗', permissionError);
       if (permissionFlowGeneration.current === generation) {
@@ -898,17 +810,6 @@ function EditorApp() {
       }
     } finally {
       if (permissionFlowGeneration.current === generation) clearPreparedPermission();
-    }
-  }
-
-  async function focusInsertionSource(): Promise<void> {
-    if (!operationBelongsToViewedGuide || !recording.insertion || recording.tabId == null) return;
-    try {
-      await browser.tabs.update(recording.tabId, { active: true });
-      const tab = await browser.tabs.get(recording.tabId);
-      if (tab.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
-    } catch {
-      setOperationError('找不到補錄分頁；為避免插入錯誤位置，請結束這次補錄後重試。');
     }
   }
 
@@ -1097,9 +998,9 @@ function EditorApp() {
     }
   }
 
-  async function approvedPublicationEntries(signal: AbortSignal) {
+  async function publicationEntries(signal: AbortSignal) {
     if (!sessionId) throw new Error('找不到要發佈的教學。');
-    if (!beginDataOperation('正在檢查發佈內容…')) {
+    if (!beginDataOperation('正在準備發佈內容…')) {
       throw new Error('目前有其他資料操作進行中，請稍後再發佈。');
     }
     try {
@@ -1109,13 +1010,6 @@ function EditorApp() {
       if (signal.aborted) throw signal.reason ?? new DOMException('Cancelled', 'AbortError');
       setGuide(snapshot.guide);
       setCanonicalSnapshot(snapshot);
-      try {
-        assertPublicationReady(snapshot.entries);
-      } catch (publicationError) {
-        setPublishOpen(false);
-        setQualityOpen(true);
-        throw publicationError;
-      }
       return {
         entries: snapshot.entries,
         metadata: {
@@ -1135,12 +1029,12 @@ function EditorApp() {
     await setEntriesNumbered([id], numbered);
   }
 
-  async function exportApprovedImages(signal: AbortSignal): Promise<void> {
-    const approved = await approvedPublicationEntries(signal);
-    const approvedSteps = approved.entries.flatMap((entry) =>
+  async function exportImages(signal: AbortSignal): Promise<void> {
+    const publication = await publicationEntries(signal);
+    const stepsToExport = publication.entries.flatMap((entry) =>
       entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations],
     );
-    await exportImagesAsZip(approvedSteps, undefined, signal);
+    await exportImagesAsZip(stepsToExport, undefined, signal);
   }
 
   return (
@@ -1159,24 +1053,9 @@ function EditorApp() {
           const updated = await updateGuide(guide.id, { title });
           setGuide(updated);
         } : undefined}
-        qualityIssueCount={qualityReport.totalIssueCount}
-        onOpenQuality={() => { if (!permissionFlowLock.current) setQualityOpen(true); }}
         onOpenPublish={() => { if (!permissionFlowLock.current) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
       />
-      {operationBelongsToViewedGuide && recording.operation === 'recording' && recording.insertion && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 sm:px-7 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
-          <span className="font-medium">
-            正在於所選步驟{recording.insertion.side === 'before' ? '前方' : '後方'}補錄
-          </span>
-          <span>
-            已新增 {recording.itemCount} 個項目；請在來源網頁繼續選取，完成後使用錄製工具列結束。
-          </span>
-          <Button className="ml-auto" size="sm" variant="outline" onClick={() => void focusInsertionSource()}>
-            <ExternalLink />回到補錄分頁
-          </Button>
-        </div>
-      )}
       {operationBelongsToViewedGuide && recording.operation === 'recapture' && recording.recapture && (
         <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:px-7 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           <span className="font-medium">
@@ -1269,7 +1148,6 @@ function EditorApp() {
           <>
             <StepRail
               entries={visibleEntries}
-              totalCount={entries.length}
               selectedEntryId={selectedEntryId}
               selectedEntryIds={entrySelection.selectedIds}
               sections={guide?.sections}
@@ -1279,17 +1157,7 @@ function EditorApp() {
               onRenameSection={renameSection}
               onDeleteSection={deleteSection}
               onReorder={handleReorderEntries}
-              reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive || filtersActive || multipleEntriesSelected}
-              headerContent={(
-                <StepRailFilters
-                  value={filters}
-                  onChange={(nextFilters) => void changeFilters(nextFilters)}
-                  totalCount={entries.length}
-                  filteredCount={visibleEntries.length}
-                  issueCounts={qualityReport.issueCounts}
-                  disabled={operationActive || dataOperation !== null || permissionFlowActive}
-                />
-              )}
+              reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive || multipleEntriesSelected}
             />
             {selectedEntry ? (
               <div className="flex min-w-0 flex-1 flex-col">
@@ -1308,11 +1176,6 @@ function EditorApp() {
                   onSetSnapshotNumbering={(enabled) => setEntriesNumbered(orderedSelectedEntryIds, enabled)}
                   onAddSectionBefore={addSectionBefore}
                 />}
-                <InsertionRecordingActions
-                  disabled={operationActive || dataOperation !== null || permissionFlowActive || guide?.archivedAt != null || multipleEntriesSelected}
-                  pending={insertionPending}
-                  onStart={handleStartInsertion}
-                />
                 <StepStage
                   key={entryId(selectedEntry)}
                   entry={selectedEntry}
@@ -1331,9 +1194,8 @@ function EditorApp() {
             ) : (
               <main className="flex min-w-0 flex-1 items-center justify-center p-8 pb-36 text-center lg:pb-8">
                 <div className="max-w-sm text-stone-600 dark:text-stone-300">
-                  <SearchX className="mx-auto mb-3 size-8" aria-hidden="true" />
-                  <h2 className="font-semibold text-stone-900 dark:text-stone-100">沒有符合條件的步驟</h2>
-                  <p className="mt-2 text-sm">請清除搜尋或調整類型與品質篩選。</p>
+                  <h2 className="font-semibold text-stone-900 dark:text-stone-100">尚未選擇步驟</h2>
+                  <p className="mt-2 text-sm">請從左側步驟列表選擇要編輯的內容。</p>
                 </div>
               </main>
             )}
@@ -1349,24 +1211,14 @@ function EditorApp() {
       <PublishGuideDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
-        getApprovedEntries={approvedPublicationEntries}
+        getGuideEntries={publicationEntries}
         metadata={{
           title: guide?.title,
           description: guide?.description,
           filename: guide?.title,
           sections: guide?.sections,
         }}
-        onExportImages={exportApprovedImages}
-      />
-      <GuideQualityDialog
-        open={qualityOpen}
-        onOpenChange={setQualityOpen}
-        report={qualityReport}
-        onSelectEntry={(id) => {
-          void changeFilters({ ...DEFAULT_GUIDE_ENTRY_FILTERS });
-          setEntrySelection({ activeId: id, selectedIds: new Set([id]), anchorId: id });
-        }}
-        onFilterIssue={focusQualityIssue}
+        onExportImages={exportImages}
       />
       {undoAction && (
         <UndoSnackbar

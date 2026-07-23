@@ -4,7 +4,7 @@
  * Selection is intentionally keyed by complete timeline entry ids (ordinary
  * step ids or snapshot anchor ids), never by annotation ids or array indexes.
  * This keeps snapshot groups indivisible and avoids stale index bugs after a
- * filter or reorder.
+ * deletion or reorder.
  */
 export interface EntrySelectionState {
   activeId: string | null;
@@ -26,7 +26,7 @@ function validIdSet(ids: readonly string[]): Set<string> {
 }
 
 /**
- * Reconciles selection after loading, filtering, deletion, or an external
+ * Reconciles selection after loading, deletion, or an external
  * revision. Hidden entries are deliberately removed so destructive batch
  * operations can never affect items the user cannot currently see.
  */

@@ -3,11 +3,9 @@ import type {
   ClickCaptureResult,
   FocusStepRecaptureSourceResult,
   OpenEditorResult,
-  PreflightInsertionSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingControlResult,
   ResetGuideResult,
-  StartInsertionRecordingResult,
   StartRecordingResult,
   StartStepRecaptureResult,
   StepRecaptureTargetResult,
@@ -69,14 +67,6 @@ function isSourcePermissionPreflightSuccess(
   );
 }
 
-const INSERTION_PREFLIGHT_ERROR_CODES = [
-  'INVALID_EDITOR',
-  'GUIDE_NOT_FOUND',
-  'GUIDE_ARCHIVED',
-  'ANCHOR_NOT_FOUND',
-  'ANCHOR_CHANGED',
-  'RESTRICTED_SOURCE',
-] as const;
 
 const RECAPTURE_PREFLIGHT_ERROR_CODES = [
   'INVALID_EDITOR',
@@ -86,13 +76,6 @@ const RECAPTURE_PREFLIGHT_ERROR_CODES = [
   'RESTRICTED_SOURCE',
 ] as const;
 
-const INSERTION_START_ERROR_CODES = [
-  'ACTIVE_OPERATION',
-  ...INSERTION_PREFLIGHT_ERROR_CODES,
-  'HOST_PERMISSION_REQUIRED',
-  'SOURCE_TAB_FAILED',
-  'INJECTION_FAILED',
-] as const;
 
 const RECAPTURE_START_ERROR_CODES = [
   'ACTIVE_OPERATION',
@@ -154,37 +137,6 @@ export function isRecordingControlResult(value: unknown): value is RecordingCont
   );
 }
 
-export function isPreflightInsertionSourcePermissionResult(
-  value: unknown,
-): value is PreflightInsertionSourcePermissionResult {
-  if (!isRecord(value)) return false;
-  if (value.ok === true) return isSourcePermissionPreflightSuccess(value);
-  return (
-    value.ok === false &&
-    hasOnlyKeys(value, ['ok', 'code', 'message']) &&
-    isOneOf(value.code, INSERTION_PREFLIGHT_ERROR_CODES) &&
-    isErrorMessage(value.message)
-  );
-}
-
-export function isStartInsertionRecordingResult(value: unknown): value is StartInsertionRecordingResult {
-  if (!isRecord(value)) return false;
-  if (value.ok === true) {
-    return (
-      hasOnlyKeys(value, ['ok', 'sessionId', 'runId', 'tabId', 'reusedTab']) &&
-      isId(value.sessionId) &&
-      isId(value.runId) &&
-      isSafeNonNegativeInteger(value.tabId) &&
-      typeof value.reusedTab === 'boolean'
-    );
-  }
-  return (
-    value.ok === false &&
-    hasOnlyKeys(value, ['ok', 'code', 'error']) &&
-    isOneOf(value.code, INSERTION_START_ERROR_CODES) &&
-    isErrorMessage(value.error)
-  );
-}
 
 export function isPreflightStepRecaptureSourcePermissionResult(
   value: unknown,

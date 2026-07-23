@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Library, Send } from 'lucide-react';
+import { Library, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import ResetButton from '../shared/ResetButton';
 import type { Step } from '@/lib/storage/db';
@@ -15,14 +15,12 @@ interface Props {
   sessionId: string | null;
   guideTitle?: string;
   onRenameGuide?: (title: string) => Promise<void>;
-  qualityIssueCount?: number;
-  onOpenQuality?: () => void;
   onOpenPublish?: () => void;
   onReset?: () => void | Promise<void>;
 }
 
 export default function EditorHeader({
-  operationActive, editingDisabled = false, operation, steps, sessionId, guideTitle, onRenameGuide, qualityIssueCount = 0, onOpenQuality, onOpenPublish, onReset,
+  operationActive, editingDisabled = false, operation, steps, sessionId, guideTitle, onRenameGuide, onOpenPublish, onReset,
 }: Props) {
   const [title, setTitle] = useState(guideTitle ?? '');
   const [titleError, setTitleError] = useState(false);
@@ -83,20 +81,6 @@ export default function EditorHeader({
         <Button variant="ghost" size="icon" aria-label="開啟作品庫" title="作品庫" onClick={() => void openLibrary()}>
           <Library />
         </Button>
-        {onOpenQuality && qualityIssueCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`開啟發佈前檢查，${qualityIssueCount} 項待確認`}
-            title="查看發佈前需確認的項目"
-            onClick={onOpenQuality}
-            disabled={unavailable}
-            className="hidden text-amber-800 hover:bg-amber-50 hover:text-amber-900 sm:inline-flex dark:text-amber-300 dark:hover:bg-amber-950/30"
-          >
-            <AlertCircle />
-            發佈前確認 {qualityIssueCount}
-          </Button>
-        )}
         <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
         <Button
           variant="default"

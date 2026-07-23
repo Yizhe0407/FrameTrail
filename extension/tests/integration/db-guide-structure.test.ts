@@ -15,7 +15,6 @@ import {
   getGuideStructureSnapshot,
   getGuideSummaries,
   getSteps,
-  insertStepsAtEntryBoundary,
   moveGuideEntriesAtomically,
   renameGuideSectionAtomically,
   reorderGuideAnnotationsAtomically,
@@ -190,18 +189,6 @@ describe('Guide entry-safe atomic structure', () => {
     expect((await getGuideStructureSnapshot(guide.id)).entries).toEqual([]);
   });
 
-  it('rebases a section to the first inserted entry when inserting before its start', async () => {
-    const { guide, snapshot } = await createTrackedGuide(makeSingleSteps(2));
-    const sectioned = await addGuideSectionAtomically(guide.id, snapshot.entryIds[1], '目標章節', snapshot.guide.contentRevision);
-    const inserted = makeStep({ id: crypto.randomUUID(), sessionId: guide.id, runId: 'insert-run', order: 99 });
-    await insertStepsAtEntryBoundary({
-      sessionId: guide.id, runId: 'insert-run', anchorEntryId: snapshot.entryIds[1], side: 'before',
-      expectedRunBlockIds: [], newSteps: [inserted],
-    });
-    const after = await getGuideStructureSnapshot(guide.id);
-    expect(after.entryIds).toEqual([snapshot.entryIds[0], inserted.id, snapshot.entryIds[1]]);
-    expect(after.guide.sections[0]).toMatchObject({ id: sectioned.guide.sections[0].id, startEntryId: inserted.id });
-  });
 
   it('keeps summaries on the guide store without opening step rows or blobs', async () => {
     const { guide } = await createTrackedGuide(makeSingleSteps(1));

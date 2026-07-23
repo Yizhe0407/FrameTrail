@@ -91,29 +91,6 @@ describe('StepRail keyboard navigation', () => {
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(2));
   });
 
-  it('在手機版提供可展開的搜尋與篩選入口', () => {
-    vi.stubGlobal('matchMedia', () => ({
-      matches: false,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }));
-    render(
-      <StepRail
-        entries={[makeEntry('step-1', 0)]}
-        selectedEntryId="step-1"
-        onSelect={vi.fn()}
-        onReorder={vi.fn().mockResolvedValue(undefined)}
-        headerContent={<div>篩選控制項</div>}
-      />,
-    );
-
-    const toggle = screen.getByRole('button', { name: '搜尋／篩選' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: '關閉篩選' }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getAllByText('篩選控制項')).toHaveLength(2);
-  });
-
   it('handles arrows only while focus is inside the rail', () => {
     const onSelect = vi.fn();
     render(

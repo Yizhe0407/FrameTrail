@@ -50,7 +50,6 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - popup 提供錄製前設定與錄製中摘要；頁面浮動控制器負責錄製中的復原、暫停與完成。獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
 - **作品庫與多份 Guide**：作品庫可搜尋、新增、改名、複製、封存、永久刪除、匯出或匯入可編輯備份。Editor URL 的 `sessionId` 是唯一資料來源；網址缺少或 Guide 不存在時會安全顯示錯誤，不會 fallback 到其他正在錄製的內容。
 - **多選、批次與章節**：StepRail 提供 checkbox、Ctrl／Cmd 加選、Shift 範圍選取、Ctrl／Cmd+A 與 Escape 收合；可批次刪除、移到開頭／結尾、複製目前項目、切換快照編號，並在完整步驟或快照群組邊界建立、改名、刪除章節。多選期間停用單筆編輯與拖曳，避免操作目標含糊。
-- **指定位置補錄與區域擷取**：可在任一步驟或完整快照群組前後補錄，也可在操作流程模式手動拖曳擷取 viewport 內區域；兩者都沿用 token-auth shield、capture queue、run/session guard，且不重播區域擷取手勢。
 - 拖曳使用 `@dnd-kit`，只由拖曳把手啟動，支援滑鼠、觸控與鍵盤。UI 先做 optimistic reorder，再以單一 IndexedDB transaction 持久化，失敗時復原；不同高度的列只做 translate，不會被縮放閃動。
 - 圖片 Blob 在狀態更新時保留穩定參照，rail、stage 與 lightbox 共用同一個 object URL；最後一個使用者卸載後才 revoke，避免非圖片變更觸發重新解碼與白閃。
 - 刪除步驟、刪除快照群組與重置都使用共用的 shadcn `ConfirmationDialog`。專案不使用 `window.alert()` 或 `window.confirm()`；非阻斷錯誤則顯示在既有 shadcn Alert 區域。
@@ -60,7 +59,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
 - **敏感資訊遮罩**：在同一個視覺編輯器新增、移動、縮放或刪除完全不透明的 solid mask。遮罩只保存在圖片 owner（普通步驟或快照 anchor），預覽、Lightbox、剪貼簿 PNG 與 ZIP/JPEG 匯出共用同一條合成管線，並在所有標註與引導線之後繪製，避免下層內容重新露出。
 - **隱私 fail-closed**：補拍含有既有遮罩的圖片，或讀到格式錯誤的隱私 metadata 時，會保留可修正的遮罩草稿並標記「需要重新確認」；確認前圖片預覽全黑，複製與匯出被阻擋，compositor 也會再次全黑處理。只有使用者按下「確認並儲存」後才解除封鎖。
-- 發佈前會執行品質檢查；未確認遮罩、缺圖或缺少框選時 fail-closed 並導向問題清單。Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿與 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。可編輯 `.frametrail` v2 備份另包含標題、說明與章節；因備份保留未遮罩原圖，匯出前會明確警告。
+- Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿與 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。可編輯 `.frametrail` v2 備份另包含標題、說明與章節；因備份保留未遮罩原圖，匯出前會明確警告。
 
 ### 狀態與效能
 

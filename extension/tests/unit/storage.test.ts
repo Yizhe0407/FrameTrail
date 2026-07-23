@@ -172,27 +172,6 @@ describe('recording state normalization', () => {
     expect(normalized.itemCount).toBe(0);
   });
 
-  it('rejects insertion state that cannot fit in a durable guide', () => {
-    const normalized = normalizeRecordingState({
-      operation: 'recording',
-      isRecording: true,
-      phase: 'recording',
-      sessionId: 'session-1',
-      tabId: 1,
-      runId: 'run-1',
-      insertion: {
-        anchorEntryId: 'anchor',
-        side: 'after',
-        runBlockIds: Array.from({ length: 2_001 }, (_, index) => `block-${index}`),
-        sourceUrl: 'https://example.com/page',
-        sourceTabCreated: false,
-        startedAt: 1,
-      },
-    });
-
-    expect(normalized.operation).toBeNull();
-    expect(normalized.insertion).toBeNull();
-  });
 
   it('applies the durable identifier limit to active state identities', () => {
     const oversized = 'x'.repeat(257);

@@ -114,17 +114,6 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         typeof value.numbered === 'boolean' &&
         (value.permissionScope === undefined || value.permissionScope === 'current-page' || value.permissionScope === 'cross-page')
       );
-    case 'PREFLIGHT_INSERTION_SOURCE_PERMISSION':
-      return isString(value.sessionId) && isString(value.anchorEntryId);
-    case 'START_INSERTION_RECORDING':
-      return (
-        isString(value.sessionId) &&
-        isString(value.anchorEntryId) &&
-        (value.side === 'before' || value.side === 'after') &&
-        (value.mode === 'steps' || value.mode === 'snapshot') &&
-        typeof value.numbered === 'boolean' &&
-        (value.preferredTabId === undefined || isBrowserId(value.preferredTabId))
-      );
     case 'STOP_RECORDING':
       return true;
     case 'OPEN_EDITOR':

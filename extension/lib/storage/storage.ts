@@ -2,7 +2,6 @@ import { browser, type Browser } from 'wxt/browser';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import {
   RECORDING_STATE_KEY,
-  type InsertionRecordingContext,
   type RecoverableRecordingError,
   type RecordingState,
   type StepRecaptureContext,
@@ -25,7 +24,6 @@ const DEFAULT_STATE: RecordingState = {
   runId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
-  insertion: null,
   recapture: null,
   recaptureResult: null,
 };
@@ -120,32 +118,6 @@ function normalizeRecaptureTarget(value: unknown): StepRecaptureTarget | null {
   return null;
 }
 
-function normalizeInsertionContext(value: unknown): InsertionRecordingContext | null {
-  if (!value || typeof value !== 'object') return null;
-  const context = value as Partial<InsertionRecordingContext>;
-  if (
-    !isNonEmptyString(context.anchorEntryId, MAX_STATE_ID_LENGTH) ||
-    (context.side !== 'before' && context.side !== 'after') ||
-    !Array.isArray(context.runBlockIds) ||
-    context.runBlockIds.length > PERSISTED_STEP_LIMITS.maxStepsPerGuide ||
-    !context.runBlockIds.every((id) => isNonEmptyString(id, MAX_STATE_ID_LENGTH)) ||
-    new Set(context.runBlockIds).size !== context.runBlockIds.length ||
-    !normalizeSourceUrl(context.sourceUrl) ||
-    typeof context.sourceTabCreated !== 'boolean' ||
-    !isTimestamp(context.startedAt)
-  ) {
-    return null;
-  }
-  return {
-    anchorEntryId: context.anchorEntryId,
-    side: context.side,
-    runBlockIds: [...context.runBlockIds],
-    sourceUrl: normalizeSourceUrl(context.sourceUrl)!,
-    sourceTabCreated: context.sourceTabCreated,
-    startedAt: context.startedAt!,
-  };
-}
-
 function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null {
   if (!value || typeof value !== 'object') return null;
   const context = value as Partial<StepRecaptureContext>;
@@ -222,12 +194,10 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
   ]);
   const requestedRecording = raw.operation === 'recording' || (raw.operation == null && raw.isRecording === true);
   const requestedRecapture = raw.operation === 'recapture';
-  const insertion = normalizeInsertionContext(raw.insertion);
   const recapture = normalizeRecaptureContext(raw.recapture);
   const sessionId = normalizeNullableString(raw.sessionId, MAX_STATE_ID_LENGTH);
   const tabId = isSafeBrowserId(raw.tabId) ? raw.tabId : null;
   const runId = normalizeNullableString(raw.runId, MAX_STATE_ID_LENGTH);
-  const hasMalformedPersistedInsertion = raw.insertion != null && insertion === null;
   const hasValidItemCount =
     raw.itemCount == null ||
     (Number.isSafeInteger(raw.itemCount) && (raw.itemCount as number) >= 0 &&
@@ -238,7 +208,7 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     ? recapture
       ? 'recapture'
       : null
-    : requestedRecording && hasCompleteRecordingIdentity && !hasMalformedPersistedInsertion
+    : requestedRecording && hasCompleteRecordingIdentity
       ? 'recording'
       : null;
   const isRecording = operation === 'recording' && raw.isRecording === true;
@@ -280,7 +250,6 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     runId: operation === 'recording' ? runId : null,
     snapshotViewport: operation === 'recording' && mode === 'snapshot' ? snapshotViewport : null,
     snapshotDevicePixelRatio: operation === 'recording' && mode === 'snapshot' ? snapshotDevicePixelRatio : null,
-    insertion: operation === 'recording' ? insertion : null,
     recapture: operation === 'recapture' ? recapture : null,
     recaptureResult: normalizeRecaptureResult(raw.recaptureResult),
   };

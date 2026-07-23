@@ -41,7 +41,6 @@ const IDLE_RECORDING: RecordingState = {
   runId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
-  insertion: null,
   recapture: null,
   recaptureResult: null,
 };
