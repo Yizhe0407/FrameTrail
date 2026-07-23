@@ -130,7 +130,7 @@ function stepMatchesVisualBaseline(step: Step, changes: Partial<Step>): boolean 
 
 function EditorApp() {
   const viewedSessionId = useMemo(() => getEditorSessionIdFromUrl(window.location.href), []);
-  const { sessionId, tabId, steps, error, refresh, recording } = useRecordingSession(viewedSessionId);
+  const { sessionId, tabId, steps, error, dataError, refresh, recording } = useRecordingSession(viewedSessionId);
   const [guide, setGuide] = useState<Guide | null>(null);
   const [canonicalSnapshot, setCanonicalSnapshot] = useState<GuideStructureSnapshot | null>(null);
   const [guideLoadState, setGuideLoadState] = useState<'loading' | 'ready' | 'missing' | 'invalid'>(
@@ -1376,11 +1376,11 @@ function EditorApp() {
           {operationNotice}
         </div>
       )}
-      {(error || operationError) && (
+      {(error || dataError || operationError) && (
         <div className="border-b border-stone-200 bg-stone-50 px-7 py-3 dark:border-stone-700 dark:bg-stone-900">
-          <Alert variant={error || operationError ? 'destructive' : 'default'}>
+          <Alert variant={error || dataError || operationError ? 'destructive' : 'default'}>
             <AlertCircle />
-            <AlertDescription>{error ?? operationError}</AlertDescription>
+            <AlertDescription>{error ?? dataError ?? operationError}</AlertDescription>
           </Alert>
         </div>
       )}

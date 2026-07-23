@@ -4,6 +4,9 @@ import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
   isTrustedExtensionPageSender,
+  isTrustedKeepAliveSender,
+  isTrustedRecorderControlSender,
+  type RuntimeMessageSenderLike,
 } from '@/lib/background-message-validation';
 import {
   CAPTURE_PRESENTATION_CSS,
@@ -72,6 +75,7 @@ import type {
   RecordingControlResult,
   RecordingState,
   SnapshotInvalidatedMessage,
+  SnapshotRecorderFailureMessage,
   StartInsertionRecordingMessage,
   StartInsertionRecordingResult,
   StartRecordingMessage,
@@ -1770,6 +1774,33 @@ async function handleSnapshotInvalidated(
   );
 }
 
+
+async function handleSnapshotRecorderFailure(
+  message: SnapshotRecorderFailureMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<boolean> {
+  const tabId = sender.tab?.id;
+  if (tabId == null || sender.frameId !== 0) return false;
+  const expectedControlVersion = controlVersion;
+  const state = await getRecordingState();
+  if (
+    expectedControlVersion !== controlVersion ||
+    !state.isRecording ||
+    state.operation !== 'recording' ||
+    state.runId !== message.runId ||
+    state.tabId !== tabId ||
+    state.mode !== 'snapshot'
+  ) {
+    return false;
+  }
+  const error = '快照選取介面已中斷；為避免頁面持續被鎖定，這次錄製已安全停止。';
+  await stopRunWithError(message.runId, error, expectedControlVersion, {
+    code: 'SNAPSHOT_SHIELD_FAILED',
+    message: error,
+  });
+  return true;
+}
+
 async function handleStopRecording(version: number): Promise<void> {
   await clickChain;
   if (version !== controlVersion) return;
@@ -2423,7 +2454,22 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
   }
 }
 
-function handleRecordingControl(message: RecordingControlMessage): Promise<RecordingControlResult> {
+async function handleRecordingControl(
+  message: RecordingControlMessage,
+  sender?: RuntimeMessageSenderLike,
+): Promise<RecordingControlResult> {
+  if (sender && !isTrustedExtensionPageSender(sender, browser.runtime.getURL('/'))) {
+    const state = await getRecordingState();
+    if (
+      !state.isRecording ||
+      state.runId !== message.runId ||
+      !isTrustedRecorderControlSender(sender, state.tabId)
+    ) {
+      console.warn('[frametrail] rejected an untrusted recorder control message', message.type);
+      return controlFailure('目前無法執行這個錄製動作。');
+    }
+  }
+
   switch (message.type) {
     case 'PAUSE_RECORDING':
       return pauseRecording(message);
@@ -2935,12 +2981,18 @@ export default defineBackground(() => {
       case 'DISCARD_CURRENT_RECORDING':
       case 'FINISH_RECORDING':
         return withMessageFailureFallback(
-          handleRecordingControl(message),
+          handleRecordingControl(message, sender),
           'recording toolbar request failed',
           { ok: false, error: '錄製服務發生錯誤，請重新整理頁面後再試一次。' } satisfies RecordingControlResult,
         );
       case 'SNAPSHOT_INVALIDATED':
         return handleSnapshotInvalidated(message, sender);
+      case 'SNAPSHOT_RECORDER_FAILED':
+        return withMessageFailureFallback(
+          handleSnapshotRecorderFailure(message, sender),
+          'snapshot recorder failure recovery failed',
+          false,
+        );
       case 'FRAME_TRAIL_RECAPTURE_TARGET':
         if (!acceptingClicks) {
           return Promise.resolve({ ok: false, status: 'rejected' } satisfies StepRecaptureTargetResult);
@@ -2969,70 +3021,141 @@ export default defineBackground(() => {
   });
 
   browser.commands?.onCommand.addListener((command) => {
-    void handleCommandShortcut(command);
+    void handleCommandShortcut(command).catch((error) => {
+      console.error('[frametrail] failed to handle command shortcut', error);
+    });
   });
 
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== KEEPALIVE_PORT_NAME) return;
-    port.onMessage.addListener(() => {});
+    let disconnected = false;
+    const disconnect = () => {
+      if (disconnected) return;
+      disconnected = true;
+      try {
+        port.disconnect();
+      } catch {
+        // The sender may already have disappeared during authorization.
+      }
+    };
+    const authorize = () => {
+      void getRecordingState().then((state) => {
+        if (!disconnected && !isTrustedKeepAliveSender(port.sender ?? {}, state)) disconnect();
+      }).catch((error) => {
+        console.error('[frametrail] failed to authorize keep-alive port', error);
+        disconnect();
+      });
+    };
+    port.onDisconnect.addListener(() => {
+      disconnected = true;
+    });
+    port.onMessage.addListener((message) => {
+      if (message?.type !== 'heartbeat') {
+        disconnect();
+        return;
+      }
+      authorize();
+    });
+    authorize();
   });
 
-  browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete' && !changeInfo.url) return;
-    const expectedControlVersion = controlVersion;
-    const state = await getRecordingState();
-    if (
-      expectedControlVersion === controlVersion &&
-      state.operation === 'recapture' &&
-      state.recapture?.sourceTabId === tabId
-    ) {
-      const context = state.recapture;
-      // Startup intentionally waits for the initial document to finish. Once
-      // selection is enabled, any navigation invalidates this one-shot job.
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    void (async () => {
+      if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete' && !changeInfo.url) return;
+      const expectedControlVersion = controlVersion;
+      const state = await getRecordingState();
       if (
-        context.phase !== 'starting' &&
-        (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== context.sourceUrl))
+        expectedControlVersion === controlVersion &&
+        state.operation === 'recapture' &&
+        state.recapture?.sourceTabId === tabId
       ) {
-        await failStepRecapture(
-          context.runId,
-          'SOURCE_NAVIGATED',
-          '補拍已停止，因為原始頁面在選取期間發生導覽。原內容未變更。',
+        const context = state.recapture;
+        // Startup intentionally waits for the initial document to finish. Once
+        // selection is enabled, any navigation invalidates this one-shot job.
+        if (
+          context.phase !== 'starting' &&
+          (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== context.sourceUrl))
+        ) {
+          await failStepRecapture(
+            context.runId,
+            'SOURCE_NAVIGATED',
+            '補拍已停止，因為原始頁面在選取期間發生導覽。原內容未變更。',
+            expectedControlVersion,
+          );
+        }
+        return;
+      }
+      if (
+        expectedControlVersion !== controlVersion ||
+        !state.isRecording ||
+        state.operation !== 'recording' ||
+        state.tabId !== tabId ||
+        !state.runId
+      ) {
+        return;
+      }
+      const runId = state.runId;
+
+      if (
+        state.insertion &&
+        (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== state.insertion.sourceUrl))
+      ) {
+        await stopRunWithError(
+          runId,
+          '補錄已停止，因為原始頁面發生導覽。',
+          expectedControlVersion,
+          {
+            code: 'INSERTION_SOURCE_NAVIGATED',
+            message: '補錄已停止，因為原始頁面發生導覽；已保留先前成功補錄的內容。',
+          },
+        );
+        return;
+      }
+
+      if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
+        if (changeInfo.status !== 'complete') return;
+        if (isRestrictedUrl(tab.url)) {
+          await setRunError(runId, '此頁面無法建立快照；請返回一般網站或完成錄製。');
+          return;
+        }
+        try {
+          await injectRecorder(tabId);
+        } catch (err) {
+          if (isMissingTabError(err)) {
+            await stopRunWithError(
+              runId,
+              RECORDED_TAB_CLOSED_ERROR.message,
+              expectedControlVersion,
+              RECORDED_TAB_CLOSED_ERROR,
+            );
+            return;
+          }
+          console.error(
+            '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
+            describeBrowserError(err),
+            err,
+          );
+          await setRunError(runId, '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。');
+        }
+        return;
+      }
+
+      const updateAction = getRecordingTabUpdateAction(state.mode, changeInfo);
+      // A snapshot's coordinates belong to one immutable document. Fail closed
+      // as soon as that document navigates, and never re-inject merely because a
+      // document that was loading at START later reports status=complete.
+      if (updateAction === 'stop-snapshot') {
+        await stopRunWithError(runId, 'Recording stopped because the snapshot page changed.', expectedControlVersion);
+        return;
+      }
+      if (updateAction !== 'reinject') return;
+
+      if (isRestrictedUrl(tab.url)) {
+        await stopRunWithError(
+          runId,
+          'Recording stopped because the new page does not allow scripting.',
           expectedControlVersion,
         );
-      }
-      return;
-    }
-    if (
-      expectedControlVersion !== controlVersion ||
-      !state.isRecording ||
-      state.operation !== 'recording' ||
-      state.tabId !== tabId ||
-      !state.runId
-    ) {
-      return;
-    }
-    const runId = state.runId;
-
-    if (
-      state.insertion &&
-      (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== state.insertion.sourceUrl))
-    ) {
-      await stopRunWithError(
-        runId,
-        '補錄已停止，因為原始頁面發生導覽。',
-        expectedControlVersion,
-        {
-          code: 'INSERTION_SOURCE_NAVIGATED',
-          message: '補錄已停止，因為原始頁面發生導覽；已保留先前成功補錄的內容。',
-        },
-      );
-      return;
-    }
-
-    if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
-      if (changeInfo.status !== 'complete') return;
-      if (isRestrictedUrl(tab.url)) {
-        await setRunError(runId, '此頁面無法建立快照；請返回一般網站或完成錄製。');
         return;
       }
       try {
@@ -3048,89 +3171,56 @@ export default defineBackground(() => {
           return;
         }
         console.error(
-          '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
+          '[frametrail] failed to re-inject recorder after navigation:',
           describeBrowserError(err),
           err,
         );
-        await setRunError(runId, '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。');
-      }
-      return;
-    }
-
-    const updateAction = getRecordingTabUpdateAction(state.mode, changeInfo);
-    // A snapshot's coordinates belong to one immutable document. Fail closed
-    // as soon as that document navigates, and never re-inject merely because a
-    // document that was loading at START later reports status=complete.
-    if (updateAction === 'stop-snapshot') {
-      await stopRunWithError(runId, 'Recording stopped because the snapshot page changed.', expectedControlVersion);
-      return;
-    }
-    if (updateAction !== 'reinject') return;
-
-    if (isRestrictedUrl(tab.url)) {
-      await stopRunWithError(
-        runId,
-        'Recording stopped because the new page does not allow scripting.',
-        expectedControlVersion,
-      );
-      return;
-    }
-    try {
-      await injectRecorder(tabId);
-    } catch (err) {
-      if (isMissingTabError(err)) {
         await stopRunWithError(
           runId,
-          RECORDED_TAB_CLOSED_ERROR.message,
+          'Recording stopped because the recorder could not be loaded after navigation.',
           expectedControlVersion,
-          RECORDED_TAB_CLOSED_ERROR,
+        );
+      }
+    })().catch((error) => {
+      console.error('[frametrail] failed to handle recorded tab update', error);
+    });
+  });
+
+  browser.tabs.onRemoved.addListener((tabId) => {
+    void (async () => {
+      const expectedControlVersion = controlVersion;
+      const state = await getRecordingState();
+      if (
+        expectedControlVersion === controlVersion &&
+        state.operation === 'recapture' &&
+        state.recapture?.sourceTabId === tabId
+      ) {
+        await failStepRecapture(
+          state.recapture.runId,
+          'SOURCE_TAB_CLOSED',
+          '補拍已停止，因為原始分頁已關閉。原內容未變更。',
+          expectedControlVersion,
         );
         return;
       }
-      console.error(
-        '[frametrail] failed to re-inject recorder after navigation:',
-        describeBrowserError(err),
-        err,
-      );
+      if (
+        expectedControlVersion !== controlVersion ||
+        !state.isRecording ||
+        state.operation !== 'recording' ||
+        state.tabId !== tabId ||
+        !state.runId
+      ) {
+        return;
+      }
       await stopRunWithError(
-        runId,
-        'Recording stopped because the recorder could not be loaded after navigation.',
+        state.runId,
+        'Recording stopped because the recorded tab was closed.',
         expectedControlVersion,
+        RECORDED_TAB_CLOSED_ERROR,
       );
-    }
-  });
-
-  browser.tabs.onRemoved.addListener(async (tabId) => {
-    const expectedControlVersion = controlVersion;
-    const state = await getRecordingState();
-    if (
-      expectedControlVersion === controlVersion &&
-      state.operation === 'recapture' &&
-      state.recapture?.sourceTabId === tabId
-    ) {
-      await failStepRecapture(
-        state.recapture.runId,
-        'SOURCE_TAB_CLOSED',
-        '補拍已停止，因為原始分頁已關閉。原內容未變更。',
-        expectedControlVersion,
-      );
-      return;
-    }
-    if (
-      expectedControlVersion !== controlVersion ||
-      !state.isRecording ||
-      state.operation !== 'recording' ||
-      state.tabId !== tabId ||
-      !state.runId
-    ) {
-      return;
-    }
-    await stopRunWithError(
-      state.runId,
-      'Recording stopped because the recorded tab was closed.',
-      expectedControlVersion,
-      RECORDED_TAB_CLOSED_ERROR,
-    );
+    })().catch((error) => {
+      console.error('[frametrail] failed to handle recorded tab removal', error);
+    });
   });
 
   void recoverInterruptedRecapture().catch((error) => {

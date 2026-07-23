@@ -25,6 +25,7 @@ import {
   type SnapshotShieldRect,
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
+  type SnapshotShieldPortMessage,
 } from '@/lib/snapshot-shield-protocol';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/messages';
 import { featureFlags } from '@/lib/feature-flags';
@@ -41,6 +42,14 @@ import {
   getBadgeFontSize,
   layoutAnnotations,
 } from '@/lib/annotate';
+
+const SHIELD_HOVER_TIMEOUT_MS = 4_000;
+const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
+const SHIELD_CONTROL_TIMEOUT_MS = 15_000;
+const SHIELD_CHANNEL_FAILURE: RecordingControlResult = {
+  ok: false,
+  error: '錄製服務已中斷，請重新整理頁面後再試一次。',
+};
 
 const FREEZE_EVENTS = [
   'pointerup',
@@ -296,7 +305,12 @@ window.addEventListener('message', (event) => {
   toolbarContainer.setAttribute('data-frametrail-shield-toolbar', '');
   document.body.append(toolbarContainer);
   const toolbarRoot = createRoot(toolbarContainer);
-  const pendingControls = new Map<number, (result: RecordingControlResult) => void>();
+  interface PendingControl {
+    resolve: (result: RecordingControlResult) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }
+  const pendingControls = new Map<number, PendingControl>();
+  let channelFailed = false;
   let controlSequence = 0;
   let capturing = false;
   let moveFrame: number | null = null;
@@ -307,6 +321,7 @@ window.addEventListener('message', (event) => {
   let sentPointRevision = -1;
   let pendingHoverRequestId: number | null = null;
   let pendingHoverPointRevision: number | null = null;
+  let pendingHoverTimeout: ReturnType<typeof setTimeout> | null = null;
   let candidateOffset = 0;
   let interactionsEnabled = false;
   let lastPreviewRect: SnapshotShieldRect | null = null;
@@ -317,7 +332,73 @@ window.addEventListener('message', (event) => {
   let regionCapture: RegionCapture | null = null;
   let pendingRegionCompletion: (() => void) | null = null;
   let lastCommitWasRegion = false;
+  let captureTimeout: ReturnType<typeof setTimeout> | null = null;
   let toolbarState: import('@/components/RecordingToolbar').RecordingToolbarState | null = null;
+
+  const clearPendingHover = () => {
+    if (pendingHoverTimeout !== null) clearTimeout(pendingHoverTimeout);
+    pendingHoverTimeout = null;
+    pendingHoverRequestId = null;
+    pendingHoverPointRevision = null;
+  };
+
+  const clearCaptureTimeout = () => {
+    if (captureTimeout !== null) clearTimeout(captureTimeout);
+    captureTimeout = null;
+  };
+
+  const armCaptureTimeout = () => {
+    clearCaptureTimeout();
+    captureTimeout = setTimeout(() => {
+      captureTimeout = null;
+      capturing = false;
+      lastCommitViaKeyboard = false;
+      lastCommitWasRegion = false;
+      pendingRegionCompletion?.();
+      pendingRegionCompletion = null;
+      sentPointRevision = -1;
+      announce('擷取逾時，請重新選取目標');
+      if (interactionsEnabled && !regionCapture?.isActive()) scheduleHover();
+    }, SHIELD_CAPTURE_TIMEOUT_MS);
+  };
+
+  const settlePendingControl = (requestId: number, result: RecordingControlResult) => {
+    const pending = pendingControls.get(requestId);
+    if (!pending) return;
+    pendingControls.delete(requestId);
+    clearTimeout(pending.timeout);
+    pending.resolve(result);
+  };
+
+  const failShieldChannel = () => {
+    if (channelFailed) return;
+    channelFailed = true;
+    for (const requestId of pendingControls.keys()) settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE);
+    pendingRegionCompletion?.();
+    pendingRegionCompletion = null;
+    clearPendingHover();
+    clearCaptureTimeout();
+    regionCapture?.cancel('removed');
+    regionCapture = null;
+    capturing = false;
+    interactionsEnabled = false;
+    clearHover();
+    resetKeyboard();
+    toolbarState = null;
+    renderToolbar();
+  };
+
+  const safePostToParent = (message: SnapshotShieldPortMessage): boolean => {
+    if (channelFailed) return false;
+    try {
+      port.postMessage(message);
+      return true;
+    } catch (error) {
+      console.error('[frametrail] snapshot shield channel failed', error);
+      failShieldChannel();
+      return false;
+    }
+  };
 
   const scheduleHover = () => {
     if (
@@ -345,6 +426,14 @@ window.addEventListener('message', (event) => {
       pendingHoverRequestId = latestRequestId;
       sentPointRevision = pointRevision;
       pendingHoverPointRevision = pointRevision;
+      const hoverRequestId = latestRequestId;
+      if (pendingHoverTimeout !== null) clearTimeout(pendingHoverTimeout);
+      pendingHoverTimeout = setTimeout(() => {
+        if (pendingHoverRequestId !== hoverRequestId) return;
+        clearPendingHover();
+        sentPointRevision = -1;
+        scheduleHover();
+      }, SHIELD_HOVER_TIMEOUT_MS);
       const message: SnapshotShieldPointerMoveMessage = {
         type: SNAPSHOT_SHIELD_POINTER_MOVE,
         token,
@@ -353,7 +442,7 @@ window.addEventListener('message', (event) => {
         clientY: lastPoint.clientY,
         candidateOffset,
       };
-      port.postMessage(message);
+      safePostToParent(message);
     });
   };
 
@@ -364,6 +453,7 @@ window.addEventListener('message', (event) => {
     latestRequestId = ++requestSequence;
     if (moveFrame !== null) cancelAnimationFrame(moveFrame);
     moveFrame = null;
+    clearPendingHover();
     overlay.preview(null);
   };
 
@@ -404,7 +494,8 @@ window.addEventListener('message', (event) => {
       clientY,
       candidateOffset,
     };
-    port.postMessage(message);
+    armCaptureTimeout();
+    if (!safePostToParent(message)) clearCaptureTimeout();
   };
 
   const onPointerDown = (event: PointerEvent) => {
@@ -466,8 +557,12 @@ window.addEventListener('message', (event) => {
       ...(undoToken ? { undoToken } : {}),
     };
     return new Promise<RecordingControlResult>((resolve) => {
-      pendingControls.set(requestId, resolve);
-      port.postMessage(message);
+      const timeout = setTimeout(
+        () => settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE),
+        SHIELD_CONTROL_TIMEOUT_MS,
+      );
+      pendingControls.set(requestId, { resolve, timeout });
+      if (!safePostToParent(message)) settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE);
     });
   };
 
@@ -505,12 +600,14 @@ window.addEventListener('message', (event) => {
         };
         await new Promise<void>((resolve) => {
           pendingRegionCompletion = resolve;
-          port.postMessage(message);
+          armCaptureTimeout();
+          if (!safePostToParent(message)) clearCaptureTimeout();
         });
       },
       onCancel: () => {
         pendingRegionCompletion?.();
         pendingRegionCompletion = null;
+        clearCaptureTimeout();
         lastCommitWasRegion = false;
         capturing = false;
       },
@@ -625,8 +722,7 @@ window.addEventListener('message', (event) => {
     if (event.data.type === SNAPSHOT_SHIELD_PREVIEW) {
       if (event.data.requestId !== pendingHoverRequestId) return;
       const responsePointRevision = pendingHoverPointRevision;
-      pendingHoverRequestId = null;
-      pendingHoverPointRevision = null;
+      clearPendingHover();
       if (
         capturing ||
         event.data.requestId !== latestRequestId ||
@@ -661,6 +757,7 @@ window.addEventListener('message', (event) => {
       if (!interactionsEnabled) {
         regionCapture?.cancel(state.phase === 'invalidated' ? 'viewport' : 'removed');
         capturing = false;
+        clearCaptureTimeout();
         clearHover();
         resetKeyboard();
       }
@@ -674,9 +771,7 @@ window.addEventListener('message', (event) => {
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CONTROL_RESULT) {
-      const resolve = pendingControls.get(event.data.requestId);
-      pendingControls.delete(event.data.requestId);
-      resolve?.(event.data.result);
+      settlePendingControl(event.data.requestId, event.data.result);
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
@@ -697,6 +792,7 @@ window.addEventListener('message', (event) => {
       lastCommitViaKeyboard = false;
       lastCommitWasRegion = false;
       capturing = false;
+      clearCaptureTimeout();
       pendingRegionCompletion?.();
       pendingRegionCompletion = null;
       sentPointRevision = -1;
@@ -720,8 +816,9 @@ window.addEventListener('message', (event) => {
     clearHover();
     overlay.relayout();
   });
+  port.onmessageerror = failShieldChannel;
   port.start();
 
   const readyMessage: SnapshotShieldReadyMessage = { type: SNAPSHOT_SHIELD_READY, token };
-  port.postMessage(readyMessage);
+  safePostToParent(readyMessage);
 });

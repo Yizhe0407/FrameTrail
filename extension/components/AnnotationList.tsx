@@ -11,6 +11,7 @@ import { reorderById, restrictToVerticalAxis, useSortableSensors } from '@/lib/d
 import { useStepDescriptionAutosave } from '@/lib/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
 import SaveStatus from './SaveStatus';
+import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 import SortableItem from './SortableItem';
 
 interface RowProps {
@@ -23,7 +24,17 @@ interface RowProps {
 }
 
 function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHandle }: RowProps) {
-  const { description, setDescription, status, error, flush } = useStepDescriptionAutosave(step, onChange);
+  const {
+    description,
+    setDescription,
+    status,
+    error,
+    recoveries,
+    restoreRecovery,
+    discardRecovery,
+    flush,
+    retry,
+  } = useStepDescriptionAutosave(step, onChange);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -73,8 +84,15 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
       <SaveStatus
         status={status}
         error={error}
-        onRetry={() => void flush().catch(() => undefined)}
+        onRetry={() => void retry().catch(() => undefined)}
         className={`mt-1 ml-8 ${status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}`}
+      />
+      <DescriptionDraftRecoveries
+        recoveries={recoveries}
+        onRestore={restoreRecovery}
+        onDiscard={discardRecovery}
+        disabled={deleteDisabled || deleting}
+        className="mt-2 ml-8"
       />
       {actionError && (
         <div role="alert" className="ml-8 flex min-h-6 items-center gap-2 text-xs text-red-700 dark:text-red-300">
@@ -106,7 +124,11 @@ export default function AnnotationList({ annotations, onChange, onDelete, onReor
   function handleDragEnd(event: DragEndEvent) {
     if (editingDisabled) return;
     const reordered = reorderById(annotations, event.active.id, event.over?.id, (step) => step.id);
-    if (reordered) void onReorder(reordered);
+    if (reordered) {
+      void onReorder(reordered).catch((error) => {
+        console.error('[frametrail] failed to reorder snapshot annotations', error);
+      });
+    }
   }
 
   if (annotations.length === 0) {

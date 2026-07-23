@@ -192,6 +192,79 @@ describe('useRecordingSession', () => {
     expect(result.current.sessionId).toBe('new-url-session');
     expect(result.current.steps).toEqual([{ id: 'new-url-step' }]);
   });
+
+  it('surfaces recording-state read failures without an unhandled rejection', async () => {
+    const error = new Error('storage unavailable');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.getRecordingState.mockRejectedValue(error);
+    mocks.getSteps.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useRecordingSession());
+
+    await waitFor(() => expect(result.current.dataError).toBe('無法讀取錄製狀態，請重新整理後再試一次。'));
+    expect(consoleError).toHaveBeenCalledWith('[frametrail] failed to read recording state', error);
+  });
+
+  it('surfaces IndexedDB refresh failures and recovers after a successful refresh', async () => {
+    const error = new Error('indexeddb closed');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.getRecordingState.mockResolvedValue(state('session'));
+    mocks.getSteps.mockRejectedValue(error);
+
+    const { result } = renderHook(() => useRecordingSession('session'));
+
+    await waitFor(() => expect(result.current.dataError).toBe('無法讀取錄製內容，請重新整理後再試一次。'));
+    mocks.getSteps.mockResolvedValue([{ id: 'recovered-step' }]);
+    await act(async () => result.current.refresh());
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'recovered-step' }]));
+    expect(result.current.dataError).toBeNull();
+  });
+
+  it('does not overlap periodic IndexedDB polls', async () => {
+    vi.useFakeTimers();
+    try {
+      const pendingPoll = deferred<any[]>();
+      mocks.getRecordingState.mockResolvedValue(state('session'));
+      mocks.getSteps.mockResolvedValue([]);
+      const { result } = renderHook(() => useRecordingSession('session'));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.recording.sessionId).toBe('session');
+      const callsBeforePolling = mocks.getSteps.mock.calls.length;
+      mocks.getSteps.mockReturnValue(pendingPoll.promise);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
+
+      await act(async () => {
+        pendingPoll.resolve([]);
+        await pendingPoll.promise;
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(999);
+      });
+      expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 2);
+      expect(result.current.dataError).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
 
 describe('reconcileSteps', () => {

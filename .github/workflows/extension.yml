@@ -1,0 +1,65 @@
+name: Extension quality
+
+on:
+  push:
+    paths:
+      - 'extension/**'
+      - '.github/workflows/extension.yml'
+  pull_request:
+    paths:
+      - 'extension/**'
+      - '.github/workflows/extension.yml'
+
+concurrency:
+  group: extension-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm compile
+      - run: pnpm build
+      - run: pnpm build:firefox
+      - run: pnpm lint:firefox
+      - run: pnpm validate:artifacts
+
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pinned Playwright environment
+        working-directory: extension
+        run: docker build -f Dockerfile.e2e -t frametrail-extension-e2e .
+      - name: Run Chromium E2E and Firefox runtime smoke
+        working-directory: extension
+        run: |
+          mkdir -p test-results
+          chmod 777 test-results
+          docker run --rm --init --ipc=host \
+            -v "$PWD/test-results:/work/extension/test-results" \
+            frametrail-extension-e2e
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-browser-diagnostics
+          path: extension/test-results
+          if-no-files-found: ignore
+          retention-days: 14

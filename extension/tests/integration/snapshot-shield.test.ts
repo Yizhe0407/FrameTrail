@@ -202,4 +202,45 @@ describe('createSnapshotShield', () => {
     replacementPort.close();
     expect(host.isConnected).toBe(false);
   });
+
+  it('removes the shield and reports a runtime channel failure after READY', async () => {
+    let shadowRoot: ShadowRoot | null = null;
+    const originalAttachShadow = Element.prototype.attachShadow;
+    vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(function (this: Element, init) {
+      shadowRoot = originalAttachShadow.call(this, { ...init, mode: 'open' });
+      return shadowRoot;
+    });
+    const postMessage = vi.fn();
+    vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue({ postMessage } as unknown as Window);
+    const onFailure = vi.fn();
+    const shield = createSnapshotShield(vi.fn(), undefined, undefined, undefined, onFailure);
+    const frame = shadowRoot!.querySelector('iframe')!;
+
+    frame.dispatchEvent(new Event('load'));
+    const [initMessage, , transfer] = postMessage.mock.calls[0] as unknown as [
+      { token: string },
+      string,
+      Transferable[],
+    ];
+    const framePort = transfer![0] as MessagePort;
+    framePort.start();
+    framePort.postMessage({ type: SNAPSHOT_SHIELD_READY, token: initMessage.token });
+    await shield.ready;
+
+    vi.spyOn(MessagePort.prototype, 'postMessage').mockImplementation(() => {
+      throw new Error('detached channel');
+    });
+    shield.updateToolbar({
+      runId: 'run-1',
+      mode: 'snapshot',
+      phase: 'recording',
+      itemCount: 0,
+      error: null,
+    });
+
+    await vi.waitFor(() => expect(onFailure).toHaveBeenCalledOnce());
+    expect(shadowRoot!.host.isConnected).toBe(false);
+    framePort.close();
+  });
+
 });

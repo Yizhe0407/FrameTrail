@@ -1,4 +1,5 @@
 import { browser, type Browser } from 'wxt/browser';
+import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import {
   RECORDING_STATE_KEY,
   type InsertionRecordingContext,
@@ -33,16 +34,17 @@ export function createDefaultRecordingState(): RecordingState {
   return { ...DEFAULT_STATE };
 }
 
-const MAX_STATE_ID_LENGTH = 512;
+const MAX_STATE_ID_LENGTH = PERSISTED_STEP_LIMITS.maxIdLength;
+const MAX_STATE_VALUE_LENGTH = 512;
 const MAX_STATE_MESSAGE_LENGTH = 10_000;
 const MAX_VIEWPORT_MAGNITUDE = 10_000_000;
 const MAX_DEVICE_PIXEL_RATIO = 32;
 
-function isNonEmptyString(value: unknown, maximumLength = MAX_STATE_ID_LENGTH): value is string {
+function isNonEmptyString(value: unknown, maximumLength = MAX_STATE_VALUE_LENGTH): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximumLength;
 }
 
-function normalizeNullableString(value: unknown, maximumLength = MAX_STATE_ID_LENGTH): string | null {
+function normalizeNullableString(value: unknown, maximumLength = MAX_STATE_VALUE_LENGTH): string | null {
   return isNonEmptyString(value, maximumLength) ? value : null;
 }
 
@@ -100,13 +102,13 @@ function normalizeViewport(value: unknown): RecordingState['snapshotViewport'] {
 function normalizeRecaptureTarget(value: unknown): StepRecaptureTarget | null {
   if (!value || typeof value !== 'object') return null;
   const target = value as Partial<StepRecaptureTarget> & Record<string, unknown>;
-  if (target.kind === 'single' && isNonEmptyString(target.stepId)) {
+  if (target.kind === 'single' && isNonEmptyString(target.stepId, MAX_STATE_ID_LENGTH)) {
     return { kind: 'single', stepId: target.stepId };
   }
   if (
     target.kind === 'snapshot-singleton' &&
-    isNonEmptyString(target.anchorId) &&
-    isNonEmptyString(target.annotationId) &&
+    isNonEmptyString(target.anchorId, MAX_STATE_ID_LENGTH) &&
+    isNonEmptyString(target.annotationId, MAX_STATE_ID_LENGTH) &&
     target.anchorId !== target.annotationId
   ) {
     return {
@@ -122,11 +124,11 @@ function normalizeInsertionContext(value: unknown): InsertionRecordingContext | 
   if (!value || typeof value !== 'object') return null;
   const context = value as Partial<InsertionRecordingContext>;
   if (
-    !isNonEmptyString(context.anchorEntryId) ||
+    !isNonEmptyString(context.anchorEntryId, MAX_STATE_ID_LENGTH) ||
     (context.side !== 'before' && context.side !== 'after') ||
     !Array.isArray(context.runBlockIds) ||
-    context.runBlockIds.length > 10_000 ||
-    !context.runBlockIds.every((id) => isNonEmptyString(id)) ||
+    context.runBlockIds.length > PERSISTED_STEP_LIMITS.maxStepsPerGuide ||
+    !context.runBlockIds.every((id) => isNonEmptyString(id, MAX_STATE_ID_LENGTH)) ||
     new Set(context.runBlockIds).size !== context.runBlockIds.length ||
     !normalizeSourceUrl(context.sourceUrl) ||
     typeof context.sourceTabCreated !== 'boolean' ||
@@ -150,9 +152,9 @@ function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null 
   const target = normalizeRecaptureTarget(context.target);
   if (
     !target ||
-    !isNonEmptyString(context.runId) ||
-    !isNonEmptyString(context.sessionId) ||
-    !isNonEmptyString(context.entryId) ||
+    !isNonEmptyString(context.runId, MAX_STATE_ID_LENGTH) ||
+    !isNonEmptyString(context.sessionId, MAX_STATE_ID_LENGTH) ||
+    !isNonEmptyString(context.entryId, MAX_STATE_ID_LENGTH) ||
     !['starting', 'awaiting-target', 'capturing'].includes(context.phase ?? '') ||
     !isSafeBrowserId(context.editorTabId) ||
     (context.editorWindowId !== null && !isSafeBrowserId(context.editorWindowId)) ||
@@ -184,12 +186,12 @@ function normalizeRecaptureResult(value: unknown): StepRecaptureResult | null {
   if (!value || typeof value !== 'object') return null;
   const result = value as Partial<StepRecaptureResult>;
   if (
-    !isNonEmptyString(result.runId) ||
+    !isNonEmptyString(result.runId, MAX_STATE_ID_LENGTH) ||
     !['replaced', 'cancelled', 'failed'].includes(result.status ?? '') ||
-    !isNonEmptyString(result.sessionId) ||
-    !isNonEmptyString(result.entryId) ||
+    !isNonEmptyString(result.sessionId, MAX_STATE_ID_LENGTH) ||
+    !isNonEmptyString(result.entryId, MAX_STATE_ID_LENGTH) ||
     !isTimestamp(result.completedAt) ||
-    (result.errorCode !== undefined && !isNonEmptyString(result.errorCode)) ||
+    (result.errorCode !== undefined && !isNonEmptyString(result.errorCode, MAX_STATE_VALUE_LENGTH)) ||
     (result.message !== undefined && !isNonEmptyString(result.message, MAX_STATE_MESSAGE_LENGTH))
   ) {
     return null;
@@ -222,11 +224,16 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
   const requestedRecapture = raw.operation === 'recapture';
   const insertion = normalizeInsertionContext(raw.insertion);
   const recapture = normalizeRecaptureContext(raw.recapture);
-  const sessionId = normalizeNullableString(raw.sessionId);
+  const sessionId = normalizeNullableString(raw.sessionId, MAX_STATE_ID_LENGTH);
   const tabId = isSafeBrowserId(raw.tabId) ? raw.tabId : null;
-  const runId = normalizeNullableString(raw.runId);
+  const runId = normalizeNullableString(raw.runId, MAX_STATE_ID_LENGTH);
   const hasMalformedPersistedInsertion = raw.insertion != null && insertion === null;
-  const hasCompleteRecordingIdentity = raw.isRecording === true && sessionId !== null && tabId !== null && runId !== null;
+  const hasValidItemCount =
+    raw.itemCount == null ||
+    (Number.isSafeInteger(raw.itemCount) && (raw.itemCount as number) >= 0 &&
+      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerGuide);
+  const hasCompleteRecordingIdentity =
+    raw.isRecording === true && sessionId !== null && tabId !== null && runId !== null && hasValidItemCount;
   const operation = requestedRecapture
     ? recapture
       ? 'recapture'
@@ -259,9 +266,17 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     error: normalizeNullableString(raw.error, MAX_STATE_MESSAGE_LENGTH),
     recoverableError: normalizeRecoverableError(raw.recoverableError),
     mode,
-    itemCount: Number.isSafeInteger(raw.itemCount) && (raw.itemCount as number) >= 0 ? raw.itemCount as number : 0,
+    itemCount:
+      Number.isSafeInteger(raw.itemCount) &&
+      (raw.itemCount as number) >= 0 &&
+      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerGuide
+        ? raw.itemCount as number
+        : 0,
     numbered: typeof raw.numbered === 'boolean' ? raw.numbered : DEFAULT_STATE.numbered,
-    groupAnchorId: operation === 'recording' && mode === 'snapshot' ? normalizeNullableString(raw.groupAnchorId) : null,
+    groupAnchorId:
+      operation === 'recording' && mode === 'snapshot'
+        ? normalizeNullableString(raw.groupAnchorId, MAX_STATE_ID_LENGTH)
+        : null,
     runId: operation === 'recording' ? runId : null,
     snapshotViewport: operation === 'recording' && mode === 'snapshot' ? snapshotViewport : null,
     snapshotDevicePixelRatio: operation === 'recording' && mode === 'snapshot' ? snapshotDevicePixelRatio : null,

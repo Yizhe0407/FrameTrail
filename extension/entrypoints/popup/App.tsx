@@ -17,7 +17,7 @@ import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } f
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime-message-result';
 
 function App() {
-  const { recording, isRecording, sessionId, steps, error, recoverableError } = useRecordingSession();
+  const { recording, isRecording, sessionId, steps, error, recoverableError, dataError } = useRecordingSession();
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -49,6 +49,17 @@ function App() {
   async function startPractice(mode: RecordingMode) {
     await openLocalPracticePage(mode);
     window.close();
+  }
+
+  async function openLibraryView() {
+    setEditorOpenError(null);
+    try {
+      await openLibrary();
+      window.close();
+    } catch (navigationError) {
+      console.error('[frametrail] failed to open library', navigationError);
+      setEditorOpenError('無法開啟作品庫，請再試一次。');
+    }
   }
 
   async function openEditor() {
@@ -116,10 +127,10 @@ function App() {
         </div>
       </div>
 
-      {(editorOpenError || recoverableError?.message || error) && !isRecording && (
+      {(editorOpenError || recoverableError?.message || error || dataError) && !isRecording && (
         <Alert variant="destructive">
           <AlertCircle />
-          <AlertDescription>{editorOpenError ?? recoverableError?.message ?? error}</AlertDescription>
+          <AlertDescription>{editorOpenError ?? recoverableError?.message ?? error ?? dataError}</AlertDescription>
         </Alert>
       )}
 
@@ -145,7 +156,7 @@ function App() {
           <Button
             variant="outline"
             className="w-full border-stone-200 hover:border-stone-300 dark:border-stone-700 dark:hover:border-stone-600"
-            onClick={() => void openLibrary().then(() => window.close())}
+            onClick={() => void openLibraryView()}
           >
             <Library />
             作品庫

@@ -160,6 +160,15 @@ export interface SnapshotInvalidatedMessage {
   devicePixelRatio: number;
 }
 
+/** Sent by the top-level snapshot recorder when its private UI channel fails
+ * after startup. Background stops the run so the page cannot remain frozen
+ * while durable state incorrectly claims recording is still active. */
+export interface SnapshotRecorderFailureMessage {
+  type: 'SNAPSHOT_RECORDER_FAILED';
+  runId: string;
+  reason: 'shield-channel';
+}
+
 export interface FinishResult {
   sessionId: string;
   entryId: string | null;
@@ -351,6 +360,7 @@ export type BackgroundMessage =
   | ClickCapture
   | CancelCaptureMessage
   | SnapshotInvalidatedMessage
+  | SnapshotRecorderFailureMessage
   | StartRecordingMessage
   | PreflightInsertionSourcePermissionMessage
   | StartInsertionRecordingMessage

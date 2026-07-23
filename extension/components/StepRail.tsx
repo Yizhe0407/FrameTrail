@@ -117,7 +117,11 @@ export default function StepRail({
   function handleDragEnd(event: DragEndEvent) {
     if (reorderDisabled) return;
     const reordered = reorderById(entries, event.active.id, event.over?.id, entryId);
-    if (reordered) void onReorder(reordered);
+    if (reordered) {
+      void onReorder(reordered).catch((error) => {
+        console.error('[frametrail] failed to reorder guide entries', error);
+      });
+    }
   }
 
   // Arrow-key navigation across the rail, skipped while the user is typing

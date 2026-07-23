@@ -73,7 +73,10 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
 export function useRecordingSession(explicitSessionId?: string | null) {
   const [recordingState, setRecordingState] = useState(createDefaultRecordingState);
   const [steps, setSteps] = useState<Step[]>([]);
+  const [dataError, setDataError] = useState<string | null>(null);
   const latestStepsRequest = useRef(0);
+  const stepsRefreshInFlight = useRef<Promise<void> | null>(null);
+  const mounted = useRef(true);
   const hasExplicitSession = explicitSessionId !== undefined;
   const explicitGuideSessionId =
     typeof explicitSessionId === 'string' && explicitSessionId.length > 0
@@ -85,15 +88,39 @@ export function useRecordingSession(explicitSessionId?: string | null) {
   hasExplicitSessionRef.current = hasExplicitSession;
   const sessionId = hasExplicitSession ? explicitGuideSessionId : recordingState.sessionId;
 
-  const refreshSteps = useCallback(async (sid: string | null) => {
+  const refreshSteps = useCallback((sid: string | null): Promise<void> => {
     const request = ++latestStepsRequest.current;
-    const nextSteps = sid ? await getSteps(sid) : [];
-    if (request === latestStepsRequest.current) {
-      setSteps((previous) => reconcileSteps(previous, nextSteps));
-    }
+    let operation!: Promise<void>;
+    operation = (async () => {
+      try {
+        const nextSteps = sid ? await getSteps(sid) : [];
+        if (mounted.current && request === latestStepsRequest.current) {
+          setSteps((previous) => reconcileSteps(previous, nextSteps));
+          setDataError(null);
+        }
+      } catch (error) {
+        if (mounted.current && request === latestStepsRequest.current) {
+          setDataError('無法讀取錄製內容，請重新整理後再試一次。');
+        }
+        throw error;
+      } finally {
+        if (stepsRefreshInFlight.current === operation) stepsRefreshInFlight.current = null;
+      }
+    })();
+    stepsRefreshInFlight.current = operation;
+    return operation;
   }, []);
 
+  const refreshStepsSafely = useCallback(async (sid: string | null) => {
+    try {
+      await refreshSteps(sid);
+    } catch (error) {
+      console.error('[frametrail] failed to refresh recording steps', error);
+    }
+  }, [refreshSteps]);
+
   useEffect(() => {
+    mounted.current = true;
     let disposed = false;
     let stateVersion = 0;
 
@@ -103,17 +130,23 @@ export function useRecordingSession(explicitSessionId?: string | null) {
       // A same-session state change can signal an IndexedDB write (notably a
       // completed recapture), so refresh even when the data-source id itself
       // did not change. An explicit editor URL still wins over that state.
-      void refreshSteps(
+      void refreshStepsSafely(
         hasExplicitSessionRef.current ? explicitSessionIdRef.current : state.sessionId,
       );
     };
 
     const initialVersion = stateVersion;
-    void getRecordingState().then((state) => {
-      // A storage change can arrive while the initial read is pending. Its
-      // newer state wins even if the older read resolves last.
-      if (stateVersion === initialVersion) applyState(state);
-    });
+    void getRecordingState()
+      .then((state) => {
+        // A storage change can arrive while the initial read is pending. Its
+        // newer state wins even if the older read resolves last.
+        if (stateVersion === initialVersion) applyState(state);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        console.error('[frametrail] failed to read recording state', error);
+        setDataError('無法讀取錄製狀態，請重新整理後再試一次。');
+      });
 
     const unsubscribe = onRecordingStateChange((state) => {
       stateVersion++;
@@ -122,17 +155,18 @@ export function useRecordingSession(explicitSessionId?: string | null) {
 
     return () => {
       disposed = true;
+      mounted.current = false;
       latestStepsRequest.current++;
       unsubscribe();
     };
-  }, []);
+  }, [refreshStepsSafely]);
 
   // The editor may supply its URL session as the authoritative data source.
   // Keeping this separate from RecordingState lets an editor continue showing
   // Guide A while a global operation belongs to Guide B.
   useEffect(() => {
-    void refreshSteps(sessionId);
-  }, [refreshSteps, sessionId]);
+    void refreshStepsSafely(sessionId);
+  }, [refreshStepsSafely, sessionId]);
 
   // Background writes new steps to IndexedDB independently of the UI;
   // poll while recording so the list updates without a custom pub/sub channel.
@@ -142,15 +176,34 @@ export function useRecordingSession(explicitSessionId?: string | null) {
       !sessionId ||
       recordingState.sessionId !== sessionId
     ) return;
-    const interval = setInterval(() => refreshSteps(sessionId), 1000);
-    return () => clearInterval(interval);
-  }, [recordingState.isRecording, recordingState.sessionId, refreshSteps, sessionId]);
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const activeRefresh = stepsRefreshInFlight.current;
+      if (activeRefresh) {
+        try {
+          await activeRefresh;
+        } catch {
+          // The owner of the active refresh already records and logs failure.
+        }
+      } else {
+        await refreshStepsSafely(sessionId);
+      }
+      if (!disposed) timer = setTimeout(() => void poll(), 1000);
+    };
+    timer = setTimeout(() => void poll(), 1000);
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [recordingState.isRecording, recordingState.sessionId, refreshStepsSafely, sessionId]);
 
   return {
     ...recordingState,
     sessionId,
     recording: recordingState,
     steps,
+    dataError,
     refresh: () => refreshSteps(sessionId),
   };
 }

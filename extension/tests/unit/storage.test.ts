@@ -156,4 +156,57 @@ describe('recording state normalization', () => {
     expect(invalid.recaptureResult).toBeNull();
   });
 
+  it('fails closed for a persisted recording count beyond the durable guide limit', () => {
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: 'session-1',
+      tabId: 1,
+      runId: 'run-1',
+      itemCount: 2_001,
+    });
+
+    expect(normalized.operation).toBeNull();
+    expect(normalized.isRecording).toBe(false);
+    expect(normalized.itemCount).toBe(0);
+  });
+
+  it('rejects insertion state that cannot fit in a durable guide', () => {
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: 'session-1',
+      tabId: 1,
+      runId: 'run-1',
+      insertion: {
+        anchorEntryId: 'anchor',
+        side: 'after',
+        runBlockIds: Array.from({ length: 2_001 }, (_, index) => `block-${index}`),
+        sourceUrl: 'https://example.com/page',
+        sourceTabCreated: false,
+        startedAt: 1,
+      },
+    });
+
+    expect(normalized.operation).toBeNull();
+    expect(normalized.insertion).toBeNull();
+  });
+
+  it('applies the durable identifier limit to active state identities', () => {
+    const oversized = 'x'.repeat(257);
+    const normalized = normalizeRecordingState({
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: oversized,
+      tabId: 1,
+      runId: 'run-1',
+    });
+
+    expect(normalized.operation).toBeNull();
+    expect(normalized.sessionId).toBeNull();
+  });
+
 });

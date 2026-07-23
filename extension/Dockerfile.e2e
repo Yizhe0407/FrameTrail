@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/playwright:v1.61.1-noble
+
+WORKDIR /work/extension
+
+ENV CI=1
+
+RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+CMD ["pnpm", "test:e2e:browsers"]

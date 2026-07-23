@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
+  isRecordingControlMessage,
   isTrustedExtensionPageSender,
+  isTrustedKeepAliveSender,
+  isTrustedRecorderControlSender,
 } from '@/lib/background-message-validation';
 import type { BackgroundMessage } from '@/lib/messages';
 
@@ -36,6 +39,7 @@ describe('background runtime message validation', () => {
         timestamp: 456,
       },
     },
+    { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'shield-channel' },
     {
       type: 'START_STEP_RECAPTURE',
       sessionId: 'guide-1',
@@ -61,7 +65,9 @@ describe('background runtime message validation', () => {
     { ...validClick, url: 'https://user:secret@example.com/' },
     { ...validClick, timestamp: 1.5 },
     { type: 'START_RECORDING', sessionId: '', mode: 'steps', numbered: true },
-    { type: 'OPEN_EDITOR', sessionId: 'x'.repeat(513) },
+    { type: 'OPEN_EDITOR', sessionId: 'x'.repeat(257) },
+    { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'other' },
+    { type: 'SNAPSHOT_RECORDER_FAILED', runId: '', reason: 'shield-channel' },
     {
       type: 'START_STEP_RECAPTURE',
       sessionId: 'guide-1',
@@ -114,21 +120,64 @@ describe('background sender authorization', () => {
     expect(isTrustedExtensionPageSender(sender, extensionRoot)).toBe(false);
   });
 
-  it('classifies lifecycle and destructive controls separately from recorder events', () => {
+  it('classifies lifecycle, toolbar controls, and recorder events separately', () => {
     const extensionOnly: BackgroundMessage[] = [
       { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', numbered: true },
       { type: 'STOP_RECORDING' },
       { type: 'RESET_GUIDE', sessionId: 'guide-1' },
       { type: 'OPEN_EDITOR' },
+    ];
+    const recordingControls: BackgroundMessage[] = [
+      { type: 'PAUSE_RECORDING', runId: 'run-1' },
       { type: 'DISCARD_CURRENT_RECORDING', runId: 'run-1' },
     ];
     const recorderMessages: BackgroundMessage[] = [
       validClick,
       { type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId: 'run-1', captureId: 'capture-1' },
       { type: 'FRAME_TRAIL_READY', runId: 'run-1' },
+      { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'shield-channel' },
     ];
 
     expect(extensionOnly.every(isExtensionPageOnlyMessage)).toBe(true);
-    expect(recorderMessages.some(isExtensionPageOnlyMessage)).toBe(false);
+    expect(recordingControls.some(isExtensionPageOnlyMessage)).toBe(false);
+    expect(recordingControls.every(isRecordingControlMessage)).toBe(true);
+    expect(recorderMessages.some(isRecordingControlMessage)).toBe(false);
+  });
+
+  it('authorizes keep-alive ports only for the top frame owning the active job', () => {
+    const sender = { frameId: 0, tab: { id: 7, url: 'https://example.com/' } };
+    expect(isTrustedKeepAliveSender(sender, {
+      operation: 'recording', isRecording: true, tabId: 7, recapture: null,
+    })).toBe(true);
+    expect(isTrustedKeepAliveSender(sender, {
+      operation: 'recapture', isRecording: false, tabId: null,
+      recapture: { sourceTabId: 7 },
+    })).toBe(true);
+    expect(isTrustedKeepAliveSender({ ...sender, frameId: 2 }, {
+      operation: 'recording', isRecording: true, tabId: 7, recapture: null,
+    })).toBe(false);
+    expect(isTrustedKeepAliveSender(sender, {
+      operation: null, isRecording: false, tabId: null, recapture: null,
+    })).toBe(false);
+  });
+
+  it('accepts recording controls only from the top frame of the recorded tab', () => {
+    expect(isTrustedRecorderControlSender(
+      { frameId: 0, url: 'https://example.com/', tab: { id: 7, url: 'https://example.com/' } },
+      7,
+    )).toBe(true);
+
+    expect(isTrustedRecorderControlSender(
+      { frameId: 1, url: 'https://example.com/frame', tab: { id: 7, url: 'https://example.com/' } },
+      7,
+    )).toBe(false);
+    expect(isTrustedRecorderControlSender(
+      { frameId: 0, url: 'https://example.com/', tab: { id: 8, url: 'https://example.com/' } },
+      7,
+    )).toBe(false);
+    expect(isTrustedRecorderControlSender(
+      { frameId: 0, url: 'https://example.com/', tab: { id: 7, url: 'https://example.com/' } },
+      null,
+    )).toBe(false);
   });
 });

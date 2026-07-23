@@ -62,9 +62,17 @@ export default function RecordControls({
 
   useEffect(() => {
     let disposed = false;
-    void browser.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-      if (!disposed) setRestrictedPage(isRestrictedRecordingUrl(tab?.url, true));
-    });
+    void browser.tabs.query({ active: true, currentWindow: true })
+      .then(([tab]) => {
+        if (!disposed) setRestrictedPage(isRestrictedRecordingUrl(tab?.url, true));
+      })
+      .catch((error) => {
+        console.error('[frametrail] failed to inspect the active tab', error);
+        if (!disposed) {
+          setRestrictedPage(true);
+          setControlError('無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。');
+        }
+      });
     return () => {
       disposed = true;
     };

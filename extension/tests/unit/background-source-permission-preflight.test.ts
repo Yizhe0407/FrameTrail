@@ -130,7 +130,7 @@ function ordinaryStep(overrides: Partial<Step> = {}): Step {
   };
 }
 
-async function send<T>(message: BackgroundMessage, sender = editorSender('guide-a')): Promise<T> {
+async function send<T>(message: BackgroundMessage, sender: unknown = editorSender('guide-a')): Promise<T> {
   if (!mocks.messageListener) throw new Error('Background message listener was not registered.');
   return await mocks.messageListener(message, sender) as T;
 }
@@ -146,6 +146,18 @@ function expectNoPermissionOrOperationSideEffects(): void {
   expect(mocks.executeScript).not.toHaveBeenCalled();
   expect(mocks.insertCSS).not.toHaveBeenCalled();
   expect(mocks.setRecordingState).not.toHaveBeenCalled();
+}
+
+function activeRecordingState(): RecordingState {
+  return {
+    ...idleState,
+    operation: 'recording',
+    isRecording: true,
+    phase: 'recording',
+    sessionId: 'guide-a',
+    tabId: 4,
+    runId: 'run-1',
+  };
 }
 
 beforeAll(async () => {
@@ -212,6 +224,40 @@ describe('background runtime boundary', () => {
     expect(result).toBeUndefined();
     expectNoPermissionOrOperationSideEffects();
     expect(mocks.tabsQuery).not.toHaveBeenCalled();
+  });
+
+  it('accepts toolbar controls from the active recorder top frame', async () => {
+    mocks.getRecordingState.mockResolvedValue(activeRecordingState());
+
+    const result = await send<{ ok: boolean }>(
+      { type: 'PAUSE_RECORDING', runId: 'run-1' },
+      {
+        frameId: 0,
+        url: 'https://example.com/',
+        tab: { id: 4, url: 'https://example.com/' },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(mocks.setRecordingState).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1', phase: 'paused' }),
+    );
+  });
+
+  it('rejects toolbar controls from a different tab before mutation', async () => {
+    mocks.getRecordingState.mockResolvedValue(activeRecordingState());
+
+    const result = await send<{ ok: boolean }>(
+      { type: 'PAUSE_RECORDING', runId: 'run-1' },
+      {
+        frameId: 0,
+        url: 'https://example.com/',
+        tab: { id: 5, url: 'https://example.com/' },
+      },
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(mocks.setRecordingState).not.toHaveBeenCalled();
   });
 });
 

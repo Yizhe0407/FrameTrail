@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { startKeepAlive } from '@/lib/keep-alive';
 import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
@@ -36,7 +37,14 @@ import { featureFlags } from '@/lib/feature-flags';
 import { orderKeyboardCandidates, type RawKeyboardCandidate } from '@/lib/snapshot-candidates';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
 import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
-import { classifyFrameProbeOutcome } from '@/lib/frame-probe';
+import {
+  childFrameProbeTimeout,
+  classifyFrameProbeOutcome,
+  createFrameProbeRateLimiter,
+  createLatestAsyncRequestRunner,
+  isExplicitFrameProbeFallback,
+  resolveFrameProbeTargetOrigin,
+} from '@/lib/frame-probe';
 import { createImageCoordinateMapper } from '@/lib/image-geometry';
 import {
   createRegionCapture,
@@ -61,6 +69,7 @@ import type {
   RecordingControlResult,
   RecordingState,
   SnapshotInvalidatedMessage,
+  SnapshotRecorderFailureMessage,
   StepRecaptureContext,
   StepRecaptureTargetResult,
 } from '@/lib/messages';
@@ -74,6 +83,9 @@ const FRAME_PROBE_MESSAGE = `frame_trail_snapshot_probe_${browser.runtime.id}`;
 const FRAME_PROBE_TIMEOUT_MS = 120;
 const FRAME_PROBE_CHILD_BUDGET_MS = 20;
 const FRAME_PROBE_RETRY_DELAY_MS = 2_000;
+const FRAME_PROBE_MAX_CONCURRENT_REQUESTS = 12;
+const FRAME_PROBE_MAX_REQUESTS_PER_WINDOW = 720;
+const FRAME_PROBE_RATE_WINDOW_MS = 10_000;
 // Only a genuinely hung capture should hit this; normal-latency captures (even
 // throttled) settle well under it, so they never lose the race to the replay.
 const CAPTURE_FAILSAFE_MS = 2_000;
@@ -392,10 +404,21 @@ async function probeChildFrame(
   const visibleFrame = getVisibleHighlightBounds(frame, clientX, clientY);
   const mapper = createFrameCoordinateMapper(frame);
   if (!visibleFrame || !mapper) return null;
+  if (timeoutMs <= 0) return resolvedElement(frame, visibleFrame);
   const timedOutProbe = timedOutFrameProbes.get(frame);
   if (timedOutProbe?.runId === runId && timedOutProbe.retryAt > Date.now()) {
     return resolvedElement(frame, visibleFrame);
   }
+
+  const targetOrigin = resolveFrameProbeTargetOrigin(
+    frame.getAttribute('src'),
+    document.baseURI,
+    {
+      hasSrcdoc: frame.hasAttribute('srcdoc'),
+      opaqueSandbox: frame.hasAttribute('sandbox') && !frame.sandbox.contains('allow-same-origin'),
+    },
+  );
+  if (!targetOrigin) return resolvedElement(frame, visibleFrame);
 
   const channel = new MessageChannel();
   let responseTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -409,7 +432,10 @@ async function probeChildFrame(
     channel.port1.onmessage = (event) => {
       if (responseTimeout) clearTimeout(responseTimeout);
       channel.port1.close();
-      resolve({ child: isSnapshotProbeResult(event.data) ? event.data : null, timedOut: false });
+      resolve({
+        child: isSnapshotProbeResult(event.data) ? event.data : null,
+        timedOut: isExplicitFrameProbeFallback(event.data),
+      });
     };
     channel.port1.start();
   });
@@ -417,13 +443,13 @@ async function probeChildFrame(
   const request: SnapshotProbeRequest = {
     type: FRAME_PROBE_MESSAGE,
     runId,
-    timeoutMs: Math.max(0, timeoutMs - FRAME_PROBE_CHILD_BUDGET_MS),
+    timeoutMs: childFrameProbeTimeout(timeoutMs, FRAME_PROBE_CHILD_BUDGET_MS),
     clientX: childPoint.x,
     clientY: childPoint.y,
     candidateOffset,
   };
   try {
-    frame.contentWindow.postMessage(request, '*', [channel.port2]);
+    frame.contentWindow.postMessage(request, targetOrigin, [channel.port2]);
   } catch {
     if (responseTimeout) clearTimeout(responseTimeout);
     channel.port1.close();
@@ -488,6 +514,18 @@ async function resolveSnapshotTargetAtPoint(
 }
 
 function installSnapshotFrameProbe(runId: string): void {
+  const admission = createFrameProbeRateLimiter({
+    maxConcurrent: FRAME_PROBE_MAX_CONCURRENT_REQUESTS,
+    maxRequestsPerWindow: FRAME_PROBE_MAX_REQUESTS_PER_WINDOW,
+    windowMs: FRAME_PROBE_RATE_WINDOW_MS,
+  });
+  const closePort = (port: MessagePort | undefined) => {
+    try {
+      port?.close();
+    } catch {
+      // The sender can detach or close a transferred port before validation.
+    }
+  };
   const onMessage = (event: MessageEvent) => {
     const request = event.data as Partial<SnapshotProbeRequest> | null;
     const port = event.ports[0];
@@ -504,33 +542,53 @@ function installSnapshotFrameProbe(runId: string): void {
       !Number.isSafeInteger(request.candidateOffset) ||
       Math.abs(request.candidateOffset!) > SNAPSHOT_TARGET_OFFSET_LIMIT
     ) {
+      closePort(port);
       return;
     }
-    void resolveSnapshotTargetAtPoint(
-      runId,
-      request.clientX!,
-      request.clientY!,
-      request.candidateOffset!,
-      request.timeoutMs!,
-    )
-      .then((target) => {
-        port.postMessage(
-          target
-            ? {
-                rect: target.rect,
-                identity: target.identity,
-                text: target.text,
-                tagName: target.tagName,
-                candidateOffset: target.candidateOffset,
-              }
-            : null,
+    const release = admission.tryAcquire();
+    if (!release) {
+      try {
+        // An explicit fallback response closes the transferred port immediately
+        // instead of forcing the parent to retain it until the transport timeout.
+        port.postMessage({ fallback: true });
+      } catch {
+        // The sender may already have abandoned the request.
+      } finally {
+        closePort(port);
+      }
+      return;
+    }
+    void (async () => {
+      let response: SnapshotProbeResult | null = null;
+      try {
+        const target = await resolveSnapshotTargetAtPoint(
+          runId,
+          request.clientX!,
+          request.clientY!,
+          request.candidateOffset!,
+          request.timeoutMs!,
         );
-      })
-      .catch((error) => {
+        response = target
+          ? {
+              rect: target.rect,
+              identity: target.identity,
+              text: target.text,
+              tagName: target.tagName,
+              candidateOffset: target.candidateOffset,
+            }
+          : null;
+      } catch (error) {
         console.error('[frametrail] child frame probe failed', error);
-        port.postMessage(null);
-      })
-      .finally(() => port.close());
+      }
+      try {
+        port.postMessage(response);
+      } catch (error) {
+        console.warn('[frametrail] child frame probe response channel closed', error);
+      } finally {
+        release();
+        closePort(port);
+      }
+    })();
   };
   const cleanup = () => {
     window.removeEventListener('message', onMessage);
@@ -601,10 +659,12 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
   let busy = false;
   let removed = false;
   let hoverVersion = 0;
+
   const preview = createStepPreview();
-  let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
-  let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
-  let keepAliveStopped = false;
+  const keepAlive = startKeepAlive(browser.runtime, {
+    name: KEEPALIVE_PORT_NAME,
+    intervalMs: KEEPALIVE_INTERVAL_MS,
+  });
 
   const cancelWorkflow = () => {
     if (removed) return;
@@ -614,24 +674,26 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
   };
   const toolbar = createRecaptureToolbar(cancelWorkflow);
 
-  const connectKeepAlive = () => {
-    const port = browser.runtime.connect({ name: KEEPALIVE_PORT_NAME });
-    keepAlivePort = port;
-    keepAliveTimer = setInterval(() => port.postMessage({ type: 'heartbeat' }), KEEPALIVE_INTERVAL_MS);
-    port.onDisconnect.addListener(() => {
-      if (keepAliveTimer) clearInterval(keepAliveTimer);
-      if (!keepAliveStopped && !removed) connectKeepAlive();
-    });
-  };
-  connectKeepAlive();
+  const hoverProbe = createLatestAsyncRequestRunner(
+    async (point: { clientX: number; clientY: number; version: number }) => {
+      if (removed || !active || busy) return;
+      const target = await resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY);
+      if (removed || !active || busy || point.version !== hoverVersion) return;
+      if (target) preview.show(target.rect);
+      else preview.hide();
+    },
+    (error) => {
+      if (!removed && active) preview.hide();
+      console.warn('[frametrail] failed to preview recapture target', error);
+    },
+  );
 
   const onPointerMove = (event: PointerEvent) => {
     if (!active || busy || toolbar.host === event.target || toolbar.host.contains(event.target as Node)) return;
-    const version = ++hoverVersion;
-    void resolveSnapshotTargetAtPoint(runId, event.clientX, event.clientY).then((target) => {
-      if (removed || busy || version !== hoverVersion) return;
-      if (target) preview.show(target.rect);
-      else preview.hide();
+    hoverProbe.submit({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      version: ++hoverVersion,
     });
   };
 
@@ -657,6 +719,7 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
     event.stopImmediatePropagation();
     busy = true;
     hoverVersion++;
+    hoverProbe.clearPending();
     const clientX = event.clientX;
     const clientY = event.clientY;
     void (async () => {
@@ -719,6 +782,7 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
     if (removed) return;
     removed = true;
     active = false;
+    hoverProbe.clearPending();
     preview.remove();
     toolbar.remove();
     window.removeEventListener('pointermove', onPointerMove, { capture: true });
@@ -728,13 +792,18 @@ async function installRecaptureRecorder(context: StepRecaptureContext): Promise<
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);
     unsubscribe();
-    keepAliveStopped = true;
-    if (keepAliveTimer) clearInterval(keepAliveTimer);
-    keepAlivePort?.disconnect();
+    keepAlive.stop();
   }
   unsubscribe = onRecordingStateChange((state) => {
     if (state.operation !== 'recapture' || state.recapture?.runId !== runId) cleanup();
-    else active = state.recapture.phase === 'awaiting-target';
+    else {
+      active = state.recapture.phase === 'awaiting-target';
+      if (!active) {
+        hoverVersion += 1;
+        hoverProbe.clearPending();
+        preview.hide();
+      }
+    }
   });
 
   window.addEventListener('pointermove', onPointerMove, { capture: true, passive: true });
@@ -1479,20 +1548,10 @@ export default defineContentScript({
       snapshotShield?.updateToolbar(toToolbarState(state));
     });
 
-    let keepAlivePort: ReturnType<typeof browser.runtime.connect> | null = null;
-    let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
-    let keepAliveStopped = false;
-
-    const connectKeepAlive = () => {
-      const port = browser.runtime.connect({ name: KEEPALIVE_PORT_NAME });
-      keepAlivePort = port;
-      keepAliveTimer = setInterval(() => port.postMessage({ type: 'heartbeat' }), KEEPALIVE_INTERVAL_MS);
-      port.onDisconnect.addListener(() => {
-        if (keepAliveTimer) clearInterval(keepAliveTimer);
-        if (!keepAliveStopped) connectKeepAlive();
-      });
-    };
-    connectKeepAlive();
+    const keepAlive = startKeepAlive(browser.runtime, {
+      name: KEEPALIVE_PORT_NAME,
+      intervalMs: KEEPALIVE_INTERVAL_MS,
+    });
 
     const onRecorderMessage = (message: FrameTrailStopMessage | FrameTrailSnapshotActiveMessage) => {
       if (message?.type === 'FRAME_TRAIL_STOP') {
@@ -1550,15 +1609,31 @@ export default defineContentScript({
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onRecorderMessage);
       unsubscribeRecordingState();
-      keepAliveStopped = true;
-      if (keepAliveTimer) clearInterval(keepAliveTimer);
-      keepAlivePort?.disconnect();
+      keepAlive.stop();
     };
     document.addEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.addListener(onRecorderMessage);
 
     if (shouldFreezeSnapshot) {
-      snapshotShield = createSnapshotShield(onSnapshotPoint, onSnapshotHover, onSnapshotControl, onSnapshotRegion);
+      snapshotShield = createSnapshotShield(
+        onSnapshotPoint,
+        onSnapshotHover,
+        onSnapshotControl,
+        onSnapshotRegion,
+        async () => {
+          snapshotInteractionsActive = false;
+          cleanup();
+          try {
+            await browser.runtime.sendMessage({
+              type: 'SNAPSHOT_RECORDER_FAILED',
+              runId,
+              reason: 'shield-channel',
+            } satisfies SnapshotRecorderFailureMessage);
+          } catch (error) {
+            console.error('[frametrail] failed to report snapshot shield failure', error);
+          }
+        },
+      );
       try {
         await snapshotShield.ready;
         snapshotShield.updateToolbar(toToolbarState(recordingState));

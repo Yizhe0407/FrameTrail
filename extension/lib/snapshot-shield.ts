@@ -65,6 +65,7 @@ type ControlHandler = (message: SnapshotShieldControlMessage) => Promise<Recordi
 type RegionHandler = (
   message: SnapshotShieldRegionCaptureMessage,
 ) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
+type FailureHandler = (error: Error) => void | Promise<void>;
 
 function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');
@@ -198,6 +199,7 @@ export function createSnapshotShield(
   onHover?: HoverHandler,
   onControl?: ControlHandler,
   onRegion?: RegionHandler,
+  onFailure?: FailureHandler,
 ): SnapshotShield {
   const token = crypto.randomUUID();
   const host = document.createElement('div');
@@ -234,12 +236,13 @@ export function createSnapshotShield(
     rejectReady = reject;
   });
 
+  let reportFailure!: (message: string, cause?: unknown) => void;
   const postToFrame = (message: SnapshotShieldFrameMessage): void => {
     if (removed || !port) return;
     try {
       port.postMessage(message);
     } catch (error) {
-      console.error('[frametrail] failed to update snapshot shield UI', error);
+      reportFailure('snapshot input shield message channel failed', error);
     }
   };
 
@@ -425,20 +428,31 @@ export function createSnapshotShield(
     removed = true;
     clearTimeout(readyTimeout);
     observer.disconnect();
-    port?.close();
+    try {
+      port?.close();
+    } catch {
+      // A failed or already-detached channel may reject cleanup.
+    }
     port = null;
     host.remove();
     if (!ready) rejectReady(new Error('Snapshot input shield was removed before it became ready.'));
   };
 
-  const fail = (message: string) => {
-    if (removed || ready) return;
+  reportFailure = (message: string, cause?: unknown) => {
+    if (removed) return;
+    const runtimeFailure = ready;
+    const error = cause instanceof Error ? cause : new Error(message);
     remove();
-    console.error(`[frametrail] ${message}`);
+    console.error(`[frametrail] ${message}`, cause ?? '');
+    if (runtimeFailure && onFailure) {
+      void Promise.resolve(onFailure(error)).catch((handlerError) => {
+        console.error('[frametrail] failed to recover from snapshot shield failure', handlerError);
+      });
+    }
   };
 
   const readyTimeout = setTimeout(
-    () => fail('snapshot input shield did not become ready before the startup timeout'),
+    () => reportFailure('snapshot input shield did not become ready before the startup timeout'),
     SHIELD_READY_TIMEOUT_MS,
   );
 
@@ -502,15 +516,23 @@ export function createSnapshotShield(
           void handleControl(event.data, generation);
         }
       };
-      port.onmessageerror = () => fail('snapshot input shield message channel failed');
+      port.onmessageerror = () => {
+        if (generation === channelGeneration) {
+          reportFailure('snapshot input shield message channel failed');
+        }
+      };
       port.start();
 
       const message: SnapshotShieldInitMessage = { type: SNAPSHOT_SHIELD_INIT, token };
-      frame.contentWindow.postMessage(message, frameUrl.origin, [channel.port2]);
+      try {
+        frame.contentWindow.postMessage(message, frameUrl.origin, [channel.port2]);
+      } catch (error) {
+        reportFailure('snapshot input shield channel initialization failed', error);
+      }
     },
   );
 
-  frame.addEventListener('error', () => fail('snapshot input shield page failed to load'), { once: true });
+  frame.addEventListener('error', () => reportFailure('snapshot input shield page failed to load'), { once: true });
   mountHost();
   observer.observe(document.documentElement, {
     childList: true,
