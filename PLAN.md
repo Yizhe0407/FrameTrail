@@ -27,9 +27,10 @@ frame-trail/
     │   ├── capture/               # DOM 候選、座標映射、frame probe 與擷取流程
     │   ├── editor/                # autosave、選取、拖曳與視覺編輯狀態
     │   ├── export/                # 公開輸出、下載、entry render 與專案封存
+    │   │   ├── project-archive-*.ts # archive contract、validation、serialize 與 import codec
     │   ├── guide/                 # Guide 選取、章節與品質分析
-    │   ├── media/                 # annotation layout、圖片標註合成與 screenshot 工具
-    │   ├── recording/             # 錄製生命週期、queue、frame targeting、shield 與 session hook
+    │   ├── media/                 # annotation contract、geometry、callout layout、圖片標註合成與 screenshot 工具
+    │   ├── recording/             # 錄製生命週期、queue、frame targeting、shield、session hook 與 background runtime adapter
     │   ├── runtime/               # 訊息契約、sender validation 與瀏覽器導覽
     │   ├── shared/                # 無領域狀態的 feature flags 與小型工具
     │   └── storage/               # 本機持久化領域
@@ -47,6 +48,14 @@ frame-trail/
     ├── playwright.config.ts       # E2E server、artifact 與執行隔離
     └── wxt.config.ts              # manifest、權限與跨瀏覽器 build
 ```
+
+## 模組邊界與大型流程拆分
+
+- `lib/export/project-archive.ts` 是向 Library 與測試保留的相容 facade；嚴格 schema 驗證、串流序列化與匯入 blob codec 分別位於 `project-archive-validation.ts`、`project-archive-serialize.ts`、`project-archive-import.ts`。
+- `lib/media/annotation-layout.ts` 保持 preview、canvas 與 shield 共用的 layout API；`annotation-contract.ts` 放置視覺常數與公開型別，`annotation-geometry.ts` 處理 frame／群組幾何，`annotation-callouts.ts` 處理 spatial index 與 badge/callout 佈局。這些模組必須保持純函式，避免引入 image 或 DOM 狀態。
+- `lib/editor/use-editor-entry-workspace.ts` 管理篩選、品質衍生可見清單與多選 view state；`entrypoints/editor/App.tsx` 保留 persistence、permission、undo 與 recapture 的 transaction coordinator。
+- `lib/recording/background/recorder-runtime.ts` 集中 `captureVisibleTab` retry、recorder injection、stop message、data URL decode 與實測 screenshot scale。background state machine 仍由 entrypoint 協調，避免可變 run state 分散在互相循環的 controller。
+- `tests/build/validate-module-boundaries.mjs` 在 CI 掃描 `components/`、`entrypoints/`、`lib/` 的 alias dependency graph，拒絕 dependency cycle，並限制 `lib/shared/`、`components/ui/`、`storage/models.ts` 的依賴方向。
 
 ## 錄製資料流
 

@@ -1,7 +1,6 @@
 import { browser, type Browser } from 'wxt/browser';
 import {
   InsertionStateCommitError,
-  MIN_CAPTURE_INTERVAL_MS,
   SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
   SnapshotViewportChangedError,
   StaleCaptureError,
@@ -11,7 +10,6 @@ import {
   queueLifecycle,
   queueStateMutation,
   waitForQueuedClicks,
-  sleep,
 } from '@/lib/recording/background-queues';
 import { generateActionDescription } from '@/lib/capture/action-description';
 import {
@@ -53,7 +51,7 @@ import {
 } from '@/lib/recording/recording-guards';
 import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
-import { injectRecorderScript } from '@/lib/recording/recorder-injection';
+import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
 import { getRecordingState, setRecordingState } from '@/lib/storage/storage';
 import {
@@ -101,9 +99,16 @@ import type {
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
 
-const CONTENT_SCRIPT_FILE = '/content-scripts/content.js';
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 const RECORDER_READY_TIMEOUT_MS = 5_000;
+const recorderRuntime = createRecorderRuntime({
+  captureVisibleTab: (windowId) => browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 }),
+  executeRecorderScript: (target) => browser.scripting.executeScript({
+    target,
+    files: ['/content-scripts/content.js'],
+  }),
+  sendStopMessage: (tabId, message) => browser.tabs.sendMessage(tabId, message),
+});
 // Control messages invalidate work synchronously, before their first await.
 // Persisted runId provides the same protection across service-worker restarts.
 let controlVersion = 0;
@@ -121,16 +126,12 @@ let pendingUndo:
       expiresAt: number;
     }
   | null = null;
-// A step gesture can time out in the content script while captureVisibleTab is
-// still in flight. Keep cancellation state outside the queued click transaction
-// so the background can invalidate that work before it reaches addStep().
 const cancelledCaptureIds = new Set<string>();
 const committingCaptureIds = new Set<string>();
 
 function cancelCapture(captureId: string): void {
   if (committingCaptureIds.has(captureId)) return;
   cancelledCaptureIds.add(captureId);
-  // Bound the set in case a tab disappears before its queued transaction runs.
   while (cancelledCaptureIds.size > 1_024) {
     const oldest = cancelledCaptureIds.values().next().value as string | undefined;
     if (!oldest) break;
@@ -139,68 +140,11 @@ function cancelCapture(captureId: string): void {
 }
 
 function assertCaptureNotCancelled(captureId: string): void {
-  if (cancelledCaptureIds.has(captureId)) {
-    throw new StaleCaptureError('Capture was cancelled before it could be saved.');
-  }
-}
-
-async function captureVisibleTabWithRetry(
-  windowId: number,
-  beforeEveryCapture: () => Promise<void>,
-  maxRetries = 5,
-): Promise<string> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      // captureVisibleTab always targets the window's active tab. This guard
-      // must be adjacent to every actual API call, including quota retries.
-      await beforeEveryCapture();
-      return await browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 });
-    } catch (err) {
-      const isQuotaError = err instanceof Error && err.message.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND');
-      if (!isQuotaError || attempt >= maxRetries) throw err;
-      console.warn('[frametrail] captureVisibleTab quota hit, retrying', attempt + 1);
-      await sleep(MIN_CAPTURE_INTERVAL_MS * (attempt + 1));
-    }
-  }
-}
-
-async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  const res = await fetch(dataUrl);
-  return res.blob();
-}
-
-async function getScreenshotScale(screenshot: Blob, viewport: ClickCapture['viewport'], fallback: number): Promise<number> {
-  if (viewport.width <= 0 || viewport.height <= 0) return fallback || 1;
-  const bitmap = await createImageBitmap(screenshot);
-  const horizontalScale = bitmap.width / viewport.width;
-  const verticalScale = bitmap.height / viewport.height;
-  bitmap.close();
-  return Number.isFinite(horizontalScale) && horizontalScale > 0 && Math.abs(horizontalScale - verticalScale) < 0.1
-    ? horizontalScale
-    : fallback || 1;
-}
-
-async function injectRecorder(tabId: number, allFrames = false): Promise<void> {
-  await injectRecorderScript(
-    (target) => browser.scripting.executeScript({ target, files: [CONTENT_SCRIPT_FILE] }),
-    tabId,
-    allFrames,
-  );
-}
-
-async function stopRecorderInTab(tabId: number | null): Promise<void> {
-  if (tabId == null) return;
-  try {
-    const stopMessage: FrameTrailStopMessage = { type: 'FRAME_TRAIL_STOP' };
-    await browser.tabs.sendMessage(tabId, stopMessage);
-  } catch (err) {
-    // A closed/navigated tab has no content listener left to clean up.
-    console.warn('[frametrail] failed to send stop message to tab', tabId, err);
-  }
+  if (cancelledCaptureIds.has(captureId)) throw new StaleCaptureError('Capture was cancelled before it could be saved.');
 }
 
 async function stopRecordingSource(state: RecordingState): Promise<void> {
-  await stopRecorderInTab(state.tabId);
+  await recorderRuntime.stopRecorderInTab(state.tabId);
   if (state.insertion?.sourceTabCreated) await closeTemporarySourceTab(state.tabId ?? undefined);
 }
 
@@ -778,7 +722,7 @@ async function settleStepRecapture(
   });
   if (!context) return false;
   activeRecaptureCaptureId = null;
-  await stopRecorderInTab(context.sourceTabId);
+  await recorderRuntime.stopRecorderInTab(context.sourceTabId);
   if (context.sourceTabCreated) {
     await browser.tabs.remove(context.sourceTabId).catch((error) => {
       console.warn('[frametrail] failed to close temporary recapture tab', error);
@@ -1065,7 +1009,7 @@ async function handleStartStepRecapture(
   );
   pendingRecaptureReady = readyGate;
   try {
-    const [, ready] = await Promise.all([injectRecorder(sourceTab.id, true), readyGate.promise]);
+    const [, ready] = await Promise.all([recorderRuntime.injectRecorder(sourceTab.id, true), readyGate.promise]);
     if (!ready) throw new Error('Recapture recorder did not become ready before timeout.');
     const activated = await queueStateMutation(async () => {
       const state = await getRecordingState();
@@ -1400,7 +1344,7 @@ async function startInsertionRecording(
     pendingRecorderReady = readyGate;
     try {
       const [, ready] = await Promise.all([
-        injectRecorder(sourceTab.id, message.mode === 'snapshot'),
+        recorderRuntime.injectRecorder(sourceTab.id, message.mode === 'snapshot'),
         readyGate.promise,
       ]);
       if (!ready || version !== controlVersion) throw new StaleCaptureError('Insertion recorder startup changed.');
@@ -1495,7 +1439,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (version !== controlVersion) return;
 
-  await stopRecorderInTab(prevState.tabId);
+  await recorderRuntime.stopRecorderInTab(prevState.tabId);
   if (version !== controlVersion) return;
   if (!tab?.id) {
     await writeStateForControl(version, (current) => ({
@@ -1578,7 +1522,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   let startupAnchorId: string | null = null;
   try {
     const [, recorderReady] = await Promise.all([
-      injectRecorder(tab.id, message.mode === 'snapshot'),
+      recorderRuntime.injectRecorder(tab.id, message.mode === 'snapshot'),
       readyGate.promise,
     ]);
     if (!recorderReady) throw new Error('Recorder did not become ready before the startup timeout.');
@@ -2003,7 +1947,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
     if (previous.tabId == null) throw new Error('Recorded tab is no longer available.');
     // Re-injection tears down the shield instance and mounts the lightweight
     // preparing-next toolbar without installing step-capture listeners.
-    await injectRecorder(previous.tabId);
+    await recorderRuntime.injectRecorder(previous.tabId);
   } catch (error) {
     console.error('[frametrail] failed to enter snapshot preparation state', error);
     await setRunError(message.runId, '無法顯示下一張快照控制，請重新載入一般網站後再試一次。');
@@ -2059,7 +2003,7 @@ async function createNextSnapshot(
     const tab = await browser.tabs.get(state.tabId!);
     if (tab.windowId == null || isRestrictedUrl(tab.url)) throw new Error('Snapshot tab cannot be captured.');
     const [, recorderReady] = await Promise.all([
-      injectRecorder(state.tabId!, true),
+      recorderRuntime.injectRecorder(state.tabId!, true),
       readyGate.promise,
     ]);
     if (!recorderReady || version !== controlVersion) {
@@ -2106,7 +2050,7 @@ async function createNextSnapshot(
         version,
       );
       try {
-        await injectRecorder(state.tabId!);
+        await recorderRuntime.injectRecorder(state.tabId!);
       } catch (reinjectionError) {
         console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
       }
@@ -2494,10 +2438,10 @@ async function captureScreenshotWithGuard(
           origin: 'USER',
         }),
       },
-      () => captureVisibleTabWithRetry(windowId, guard),
+      () => recorderRuntime.captureVisibleTabWithRetry(windowId, guard),
     );
-    const blob = await dataUrlToBlob(dataUrl);
-    const scale = await getScreenshotScale(blob, message.viewport, message.devicePixelRatio);
+    const blob = await recorderRuntime.dataUrlToBlob(dataUrl);
+    const scale = await recorderRuntime.getScreenshotScale(blob, message.viewport, message.devicePixelRatio);
     // Do not persist an image after a stop/cancel/new operation arrives while
     // captureVisibleTab or image decoding is still in flight.
     await guard();
@@ -3060,7 +3004,7 @@ export default defineBackground(() => {
           return;
         }
         try {
-          await injectRecorder(tabId);
+          await recorderRuntime.injectRecorder(tabId);
         } catch (err) {
           if (isMissingTabError(err)) {
             await stopRunWithError(
@@ -3100,7 +3044,7 @@ export default defineBackground(() => {
         return;
       }
       try {
-        await injectRecorder(tabId);
+        await recorderRuntime.injectRecorder(tabId);
       } catch (err) {
         if (isMissingTabError(err)) {
           await stopRunWithError(

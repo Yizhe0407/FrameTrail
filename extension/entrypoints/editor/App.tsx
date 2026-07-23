@@ -39,7 +39,7 @@ import {
 import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/editor/EditorHeader';
-import StepRail, { type StepRailSelectionModifiers } from '@/components/editor/StepRail';
+import StepRail from '@/components/editor/StepRail';
 import StepStage from '@/components/editor/StepStage';
 import GuideBatchToolbar from '@/components/editor/GuideBatchToolbar';
 import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/editor/InsertionRecordingActions';
@@ -48,25 +48,13 @@ import Lightbox from '@/components/editor/Lightbox';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
 import GuideQualityDialog from '@/components/editor/GuideQualityDialog';
 import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
-import StepRailFilters, { type StepRailFilterValue } from '@/components/editor/StepRailFilters';
+import StepRailFilters from '@/components/editor/StepRailFilters';
 import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
-import {
-  analyzeGuideQuality,
-  createGuideEntryIndex,
-  DEFAULT_GUIDE_ENTRY_FILTERS,
-  filterGuideEntryIndex,
-  type EntryQualityIssue,
-} from '@/lib/guide/guide-quality';
+import { DEFAULT_GUIDE_ENTRY_FILTERS } from '@/lib/guide/guide-quality';
 import { Button } from '@/components/ui/button';
 import { exportImagesAsZip } from '@/lib/export/export-images';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
-import {
-  collapseEntrySelection,
-  reconcileEntrySelection,
-  selectAllVisibleEntries,
-  selectEntry as applyEntrySelection,
-  type EntrySelectionState,
-} from '@/lib/editor/entry-selection';
+import { useEditorEntryWorkspace } from '@/lib/editor/use-editor-entry-workspace';
 import { assertPublicationReady } from '@/lib/export/publication-policy';
 import type {
   CancelStepRecaptureResult,
@@ -132,34 +120,41 @@ function EditorApp() {
     if (!dataOperation) setOptimisticEntries(null);
   }, [dbEntries, dataOperation]);
   const entries = optimisticEntries ?? dbEntries;
-  const qualityReport = useMemo(() => analyzeGuideQuality(entries), [entries]);
-  const qualityIndex = useMemo(() => createGuideEntryIndex(entries, qualityReport), [entries, qualityReport]);
-  const [filters, setFilters] = useState<StepRailFilterValue>({ ...DEFAULT_GUIDE_ENTRY_FILTERS });
-  const [qualityOpen, setQualityOpen] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const filteredIndex = useMemo(() => filterGuideEntryIndex(qualityIndex, filters), [qualityIndex, filters]);
-  const visibleEntries = useMemo(() => filteredIndex.map((item) => item.entry), [filteredIndex]);
-  const filtersActive = filters.text.trim().length > 0 || filters.kind !== 'all' || filters.issue !== 'all';
-
-  const [entrySelection, setEntrySelection] = useState<EntrySelectionState>({
-    activeId: null,
-    selectedIds: new Set(),
-    anchorId: null,
+  const {
+    changeFilters,
+    collapseSelection,
+    entrySelection,
+    filters,
+    filtersActive,
+    focusQualityIssue,
+    multipleEntriesSelected,
+    orderedSelectedEntryIds,
+    publishOpen,
+    qualityOpen,
+    qualityReport,
+    selectedEntry,
+    selectedEntryId,
+    selectedIndex,
+    setEntrySelection,
+    setPublishOpen,
+    setQualityOpen,
+    setZoomOpen,
+    snapshotNumberingEnabled,
+    selectAllVisible,
+    selectEntry,
+    visibleEntries,
+    visibleEntryIds,
+    zoomOpen,
+  } = useEditorEntryWorkspace({
+    entries,
+    flushDescriptions,
+    isSelectionBlocked: () => dataOperationLock.current || permissionPending,
+    isFilterChangeBlocked: () => dataOperationLock.current || permissionFlowLock.current,
+    onSelectionInteraction: () => {
+      if (permissionFlowLock.current) clearPreparedPermission();
+    },
+    onSelectionSaved: () => setOperationError(null),
   });
-  const selectedEntryId = entrySelection.activeId;
-  const visibleEntryIds = useMemo(() => visibleEntries.map(entryId), [visibleEntries]);
-  const orderedSelectedEntryIds = useMemo(
-    () => visibleEntryIds.filter((id) => entrySelection.selectedIds.has(id)),
-    [entrySelection.selectedIds, visibleEntryIds],
-  );
-  const multipleEntriesSelected = orderedSelectedEntryIds.length > 1;
-  const requestedEntryId = useMemo(() => new URLSearchParams(window.location.search).get('entryId'), []);
-  const appliedRequestedEntry = useRef(false);
-  const [zoomOpen, setZoomOpen] = useState(false);
-
-  useEffect(() => {
-    if (multipleEntriesSelected) setZoomOpen(false);
-  }, [multipleEntriesSelected]);
 
   useEffect(() => {
     const flowEntryId = permissionFlowEntryId.current;
@@ -212,51 +207,6 @@ function EditorApp() {
       }
     })();
   }, [recording.recaptureResult, refresh, sessionId]);
-
-  // Hidden entries are deliberately removed from the selected set so a batch
-  // operation can never mutate a step that the current filter conceals.
-  useEffect(() => {
-    setEntrySelection((current) => reconcileEntrySelection(current, visibleEntryIds));
-  }, [visibleEntryIds]);
-
-  useEffect(() => {
-    if (appliedRequestedEntry.current || !requestedEntryId) return;
-    if (!visibleEntries.some((entry) => entryId(entry) === requestedEntryId)) return;
-    appliedRequestedEntry.current = true;
-    setEntrySelection({ activeId: requestedEntryId, selectedIds: new Set([requestedEntryId]), anchorId: requestedEntryId });
-    requestAnimationFrame(() => document.querySelector<HTMLElement>('#frametrail-editor-title')?.focus());
-  }, [visibleEntries, requestedEntryId]);
-
-  const selectedIndex = visibleEntries.findIndex((e) => entryId(e) === selectedEntryId);
-  const selectedEntry: StepEntry | undefined = selectedIndex === -1 ? undefined : visibleEntries[selectedIndex];
-  const selectedSnapshotEntries = useMemo(() => {
-    const selectedIds = entrySelection.selectedIds;
-    return visibleEntries.filter(
-      (entry): entry is Extract<StepEntry, { kind: 'group' }> => entry.kind === 'group' && selectedIds.has(entry.anchor.id),
-    );
-  }, [entrySelection.selectedIds, visibleEntries]);
-  const snapshotNumberingEnabled =
-    selectedSnapshotEntries.length > 0 &&
-    selectedSnapshotEntries.every((entry) => entry.anchor.numbered ?? false);
-
-  async function changeFilters(nextFilters: StepRailFilterValue): Promise<void> {
-    if (dataOperationLock.current || permissionFlowLock.current) return;
-    try {
-      await flushDescriptions();
-      setFilters(nextFilters);
-    } catch {
-      // Keep the active editor field mounted and preserve the previous filter.
-    }
-  }
-
-  function focusQualityIssue(issue: EntryQualityIssue) {
-    void changeFilters({ ...DEFAULT_GUIDE_ENTRY_FILTERS, issue });
-    const first = qualityReport.entries.find((entry) => entry.issues.includes(issue));
-    if (first) {
-      setEntrySelection({ activeId: first.entryId, selectedIds: new Set([first.entryId]), anchorId: first.entryId });
-    }
-    setQualityOpen(false);
-  }
 
   async function flushDescriptions(): Promise<void> {
     try {
@@ -322,43 +272,6 @@ function EditorApp() {
         ? '教學內容已在其他操作中變更。為避免覆蓋較新的資料，這次操作未套用，畫面已重新載入。'
         : `${operation}失敗，已重新載入目前資料。`,
     );
-  }
-
-  async function selectEntry(id: string, modifiers: StepRailSelectionModifiers = { additive: false, range: false }) {
-    if (dataOperationLock.current || permissionPending) return;
-    if (permissionFlowLock.current) clearPreparedPermission();
-    const nextSelection = applyEntrySelection(entrySelection, id, visibleEntryIds, modifiers);
-    if (
-      nextSelection.activeId === entrySelection.activeId &&
-      nextSelection.anchorId === entrySelection.anchorId &&
-      nextSelection.selectedIds.size === entrySelection.selectedIds.size &&
-      [...nextSelection.selectedIds].every((selectedId) => entrySelection.selectedIds.has(selectedId))
-    ) return;
-    try {
-      if (nextSelection.activeId !== selectedEntryId) await flushDescriptions();
-      setOperationError(null);
-      setEntrySelection(nextSelection);
-    } catch {
-      // Keep the current field mounted so its unsaved draft remains available.
-    }
-  }
-
-  async function selectAllVisible(): Promise<void> {
-    if (dataOperationLock.current || permissionPending || visibleEntryIds.length === 0) return;
-    if (permissionFlowLock.current) clearPreparedPermission();
-    const nextSelection = selectAllVisibleEntries(visibleEntryIds);
-    try {
-      if (nextSelection.activeId !== selectedEntryId) await flushDescriptions();
-      setEntrySelection(nextSelection);
-    } catch {
-      // Keep the current selection and mounted field when autosave fails.
-    }
-  }
-
-  function collapseSelection(): void {
-    if (permissionPending) return;
-    if (permissionFlowLock.current) clearPreparedPermission();
-    setEntrySelection((current) => collapseEntrySelection(current));
   }
 
   async function persistEntryReorder(newEntries: StepEntry[], previousEntries: StepEntry[], operation: string) {

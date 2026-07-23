@@ -49,7 +49,11 @@ function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactN
   }, [eager, visible]);
 
   return (
-    <div ref={host} className="relative h-12 w-16 shrink-0 overflow-hidden rounded-[6px] bg-stone-200 lg:h-14 lg:w-20 dark:bg-stone-700">
+    <div
+      ref={host}
+      aria-busy={!visible}
+      className="relative h-12 w-16 shrink-0 overflow-hidden rounded-[6px] bg-stone-200 lg:h-14 lg:w-20 dark:bg-stone-700"
+    >
       {visible ? children : <span className="sr-only">縮圖尚未載入</span>}
     </div>
   );
@@ -246,7 +250,10 @@ export default function StepRail({
           items={entries.map(entryId)}
           strategy={isDesktop ? verticalListSortingStrategy : horizontalListSortingStrategy}
         >
-          <ul className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-visible lg:overflow-y-auto lg:px-3 lg:pb-4 lg:pr-4">
+          <ul
+            aria-label="可重新排序的步驟清單"
+            className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-visible lg:overflow-y-auto lg:px-3 lg:pb-4 lg:pr-4"
+          >
             {entries.map((entry, index) => {
               const id = entryId(entry);
               const active = id === selectedEntryId;

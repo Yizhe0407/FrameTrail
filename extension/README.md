@@ -52,6 +52,7 @@ pnpm test
 pnpm test:e2e
 pnpm test:all
 pnpm compile
+pnpm validate:architecture
 pnpm build
 pnpm build:firefox
 ```
@@ -62,8 +63,17 @@ pnpm build:firefox
 - `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行目前設定的 Playwright Chromium E2E 測試套件。
 - `pnpm test:all`：依序執行 Vitest 與 Chromium E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
+- `pnpm validate:architecture`：檢查 alias import cycle 與 `shared`、`ui`、storage model 的依賴邊界；CI 在 compile 後也會執行這個檢查。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。
+
+
+## 模組結構
+
+- `lib/export/project-archive.ts` 是 archive 的穩定公開入口；contract、validation、serialization 與 import codec 已拆為獨立檔案。
+- `lib/media/annotation-layout.ts` 是 annotation layout facade；純幾何、badge/callout collision placement、常數與型別分別位於相鄰的 `annotation-*.ts` 模組。
+- `lib/editor/use-editor-entry-workspace.ts` 封裝 Editor 的篩選、品質索引、可見項目與多選 view state；儲存、permission 與 undo transaction 仍由 `editor/App.tsx` 協調。
+- `lib/recording/background/recorder-runtime.ts` 提供 background state machine 使用的瀏覽器 capture/injection adapter，讓 retry 與 image scale 判定可獨立測試與重用。
 
 ## 封裝
 

@@ -23,7 +23,8 @@
     "lint:firefox": "node tests/build/validate-firefox-lint.mjs",
     "test:e2e:firefox": "pnpm build:firefox && node tests/e2e/firefox-smoke.mjs",
     "test:e2e:browsers": "pnpm test:e2e && pnpm test:e2e:firefox",
-    "test:e2e:docker": "docker build -f Dockerfile.e2e -t frametrail-extension-e2e . && mkdir -p test-results && docker run --rm --init --ipc=host -v \"$PWD/test-results:/work/extension/test-results\" frametrail-extension-e2e"
+    "test:e2e:docker": "docker build -f Dockerfile.e2e -t frametrail-extension-e2e . && mkdir -p test-results && docker run --rm --init --ipc=host -v \"$PWD/test-results:/work/extension/test-results\" frametrail-extension-e2e",
+    "validate:architecture": "node tests/build/validate-module-boundaries.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
