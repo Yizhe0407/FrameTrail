@@ -6,12 +6,12 @@ const mocks = vi.hoisted(() => ({
   updateStep: vi.fn(),
 }));
 
-vi.mock('@/lib/db', () => ({ updateStep: mocks.updateStep }));
+vi.mock('@/lib/storage/db', () => ({ updateStep: mocks.updateStep }));
 
-import DescriptionField from '@/components/DescriptionField';
-import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor-autosave';
-import { readDescriptionDrafts, writeDescriptionDraft } from '@/lib/editor-draft-journal';
-import type { Step } from '@/lib/db';
+import DescriptionField from '@/components/editor/DescriptionField';
+import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
+import { readDescriptionDrafts, writeDescriptionDraft } from '@/lib/editor/editor-draft-journal';
+import type { Step } from '@/lib/storage/db';
 
 function makeStep(): Step {
   return {

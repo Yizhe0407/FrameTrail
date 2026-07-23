@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StepEntry } from '@/lib/db';
+import type { StepEntry } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
   composite: vi.fn(),
 }));
 
-vi.mock('@/lib/entry-render', () => ({
+vi.mock('@/lib/export/entry-render', () => ({
   compositeStepEntry: mocks.composite,
 }));
 
@@ -16,7 +16,7 @@ import {
   generateGuideMarkdown,
   generatePrintReadyGuideHtml,
   guideExportFilename,
-} from '@/lib/guide-export';
+} from '@/lib/export/guide-export';
 
 function entry(overrides: Record<string, unknown> = {}): StepEntry {
   return {

@@ -5,7 +5,7 @@ import {
   selectAllVisibleEntries,
   selectEntry,
   type EntrySelectionState,
-} from '@/lib/entry-selection';
+} from '@/lib/editor/entry-selection';
 
 function state(
   activeId: string | null,

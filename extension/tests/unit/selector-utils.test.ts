@@ -8,7 +8,7 @@ import {
   isInteractiveElement,
   isElementVisuallyUnavailable,
   selectVisualTargetCandidate,
-} from '@/lib/selector-utils';
+} from '@/lib/capture/selector-utils';
 
 function makeVisible(element: Element, rect = { x: 20, y: 20, width: 120, height: 40 }): void {
   Object.defineProperty(element, 'getBoundingClientRect', {

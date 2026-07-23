@@ -50,7 +50,7 @@ describe('v3 to v4 guide migration', () => {
     });
 
     try {
-      const db = await import('@/lib/db');
+      const db = await import('@/lib/storage/db');
       const guide = await db.getGuide(sessionId);
       const migrated = await db.getStep('legacy-step');
 

@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('wxt/browser', () => ({ browser: { downloads: { download: mocks.download } } }));
-vi.mock('@/lib/entry-render', () => ({
+vi.mock('@/lib/export/entry-render', () => ({
   compositeStepEntry: mocks.composite,
 }));
 
@@ -25,8 +25,8 @@ import {
   RedactionReviewRequiredError,
   exportImagesAsZip,
   localDateStamp,
-} from '@/lib/export-images';
-import type { Step } from '@/lib/db';
+} from '@/lib/export/export-images';
+import type { Step } from '@/lib/storage/db';
 
 function step(order: number): Step {
   return {

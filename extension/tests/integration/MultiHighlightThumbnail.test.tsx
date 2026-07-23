@@ -6,12 +6,12 @@ const annotateMocks = vi.hoisted(() => ({
   layoutAnnotations: vi.fn(),
 }));
 
-vi.mock('@/lib/annotate', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/annotate')>()),
+vi.mock('@/lib/media/annotate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/media/annotate')>()),
   layoutAnnotations: annotateMocks.layoutAnnotations,
 }));
 
-import MultiHighlightThumbnail from '@/components/MultiHighlightThumbnail';
+import MultiHighlightThumbnail from '@/components/editor/MultiHighlightThumbnail';
 
 type ResizeCallback = ResizeObserverCallback;
 

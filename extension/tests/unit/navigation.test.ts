@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('wxt/browser', () => ({ browser: {} }));
 
-import { getEditorSessionIdFromUrl } from '@/lib/navigation';
+import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 
 describe('getEditorSessionIdFromUrl', () => {
   it('reads the explicit Guide session from an editor URL', () => {

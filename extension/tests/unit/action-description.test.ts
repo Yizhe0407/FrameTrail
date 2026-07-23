@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateActionDescription, type ActionDescriptionCapture } from '@/lib/action-description';
+import { generateActionDescription, type ActionDescriptionCapture } from '@/lib/capture/action-description';
 
 function capture(overrides: Partial<ActionDescriptionCapture> = {}): ActionDescriptionCapture {
   return {

@@ -5,7 +5,7 @@ import {
   moveToolbarCorner,
   positionForToolbarCorner,
   snapToolbarCorner,
-} from '@/lib/recording-toolbar-position';
+} from '@/lib/recording/recording-toolbar-position';
 
 describe('recording toolbar position', () => {
   const viewport = { width: 800, height: 600 };

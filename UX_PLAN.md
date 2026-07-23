@@ -536,7 +536,7 @@ interface RecordingUiState {
 
 ### 14.2 指令與事件
 
-建議擴充 `extension/lib/messages.ts`：
+建議擴充 `extension/lib/runtime/messages.ts`：
 
 | 指令 | 用途 |
 | --- | --- |
@@ -578,25 +578,25 @@ interface FinishResult {
 
 | 模組 | 計畫變更 |
 | --- | --- |
-| `extension/components/RecordControls.tsx` | 改模式文案、漸進式權限、啟動階段與單一 primary |
+| `extension/components/popup/RecordControls.tsx` | 改模式文案、漸進式權限、啟動階段與單一 primary |
 | `extension/entrypoints/popup/App.tsx` | 錄製中改摘要與回到分頁；移除依賴 Popup 停止的流程 |
-| `extension/lib/useRecordingSession.ts` | 暴露 mode、phase、count、active tab 與 recoverable error；事件驅動更新 |
+| `extension/lib/recording/useRecordingSession.ts` | 暴露 mode、phase、count、active tab 與 recoverable error；事件驅動更新 |
 | `extension/entrypoints/content.ts` | 掛載操作流程控制器、暫停行為、截圖前隱藏與 focus 管理 |
 | `extension/entrypoints/snapshot-shield/main.ts` | 在乾淨底圖後掛載標註控制器、鍵盤候選巡覽與 invalidated UI |
-| `extension/lib/snapshot-shield-protocol.ts` | 新增 undo、finish、prepare next、create next 與狀態事件 |
+| `extension/lib/recording/snapshot-shield-protocol.ts` | 新增 undo、finish、prepare next、create next 與狀態事件 |
 | `extension/entrypoints/background.ts` | 作為錄製狀態真相來源，序列化控制指令並管理 Editor tab |
-| `extension/lib/messages.ts` | 定義 discriminated union、result 與 error code |
-| `extension/components/DescriptionField.tsx` | debounce autosave、flush、saving/saved/error 狀態 |
-| `extension/components/StepRail.tsx` | 摘要、模式、標註數、選取語意與 responsive drawer |
+| `extension/lib/runtime/messages.ts` | 定義 discriminated union、result 與 error code |
+| `extension/components/editor/DescriptionField.tsx` | debounce autosave、flush、saving/saved/error 狀態 |
+| `extension/components/editor/StepRail.tsx` | 摘要、模式、標註數、選取語意與 responsive drawer |
 | `extension/entrypoints/editor/App.tsx` | 完成後定位、Undo snackbar、空狀態與 responsive layout |
 
 建議新增共用元件與邏輯：
 
-- `extension/components/RecordingToolbar.tsx`
-- `extension/components/RecordingStatus.tsx`
-- `extension/components/UndoSnackbar.tsx`
-- `extension/lib/recording-ui-state.ts`
-- `extension/lib/editor-navigation.ts`
+- `extension/components/recording/RecordingToolbar.tsx`
+- `extension/components/recording/RecordingStatus.tsx`
+- `extension/components/editor/UndoSnackbar.tsx`
+- `extension/lib/recording/recording-ui-state.ts`
+- `extension/lib/editor/editor-navigation.ts`
 
 控制器視覺可共用，但操作流程與單頁標註的可用 actions 必須由明確 mode/phase 決定，不以散落的 boolean 組合推導。
 
@@ -699,7 +699,7 @@ Phase 3 的核心摩擦已以本機優先方案完成：
 - 導入 Noto Sans TC 優先字型堆疊（避免 JP 字形）、`letter-spacing: 0`，面板圓角收斂為 8px，並加入 `prefers-reduced-motion` 全域降級以移除錄製紅點的持續動畫。
 - 修正低於樓地板的關鍵文字：標註序號徽章 11px→12px 並改用 rose 對齊實際 marker 色；StepRail 快照角標 10px→11px（非關鍵 metadata 下限）。
 - 加入 browser `commands`：`toggle-pause`、`undo-last-capture`、`finish-recording`，路由到既有背景控制指令；不設預設鍵，改由 chrome://extensions/shortcuts 綁定，暫停切換僅在操作流程生效。Chrome MV3 與 Firefox MV2 build 均含 commands。
-- 實作快照鍵盤候選巡覽（§9.5），以 `lib/feature-flags.ts` 的 `snapshotKeyboardNav` 旗標隔離（§19）：
+- 實作快照鍵盤候選巡覽（§9.5），以 `lib/shared/feature-flags.ts` 的 `snapshotKeyboardNav` 旗標隔離（§19）：
   - 頁面凍結期間 top frame 只列舉一次可標註的語意候選（`isInteractiveElement` 過濾、reading order 排序、去重、上限 150），並在 idle callback 送入 shield，避免拖慢乾淨底圖交接。
   - shield 以 index 驅動既有 probe／preview／commit 引擎：`Tab`／`Shift+Tab` 巡覽候選、`Enter`／`Space` 加入、`Delete`／`Backspace` 復原、方向鍵維持父子層級；`Escape` 回到 skip link。
   - 新增「跳至錄製控制」skip link 與 `aria-live` polite 宣告（候選位置、加入標註、無法標註）。

@@ -1,24 +1,24 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ScreenshotStep, Step, StepEntry } from '@/lib/db';
-import type { VisualEditCommit } from '@/components/VisualEditDialog';
+import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
+import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
 
 const visualEditDialogSpy = vi.hoisted(() => vi.fn());
 
-vi.mock('@/components/HighlightThumbnail', () => ({ default: () => null }));
-vi.mock('@/components/MultiHighlightThumbnail', () => ({ default: () => null }));
-vi.mock('@/components/DescriptionField', () => ({ default: () => null }));
-vi.mock('@/components/AnnotationList', () => ({ default: () => null }));
-vi.mock('@/components/StepActions', () => ({ default: () => null }));
-vi.mock('@/components/VisualEditDialog', () => ({
+vi.mock('@/components/editor/HighlightThumbnail', () => ({ default: () => null }));
+vi.mock('@/components/editor/MultiHighlightThumbnail', () => ({ default: () => null }));
+vi.mock('@/components/editor/DescriptionField', () => ({ default: () => null }));
+vi.mock('@/components/editor/AnnotationList', () => ({ default: () => null }));
+vi.mock('@/components/editor/StepActions', () => ({ default: () => null }));
+vi.mock('@/components/editor/VisualEditDialog', () => ({
   default: (props: { open: boolean }) => {
     visualEditDialogSpy(props);
     return props.open ? <div role="dialog" aria-label="VisualEditDialog" /> : null;
   },
 }));
 
-import StepStage from '@/components/StepStage';
+import StepStage from '@/components/editor/StepStage';
 
 type VisualDialogProps = {
   open: boolean;

@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ resetSession: vi.fn() }));
 
-vi.mock('@/lib/actions', () => ({ resetSession: mocks.resetSession }));
+vi.mock('@/lib/runtime/actions', () => ({ resetSession: mocks.resetSession }));
 
-import ResetButton from '@/components/ResetButton';
+import ResetButton from '@/components/shared/ResetButton';
 
 beforeEach(() => {
   mocks.resetSession.mockReset();

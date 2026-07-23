@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundsFromPoints, clampBounds, moveBounds, resizeBounds } from '@/lib/visual-editing';
+import { boundsFromPoints, clampBounds, moveBounds, resizeBounds } from '@/lib/editor/visual-editing';
 
 const viewport = { width: 100, height: 80 };
 

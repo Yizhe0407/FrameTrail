@@ -21,10 +21,10 @@ vi.mock('wxt/browser', () => ({
     },
   },
 }));
-vi.mock('@/lib/guide-actions', () => ({ ensureSelectedGuide: mocks.ensureSelectedGuide }));
+vi.mock('@/lib/guide/guide-actions', () => ({ ensureSelectedGuide: mocks.ensureSelectedGuide }));
 
-import RecordControls from '@/components/RecordControls';
-import type { RecordingState } from '@/lib/messages';
+import RecordControls from '@/components/popup/RecordControls';
+import type { RecordingState } from '@/lib/runtime/messages';
 
 const IDLE_RECORDING: RecordingState = {
   operation: null,

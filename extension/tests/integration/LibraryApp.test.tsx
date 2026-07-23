@@ -33,10 +33,10 @@ const archive = vi.hoisted(() => ({
   PROJECT_ARCHIVE_LIMITS: { maxArchiveBytes: 128 * 1024 * 1024 },
 }));
 
-vi.mock('@/lib/db', () => database);
-vi.mock('@/lib/guide-actions', () => guideActions);
-vi.mock('@/lib/storage', () => storage);
-vi.mock('@/lib/project-archive', () => archive);
+vi.mock('@/lib/storage/db', () => database);
+vi.mock('@/lib/guide/guide-actions', () => guideActions);
+vi.mock('@/lib/storage/storage', () => storage);
+vi.mock('@/lib/export/project-archive', () => archive);
 vi.mock('wxt/browser', () => ({
   browser: { downloads: { download: vi.fn() } },
 }));

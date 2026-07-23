@@ -1,5 +1,19 @@
 import { browser, type Browser } from 'wxt/browser';
-import { generateActionDescription } from '@/lib/action-description';
+import {
+  InsertionStateCommitError,
+  MIN_CAPTURE_INTERVAL_MS,
+  SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
+  SnapshotViewportChangedError,
+  StaleCaptureError,
+  isRestrictedUrl,
+  queueCapture,
+  queueClick,
+  queueLifecycle,
+  queueStateMutation,
+  waitForQueuedClicks,
+  sleep,
+} from '@/lib/recording/background-queues';
+import { generateActionDescription } from '@/lib/capture/action-description';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -7,12 +21,12 @@ import {
   isTrustedKeepAliveSender,
   isTrustedRecorderControlSender,
   type RuntimeMessageSenderLike,
-} from '@/lib/background-message-validation';
+} from '@/lib/runtime/background-message-validation';
 import {
   CAPTURE_PRESENTATION_CSS,
   waitForCapturePresentationPaint,
   withCapturePresentation,
-} from '@/lib/capture-presentation';
+} from '@/lib/capture/capture-presentation';
 import {
   addStep,
   deleteStep,
@@ -30,23 +44,23 @@ import {
   StepRecaptureError,
   type Step,
   type StepRecaptureTarget as DbStepRecaptureTarget,
-} from '@/lib/db';
+} from '@/lib/storage/db';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
   isValidSnapshotViewportContext,
-} from '@/lib/recording-guards';
-import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/recapture-guards';
-import { RecorderReadyGate } from '@/lib/recorder-ready';
-import { injectRecorderScript } from '@/lib/recorder-injection';
-import { describeBrowserError, isMissingTabError } from '@/lib/browser-errors';
-import { getRecordingState, setRecordingState } from '@/lib/storage';
+} from '@/lib/recording/recording-guards';
+import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
+import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
+import { injectRecorderScript } from '@/lib/recording/recorder-injection';
+import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
+import { getRecordingState, setRecordingState } from '@/lib/storage/storage';
 import {
   clearEditorRecovery,
   markEditorOpenFailed,
   RECORDED_TAB_CLOSED_ERROR,
-} from '@/lib/recording-recovery';
+} from '@/lib/recording/recording-recovery';
 import type {
   AckStepRecaptureResultMessage,
   BackgroundMessage,
@@ -85,68 +99,11 @@ import type {
   StepRecaptureResult,
   SourcePermissionPreflightSuccess,
   StepRecaptureTargetResult,
-} from '@/lib/messages';
+} from '@/lib/runtime/messages';
 
 const CONTENT_SCRIPT_FILE = '/content-scripts/content.js';
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 const RECORDER_READY_TIMEOUT_MS = 5_000;
-const RESTRICTED_URL_PREFIXES = [
-  'chrome://',
-  'chrome-extension://',
-  'edge://',
-  'about:',
-  'https://chrome.google.com/webstore',
-  'https://chromewebstore.google.com',
-];
-
-function isRestrictedUrl(url: string | undefined): boolean {
-  if (!url) return true;
-  return RESTRICTED_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-const MIN_CAPTURE_INTERVAL_MS = 500;
-let lastCaptureAt = 0;
-let captureChain: Promise<unknown> = Promise.resolve();
-function queueCapture<T>(task: () => Promise<T>): Promise<T> {
-  const run = async () => {
-    const wait = MIN_CAPTURE_INTERVAL_MS - (Date.now() - lastCaptureAt);
-    if (wait > 0) await sleep(wait);
-    lastCaptureAt = Date.now();
-    return task();
-  };
-  const result = captureChain.then(run, run);
-  captureChain = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-// Serializing the whole click transaction (state read, optional capture and
-// DB writes) prevents duplicate snapshot anchors and colliding step orders.
-let clickChain: Promise<unknown> = Promise.resolve();
-function queueClick<T>(task: () => Promise<T>): Promise<T> {
-  const result = clickChain.then(task, task);
-  clickChain = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-// Guide-targeting lifecycle changes must not interleave. This is separate
-// from clickChain: lifecycle tasks wait for capture commits at explicit barriers.
-let lifecycleChain: Promise<unknown> = Promise.resolve();
-function queueLifecycle<T>(task: () => Promise<T>): Promise<T> {
-  const result = lifecycleChain.then(task, task);
-  lifecycleChain = result.then(() => undefined, () => undefined);
-  return result;
-}
-
 // Control messages invalidate work synchronously, before their first await.
 // Persisted runId provides the same protection across service-worker restarts.
 let controlVersion = 0;
@@ -186,22 +143,6 @@ function assertCaptureNotCancelled(captureId: string): void {
     throw new StaleCaptureError('Capture was cancelled before it could be saved.');
   }
 }
-
-let stateMutationChain: Promise<unknown> = Promise.resolve();
-function queueStateMutation<T>(task: () => Promise<T>): Promise<T> {
-  const result = stateMutationChain.then(task, task);
-  stateMutationChain = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-class StaleCaptureError extends Error {}
-class InsertionStateCommitError extends Error {}
-class SnapshotViewportChangedError extends Error {}
-
-const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
 
 async function captureVisibleTabWithRetry(
   windowId: number,
@@ -900,7 +841,7 @@ async function recoverInterruptedInsertionRecording(): Promise<void> {
   const version = ++controlVersion;
   acceptingClicks = false;
   pendingUndo = null;
-  await clickChain;
+  await waitForQueuedClicks();
   try {
     if (state.phase === 'starting' || state.phase === 'finishing' || state.phase === 'error') {
       throw new Error(`Insertion cannot resume from phase ${state.phase}.`);
@@ -1046,7 +987,7 @@ async function handleStartStepRecapture(
   sender: Browser.runtime.MessageSender,
   version: number,
 ): Promise<StartStepRecaptureResult> {
-  await clickChain;
+  await waitForQueuedClicks();
   if (version !== controlVersion) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
 
   const editorTab = sender.tab;
@@ -1201,7 +1142,7 @@ async function cancelStepRecapture(
   }
   const captureId = activeRecaptureCaptureId;
   if (captureId && committingCaptureIds.has(captureId)) {
-    await clickChain;
+    await waitForQueuedClicks();
     return { ok: true, status: 'already-completed' };
   }
   acceptingClicks = false;
@@ -1209,7 +1150,7 @@ async function cancelStepRecapture(
   pendingRecaptureReady = null;
   if (captureId) cancelCapture(captureId);
   const version = ++controlVersion;
-  await clickChain;
+  await waitForQueuedClicks();
   const settled = await settleStepRecapture(message.runId, 'cancelled', version, 'CANCELLED', '已取消補拍，原內容未變更。');
   return settled ? { ok: true, status: 'cancelled' } : { ok: true, status: 'already-completed' };
 }
@@ -1417,7 +1358,7 @@ async function startInsertionRecording(
     pendingSnapshotContext = undefined;
     pendingUndo = null;
     const version = ++controlVersion;
-    await clickChain;
+    await waitForQueuedClicks();
     if (version !== controlVersion) {
       return insertionFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
     }
@@ -1547,7 +1488,7 @@ async function startRecording(message: StartRecordingMessage): Promise<StartReco
 async function handleStartRecording(message: StartRecordingMessage, version: number): Promise<void> {
   // Reset waits for all writes from the old run through STOP. START uses the
   // same barrier so an old capture cannot append to the reused session later.
-  await clickChain;
+  await waitForQueuedClicks();
   if (version !== controlVersion) return;
 
   const prevState = await getRecordingState();
@@ -1802,7 +1743,7 @@ async function handleSnapshotRecorderFailure(
 }
 
 async function handleStopRecording(version: number): Promise<void> {
-  await clickChain;
+  await waitForQueuedClicks();
   if (version !== controlVersion) return;
   const current = await getRecordingState();
   if (version !== controlVersion) return;
@@ -2016,7 +1957,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
 
   acceptingClicks = false;
   pendingUndo = null;
-  await clickChain;
+  await waitForQueuedClicks();
 
   const previous = await queueStateMutation(async () => {
     const current = await getRecordingState();
@@ -2195,7 +2136,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
   pendingRecorderReady = null;
   pendingUndo = null;
   const version = ++controlVersion;
-  await clickChain;
+  await waitForQueuedClicks();
   const current = await getRecordingState();
   if (version !== controlVersion || current.operation !== null || current.isRecording) {
     return { ok: false, error: '錄製狀態已變更，未重置教學。' };
@@ -2347,7 +2288,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   });
   if (!markedFinishing) return controlFailure('錄製狀態已改變，請再試一次。');
 
-  await clickChain;
+  await waitForQueuedClicks();
   if (startedAtControlVersion !== controlVersion) return controlFailure('錄製狀態已改變。');
 
   const state = await getRecordingState();
@@ -2411,7 +2352,7 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
   acceptingClicks = false;
   pendingUndo = null;
   const version = ++controlVersion;
-  await clickChain;
+  await waitForQueuedClicks();
 
   const state = await getRecordingState();
   if (

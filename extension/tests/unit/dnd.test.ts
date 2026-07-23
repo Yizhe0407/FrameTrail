@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reorderById, restrictToHorizontalAxis, restrictToVerticalAxis } from '@/lib/dnd';
+import { reorderById, restrictToHorizontalAxis, restrictToVerticalAxis } from '@/lib/editor/dnd';
 
 describe('reorderById', () => {
   const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];

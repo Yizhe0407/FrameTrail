@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeBase64 } from '@/lib/base64';
+import { encodeBase64 } from '@/lib/export/base64';
 
 describe('chunked base64 encoding', () => {
   it('matches the platform encoder across chunk boundaries and padding lengths', () => {

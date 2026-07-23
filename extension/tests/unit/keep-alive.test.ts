@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startKeepAlive, type KeepAlivePortLike } from '@/lib/keep-alive';
+import { startKeepAlive, type KeepAlivePortLike } from '@/lib/runtime/keep-alive';
 
 function port(): KeepAlivePortLike & {
   disconnect: ReturnType<typeof vi.fn>;

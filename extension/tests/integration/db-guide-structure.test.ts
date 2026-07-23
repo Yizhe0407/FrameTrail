@@ -27,7 +27,7 @@ import {
   updateGuideVisualsAtomically,
   type GuideSection,
   type Step,
-} from '@/lib/db';
+} from '@/lib/storage/db';
 
 const createdGuideIds = new Set<string>();
 

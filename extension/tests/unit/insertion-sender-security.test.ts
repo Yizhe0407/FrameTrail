@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTrustedEditorSenderForSession, type RecaptureMessageSender } from '@/lib/recapture-guards';
+import { isTrustedEditorSenderForSession, type RecaptureMessageSender } from '@/lib/capture/recapture-guards';
 
 const editorUrl = 'chrome-extension://extension-id/editor.html';
 

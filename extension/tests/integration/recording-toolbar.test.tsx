@@ -13,8 +13,8 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-import RecordingToolbar, { type RecordingToolbarState } from '@/components/RecordingToolbar';
-import { RECORDING_TOOLBAR_CORNER_KEY } from '@/lib/recording-toolbar-position';
+import RecordingToolbar, { type RecordingToolbarState } from '@/components/recording/RecordingToolbar';
+import { RECORDING_TOOLBAR_CORNER_KEY } from '@/lib/recording/recording-toolbar-position';
 
 const state: RecordingToolbarState = {
   runId: 'run-1',

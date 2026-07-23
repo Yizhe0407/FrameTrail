@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import type { RecordingState } from '@/lib/messages';
+import type { RecordingState } from '@/lib/runtime/messages';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
@@ -9,7 +9,7 @@ import {
   isMatchingSnapshotViewport,
   isPointInsideViewport,
   isValidSnapshotViewportContext,
-} from '@/lib/recording-guards';
+} from '@/lib/recording/recording-guards';
 
 const state: RecordingState = {
   isRecording: true,

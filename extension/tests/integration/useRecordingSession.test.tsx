@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('@/lib/storage', () => ({
+vi.mock('@/lib/storage/storage', () => ({
   createDefaultRecordingState: () => ({
     isRecording: false,
     phase: 'idle',
@@ -42,9 +42,9 @@ vi.mock('@/lib/storage', () => ({
   getRecordingState: mocks.getRecordingState,
   onRecordingStateChange: mocks.onRecordingStateChange,
 }));
-vi.mock('@/lib/db', () => ({ getSteps: mocks.getSteps }));
+vi.mock('@/lib/storage/db', () => ({ getSteps: mocks.getSteps }));
 
-import { reconcileSteps, useRecordingSession } from '@/lib/useRecordingSession';
+import { reconcileSteps, useRecordingSession } from '@/lib/recording/useRecordingSession';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

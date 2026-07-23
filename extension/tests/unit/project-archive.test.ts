@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Step } from '@/lib/db';
-import type { ProjectArchiveMetadataInput } from '@/lib/project-archive';
+import type { Step } from '@/lib/storage/db';
+import type { ProjectArchiveMetadataInput } from '@/lib/export/project-archive';
 import {
   PROJECT_ARCHIVE_FORMAT,
   PROJECT_ARCHIVE_LEGACY_VERSION,
@@ -11,7 +11,7 @@ import {
   exportProjectArchive,
   importProjectArchive,
   serializeProjectArchive,
-} from '@/lib/project-archive';
+} from '@/lib/export/project-archive';
 
 function pngBlob(width = 2, height = 2): Blob {
   const bytes = new Uint8Array(24);

@@ -4,7 +4,7 @@ import {
   nextCandidateIndex,
   orderKeyboardCandidates,
   type RawKeyboardCandidate,
-} from '@/lib/snapshot-candidates';
+} from '@/lib/capture/snapshot-candidates';
 
 function rect(x: number, y: number, width = 20, height = 20, label = ''): RawKeyboardCandidate {
   return { x, y, width, height, label: label || `${x},${y}` };

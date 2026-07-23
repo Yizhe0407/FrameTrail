@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/InsertionRecordingActions';
-import type { Step, StepEntry } from '@/lib/db';
+import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/editor/InsertionRecordingActions';
+import type { Step, StepEntry } from '@/lib/storage/db';
 
 function baseStep(id: string, url = `https://example.com/${id}`): Step {
   return {

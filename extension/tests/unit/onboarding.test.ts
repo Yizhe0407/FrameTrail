@@ -29,7 +29,7 @@ import {
   normalizeOnboardingState,
   resetOnboarding,
   shouldShowOnboarding,
-} from '@/lib/onboarding';
+} from '@/lib/runtime/onboarding';
 
 describe('onboarding state', () => {
   beforeEach(() => {

@@ -10,11 +10,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('wxt/browser', () => ({ browser: { runtime: { sendMessage: mocks.sendMessage } } }));
-vi.mock('@/lib/db', () => ({
+vi.mock('@/lib/storage/db', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
 }));
-vi.mock('@/lib/storage', () => ({
+vi.mock('@/lib/storage/storage', () => ({
   getActiveGuideId: mocks.getActiveGuideId,
   setActiveGuideId: mocks.setActiveGuideId,
   clearActiveGuideId: mocks.clearActiveGuideId,
@@ -25,7 +25,7 @@ import {
   ensureSelectedGuide,
   openSelectedGuideInEditor,
   selectGuide,
-} from '@/lib/guide-actions';
+} from '@/lib/guide/guide-actions';
 
 function guide(id: string) {
   return {

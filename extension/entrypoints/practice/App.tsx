@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Check, Image, MousePointerClick, ShieldCheck, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { RecordingMode } from '@/lib/messages';
+import type { RecordingMode } from '@/lib/runtime/messages';
 
 function practiceModeFromLocation(search: string): RecordingMode {
   return new URLSearchParams(search).get('mode') === 'snapshot' ? 'snapshot' : 'steps';

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Step, StepEntry } from '@/lib/db';
+import type { Step, StepEntry } from '@/lib/storage/db';
 import {
   GUIDE_SECTION_LIMITS,
   repairGuideSections,
   sanitizeGuideSectionTitle,
-} from '@/lib/guide-sections';
+} from '@/lib/guide/guide-sections';
 
 function step(id: string, order: number, overrides: Partial<Step> = {}): Step {
   return {

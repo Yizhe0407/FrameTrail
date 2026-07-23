@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { AlertCircle, CircleHelp, Library, PencilLine } from 'lucide-react';
-import { useRecordingSession } from '@/lib/useRecordingSession';
+import { useRecordingSession } from '@/lib/recording/useRecordingSession';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import RecordControls from '@/components/RecordControls';
-import ResetButton from '@/components/ResetButton';
-import ExportImagesButton from '@/components/ExportImagesButton';
-import { needsEditorRecovery } from '@/lib/recording-recovery';
-import type { OpenEditorResult, RecordingMode } from '@/lib/messages';
-import { openLibrary } from '@/lib/navigation';
-import { ensureSelectedGuide } from '@/lib/guide-actions';
-import OnboardingDialog from '@/components/OnboardingDialog';
-import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/onboarding';
-import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime-message-result';
+import RecordControls from '@/components/popup/RecordControls';
+import ResetButton from '@/components/shared/ResetButton';
+import ExportImagesButton from '@/components/popup/ExportImagesButton';
+import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
+import type { OpenEditorResult, RecordingMode } from '@/lib/runtime/messages';
+import { openLibrary } from '@/lib/runtime/navigation';
+import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
+import OnboardingDialog from '@/components/popup/OnboardingDialog';
+import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/runtime/onboarding';
+import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 
 function App() {
   const { recording, isRecording, sessionId, steps, error, recoverableError, dataError } = useRecordingSession();

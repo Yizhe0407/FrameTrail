@@ -7,7 +7,7 @@ import {
   discardDescriptionDraft,
   readDescriptionDrafts,
   writeDescriptionDraft,
-} from '@/lib/editor-draft-journal';
+} from '@/lib/editor/editor-draft-journal';
 
 const step = {
   id: 'step-1',

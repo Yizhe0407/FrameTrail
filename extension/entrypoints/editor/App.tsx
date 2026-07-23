@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { AlertCircle, ExternalLink, SearchX, X } from 'lucide-react';
-import { useRecordingSession } from '@/lib/useRecordingSession';
+import { useRecordingSession } from '@/lib/recording/useRecordingSession';
+import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
+import {
+  EMPTY_STEP_ENTRIES,
+  entrySteps,
+  equalIds,
+  stepMatchesVisualBaseline,
+  type PreparedCapturePermission,
+  type UndoAction,
+} from '@/lib/editor/editor-app-model';
 import {
   addGuideSectionAtomically,
   deleteGuideAnnotationAtomically,
@@ -26,39 +35,39 @@ import {
   type GuideStructureSnapshot,
   type Step,
   type StepEntry,
-} from '@/lib/db';
-import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor-autosave';
+} from '@/lib/storage/db';
+import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import EditorHeader from '@/components/EditorHeader';
-import StepRail, { type StepRailSelectionModifiers } from '@/components/StepRail';
-import StepStage from '@/components/StepStage';
-import GuideBatchToolbar from '@/components/GuideBatchToolbar';
-import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/InsertionRecordingActions';
-import EmptyState from '@/components/EmptyState';
-import Lightbox from '@/components/Lightbox';
-import UndoSnackbar from '@/components/UndoSnackbar';
-import GuideQualityDialog from '@/components/GuideQualityDialog';
-import PublishGuideDialog from '@/components/PublishGuideDialog';
-import StepRailFilters, { type StepRailFilterValue } from '@/components/StepRailFilters';
-import type { VisualEditCommit } from '@/components/VisualEditDialog';
+import EditorHeader from '@/components/editor/EditorHeader';
+import StepRail, { type StepRailSelectionModifiers } from '@/components/editor/StepRail';
+import StepStage from '@/components/editor/StepStage';
+import GuideBatchToolbar from '@/components/editor/GuideBatchToolbar';
+import InsertionRecordingActions, { insertionTargetForEntry } from '@/components/editor/InsertionRecordingActions';
+import EmptyState from '@/components/shared/EmptyState';
+import Lightbox from '@/components/editor/Lightbox';
+import UndoSnackbar from '@/components/editor/UndoSnackbar';
+import GuideQualityDialog from '@/components/editor/GuideQualityDialog';
+import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
+import StepRailFilters, { type StepRailFilterValue } from '@/components/editor/StepRailFilters';
+import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
 import {
   analyzeGuideQuality,
   createGuideEntryIndex,
   DEFAULT_GUIDE_ENTRY_FILTERS,
   filterGuideEntryIndex,
   type EntryQualityIssue,
-} from '@/lib/guide-quality';
+} from '@/lib/guide/guide-quality';
 import { Button } from '@/components/ui/button';
-import { exportImagesAsZip } from '@/lib/export-images';
-import { getEditorSessionIdFromUrl } from '@/lib/navigation';
+import { exportImagesAsZip } from '@/lib/export/export-images';
+import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 import {
   collapseEntrySelection,
   reconcileEntrySelection,
   selectAllVisibleEntries,
   selectEntry as applyEntrySelection,
   type EntrySelectionState,
-} from '@/lib/entry-selection';
-import { assertPublicationReady } from '@/lib/publication-policy';
+} from '@/lib/editor/entry-selection';
+import { assertPublicationReady } from '@/lib/export/publication-policy';
 import type {
   CancelStepRecaptureResult,
   InsertionSide,
@@ -69,7 +78,7 @@ import type {
   FocusStepRecaptureSourceResult,
   StartStepRecaptureResult,
   StepRecaptureTarget,
-} from '@/lib/messages';
+} from '@/lib/runtime/messages';
 import {
   isCancelStepRecaptureResult,
   isFocusStepRecaptureSourceResult,
@@ -78,95 +87,25 @@ import {
   isStartInsertionRecordingResult,
   isStartStepRecaptureResult,
   requireRuntimeMessageResult,
-} from '@/lib/runtime-message-result';
-
-const EMPTY_STEP_ENTRIES: StepEntry[] = [];
-
-interface UndoAction {
-  id: number;
-  message: string;
-  guideId: string;
-  expectedRevision: number;
-  restoreSelectionId?: string;
-  restore: () => Promise<void>;
-}
-
-type PreparedCapturePermission = {
-  sourceOrigin: string;
-  permissionPattern: string;
-  entryId: string;
-  action:
-    | {
-        kind: 'insertion';
-        anchorEntryId: string;
-        side: InsertionSide;
-        mode: RecordingMode;
-        numbered: boolean;
-      }
-    | {
-        kind: 'recapture';
-        target: StepRecaptureTarget;
-      };
-};
-
-function entrySteps(entry: StepEntry): Step[] {
-  return entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations];
-}
-
-function equalIds(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
-function visualValueEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function stepMatchesVisualBaseline(step: Step, changes: Partial<Step>): boolean {
-  return Object.entries(changes).every(([key, expected]) => (
-    visualValueEqual(step[key as keyof Step], expected)
-  ));
-}
+} from '@/lib/runtime/runtime-message-result';
 
 function EditorApp() {
   const viewedSessionId = useMemo(() => getEditorSessionIdFromUrl(window.location.href), []);
   const { sessionId, tabId, steps, error, dataError, refresh, recording } = useRecordingSession(viewedSessionId);
-  const [guide, setGuide] = useState<Guide | null>(null);
-  const [canonicalSnapshot, setCanonicalSnapshot] = useState<GuideStructureSnapshot | null>(null);
-  const [guideLoadState, setGuideLoadState] = useState<'loading' | 'ready' | 'missing' | 'invalid'>(
-    viewedSessionId ? 'loading' : 'missing',
-  );
+  const {
+    guide,
+    setGuide,
+    canonicalSnapshot,
+    setCanonicalSnapshot,
+    guideLoadState,
+    setGuideLoadState,
+  } = useEditorGuideData(sessionId, steps);
   const operationBelongsToViewedGuide = Boolean(sessionId && recording.sessionId === sessionId);
   const operationActive = operationBelongsToViewedGuide && recording.operation !== null;
   const ordinaryRecordingActive = operationBelongsToViewedGuide && recording.operation === 'recording';
   const { flushAll } = useEditorSaveRegistry();
   const dbEntries = canonicalSnapshot?.entries ?? EMPTY_STEP_ENTRIES;
 
-  useEffect(() => {
-    let disposed = false;
-    if (!sessionId) {
-      setGuide(null);
-      setCanonicalSnapshot(null);
-      setGuideLoadState('missing');
-      return () => { disposed = true; };
-    }
-    setGuideLoadState((current) => current === 'ready' ? current : 'loading');
-    void getGuideStructureSnapshot(sessionId).then((snapshot) => {
-      if (disposed) return;
-      setGuide(snapshot.guide);
-      setCanonicalSnapshot(snapshot);
-      setGuideLoadState('ready');
-    }).catch(async (loadError) => {
-      console.error('讀取 Guide 結構失敗', loadError);
-      if (disposed) return;
-      const existingGuide = await getGuide(sessionId).catch(() => undefined);
-      if (disposed) return;
-      setGuide(existingGuide ?? null);
-      setCanonicalSnapshot(null);
-      setGuideLoadState(existingGuide ? 'invalid' : 'missing');
-    });
-    return () => { disposed = true; };
-  }, [sessionId, steps]);
 
   // Optimistic entries state: when a drag reorder happens we update this
   // immediately so the UI reflects the new order without waiting for the DB

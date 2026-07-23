@@ -8,7 +8,7 @@ import {
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
   SNAPSHOT_SHIELD_REGION_CAPTURE,
-} from '@/lib/snapshot-shield-protocol';
+} from '@/lib/recording/snapshot-shield-protocol';
 
 const mocks = vi.hoisted(() => ({
   getURL: vi.fn((path: string) => `https://extension.test${path}`),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wxt/browser', () => ({ browser: { runtime: { getURL: mocks.getURL } } }));
 
-import { createSnapshotShield } from '@/lib/snapshot-shield';
+import { createSnapshotShield } from '@/lib/recording/snapshot-shield';
 
 afterEach(() => {
   document.documentElement.querySelectorAll('[data-frametrail-snapshot-shield]').forEach((element) => element.remove());

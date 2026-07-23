@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { createImageCoordinateMapper } from '@/lib/image-geometry';
+import { createImageCoordinateMapper } from '@/lib/capture/image-geometry';
 
 function defineMetric(image: HTMLImageElement, name: string, value: number): void {
   Object.defineProperty(image, name, { configurable: true, value });

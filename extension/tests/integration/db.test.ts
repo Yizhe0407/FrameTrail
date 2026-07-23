@@ -25,7 +25,7 @@ import {
   updateStep,
   updateStepsAtomically,
   type Step,
-} from '@/lib/db';
+} from '@/lib/storage/db';
 
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {

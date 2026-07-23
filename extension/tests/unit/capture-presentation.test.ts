@@ -3,7 +3,7 @@ import {
   CAPTURE_PRESENTATION_CSS,
   type CapturePresentationAdapter,
   withCapturePresentation,
-} from '@/lib/capture-presentation';
+} from '@/lib/capture/capture-presentation';
 
 function adapter(events: string[]): CapturePresentationAdapter {
   return {

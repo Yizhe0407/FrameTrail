@@ -5,7 +5,7 @@ import {
   isTrustedEditorSenderForSession,
   isTrustedRecaptureSourceSender,
   type RecaptureMessageSender,
-} from '@/lib/recapture-guards';
+} from '@/lib/capture/recapture-guards';
 
 const editorUrl = 'chrome-extension://extension-id/editor.html';
 

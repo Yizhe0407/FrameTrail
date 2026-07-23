@@ -17,7 +17,7 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-import EmptyState from '@/components/EmptyState';
+import EmptyState from '@/components/shared/EmptyState';
 
 beforeEach(() => {
   mocks.query.mockReset();

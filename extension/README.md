@@ -30,6 +30,21 @@ pnpm dev:firefox
 - `.frametrail` 是包含原始未遮罩圖的可編輯本機備份，不應當作公開輸出。
 - 首次導覽、練習頁、搜尋、品質篩選與縮圖 lazy mounting 均不需要網路或後端。
 
+## 原始碼分類
+
+- `components/editor/`：Editor 畫面與編輯工作流元件。
+- `components/popup/`：Popup 專用的錄製、匯出與 onboarding 元件。
+- `components/recording/`：注入頁面或 snapshot shield 使用的錄製 UI。
+- `components/shared/`：跨入口共用元件；`components/ui/` 保留無領域狀態的 UI primitives。
+- `lib/capture/`：DOM 候選、座標、frame probe 與擷取流程。
+- `lib/editor/`、`lib/export/`、`lib/guide/`：各功能領域的純邏輯與 hooks。
+- `lib/media/`：annotation layout、圖片標註與 screenshot 工具；`annotate.ts` 僅保留公開 facade。
+- `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting，以及瀏覽器訊息／導覽邊界。
+- `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema／migration／transaction 基礎，`*-repository.ts` 與 `guide-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
+- `lib/shared/`：僅放真正無領域狀態的工具。
+
+新增檔案時應優先放入最接近的功能領域，內部程式碼也應直接 import 具體模組，以免隱藏依賴方向或形成循環引用。`lib/storage/db.ts` 是刻意保留的例外：它以明確 named exports 提供既有 storage API 的相容 facade，讓入口點、呼叫端與 Vitest mocks 可逐步遷移；新實作不應再放進 facade。
+
 ## 驗證
 
 ```bash

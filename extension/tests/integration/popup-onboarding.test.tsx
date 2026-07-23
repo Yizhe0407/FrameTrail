@@ -16,11 +16,11 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-vi.mock('@/lib/onboarding', () => onboarding);
-vi.mock('@/lib/guide-actions', () => ({
+vi.mock('@/lib/runtime/onboarding', () => onboarding);
+vi.mock('@/lib/guide/guide-actions', () => ({
   ensureSelectedGuide: vi.fn().mockResolvedValue({ id: 'guide-selected' }),
 }));
-vi.mock('@/lib/useRecordingSession', () => ({
+vi.mock('@/lib/recording/useRecordingSession', () => ({
   useRecordingSession: () => ({
     recording: { phase: 'idle' },
     sessionId: 'guide-current',
@@ -30,9 +30,9 @@ vi.mock('@/lib/useRecordingSession', () => ({
     recoverableError: null,
   }),
 }));
-vi.mock('@/components/RecordControls', () => ({ default: () => <div>錄製控制</div> }));
-vi.mock('@/components/ResetButton', () => ({ default: () => <button type="button">重設</button> }));
-vi.mock('@/components/ExportImagesButton', () => ({ default: () => <button type="button">匯出</button> }));
+vi.mock('@/components/popup/RecordControls', () => ({ default: () => <div>錄製控制</div> }));
+vi.mock('@/components/shared/ResetButton', () => ({ default: () => <button type="button">重設</button> }));
+vi.mock('@/components/popup/ExportImagesButton', () => ({ default: () => <button type="button">匯出</button> }));
 
 import PopupApp from '@/entrypoints/popup/App';
 

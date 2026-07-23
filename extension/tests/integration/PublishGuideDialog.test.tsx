@@ -2,8 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import PublishGuideDialog from '@/components/PublishGuideDialog';
-import type { StepEntry } from '@/lib/db';
+import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
+import type { StepEntry } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
   generateGuideMarkdown: vi.fn(),
@@ -16,14 +16,14 @@ const mocks = vi.hoisted(() => ({
   openPrintPlaceholder: vi.fn(),
 }));
 
-vi.mock('@/lib/guide-export', () => ({
+vi.mock('@/lib/export/guide-export', () => ({
   generateGuideMarkdown: mocks.generateGuideMarkdown,
   generateGuideHtml: mocks.generateGuideHtml,
   generatePrintReadyGuideHtml: mocks.generatePrintReadyGuideHtml,
   guideExportFilename: mocks.guideExportFilename,
 }));
 
-vi.mock('@/lib/download-utils', () => ({
+vi.mock('@/lib/export/download-utils', () => ({
   copyRichText: mocks.copyRichText,
   downloadText: mocks.downloadText,
   loadHtmlIntoWindow: mocks.loadHtmlIntoWindow,

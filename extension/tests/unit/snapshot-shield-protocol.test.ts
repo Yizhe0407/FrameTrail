@@ -14,7 +14,7 @@ import {
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
   SNAPSHOT_SHIELD_REGION_CAPTURE,
-} from '@/lib/snapshot-shield-protocol';
+} from '@/lib/recording/snapshot-shield-protocol';
 
 describe('snapshot shield protocol', () => {
   const token = 'run-token';

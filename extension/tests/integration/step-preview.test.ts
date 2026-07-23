@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PADDING } from '@/lib/annotate';
-import { createStepPreview } from '@/lib/step-preview';
+import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PADDING } from '@/lib/media/annotate';
+import { createStepPreview } from '@/lib/capture/step-preview';
 
 afterEach(() => {
   document.documentElement.querySelectorAll('[data-frametrail-step-preview]').forEach((element) => element.remove());

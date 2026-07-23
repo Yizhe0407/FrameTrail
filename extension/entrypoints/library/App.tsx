@@ -21,13 +21,13 @@ import {
   getSteps,
   updateGuide,
   type GuideSummary,
-} from '@/lib/db';
-import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide-actions';
-import { getRecordingState, onRecordingStateChange } from '@/lib/storage';
+} from '@/lib/storage/db';
+import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide/guide-actions';
+import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import ConfirmationDialog from '@/components/ConfirmationDialog';
-import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/project-archive';
+import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

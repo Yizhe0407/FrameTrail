@@ -2,20 +2,20 @@ import 'fake-indexeddb/auto';
 // @vitest-environment jsdom
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ScreenshotStep, Step, StepEntry } from '@/lib/db';
+import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
 
 const previewMocks = vi.hoisted(() => ({
   highlight: vi.fn(),
   multi: vi.fn(),
 }));
 
-vi.mock('@/components/HighlightThumbnail', () => ({
+vi.mock('@/components/editor/HighlightThumbnail', () => ({
   default: (props: unknown) => {
     previewMocks.highlight(props);
     return null;
   },
 }));
-vi.mock('@/components/MultiHighlightThumbnail', () => ({
+vi.mock('@/components/editor/MultiHighlightThumbnail', () => ({
   default: (props: unknown) => {
     previewMocks.multi(props);
     return null;
@@ -38,18 +38,18 @@ vi.mock('@dnd-kit/sortable', () => ({
   horizontalListSortingStrategy: {},
   verticalListSortingStrategy: {},
 }));
-vi.mock('@/lib/dnd', () => ({
+vi.mock('@/lib/editor/dnd', () => ({
   reorderById: () => null,
   restrictToHorizontalAxis: () => null,
   restrictToVerticalAxis: () => null,
   useSortableSensors: () => [],
 }));
-vi.mock('@/components/SortableItem', () => ({
+vi.mock('@/components/editor/SortableItem', () => ({
   default: ({ children }: { children: (handle: null) => unknown }) => children(null),
 }));
 
-import Lightbox from '@/components/Lightbox';
-import StepRail from '@/components/StepRail';
+import Lightbox from '@/components/editor/Lightbox';
+import StepRail from '@/components/editor/StepRail';
 
 const redactions = [{ id: 'mask-1', kind: 'solid' as const, bounds: { x: 90, y: 45, width: 20, height: 10 } }];
 

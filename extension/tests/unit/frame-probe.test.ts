@@ -6,7 +6,7 @@ import {
   createLatestAsyncRequestRunner,
   isExplicitFrameProbeFallback,
   resolveFrameProbeTargetOrigin,
-} from '@/lib/frame-probe';
+} from '@/lib/capture/frame-probe';
 
 describe('classifyFrameProbeOutcome', () => {
   it('falls back only for transport timeout or an explicit fallback response', () => {

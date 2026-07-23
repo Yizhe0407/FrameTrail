@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { RecordingState } from '@/lib/messages';
+import type { RecordingState } from '@/lib/runtime/messages';
 import {
   clearEditorRecovery,
   EDITOR_OPEN_FAILED_ERROR,
   markEditorOpenFailed,
   needsEditorRecovery,
   RECORDED_TAB_CLOSED_ERROR,
-} from '@/lib/recording-recovery';
+} from '@/lib/recording/recording-recovery';
 
 const idleState: RecordingState = {
   isRecording: false,

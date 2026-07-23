@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Step, StepEntry } from '@/lib/db';
+import type { Step, StepEntry } from '@/lib/storage/db';
 import {
   assertPublicationReady,
   evaluatePublicationReadiness,
   PublicationBlockedError,
-} from '@/lib/publication-policy';
+} from '@/lib/export/publication-policy';
 
 function entry(id: string, changes: Partial<Step> = {}): StepEntry {
   const step: Step = {

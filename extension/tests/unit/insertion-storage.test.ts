@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('wxt/browser', () => ({ browser: {} }));
 
-import { normalizeRecordingState } from '@/lib/storage';
+import { normalizeRecordingState } from '@/lib/storage/storage';
 
 const validInsertion = {
   anchorEntryId: 'anchor-1',

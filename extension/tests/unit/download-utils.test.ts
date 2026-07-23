@@ -6,7 +6,7 @@ import {
   downloadBlob,
   loadHtmlIntoWindow,
   openPrintPlaceholder,
-} from '@/lib/download-utils';
+} from '@/lib/export/download-utils';
 
 afterEach(() => {
   vi.restoreAllMocks();

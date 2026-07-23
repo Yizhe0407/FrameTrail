@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import HighlightThumbnail from '@/components/HighlightThumbnail';
+import HighlightThumbnail from '@/components/editor/HighlightThumbnail';
 
 describe('HighlightThumbnail', () => {
   let resizeCallback: ResizeObserverCallback;

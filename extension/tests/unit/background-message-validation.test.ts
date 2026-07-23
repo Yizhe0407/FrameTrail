@@ -6,8 +6,8 @@ import {
   isTrustedExtensionPageSender,
   isTrustedKeepAliveSender,
   isTrustedRecorderControlSender,
-} from '@/lib/background-message-validation';
-import type { BackgroundMessage } from '@/lib/messages';
+} from '@/lib/runtime/background-message-validation';
+import type { BackgroundMessage } from '@/lib/runtime/messages';
 
 const validClick = {
   type: 'FRAME_TRAIL_CLICK',

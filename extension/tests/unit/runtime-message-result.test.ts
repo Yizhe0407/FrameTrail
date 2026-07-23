@@ -15,7 +15,7 @@ import {
   isStepRecaptureTargetResult,
   requireRuntimeMessageResult,
   type RuntimeMessageResultGuard,
-} from '@/lib/runtime-message-result';
+} from '@/lib/runtime/runtime-message-result';
 
 describe('requireRuntimeMessageResult', () => {
   it('returns a response only after its contract-specific guard accepts it', () => {

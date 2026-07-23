@@ -11,8 +11,8 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-import RecordControls from '@/components/RecordControls';
-import type { RecordingState, RecoverableRecordingError } from '@/lib/messages';
+import RecordControls from '@/components/popup/RecordControls';
+import type { RecordingState, RecoverableRecordingError } from '@/lib/runtime/messages';
 
 function recoveryState(recoverableError: RecoverableRecordingError): RecordingState {
   return {

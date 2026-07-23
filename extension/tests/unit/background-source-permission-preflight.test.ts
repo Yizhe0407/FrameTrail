@@ -4,8 +4,8 @@ import type {
   PreflightInsertionSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingState,
-} from '@/lib/messages';
-import type { Step } from '@/lib/db';
+} from '@/lib/runtime/messages';
+import type { Step } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
   messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
@@ -61,8 +61,8 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-vi.mock('@/lib/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/db')>();
+vi.mock('@/lib/storage/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/storage/db')>();
   return {
     ...actual,
     getInsertionAnchor: mocks.getInsertionAnchor,
@@ -71,8 +71,8 @@ vi.mock('@/lib/db', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/storage', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage')>();
+vi.mock('@/lib/storage/storage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/storage/storage')>();
   return {
     ...actual,
     getRecordingState: mocks.getRecordingState,
@@ -295,7 +295,7 @@ describe('background source-permission preflight', () => {
     ['ANCHOR_CHANGED', 'ANCHOR_CHANGED'],
     ['RUN_STATE_CHANGED', 'ANCHOR_CHANGED'],
   ] as const)('maps insertion DB %s to typed %s', async (dbCode, expectedCode) => {
-    const { InsertionRecordingError } = await import('@/lib/db');
+    const { InsertionRecordingError } = await import('@/lib/storage/db');
     mocks.getInsertionAnchor.mockRejectedValue(new InsertionRecordingError(dbCode, 'stale target'));
 
     const result = await send<PreflightInsertionSourcePermissionResult>({

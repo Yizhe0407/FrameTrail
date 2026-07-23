@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFrameCoordinateMapper } from '@/lib/frame-geometry';
+import { createFrameCoordinateMapper } from '@/lib/capture/frame-geometry';
 
 function frame(overrides: Record<string, unknown> = {}): HTMLIFrameElement {
   return {

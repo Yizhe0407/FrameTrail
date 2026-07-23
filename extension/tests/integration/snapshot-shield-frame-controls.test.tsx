@@ -6,14 +6,14 @@ import {
   SNAPSHOT_SHIELD_POINTER_MOVE,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   type SnapshotShieldFrameMessage,
-} from '@/lib/snapshot-shield-protocol';
+} from '@/lib/recording/snapshot-shield-protocol';
 
 const mocks = vi.hoisted(() => ({ render: vi.fn() }));
 
 vi.mock('react-dom/client', () => ({
   createRoot: () => ({ render: mocks.render }),
 }));
-vi.mock('@/components/RecordingToolbar', () => ({ default: () => null }));
+vi.mock('@/components/recording/RecordingToolbar', () => ({ default: () => null }));
 
 afterEach(() => {
   vi.useRealTimers();

@@ -13,7 +13,7 @@ import {
   updateGuide,
   validateInsertionRunState,
   type Step,
-} from '@/lib/db';
+} from '@/lib/storage/db';
 
 function step(sessionId: string, id: string, order: number, overrides: Partial<Step> = {}): Step {
   return {

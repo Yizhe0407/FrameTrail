@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import OnboardingDialog from '@/components/OnboardingDialog';
+import OnboardingDialog from '@/components/popup/OnboardingDialog';
 
 afterEach(() => {
   cleanup();

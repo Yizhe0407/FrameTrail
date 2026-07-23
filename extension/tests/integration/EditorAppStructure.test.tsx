@@ -80,17 +80,17 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-vi.mock('@/lib/db', () => database);
-vi.mock('@/lib/useRecordingSession', () => ({
+vi.mock('@/lib/storage/db', () => database);
+vi.mock('@/lib/recording/useRecordingSession', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
 }));
-vi.mock('@/lib/editor-autosave', () => ({
+vi.mock('@/lib/editor/editor-autosave', () => ({
   EditorSaveProvider: ({ children }: any) => children,
   useEditorSaveRegistry: () => ({ flushAll: editorSave.flushAll }),
 }));
-vi.mock('@/lib/export-images', () => ({ exportImagesAsZip: vi.fn() }));
-vi.mock('@/lib/publication-policy', () => ({ assertPublicationReady: vi.fn() }));
-vi.mock('@/lib/guide-quality', () => ({
+vi.mock('@/lib/export/export-images', () => ({ exportImagesAsZip: vi.fn() }));
+vi.mock('@/lib/export/publication-policy', () => ({ assertPublicationReady: vi.fn() }));
+vi.mock('@/lib/guide/guide-quality', () => ({
   DEFAULT_GUIDE_ENTRY_FILTERS: { text: '', kind: 'all', issue: 'all' },
   analyzeGuideQuality: (entries: any[]) => ({
     entries: entries.map((entry, index) => ({
@@ -112,9 +112,9 @@ vi.mock('@/lib/guide-quality', () => ({
   filterGuideEntryIndex: (index: any[]) => index,
 }));
 
-vi.mock('@/components/EditorHeader', () => ({ default: () => null }));
-vi.mock('@/components/StepRailFilters', () => ({ default: () => null }));
-vi.mock('@/components/StepRail', () => ({
+vi.mock('@/components/editor/EditorHeader', () => ({ default: () => null }));
+vi.mock('@/components/editor/StepRailFilters', () => ({ default: () => null }));
+vi.mock('@/components/editor/StepRail', () => ({
   default: (props: any) => {
     rendered.stepRailProps = props;
     return (
@@ -142,7 +142,7 @@ vi.mock('@/components/StepRail', () => ({
     );
   },
 }));
-vi.mock('@/components/StepStage', () => ({
+vi.mock('@/components/editor/StepStage', () => ({
   default: (props: any) => {
     rendered.stepStageProps = props;
     const id = database.entryId(props.entry);
@@ -162,7 +162,7 @@ vi.mock('@/components/StepStage', () => ({
     );
   },
 }));
-vi.mock('@/components/GuideBatchToolbar', () => ({
+vi.mock('@/components/editor/GuideBatchToolbar', () => ({
   default: (props: any) => {
     rendered.batchToolbarProps = props;
     if (props.selectedEntryIds.length < 2) return null;
@@ -173,7 +173,7 @@ vi.mock('@/components/GuideBatchToolbar', () => ({
     );
   },
 }));
-vi.mock('@/components/InsertionRecordingActions', () => ({
+vi.mock('@/components/editor/InsertionRecordingActions', () => ({
   default: ({ disabled, pending, onStart }: any) => (
     <div data-testid="insertion-actions" data-disabled={String(disabled)} data-pending={String(pending)}>
       <button type="button" disabled={disabled || pending} onClick={() => void onStart('before', 'steps', false)}>
@@ -183,11 +183,11 @@ vi.mock('@/components/InsertionRecordingActions', () => ({
   ),
   insertionTargetForEntry: (entry: any) => ({ anchorEntryId: database.entryId(entry) }),
 }));
-vi.mock('@/components/EmptyState', () => ({ default: () => <div>EmptyState</div> }));
-vi.mock('@/components/Lightbox', () => ({ default: () => null }));
-vi.mock('@/components/UndoSnackbar', () => ({ default: () => null }));
-vi.mock('@/components/GuideQualityDialog', () => ({ default: () => null }));
-vi.mock('@/components/PublishGuideDialog', () => ({ default: () => null }));
+vi.mock('@/components/shared/EmptyState', () => ({ default: () => <div>EmptyState</div> }));
+vi.mock('@/components/editor/Lightbox', () => ({ default: () => null }));
+vi.mock('@/components/editor/UndoSnackbar', () => ({ default: () => null }));
+vi.mock('@/components/editor/GuideQualityDialog', () => ({ default: () => null }));
+vi.mock('@/components/editor/PublishGuideDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
 

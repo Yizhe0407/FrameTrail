@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { injectRecorderScript } from '@/lib/recorder-injection';
+import { injectRecorderScript } from '@/lib/recording/recorder-injection';
 
 afterEach(() => vi.restoreAllMocks());
 

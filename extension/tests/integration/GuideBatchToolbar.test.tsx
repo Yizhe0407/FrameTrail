@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import GuideBatchToolbar, { type GuideBatchToolbarProps } from '@/components/GuideBatchToolbar';
+import GuideBatchToolbar, { type GuideBatchToolbarProps } from '@/components/editor/GuideBatchToolbar';
 
 function createProps(overrides: Partial<GuideBatchToolbarProps> = {}): GuideBatchToolbarProps {
   return {

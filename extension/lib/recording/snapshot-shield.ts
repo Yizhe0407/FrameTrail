@@ -1,0 +1,567 @@
+import { browser } from 'wxt/browser';
+import {
+  isSnapshotShieldPortMessage,
+  SNAPSHOT_SHIELD_CANDIDATES,
+  SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
+  SNAPSHOT_SHIELD_COMMIT,
+  SNAPSHOT_SHIELD_CONTROL,
+  SNAPSHOT_SHIELD_CONTROL_RESULT,
+  SNAPSHOT_SHIELD_INIT,
+  SNAPSHOT_SHIELD_POINTER_DOWN,
+  SNAPSHOT_SHIELD_POINTER_MOVE,
+  SNAPSHOT_SHIELD_PREVIEW,
+  SNAPSHOT_SHIELD_READY,
+  SNAPSHOT_SHIELD_REGION_CAPTURE,
+  SNAPSHOT_SHIELD_TOOLBAR_STATE,
+  SNAPSHOT_SHIELD_UNDO,
+  type SnapshotShieldCaptureCompleteMessage,
+  type SnapshotShieldCandidatesMessage,
+  type SnapshotShieldCommitMessage,
+  type SnapshotShieldControlMessage,
+  type SnapshotShieldControlResultMessage,
+  type SnapshotShieldFrameMessage,
+  type SnapshotShieldInitMessage,
+  type SnapshotShieldPointerDownMessage,
+  type SnapshotShieldPointerMoveMessage,
+  type SnapshotShieldPreviewMessage,
+  type SnapshotShieldRegionCaptureMessage,
+  type SnapshotShieldKeyboardAnchor,
+  type SnapshotShieldPreviewResult,
+  type SnapshotShieldSelection,
+  type SnapshotShieldToolbarStateMessage,
+  type SnapshotShieldUndoMessage,
+} from './snapshot-shield-protocol';
+import type { RecordingControlResult } from '../runtime/messages';
+
+const SHIELD_PAGE = '/snapshot-shield.html';
+const SHIELD_READY_TIMEOUT_MS = 4_000;
+const SHIELD_BACKDROP_CSS = `
+  :host::backdrop {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+    animation: none !important;
+    transition: none !important;
+    pointer-events: none !important;
+  }
+`;
+
+export interface SnapshotShield {
+  ready: Promise<void>;
+  runWithoutShield<T>(callback: () => T): T;
+  updateToolbar(state: SnapshotShieldToolbarStateMessage['state']): void;
+  sendKeyboardCandidates(anchors: SnapshotShieldKeyboardAnchor[]): void;
+  remove(): void;
+}
+
+type PointHandler = (
+  point: SnapshotShieldPointerDownMessage,
+) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
+type HoverHandler = (
+  point: SnapshotShieldPointerMoveMessage,
+) => SnapshotShieldPreviewResult | Promise<SnapshotShieldPreviewResult>;
+type ControlHandler = (message: SnapshotShieldControlMessage) => Promise<RecordingControlResult>;
+type RegionHandler = (
+  message: SnapshotShieldRegionCaptureMessage,
+) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
+type FailureHandler = (error: Error) => void | Promise<void>;
+
+function setImportantStyle(element: HTMLElement, property: string, value: string): void {
+  element.style.setProperty(property, value, 'important');
+}
+
+function isDialogElement(value: unknown): value is HTMLDialogElement {
+  return typeof HTMLDialogElement !== 'undefined' && value instanceof HTMLDialogElement;
+}
+
+function isModalDialog(element: Element): element is HTMLDialogElement {
+  if (!isDialogElement(element)) return false;
+  try {
+    return element.matches(':modal');
+  } catch {
+    return element.open;
+  }
+}
+
+function findModalAncestor(element: Element | null): HTMLDialogElement | null {
+  let current = element;
+  while (current) {
+    if (isModalDialog(current)) return current;
+    if (current.parentElement) {
+      current = current.parentElement;
+      continue;
+    }
+    const root = current.getRootNode();
+    current = root instanceof ShadowRoot ? root.host : null;
+  }
+  return null;
+}
+
+function getDeepActiveElement(): Element | null {
+  let active: Element | null = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  return active;
+}
+
+function getDeepElementFromPoint(clientX: number, clientY: number): Element | null {
+  if (typeof document.elementFromPoint !== 'function') return null;
+  let root: Document | ShadowRoot = document;
+  let target: Element | null = null;
+  while (true) {
+    const next: Element | null = root.elementFromPoint(clientX, clientY);
+    if (!next) return target;
+    target = next;
+    if (!next.shadowRoot) return target;
+    root = next.shadowRoot;
+  }
+}
+
+function installBackdropStyles(shadowRoot: ShadowRoot): void {
+  try {
+    if (
+      typeof CSSStyleSheet !== 'undefined' &&
+      typeof CSSStyleSheet.prototype.replaceSync === 'function' &&
+      'adoptedStyleSheets' in shadowRoot
+    ) {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(SHIELD_BACKDROP_CSS);
+      shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
+      return;
+    }
+  } catch {
+    // Fall through for browsers without constructable stylesheet support.
+  }
+  const style = document.createElement('style');
+  style.textContent = SHIELD_BACKDROP_CSS;
+  shadowRoot.append(style);
+}
+
+function hardenHost(host: HTMLElement): void {
+  const declarations: Record<string, string> = {
+    all: 'initial',
+    position: 'fixed',
+    inset: '0',
+    width: '100vw',
+    height: '100vh',
+    'min-width': '0',
+    'min-height': '0',
+    'max-width': 'none',
+    'max-height': 'none',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    display: 'block',
+    'box-sizing': 'border-box',
+    background: 'transparent',
+    opacity: '1',
+    visibility: 'visible',
+    overflow: 'hidden',
+    contain: 'strict',
+    transform: 'none',
+    filter: 'none',
+    'backdrop-filter': 'none',
+    animation: 'none',
+    transition: 'none',
+    'pointer-events': 'auto',
+    'z-index': '2147483647',
+  };
+  for (const [property, value] of Object.entries(declarations)) setImportantStyle(host, property, value);
+}
+
+function hardenFrame(frame: HTMLIFrameElement): void {
+  const declarations: Record<string, string> = {
+    all: 'initial',
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    display: 'block',
+    'box-sizing': 'border-box',
+    opacity: '1',
+    visibility: 'visible',
+    background: 'transparent',
+    'pointer-events': 'auto',
+  };
+  for (const [property, value] of Object.entries(declarations)) setImportantStyle(frame, property, value);
+}
+
+/**
+ * Mounts an extension-origin browsing context over the page. Pointer events
+ * terminate inside the iframe instead of traversing the host page's window,
+ * document, or target listeners.
+ */
+export function createSnapshotShield(
+  onPoint: PointHandler,
+  onHover?: HoverHandler,
+  onControl?: ControlHandler,
+  onRegion?: RegionHandler,
+  onFailure?: FailureHandler,
+): SnapshotShield {
+  const token = crypto.randomUUID();
+  const host = document.createElement('div');
+  host.setAttribute('data-frametrail-snapshot-shield', '');
+  host.setAttribute('popover', 'manual');
+  hardenHost(host);
+
+  const shadowRoot = host.attachShadow({ mode: 'closed' });
+  installBackdropStyles(shadowRoot);
+  const frame = document.createElement('iframe');
+  frame.title = 'FrameTrail snapshot input shield';
+  frame.tabIndex = -1;
+  frame.referrerPolicy = 'no-referrer';
+  hardenFrame(frame);
+
+  const frameUrl = new URL(browser.runtime.getURL(SHIELD_PAGE));
+  frameUrl.searchParams.set('token', token);
+  frame.src = frameUrl.href;
+  shadowRoot.append(frame);
+
+  let removed = false;
+  let ready = false;
+  let channelGeneration = 0;
+  let nextSelectionId = 1;
+  const committedSelections: Array<SnapshotShieldSelection & { id: number }> = [];
+  let lastUndoneSelection: (SnapshotShieldSelection & { id: number }) | null = null;
+  let toolbarState: SnapshotShieldToolbarStateMessage['state'] | null = null;
+  let keyboardAnchors: SnapshotShieldKeyboardAnchor[] | null = null;
+  let port: MessagePort | null = null;
+  let resolveReady!: () => void;
+  let rejectReady!: (reason: Error) => void;
+  const readyPromise = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+
+  let reportFailure!: (message: string, cause?: unknown) => void;
+  const postToFrame = (message: SnapshotShieldFrameMessage): void => {
+    if (removed || !port) return;
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      reportFailure('snapshot input shield message channel failed', error);
+    }
+  };
+
+  const handleHover = async (message: SnapshotShieldPointerMoveMessage, generation: number): Promise<void> => {
+    let preview: SnapshotShieldPreviewResult = {
+      rect: null,
+      candidateOffset: message.candidateOffset,
+    };
+    try {
+      if (onHover) preview = await onHover(message);
+    } catch (error) {
+      console.error('[frametrail] failed to preview snapshot target', error);
+    }
+    if (removed || generation !== channelGeneration) return;
+    const previewMessage: SnapshotShieldPreviewMessage = {
+      type: SNAPSHOT_SHIELD_PREVIEW,
+      token,
+      requestId: message.requestId,
+      rect: preview.rect,
+      candidateOffset: preview.candidateOffset,
+    };
+    postToFrame(previewMessage);
+  };
+
+  const completeSelection = (
+    selection: SnapshotShieldSelection | null,
+    generation: number,
+  ): void => {
+    if (removed) return;
+    const committed = selection ? { ...selection, id: nextSelectionId++ } : null;
+    if (committed) {
+      committedSelections.push(committed);
+      lastUndoneSelection = null;
+    }
+
+    if (generation === channelGeneration) {
+      const completeMessage: SnapshotShieldCaptureCompleteMessage = {
+        type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
+        token,
+        selection: committed,
+      };
+      postToFrame(completeMessage);
+    } else if (committed) {
+      const commitMessage: SnapshotShieldCommitMessage = {
+        type: SNAPSHOT_SHIELD_COMMIT,
+        token,
+        selection: committed,
+      };
+      postToFrame(commitMessage);
+    }
+  };
+
+  const handlePoint = async (message: SnapshotShieldPointerDownMessage, generation: number): Promise<void> => {
+    let selection: SnapshotShieldSelection | null = null;
+    try {
+      selection = (await onPoint(message)) ?? null;
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot shield pointer', error);
+    }
+    completeSelection(selection, generation);
+  };
+
+  const handleRegion = async (message: SnapshotShieldRegionCaptureMessage, generation: number): Promise<void> => {
+    let selection: SnapshotShieldSelection | null = null;
+    try {
+      selection = (await onRegion?.(message)) ?? null;
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot shield region', error);
+    }
+    completeSelection(selection, generation);
+  };
+
+  const handleControl = async (message: SnapshotShieldControlMessage, generation: number): Promise<void> => {
+    let result: RecordingControlResult = { ok: false, error: '目前無法執行這個動作。' };
+    try {
+      if (onControl) result = await onControl(message);
+    } catch (error) {
+      console.error('[frametrail] failed to handle snapshot toolbar command', error);
+      result = { ok: false, error: '動作失敗，請再試一次。' };
+    }
+    if (removed || generation !== channelGeneration) return;
+
+    if (result.ok && message.action === 'UNDO_LAST_CAPTURE') {
+      lastUndoneSelection = committedSelections.pop() ?? null;
+      if (lastUndoneSelection) {
+        const undoMessage: SnapshotShieldUndoMessage = { type: SNAPSHOT_SHIELD_UNDO, token };
+        postToFrame(undoMessage);
+      }
+    } else if (result.ok && message.action === 'RESTORE_LAST_CAPTURE' && lastUndoneSelection) {
+      committedSelections.push(lastUndoneSelection);
+      const commitMessage: SnapshotShieldCommitMessage = {
+        type: SNAPSHOT_SHIELD_COMMIT,
+        token,
+        selection: lastUndoneSelection,
+      };
+      lastUndoneSelection = null;
+      postToFrame(commitMessage);
+    }
+
+    const response: SnapshotShieldControlResultMessage = {
+      type: SNAPSHOT_SHIELD_CONTROL_RESULT,
+      token,
+      requestId: message.requestId,
+      result,
+    };
+    postToFrame(response);
+  };
+
+  const runWithoutShieldHitTesting = <T>(callback: () => T): T => {
+    if (removed) return callback();
+    setImportantStyle(host, 'pointer-events', 'none');
+    setImportantStyle(frame, 'pointer-events', 'none');
+    try {
+      return callback();
+    } finally {
+      setImportantStyle(frame, 'pointer-events', 'auto');
+      setImportantStyle(host, 'pointer-events', 'auto');
+    }
+  };
+
+  const findMountParent = (): HTMLElement => {
+    const activeModal = findModalAncestor(getDeepActiveElement());
+    if (activeModal) return activeModal;
+
+    const hitModal = runWithoutShieldHitTesting(() => {
+      const points = [
+        [window.innerWidth / 2, window.innerHeight / 2],
+        [1, 1],
+        [Math.max(window.innerWidth - 1, 0), Math.max(window.innerHeight - 1, 0)],
+      ] as const;
+      for (const [clientX, clientY] of points) {
+        const modal = findModalAncestor(getDeepElementFromPoint(clientX, clientY));
+        if (modal) return modal;
+      }
+      return null;
+    });
+    if (hitModal) return hitModal;
+
+    const modalDialogs = Array.from(document.querySelectorAll('dialog')).filter(isModalDialog);
+    return modalDialogs.length === 1 ? modalDialogs[0] : document.documentElement;
+  };
+
+  const observer = new MutationObserver((records) => {
+    if (removed) return;
+    const modalTreeChanged = records.some((record) => {
+      if (record.type === 'attributes') return isDialogElement(record.target);
+      return [...record.addedNodes, ...record.removedNodes].some(
+        (node) =>
+          isDialogElement(node) ||
+          (node instanceof Element && node.querySelector('dialog') !== null),
+      );
+    });
+    if (!host.isConnected || modalTreeChanged) mountHost();
+  });
+
+  const mountHost = () => {
+    let parent = findMountParent();
+    if (!parent.isConnected) parent = document.documentElement;
+    if (host.parentNode !== parent) {
+      const hidePopover = (host as HTMLElement & { hidePopover?: () => void }).hidePopover;
+      try {
+        hidePopover?.call(host);
+      } catch {
+        // A closed popover throws in some browser versions.
+      }
+      const moveBefore = (parent as HTMLElement & {
+        moveBefore?: (node: Node, child: Node | null) => void;
+      }).moveBefore;
+      if (host.isConnected && typeof moveBefore === 'function') moveBefore.call(parent, host, null);
+      else parent.append(host);
+    }
+    const showPopover = (host as HTMLElement & { showPopover?: () => void }).showPopover;
+    if (typeof showPopover !== 'function') return;
+    try {
+      if (!host.matches(':popover-open')) showPopover.call(host);
+    } catch {
+      // Already-open popovers throw in some browser versions.
+    }
+  };
+
+  const remove = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(readyTimeout);
+    observer.disconnect();
+    try {
+      port?.close();
+    } catch {
+      // A failed or already-detached channel may reject cleanup.
+    }
+    port = null;
+    host.remove();
+    if (!ready) rejectReady(new Error('Snapshot input shield was removed before it became ready.'));
+  };
+
+  reportFailure = (message: string, cause?: unknown) => {
+    if (removed) return;
+    const runtimeFailure = ready;
+    const error = cause instanceof Error ? cause : new Error(message);
+    remove();
+    console.error(`[frametrail] ${message}`, cause ?? '');
+    if (runtimeFailure && onFailure) {
+      void Promise.resolve(onFailure(error)).catch((handlerError) => {
+        console.error('[frametrail] failed to recover from snapshot shield failure', handlerError);
+      });
+    }
+  };
+
+  const readyTimeout = setTimeout(
+    () => reportFailure('snapshot input shield did not become ready before the startup timeout'),
+    SHIELD_READY_TIMEOUT_MS,
+  );
+
+  frame.addEventListener(
+    'load',
+    () => {
+      if (removed || !frame.contentWindow) return;
+      const generation = ++channelGeneration;
+      port?.close();
+      const channel = new MessageChannel();
+      port = channel.port1;
+      port.onmessage = (event) => {
+        if (removed || generation !== channelGeneration) return;
+        if (!isSnapshotShieldPortMessage(event.data, token)) return;
+        if (event.data.type === SNAPSHOT_SHIELD_READY) {
+          if (!ready) {
+            ready = true;
+            clearTimeout(readyTimeout);
+            resolveReady();
+          }
+          frame.focus({ preventScroll: true });
+          for (const selection of committedSelections) {
+            const commitMessage: SnapshotShieldCommitMessage = {
+              type: SNAPSHOT_SHIELD_COMMIT,
+              token,
+              selection,
+            };
+            postToFrame(commitMessage);
+          }
+          if (toolbarState) {
+            const stateMessage: SnapshotShieldToolbarStateMessage = {
+              type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
+              token,
+              state: toolbarState,
+            };
+            postToFrame(stateMessage);
+          }
+          if (keyboardAnchors) {
+            const candidatesMessage: SnapshotShieldCandidatesMessage = {
+              type: SNAPSHOT_SHIELD_CANDIDATES,
+              token,
+              anchors: keyboardAnchors,
+            };
+            postToFrame(candidatesMessage);
+          }
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_POINTER_MOVE) {
+          void handleHover(event.data, generation);
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
+          void handlePoint(event.data, generation);
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_REGION_CAPTURE) {
+          void handleRegion(event.data, generation);
+          return;
+        }
+        if (event.data.type === SNAPSHOT_SHIELD_CONTROL) {
+          void handleControl(event.data, generation);
+        }
+      };
+      port.onmessageerror = () => {
+        if (generation === channelGeneration) {
+          reportFailure('snapshot input shield message channel failed');
+        }
+      };
+      port.start();
+
+      const message: SnapshotShieldInitMessage = { type: SNAPSHOT_SHIELD_INIT, token };
+      try {
+        frame.contentWindow.postMessage(message, frameUrl.origin, [channel.port2]);
+      } catch (error) {
+        reportFailure('snapshot input shield channel initialization failed', error);
+      }
+    },
+  );
+
+  frame.addEventListener('error', () => reportFailure('snapshot input shield page failed to load'), { once: true });
+  mountHost();
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['open'],
+  });
+
+  return {
+    ready: readyPromise,
+    runWithoutShield: runWithoutShieldHitTesting,
+    updateToolbar(state) {
+      toolbarState = state;
+      const message: SnapshotShieldToolbarStateMessage = {
+        type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
+        token,
+        state,
+      };
+      postToFrame(message);
+    },
+    sendKeyboardCandidates(anchors) {
+      keyboardAnchors = anchors;
+      const message: SnapshotShieldCandidatesMessage = {
+        type: SNAPSHOT_SHIELD_CANDIDATES,
+        token,
+        anchors,
+      };
+      postToFrame(message);
+    },
+    remove,
+  };
+}

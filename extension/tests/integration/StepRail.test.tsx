@@ -2,9 +2,9 @@
 import 'fake-indexeddb/auto';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import StepRail from '@/components/StepRail';
-import type { StepEntry } from '@/lib/db';
-import type { GuideSection } from '@/lib/guide-sections';
+import StepRail from '@/components/editor/StepRail';
+import type { StepEntry } from '@/lib/storage/db';
+import type { GuideSection } from '@/lib/guide/guide-sections';
 
 function makeEntry(id: string, order: number): StepEntry {
   return {

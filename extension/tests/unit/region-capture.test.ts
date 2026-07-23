@@ -5,7 +5,7 @@ import {
   isRegionRectInsideViewport,
   isRegionRectLargeEnough,
   normalizeRegionRect,
-} from '@/lib/region-capture';
+} from '@/lib/capture/region-capture';
 
 const viewport = { width: 100, height: 80 };
 

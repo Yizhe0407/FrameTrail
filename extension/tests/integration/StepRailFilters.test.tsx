@@ -3,14 +3,14 @@ import 'fake-indexeddb/auto';
 import { useMemo, useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import GuideQualityDialog from '@/components/GuideQualityDialog';
-import StepRailFilters, { type StepRailFilterValue } from '@/components/StepRailFilters';
+import GuideQualityDialog from '@/components/editor/GuideQualityDialog';
+import StepRailFilters, { type StepRailFilterValue } from '@/components/editor/StepRailFilters';
 import {
   analyzeGuideQuality,
   createGuideEntryIndex,
   filterGuideEntryIndex,
-} from '@/lib/guide-quality';
-import type { Step, StepEntry } from '@/lib/db';
+} from '@/lib/guide/guide-quality';
+import type { Step, StepEntry } from '@/lib/storage/db';
 
 function makeEntry(
   id: string,

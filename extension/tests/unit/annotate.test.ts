@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/raster-image-validation', () => ({
+vi.mock('@/lib/capture/raster-image-validation', () => ({
   validateRasterImageBlob: vi.fn().mockResolvedValue({ width: 100, height: 100, mediaType: 'image/png' }),
 }));
 import {
@@ -14,7 +14,7 @@ import {
   getExpandedRedactionBounds,
   layoutAnnotations,
   type AnnotationLayout,
-} from '@/lib/annotate';
+} from '@/lib/media/annotate';
 
 interface Point {
   x: number;

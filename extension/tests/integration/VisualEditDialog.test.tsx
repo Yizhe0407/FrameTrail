@@ -2,8 +2,8 @@
 import 'fake-indexeddb/auto';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import VisualEditDialog from '@/components/VisualEditDialog';
-import type { StepEntry } from '@/lib/db';
+import VisualEditDialog from '@/components/editor/VisualEditDialog';
+import type { StepEntry } from '@/lib/storage/db';
 
 const entry: StepEntry = {
   kind: 'single',

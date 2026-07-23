@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBrowserError, isMissingTabError } from '@/lib/browser-errors';
+import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
 
 describe('browser API errors', () => {
   it('keeps the DOMException name when its message is empty', () => {

@@ -7,8 +7,8 @@ import {
   filterGuideEntryIndex,
   getEntrySearchText,
   matchesEntryText,
-} from '@/lib/guide-quality';
-import type { Step, StepEntry } from '@/lib/db';
+} from '@/lib/guide/guide-quality';
+import type { Step, StepEntry } from '@/lib/storage/db';
 
 function makeStep(id: string, description: string, changes: Partial<Step> = {}): Step {
   return {

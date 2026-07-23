@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RecorderReadyGate } from '@/lib/recorder-ready';
+import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
 
 const expected = {
   runId: 'run-1',

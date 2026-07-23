@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
-import { createRegionCapture, type RegionCapture } from '@/lib/region-capture';
-import RecordingToolbar from '@/components/RecordingToolbar';
+import { createRegionCapture, type RegionCapture } from '@/lib/capture/region-capture';
+import RecordingToolbar from '@/components/recording/RecordingToolbar';
 import {
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
@@ -26,10 +26,10 @@ import {
   type SnapshotShieldSelection,
   type SnapshotShieldControlMessage,
   type SnapshotShieldPortMessage,
-} from '@/lib/snapshot-shield-protocol';
-import type { RecordingControlMessage, RecordingControlResult } from '@/lib/messages';
-import { featureFlags } from '@/lib/feature-flags';
-import { nextCandidateIndex } from '@/lib/snapshot-candidates';
+} from '@/lib/recording/snapshot-shield-protocol';
+import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
+import { featureFlags } from '@/lib/shared/feature-flags';
+import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
 import {
   BADGE_RADIUS,
   HIGHLIGHT_LINE_WIDTH,
@@ -41,7 +41,7 @@ import {
   fitHighlightFrame,
   getBadgeFontSize,
   layoutAnnotations,
-} from '@/lib/annotate';
+} from '@/lib/media/annotate';
 
 const SHIELD_HOVER_TIMEOUT_MS = 4_000;
 const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
@@ -333,7 +333,7 @@ window.addEventListener('message', (event) => {
   let pendingRegionCompletion: (() => void) | null = null;
   let lastCommitWasRegion = false;
   let captureTimeout: ReturnType<typeof setTimeout> | null = null;
-  let toolbarState: import('@/components/RecordingToolbar').RecordingToolbarState | null = null;
+  let toolbarState: import('@/components/recording/RecordingToolbar').RecordingToolbarState | null = null;
 
   const clearPendingHover = () => {
     if (pendingHoverTimeout !== null) clearTimeout(pendingHoverTimeout);

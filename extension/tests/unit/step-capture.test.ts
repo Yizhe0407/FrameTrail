@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { orchestrateStepCapture, type StepCaptureHandlers } from '@/lib/step-capture';
+import { orchestrateStepCapture, type StepCaptureHandlers } from '@/lib/capture/step-capture';
 
 /** Deferred promise plus a spy that records when it is invoked, so tests can
  *  assert both the ordering of effects and that the real capture wins the race. */
