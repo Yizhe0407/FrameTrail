@@ -82,10 +82,56 @@ export async function copyRichText(
   throwIfDownloadAborted(signal);
 }
 
+const PRINT_PLACEHOLDER_STYLE = `
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+body { display: grid; min-height: 100vh; margin: 0; place-items: center; background: #f5f5f4; color: #1c1917; }
+main { width: min(calc(100% - 32px), 420px); padding: 32px; border: 1px solid #e7e5e4; border-radius: 14px; background: #fff; box-shadow: 0 16px 44px rgb(28 25 23 / .1); text-align: center; }
+span { display: grid; width: 48px; height: 48px; margin: 0 auto 18px; place-items: center; border-radius: 13px; background: #ecfccb; color: #4d7c0f; font-weight: 800; }
+h1 { margin: 0; font-size: 1.1rem; }
+p { margin: 8px 0 0; color: #57534e; font-size: .875rem; line-height: 1.6; }
+`;
+
+/** Builds a safe loading state without parsing or injecting generated markup. */
+function renderPrintPlaceholder(targetWindow: Window): void {
+  try {
+    const ownerDocument = targetWindow.document;
+    if (!ownerDocument?.head || !ownerDocument.body) return;
+
+    ownerDocument.documentElement.lang = 'zh-Hant';
+    ownerDocument.title = '正在準備列印版…';
+
+    const style = ownerDocument.createElement('style');
+    style.textContent = PRINT_PLACEHOLDER_STYLE;
+
+    const main = ownerDocument.createElement('main');
+    main.setAttribute('role', 'status');
+    main.setAttribute('aria-live', 'polite');
+
+    const icon = ownerDocument.createElement('span');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = 'P';
+
+    const title = ownerDocument.createElement('h1');
+    title.textContent = '正在準備列印版';
+
+    const description = ownerDocument.createElement('p');
+    description.textContent = '正在套用標註、遮罩與紙張版面，完成後會自動顯示預覽。';
+
+    main.append(icon, title, description);
+    ownerDocument.head.append(style);
+    ownerDocument.body.replaceChildren(main);
+  } catch {
+    // The popup can become inaccessible immediately in hardened browsers. A
+    // blank placeholder still preserves the user gesture needed for printing.
+  }
+}
+
 /** Must be called directly from the user's click handler to avoid popup blocking. */
 export function openPrintPlaceholder(ownerWindow: Window = globalThis.window): Window | null {
   const placeholder = ownerWindow.open('about:blank', '_blank');
   if (placeholder) {
+    renderPrintPlaceholder(placeholder);
     try {
       placeholder.opener = null;
     } catch {

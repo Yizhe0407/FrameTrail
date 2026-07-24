@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Clipboard, Download, FileCode2, FileText, Images, Loader2, Printer, X } from 'lucide-react';
+import { Download, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -24,6 +24,11 @@ import {
   openPrintPlaceholder,
   throwIfDownloadAborted,
 } from '@/lib/export/download-utils';
+import PublicationActionButton, {
+  PUBLICATION_ACTION_CONTENT,
+  type ActionPresentation,
+  type PublicationAction,
+} from './PublicationActionButton';
 
 export type GuideEntriesSnapshot = {
   /** Entries captured for one publication action. */
@@ -63,18 +68,38 @@ export type PublishGuideDialogProps = GuideEntriesSource & {
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 };
 
-type PublicationAction = 'markdown' | 'html' | 'print' | 'copy' | 'images';
+type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html'>;
 
-const ACTION_LABELS: Readonly<Record<PublicationAction, string>> = {
-  markdown: '下載 Markdown',
-  html: '下載自包含 HTML',
-  print: '開啟列印版',
-  copy: '複製完整教學',
-  images: '下載圖片 ZIP',
+const DOWNLOAD_ACTIONS = {
+  markdown: {
+    generate: generateGuideMarkdown,
+    filenameFormat: 'markdown' as const,
+    mimeType: 'text/markdown;charset=utf-8',
+    successMessage: 'Markdown 已開始下載。',
+  },
+  html: {
+    generate: generateGuideHtml,
+    filenameFormat: 'html' as const,
+    mimeType: 'text/html;charset=utf-8',
+    successMessage: '自包含 HTML 已開始下載。',
+  },
+} satisfies Readonly<Record<DownloadPublicationAction, {
+  generate: typeof generateGuideMarkdown;
+  filenameFormat: 'markdown' | 'html';
+  mimeType: string;
+  successMessage: string;
+}>>;
+
+const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
+  markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與教學內容後再試一次。',
+  html: '無法下載 HTML。請確認所有敏感資訊遮罩與教學內容後再試一次。',
+  print: '無法開啟列印版。請允許彈出式視窗、確認遮罩後再試一次。',
+  copy: '無法複製完整教學。請確認剪貼簿權限後再試一次。',
+  images: '無法下載圖片 ZIP。請確認所有敏感資訊遮罩後再試一次。',
 };
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 function isGuideEntriesSnapshot(
@@ -94,6 +119,12 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   const knownEmpty = props.guideEntries?.length === 0;
 
   useEffect(() => () => activeController.current?.abort(), []);
+  useEffect(() => {
+    if (open) {
+      setError(null);
+      setNotice(null);
+    }
+  }, [open]);
 
   function requestOpenChange(nextOpen: boolean) {
     if (!nextOpen) activeController.current?.abort();
@@ -140,11 +171,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
         setNotice('已取消發佈操作。');
       } else {
         console.error(`教學發佈失敗：${action}`, actionError);
-        setError(
-          action === 'print'
-            ? '無法開啟列印版。請允許彈出式視窗、確認遮罩後再試一次。'
-            : '無法完成發佈。請確認所有敏感資訊遮罩與教學內容後再試一次。',
-        );
+        setError(ACTION_ERROR_MESSAGES[action]);
       }
     } finally {
       if (activeController.current === controller) activeController.current = null;
@@ -152,29 +179,22 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     }
   }
 
-  function downloadMarkdown() {
+  function downloadGuide(action: DownloadPublicationAction) {
+    const config = DOWNLOAD_ACTIONS[action];
     void runAction(
-      'markdown',
+      action,
       async (signal) => {
         const snapshot = await resolveGuideEntries(signal);
-        const markdown = await generateGuideMarkdown(snapshot.entries, snapshot.metadata, { signal });
+        const output = await config.generate(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
-        await downloadText(markdown, guideExportFilename(snapshot.metadata, 'markdown'), 'text/markdown;charset=utf-8', { signal });
+        await downloadText(
+          output,
+          guideExportFilename(snapshot.metadata, config.filenameFormat),
+          config.mimeType,
+          { signal },
+        );
       },
-      'Markdown 已開始下載。',
-    );
-  }
-
-  function downloadHtml() {
-    void runAction(
-      'html',
-      async (signal) => {
-        const snapshot = await resolveGuideEntries(signal);
-        const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
-        throwIfDownloadAborted(signal);
-        await downloadText(html, guideExportFilename(snapshot.metadata, 'html'), 'text/html;charset=utf-8', { signal });
-      },
-      '自包含 HTML 已開始下載。',
+      config.successMessage,
     );
   }
 
@@ -194,8 +214,9 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
         const html = await generatePrintReadyGuideHtml(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await loadHtmlIntoWindow(printWindow, html, signal);
+        printWindow.focus?.();
       },
-      '列印版已開啟；請在新分頁選擇「列印」→「另存為 PDF」。',
+      '列印版已開啟；請在新分頁按 Ctrl / ⌘ + P 列印或另存為 PDF。',
       printWindow,
     );
   }
@@ -213,7 +234,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
         throwIfDownloadAborted(signal);
         await copyRichText(html, plainText, signal);
       },
-      '已複製完整教學（HTML 與純文字）。',
+      '完整教學已複製，可貼到支援富文字的編輯器。',
     );
   }
 
@@ -223,7 +244,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       'images',
       async (signal) => {
         await onExportImages(signal);
-        throwIfDownloadAborted(signal);
       },
       '圖片 ZIP 已開始下載。',
     );
@@ -233,30 +253,16 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     activeController.current?.abort();
   }
 
-  const actionButton = (
-    action: PublicationAction,
-    label: string,
-    description: string,
-    Icon: typeof Download,
-    onClick: () => void,
-  ) => (
-    <button
-      type="button"
-      disabled={busy || knownEmpty}
-      aria-describedby={`${messageId}-${action}`}
+  const actionButton = (action: PublicationAction, presentation: ActionPresentation, onClick: () => void) => (
+    <PublicationActionButton
+      action={action}
+      presentation={presentation}
+      busy={busy}
+      disabled={knownEmpty}
+      pendingAction={pendingAction}
+      descriptionId={`${messageId}-${action}`}
       onClick={onClick}
-      className="flex min-h-24 w-full items-start gap-3 rounded-lg border border-stone-200 bg-white p-4 text-left transition-colors hover:border-lime-600 hover:bg-lime-50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-lime-600/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:bg-stone-900 dark:hover:border-lime-400 dark:hover:bg-lime-950/30"
-    >
-      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300" aria-hidden="true">
-        {pendingAction === action ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold text-stone-900 dark:text-stone-100">{label}</span>
-        <span id={`${messageId}-${action}`} className="mt-1 block text-xs leading-5 text-stone-600 dark:text-stone-300">
-          {description}
-        </span>
-      </span>
-    </button>
+    />
   );
 
   return (
@@ -264,55 +270,81 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       <DialogContent
         showClose={!busy}
         aria-describedby={`${messageId}-description`}
-        className="max-h-[min(760px,calc(100vh-32px))] w-[min(680px,calc(100vw-32px))] overflow-y-auto border border-stone-200 bg-stone-50 p-0 text-stone-900 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
+        className="app-scrollbar max-h-[min(820px,calc(100vh-28px))] w-[min(760px,calc(100vw-28px))] overflow-y-auto border border-stone-200 bg-stone-50 p-0 text-stone-900 shadow-2xl dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
       >
-        <DialogHeader className="border-b border-stone-200 bg-white px-6 py-5 dark:border-stone-700 dark:bg-stone-900">
-          <DialogTitle className="text-lg">發佈教學</DialogTitle>
-          <DialogDescription id={`${messageId}-description`} className="leading-6 text-stone-600 dark:text-stone-300">
-            下載可攜格式、複製完整內容，或開啟列印版後使用「列印」→「另存為 PDF」。所有圖片都會經過既有的標註與遮罩產生器。
-          </DialogDescription>
+        <DialogHeader className="border-b border-stone-200 bg-white px-6 py-5 pr-16 sm:px-7 dark:border-stone-700 dark:bg-stone-900">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300" aria-hidden="true">
+              <Download className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="text-lg">發佈教學</DialogTitle>
+              <DialogDescription id={`${messageId}-description`} className="mt-1 max-w-2xl leading-6 text-stone-600 dark:text-stone-300">
+                選擇最適合的輸出方式。所有圖片都會先套用既有標註與敏感資訊遮罩，再於本機產生檔案。
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="space-y-4 px-6 py-5">
+        <div className="space-y-6 px-6 py-6 sm:px-7">
           {knownEmpty && (
-            <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               目前沒有可供發佈的步驟。
             </p>
           )}
 
-          <section aria-labelledby={`${messageId}-files-title`} className="space-y-3">
-            <h2 id={`${messageId}-files-title`} className="text-sm font-semibold">下載與列印</h2>
+          <section aria-labelledby={`${messageId}-recommended-title`} className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-lime-700 dark:text-lime-400" aria-hidden="true" />
+              <h2 id={`${messageId}-recommended-title`} className="text-sm font-semibold">推薦格式</h2>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              {actionButton('markdown', ACTION_LABELS.markdown, '適合版本控制與文字編輯；圖片直接內嵌。', FileText, downloadMarkdown)}
-              {actionButton('html', ACTION_LABELS.html, '單一離線檔案，包含樣式與所有圖片。', FileCode2, downloadHtml)}
-              {actionButton('print', ACTION_LABELS.print, '同步開啟新分頁，再產生適合列印的版本。', Printer, openPrintVersion)}
-              {onExportImages && actionButton('images', ACTION_LABELS.images, '保留既有的已標註圖片 ZIP 工作流程。', Images, exportImages)}
+              {actionButton('html', 'featured', () => downloadGuide('html'))}
+              {actionButton('print', 'featured', openPrintVersion)}
+            </div>
+          </section>
+
+          <section aria-labelledby={`${messageId}-more-title`} className="space-y-3">
+            <div>
+              <h2 id={`${messageId}-more-title`} className="text-sm font-semibold">其他下載方式</h2>
+              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">需要再編輯內容或取得個別圖片時使用。</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {actionButton('markdown', 'compact', () => downloadGuide('markdown'))}
+              {onExportImages && actionButton('images', 'compact', exportImages)}
             </div>
           </section>
 
           <section aria-labelledby={`${messageId}-copy-title`} className="space-y-3">
-            <h2 id={`${messageId}-copy-title`} className="text-sm font-semibold">複製到剪貼簿</h2>
-            {actionButton('copy', ACTION_LABELS.copy, '同一個 ClipboardItem 同時提供 text/html 與 text/plain。', Clipboard, copyGuide)}
+            <div>
+              <h2 id={`${messageId}-copy-title`} className="text-sm font-semibold">快速複製</h2>
+              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">不用建立檔案，直接貼到支援富文字的工具。</p>
+            </div>
+            {actionButton('copy', 'compact', copyGuide)}
           </section>
 
           <div aria-live="polite" aria-atomic="true">
             {error && (
-              <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
                 {error}
               </p>
             )}
             {!error && notice && (
-              <p role="status" className="rounded-md border border-lime-200 bg-lime-50 px-3 py-2 text-sm text-lime-900 dark:border-lime-900 dark:bg-lime-950/40 dark:text-lime-200">
+              <p role="status" className="rounded-lg border border-lime-200 bg-lime-50 px-4 py-3 text-sm text-lime-900 dark:border-lime-900 dark:bg-lime-950/40 dark:text-lime-200">
                 {notice}
               </p>
             )}
           </div>
         </div>
 
-        <DialogFooter className="border-t border-stone-200 bg-white px-6 py-4 dark:border-stone-700 dark:bg-stone-900">
+        <DialogFooter className="flex-col-reverse items-stretch justify-between border-t border-stone-200 bg-white px-6 py-4 sm:flex-row sm:items-center sm:px-7 dark:border-stone-700 dark:bg-stone-900">
+          <p className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
+            <ShieldCheck className="size-4 text-lime-700 dark:text-lime-400" aria-hidden="true" />
+            檔案僅在此裝置上產生
+          </p>
           {busy ? (
             <Button type="button" variant="outline" onClick={cancelAction}>
-              <X />取消{ACTION_LABELS[pendingAction]}
+              <X />取消{PUBLICATION_ACTION_CONTENT[pendingAction].label}
             </Button>
           ) : (
             <Button type="button" variant="outline" onClick={() => requestOpenChange(false)}>

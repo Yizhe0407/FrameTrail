@@ -66,13 +66,17 @@ describe('download utilities', () => {
     expect(items[0].types['text/plain'].type).toBe('text/plain;charset=utf-8');
   });
 
-  it('opens about:blank synchronously for the print flow', () => {
-    const placeholder = { opener: window } as unknown as Window;
+  it('opens and styles about:blank synchronously for the print flow', () => {
+    const popupDocument = document.implementation.createHTMLDocument();
+    const placeholder = { opener: window, document: popupDocument } as unknown as Window;
     const open = vi.spyOn(window, 'open').mockReturnValue(placeholder);
 
     expect(openPrintPlaceholder()).toBe(placeholder);
     expect(open).toHaveBeenCalledWith('about:blank', '_blank');
     expect(placeholder.opener).toBeNull();
+    expect(popupDocument.documentElement.lang).toBe('zh-Hant');
+    expect(popupDocument.title).toBe('正在準備列印版…');
+    expect(popupDocument.querySelector('[role="status"]')?.textContent).toContain('正在準備列印版');
   });
 
   it('loads print HTML by Blob navigation without document markup injection and revokes after load', async () => {

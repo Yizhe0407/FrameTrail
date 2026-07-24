@@ -187,9 +187,10 @@ describe('guide export', () => {
     const html = await generatePrintReadyGuideHtml([groupEntry()], { title: 'Print guide' });
 
     expect(html.indexOf('First annotation')).toBeLessThan(html.indexOf('Second annotation'));
-    expect(html).toContain('@page { margin: 16mm; size: auto; }');
-    expect(html).toContain('break-inside: avoid');
-    expect(html).toContain('page-break-inside: avoid');
+    expect(html).toContain('@page { margin: 14mm 13mm 16mm; size: auto; }');
+    expect(html).toContain('class="print-hint"');
+    expect(html).toContain('body.print-ready');
+    expect(html).toContain('figure { break-inside: avoid-page; page-break-inside: avoid;');
   });
 
   it('propagates shared compositing failures so redaction review remains fail-closed', async () => {

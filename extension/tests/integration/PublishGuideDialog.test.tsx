@@ -67,6 +67,9 @@ describe('PublishGuideDialog', () => {
     expect(screen.getByRole('button', { name: /開啟列印版/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /複製完整教學/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /下載圖片 ZIP/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '推薦格式' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '其他下載方式' })).toBeTruthy();
+    expect(screen.getByText('檔案僅在此裝置上產生')).toBeTruthy();
     expect(screen.getByText(/另存為 PDF/)).toBeTruthy();
   });
 
