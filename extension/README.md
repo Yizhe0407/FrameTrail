@@ -26,7 +26,7 @@ pnpm dev:firefox
 
 - 作品庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
 - 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
-- 發佈支援 Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
+- 發佈支援 PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
 - `.frametrail` 是包含原始未遮罩圖的可編輯本機備份，不應當作公開輸出。
 - 首次導覽、練習頁與縮圖 lazy mounting 均不需要網路或後端。
 

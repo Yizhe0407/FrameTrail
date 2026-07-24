@@ -12,6 +12,7 @@ import {
 import {
   generateGuideHtml,
   generateGuideMarkdownArchive,
+  generateGuidePdf,
   guideExportFilename,
   type GuideExportMetadata,
 } from '@/lib/export/guide-export';
@@ -65,7 +66,7 @@ export type PublishGuideDialogProps = GuideEntriesSource & {
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 };
 
-type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html'>;
+type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html' | 'pdf'>;
 
 const HTML_DOWNLOAD = {
   mimeType: 'text/html;charset=utf-8',
@@ -75,6 +76,7 @@ const HTML_DOWNLOAD = {
 const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
   markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與教學內容後再試一次。',
   html: '無法下載 HTML。請確認所有敏感資訊遮罩與教學內容後再試一次。',
+  pdf: '無法下載 PDF。請確認所有敏感資訊遮罩與教學內容後再試一次。',
   images: '無法下載圖片。請確認所有敏感資訊遮罩後再試一次。',
 };
 
@@ -170,6 +172,13 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           return;
         }
 
+        if (action === 'pdf') {
+          const pdf = await generateGuidePdf(snapshot.entries, snapshot.metadata, { signal });
+          throwIfDownloadAborted(signal);
+          await downloadBlob(pdf, guideExportFilename(snapshot.metadata, 'pdf'), { signal });
+          return;
+        }
+
         const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await downloadText(
@@ -179,7 +188,11 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           { signal },
         );
       },
-      action === 'markdown' ? 'Markdown ZIP 已開始下載。' : HTML_DOWNLOAD.successMessage,
+      action === 'markdown'
+        ? 'Markdown ZIP 已開始下載。'
+        : action === 'pdf'
+          ? 'PDF 已開始下載。'
+          : HTML_DOWNLOAD.successMessage,
     );
   }
 
@@ -254,6 +267,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
               <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">需要再編輯內容或取得個別圖片時使用。</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
+              {actionButton('pdf', 'compact', () => downloadGuide('pdf'))}
               {actionButton('markdown', 'compact', () => downloadGuide('markdown'))}
               {onExportImages && actionButton('images', 'compact', exportImages)}
             </div>

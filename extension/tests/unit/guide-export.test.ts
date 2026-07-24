@@ -1,13 +1,22 @@
 import { strFromU8, unzipSync } from 'fflate';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StepEntry } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
   composite: vi.fn(),
+  pdfCreate: vi.fn(),
+  pdfEmbedJpg: vi.fn(),
+  pdfAddPage: vi.fn(),
+  pdfDrawImage: vi.fn(),
+  pdfSave: vi.fn(),
 }));
 
 vi.mock('@/lib/export/entry-render', () => ({
   compositeStepEntry: mocks.composite,
+}));
+
+vi.mock('pdf-lib', () => ({
+  PDFDocument: { create: mocks.pdfCreate },
 }));
 
 import {
@@ -16,6 +25,7 @@ import {
   generateGuideHtml,
   generateGuideMarkdown,
   generateGuideMarkdownArchive,
+  generateGuidePdf,
   guideExportFilename,
 } from '@/lib/export/guide-export';
 
@@ -79,8 +89,21 @@ function groupEntry(): StepEntry {
   } as StepEntry;
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
   mocks.composite.mockReset().mockResolvedValue(new Blob(['annotated'], { type: 'image/jpeg' }));
+  mocks.pdfDrawImage.mockReset();
+  mocks.pdfEmbedJpg.mockReset().mockResolvedValue({ width: 1, height: 1 });
+  mocks.pdfAddPage.mockReset().mockReturnValue({ drawImage: mocks.pdfDrawImage });
+  mocks.pdfSave.mockReset().mockResolvedValue(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
+  mocks.pdfCreate.mockReset().mockResolvedValue({
+    embedJpg: mocks.pdfEmbedJpg,
+    addPage: mocks.pdfAddPage,
+    save: mocks.pdfSave,
+  });
 });
 
 describe('guide export', () => {
@@ -88,6 +111,51 @@ describe('guide export', () => {
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown')).toBe('my-guide.md');
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown-archive')).toBe('my-guide.zip');
     expect(guideExportFilename({ filename: '../../Report 2026' }, 'html')).toBe('report-2026.html');
+    expect(guideExportFilename({ filename: '../../Report 2026' }, 'pdf')).toBe('report-2026.pdf');
+  });
+
+  it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
+    const fillText = vi.fn();
+    const context = {
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top',
+      fillRect: vi.fn(),
+      fillText,
+      drawImage: vi.fn(),
+      measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
+    };
+    class OffscreenCanvasMock {
+      constructor(readonly width: number, readonly height: number) {}
+      getContext() {
+        return context;
+      }
+      async convertToBlob() {
+        return new Blob(['jpeg-page'], { type: 'image/jpeg' });
+      }
+    }
+    const close = vi.fn();
+    vi.stubGlobal('OffscreenCanvas', OffscreenCanvasMock);
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close }));
+
+    const pdf = await generateGuidePdf([groupEntry()], { title: 'PDF guide' });
+    const drawnText = fillText.mock.calls.map(([text]) => String(text));
+
+    expect(pdf.type).toBe('application/pdf');
+    expect(Array.from(new Uint8Array(await pdf.arrayBuffer()))).toEqual([0x25, 0x50, 0x44, 0x46]);
+    expect(mocks.composite).toHaveBeenCalledOnce();
+    expect(mocks.pdfEmbedJpg).toHaveBeenCalledOnce();
+    expect(mocks.pdfAddPage).toHaveBeenCalledWith([595.28, 841.89]);
+    expect(mocks.pdfDrawImage).toHaveBeenCalledOnce();
+    expect(drawnText).toContain('PDF guide');
+    expect(drawnText).toContain('Shared page');
+    expect(drawnText).toContain('1. ');
+    expect(drawnText).toContain('First annotation');
+    expect(drawnText).not.toContain('Source');
+    expect(drawnText).not.toContain('Step');
+    expect(drawnText).not.toContain('Annotations');
+    expect(close).toHaveBeenCalledOnce();
+
   });
 
   it('packs one Markdown file and every composited image into a portable ZIP', async () => {
@@ -112,8 +180,12 @@ describe('guide export', () => {
     ]);
     expect(strFromU8(files['images/01.jpg'])).toBe('first-image');
     expect(strFromU8(files['images/02.jpg'])).toBe('second-image');
-    expect(markdown).toContain('![Step 1](images/01.jpg)');
-    expect(markdown).toContain('![Step 2](images/02.jpg)');
+    expect(markdown).toContain('![Open settings](images/01.jpg)');
+    expect(markdown).toContain('![Shared page](images/02.jpg)');
+    expect(markdown).not.toContain('Step 1');
+    expect(markdown).not.toContain('Step 2');
+    expect(markdown).not.toContain('Source:');
+    expect(markdown).not.toContain('Annotations:');
     expect(markdown).not.toContain('data:image/');
   });
 
@@ -123,7 +195,6 @@ describe('guide export', () => {
       {
         title: '# unsafe',
         description: 'A <b>description</b>',
-        sourceUrl: 'javascript:alert(1)',
       },
     );
 
@@ -132,13 +203,11 @@ describe('guide export', () => {
     expect(markdown).toContain('A \\<b\\>description\\</b\\>');
     expect(markdown).toContain('\\<script\\>alert\\(1\\)\\</script\\>');
     expect(markdown).toContain('data:image/jpeg;base64,YW5ub3RhdGVk');
-    expect(markdown).not.toContain('Source: <javascript:');
+    expect(markdown).not.toContain('Source:');
+    expect(markdown).not.toContain('https://example.com/settings');
 
-    const credentialHtml = await generateGuideHtml([entry({ url: 'https://user:secret@example.com/private' })], {
-      sourceUrl: 'https://admin:token@example.com/private',
-    });
+    const credentialHtml = await generateGuideHtml([entry({ url: 'https://user:secret@example.com/private' })]);
     expect(credentialHtml).not.toContain('secret');
-    expect(credentialHtml).not.toContain('token');
   });
 
   it('escapes user HTML and unsafe URLs in self-contained HTML', async () => {
@@ -147,14 +216,12 @@ describe('guide export', () => {
       {
         title: '<svg onload=alert(1)>',
         description: '"quoted" & <b>unsafe</b>',
-        sourceUrl: 'https://example.com/?q=<unsafe>&x=1',
       },
     );
 
     expect(html).toContain('&lt;svg onload=alert(1)&gt;');
     expect(html).toContain('&quot;quoted&quot; &amp; &lt;b&gt;unsafe&lt;/b&gt;');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
-    expect(html).not.toContain('https://example.com/?q=');
     expect(html).toContain('src="data:image/jpeg;base64,YW5ub3RhdGVk"');
     expect(html).toContain('http-equiv="Content-Security-Policy"');
     expect(html).toContain("default-src 'none'; img-src data:");
@@ -179,13 +246,13 @@ describe('guide export', () => {
     );
 
     const firstHeading = markdown.indexOf('## \\# First \\[chapter\\]');
-    const firstStep = markdown.indexOf('### Step 1');
+    const firstImage = markdown.indexOf('![Open settings]');
     const laterHeading = markdown.indexOf('## Later \\<chapter\\>');
-    const secondStep = markdown.indexOf('### Step 2');
+    const secondImage = markdown.indexOf('![Shared page]');
     expect(firstHeading).toBeGreaterThan(-1);
-    expect(firstHeading).toBeLessThan(firstStep);
-    expect(firstStep).toBeLessThan(laterHeading);
-    expect(laterHeading).toBeLessThan(secondStep);
+    expect(firstHeading).toBeLessThan(firstImage);
+    expect(firstImage).toBeLessThan(laterHeading);
+    expect(laterHeading).toBeLessThan(secondImage);
     expect(markdown).not.toContain('Must not render');
     expect(markdown).not.toContain('Must also not render');
   });
@@ -199,10 +266,10 @@ describe('guide export', () => {
     };
     const html = await generateGuideHtml([entry()], metadata);
     const heading = html.indexOf('&lt;img src=x onerror=alert(1)&gt;');
-    const step = html.indexOf('<h3>Step 1</h3>');
+    const image = html.indexOf('<figure>');
 
     expect(heading).toBeGreaterThan(-1);
-    expect(heading).toBeLessThan(step);
+    expect(heading).toBeLessThan(image);
     expect(html).not.toContain('<img src=x onerror=alert(1)>');
     expect(html).not.toContain('broken');
   });
@@ -218,6 +285,10 @@ describe('guide export', () => {
     expect(html).not.toContain('Source');
     expect(html).not.toContain('<figcaption>');
     expect(html).not.toContain('Annotated screenshot for step');
+    expect(html).not.toContain('Annotations');
+    expect(html).not.toContain('<div class="step-index"');
+    expect(html).not.toContain('<div class="step-header"');
+    expect(html).not.toContain('Step 1');
   });
 
   it('propagates shared compositing failures so redaction review remains fail-closed', async () => {

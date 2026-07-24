@@ -10,8 +10,6 @@ export interface GuideExportMetadata {
   title?: string;
   /** Optional introductory text for the guide. */
   description?: string;
-  /** Optional original page URL shown near the guide title. */
-  sourceUrl?: string;
   /** Optional stable filename source; extensions are added by guideExportFilename. */
   filename?: string;
   /** Optional chapter headings anchored to complete timeline entry ids. */
@@ -22,7 +20,7 @@ export interface GuideExportOptions {
   signal?: AbortSignal;
 }
 
-export type GuideExportFormat = 'markdown' | 'markdown-archive' | 'html';
+export type GuideExportFormat = 'markdown' | 'markdown-archive' | 'html' | 'pdf';
 
 type GuideExportControl = GuideExportOptions | AbortSignal | undefined;
 
@@ -31,7 +29,6 @@ type RenderedEntryContent = {
   ordinal: number;
   description: string;
   annotations: readonly Step[];
-  sourceUrl: string | null;
 };
 
 type RenderedEntry = RenderedEntryContent & {
@@ -55,6 +52,7 @@ export interface GuideMarkdownArchive {
 
 const DEFAULT_TITLE = 'FrameTrail Guide';
 const DEFAULT_DESCRIPTION = 'No description provided.';
+const DEFAULT_IMAGE_ALT = 'Screenshot';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 const IMAGE_MIME_TYPE = 'image/jpeg';
 
@@ -62,6 +60,8 @@ export const GUIDE_EXPORT_LIMITS = Object.freeze({
   maxEntries: 2_000,
   maxImageBytes: 16 * 1024 * 1024,
   maxTotalImageBytes: 64 * 1024 * 1024,
+  maxPdfPages: 4_000,
+  maxPdfBytes: 128 * 1024 * 1024,
 });
 
 export class GuideExportLimitError extends Error {
@@ -77,7 +77,7 @@ export class GuideExportLimitError extends Error {
  * local export without silently creating a differently named publication.
  */
 export function guideExportFilename(metadata: GuideExportMetadata = {}, format: GuideExportFormat): string {
-  const extension = format === 'markdown' ? 'md' : format === 'markdown-archive' ? 'zip' : 'html';
+  const extension = format === 'markdown' ? 'md' : format === 'markdown-archive' ? 'zip' : format;
   return `${filenameStem(metadata)}.${extension}`;
 }
 
@@ -184,20 +184,15 @@ function renderGuideMarkdown<T extends RenderedEntryContent>(
   const description = textValue(metadata.description);
   if (description) lines.push('', escapeGuideMarkdown(description));
 
-  const sourceUrl = safeExternalUrl(metadata.sourceUrl);
-  if (sourceUrl) lines.push('', `Source: <${escapeMarkdownUrl(sourceUrl)}>`);
-
   const sections = sectionsByStartEntry(metadata.sections, sourceEntries);
-  let insideSection = false;
   for (const entry of renderedEntries) {
     const section = sections.get(entry.entryId);
     if (section) {
       lines.push('', `## ${escapeGuideMarkdown(section.title)}`);
-      insideSection = true;
     }
-    lines.push('', `${insideSection ? '###' : '##'} Step ${entry.ordinal}`);
+    const alt = textOrDefault(entry.description, DEFAULT_IMAGE_ALT);
+    lines.push('', `![${escapeGuideMarkdown(alt)}](${imageReference(entry)})`);
     appendMarkdownEntryText(lines, entry);
-    lines.push('', `![${escapeGuideMarkdown(`Step ${entry.ordinal}`)}](${imageReference(entry)})`);
   }
 
   return `${lines.join('\n')}\n`;
@@ -205,8 +200,8 @@ function renderGuideMarkdown<T extends RenderedEntryContent>(
 
 /**
  * Generates a self-contained HTML publication. It uses only fixed template
- * markup and data-URI images; all metadata, descriptions, and page URLs pass
- * through text/URL escaping before interpolation.
+ * markup and data-URI images; all metadata and descriptions pass through
+ * text escaping before interpolation.
  */
 export async function generateGuideHtml(
   entries: readonly StepEntry[],
@@ -214,6 +209,72 @@ export async function generateGuideHtml(
   control?: GuideExportControl,
 ): Promise<string> {
   return generateGuideHtmlDocument(entries, metadata, getSignal(control));
+}
+
+
+/**
+ * Generates a local PDF whose pages are rasterized before being embedded. Text
+ * is drawn with the browser's installed fonts so CJK descriptions remain
+ * visible without shipping a large font file in the extension bundle.
+ */
+export async function generateGuidePdf(
+  entries: readonly StepEntry[],
+  metadata: GuideExportMetadata = {},
+  control?: GuideExportControl,
+): Promise<Blob> {
+  const signal = getSignal(control);
+  throwIfAborted(signal);
+  const { PDFDocument } = await import('pdf-lib');
+  throwIfAborted(signal);
+  const document = await PDFDocument.create();
+  let pageCount = 0;
+  let pageImageBytes = 0;
+  const paginator = new GuidePdfPaginator(async (jpegBytes) => {
+    throwIfAborted(signal);
+    pageCount += 1;
+    pageImageBytes += jpegBytes.byteLength;
+    if (pageCount > GUIDE_EXPORT_LIMITS.maxPdfPages) {
+      throw new GuideExportLimitError('Guide PDF exceeds the page limit.');
+    }
+    if (pageImageBytes > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
+      throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
+    }
+
+    const embedded = await document.embedJpg(jpegBytes);
+    const page = document.addPage([PDF_PAGE_WIDTH_POINTS, PDF_PAGE_HEIGHT_POINTS]);
+    page.drawImage(embedded, {
+      x: 0,
+      y: 0,
+      width: PDF_PAGE_WIDTH_POINTS,
+      height: PDF_PAGE_HEIGHT_POINTS,
+    });
+  }, signal);
+
+  await paginator.addParagraph(textOrDefault(metadata.title, DEFAULT_TITLE), PDF_TITLE_TEXT);
+  const guideDescription = textValue(metadata.description);
+  if (guideDescription) await paginator.addParagraph(guideDescription, PDF_GUIDE_DESCRIPTION_TEXT);
+
+  const sections = sectionsByStartEntry(metadata.sections, entries);
+  let renderedCount = 0;
+  for await (const rendered of renderEntryImages(entries, signal)) {
+    if (renderedCount > 0) await paginator.startNewPage();
+    const section = sections.get(rendered.content.entryId);
+    if (section) await paginator.addParagraph(section.title, PDF_SECTION_TEXT);
+    await paginator.addImage(rendered.imageBytes);
+    await addPdfEntryText(paginator, rendered.content);
+    renderedCount += 1;
+  }
+  await paginator.finish();
+  throwIfAborted(signal);
+
+  const saved = await document.save();
+  throwIfAborted(signal);
+  if (saved.byteLength > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
+    throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
+  }
+  const owned = new Uint8Array(saved.byteLength);
+  owned.set(saved);
+  return new Blob([owned.buffer], { type: 'application/pdf' });
 }
 
 function filenameStem(metadata: GuideExportMetadata): string {
@@ -245,28 +306,6 @@ function textValue(value: unknown): string {
 function textOrDefault(value: unknown, fallback: string): string {
   const text = textValue(value).trim();
   return text || fallback;
-}
-
-/** Only rendered HTTP(S) links are safe to place in an HTML href or Markdown URL. */
-function safeExternalUrl(value: unknown): string | null {
-  const text = textValue(value).trim();
-  if (!text || /[\u0000-\u001f\u007f]/.test(text)) return null;
-
-  try {
-    const url = new URL(text);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    if (url.username || url.password) return null;
-    return url.href;
-  } catch {
-    return null;
-  }
-}
-
-function escapeMarkdownUrl(url: string): string {
-  // URL() has already rejected control characters and canonicalized unsafe
-  // delimiters. Escaping these remaining Markdown delimiters keeps the link
-  // destination structural rather than user-controlled markup.
-  return url.replace(/[\\<>]/g, '\\$&');
 }
 
 function sortedAnnotations(entry: StepEntry): readonly Step[] {
@@ -326,7 +365,6 @@ async function* renderEntryImages(
         ordinal,
         description: textValue(owner.description),
         annotations: sortedAnnotations(entry),
-        sourceUrl: safeExternalUrl(owner.url),
       },
       imageBytes: bytes,
     };
@@ -349,13 +387,10 @@ function appendMarkdownEntryText(lines: string[], entry: RenderedEntryContent): 
   } else {
     const description = textValue(entry.description);
     if (description) lines.push('', escapeGuideMarkdown(description));
-    lines.push('', 'Annotations:');
     for (const [index, annotation] of entry.annotations.entries()) {
       lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}`);
     }
   }
-
-  if (entry.sourceUrl) lines.push('', `Source: <${escapeMarkdownUrl(entry.sourceUrl)}>`);
 }
 
 
@@ -400,7 +435,7 @@ async function generateGuideHtmlDocument(
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const description = textValue(metadata.description);
   const header = [
-    `<div class="guide-overline"><span>FrameTrail Guide</span><span>${renderedEntries.length} ${renderedEntries.length === 1 ? 'step' : 'steps'}</span></div>`,
+    `<div class="guide-overline"><span>FrameTrail Guide</span></div>`,
     `<h1>${escapeGuideHtml(title)}</h1>`,
     description ? `<p class="guide-description">${htmlText(description)}</p>` : '',
   ]
@@ -409,14 +444,12 @@ async function generateGuideHtmlDocument(
 
   const sections = sectionsByStartEntry(metadata.sections, entries);
   const stepChunks: string[] = [];
-  let insideSection = false;
   for (const entry of renderedEntries) {
     const section = sections.get(entry.entryId);
     if (section) {
       stepChunks.push(renderHtmlSectionHeading(section));
-      insideSection = true;
     }
-    stepChunks.push(renderHtmlEntry(entry, insideSection));
+    stepChunks.push(renderHtmlEntry(entry));
   }
   const steps = stepChunks.join('\n');
   throwIfAborted(signal);
@@ -453,37 +486,27 @@ function renderHtmlSectionHeading(section: GuideSection): string {
 </section>`;
 }
 
-function renderHtmlEntry(entry: RenderedEntry, nested: boolean): string {
+function renderHtmlEntry(entry: RenderedEntry): string {
   const text = entry.annotations.length === 0
     ? `<p class="step-description">${htmlText(textOrDefault(entry.description, DEFAULT_DESCRIPTION))}</p>`
-    : renderHtmlAnnotations(entry, nested);
-  const alt = escapeGuideHtml(textOrDefault(entry.description, `Step ${entry.ordinal}`));
-  const heading = nested ? 'h3' : 'h2';
+    : renderHtmlAnnotations(entry);
+  const alt = escapeGuideHtml(textOrDefault(entry.description, DEFAULT_IMAGE_ALT));
 
   return `<section class="guide-step">
-<div class="step-index" aria-hidden="true">${entry.ordinal}</div>
-<div class="step-body">
-<div class="step-header">
-<p>Step</p>
-<${heading}>Step ${entry.ordinal}</${heading}>
-</div>
 <figure>
 <img src="${entry.imageDataUri}" alt="${alt}">
 </figure>
 ${text}
-</div>
 </section>`;
 }
 
-function renderHtmlAnnotations(entry: RenderedEntry, nested: boolean): string {
+function renderHtmlAnnotations(entry: RenderedEntry): string {
   const description = textValue(entry.description);
   const intro = description ? `<p class="step-description">${htmlText(description)}</p>\n` : '';
   const items = entry.annotations
     .map((annotation) => `<li>${htmlText(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}</li>`)
     .join('\n');
-  const heading = nested ? 'h4' : 'h3';
   return `${intro}<div class="annotation-list">
-<${heading}>Annotations</${heading}>
 <ol>
 ${items}
 </ol>
@@ -496,6 +519,235 @@ function sectionsByStartEntry(value: unknown, entries: readonly StepEntry[]): Ma
 
 function htmlText(value: string): string {
   return escapeGuideHtml(value).replace(/\r\n?|\n/g, '<br>');
+}
+
+const PDF_PAGE_WIDTH = 1_240;
+const PDF_PAGE_HEIGHT = 1_754;
+const PDF_PAGE_WIDTH_POINTS = 595.28;
+const PDF_PAGE_HEIGHT_POINTS = 841.89;
+const PDF_MARGIN = 84;
+const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
+const PDF_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
+
+type PdfTextStyle = {
+  fontSize: number;
+  lineHeight: number;
+  color: string;
+  weight: number;
+  gapBefore: number;
+  gapAfter: number;
+};
+
+const PDF_TITLE_TEXT: PdfTextStyle = {
+  fontSize: 54,
+  lineHeight: 68,
+  color: '#1c1917',
+  weight: 750,
+  gapBefore: 0,
+  gapAfter: 20,
+};
+const PDF_GUIDE_DESCRIPTION_TEXT: PdfTextStyle = {
+  fontSize: 28,
+  lineHeight: 44,
+  color: '#57534e',
+  weight: 400,
+  gapBefore: 0,
+  gapAfter: 34,
+};
+const PDF_SECTION_TEXT: PdfTextStyle = {
+  fontSize: 38,
+  lineHeight: 52,
+  color: '#365314',
+  weight: 700,
+  gapBefore: 0,
+  gapAfter: 24,
+};
+const PDF_BODY_TEXT: PdfTextStyle = {
+  fontSize: 28,
+  lineHeight: 43,
+  color: '#292524',
+  weight: 400,
+  gapBefore: 0,
+  gapAfter: 16,
+};
+const PDF_LIST_TEXT: PdfTextStyle = {
+  ...PDF_BODY_TEXT,
+  gapBefore: 10,
+  gapAfter: 8,
+};
+
+type PdfCanvasContext = OffscreenCanvasRenderingContext2D;
+
+class GuidePdfPaginator {
+  private canvas!: OffscreenCanvas;
+  private context!: PdfCanvasContext;
+  private cursorY = PDF_MARGIN;
+  private hasContent = false;
+
+  constructor(
+    private readonly emitPage: (jpegBytes: Uint8Array) => Promise<void>,
+    private readonly signal?: AbortSignal,
+  ) {
+    this.resetPage();
+  }
+
+  async startNewPage(): Promise<void> {
+    if (this.hasContent) await this.flushPage();
+  }
+
+  async addParagraph(text: string, style: PdfTextStyle): Promise<void> {
+    const normalized = textValue(text).replace(/\r\n?/g, '\n');
+    if (!normalized) return;
+    this.applyTextStyle(style);
+    const lines = wrapPdfText(this.context, normalized, PDF_CONTENT_WIDTH, this.signal);
+    let pendingGap = style.gapBefore;
+
+    for (const line of lines) {
+      await this.ensureSpace(pendingGap + style.lineHeight);
+      this.applyTextStyle(style);
+      this.cursorY += pendingGap;
+      this.context.fillText(line, PDF_MARGIN, this.cursorY);
+      this.cursorY += style.lineHeight;
+      this.hasContent = true;
+      pendingGap = 0;
+    }
+    this.cursorY += style.gapAfter;
+  }
+
+  async addNumberedParagraph(number: number, text: string): Promise<void> {
+    const style = PDF_LIST_TEXT;
+    this.applyTextStyle(style);
+    const prefix = `${number}. `;
+    const prefixWidth = this.context.measureText(prefix).width;
+    const lines = wrapPdfText(
+      this.context,
+      textOrDefault(text, DEFAULT_DESCRIPTION),
+      PDF_CONTENT_WIDTH - prefixWidth,
+      this.signal,
+    );
+    let pendingGap = style.gapBefore;
+
+    for (const [index, line] of lines.entries()) {
+      await this.ensureSpace(pendingGap + style.lineHeight);
+      this.applyTextStyle(style);
+      this.cursorY += pendingGap;
+      if (index === 0) this.context.fillText(prefix, PDF_MARGIN, this.cursorY);
+      this.context.fillText(line, PDF_MARGIN + prefixWidth, this.cursorY);
+      this.cursorY += style.lineHeight;
+      this.hasContent = true;
+      pendingGap = 0;
+    }
+    this.cursorY += style.gapAfter;
+  }
+
+  async addImage(imageBytes: Uint8Array): Promise<void> {
+    throwIfAborted(this.signal);
+    const ownedImageBytes = new Uint8Array(imageBytes.byteLength);
+    ownedImageBytes.set(imageBytes);
+    const bitmap = await createImageBitmap(new Blob([ownedImageBytes.buffer], { type: IMAGE_MIME_TYPE }));
+    try {
+      throwIfAborted(this.signal);
+      if (PDF_PAGE_HEIGHT - PDF_MARGIN - this.cursorY < 360) await this.startNewPage();
+      const availableHeight = Math.max(320, PDF_PAGE_HEIGHT - PDF_MARGIN - this.cursorY - 220);
+      const scale = Math.min(
+        PDF_CONTENT_WIDTH / Math.max(1, bitmap.width),
+        Math.min(920, availableHeight) / Math.max(1, bitmap.height),
+        1,
+      );
+      const width = Math.max(1, bitmap.width * scale);
+      const height = Math.max(1, bitmap.height * scale);
+      const x = PDF_MARGIN + (PDF_CONTENT_WIDTH - width) / 2;
+      this.context.drawImage(bitmap, x, this.cursorY, width, height);
+      this.cursorY += height + 34;
+      this.hasContent = true;
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  async finish(): Promise<void> {
+    if (this.hasContent) await this.flushPage();
+  }
+
+  private async ensureSpace(requiredHeight: number): Promise<void> {
+    throwIfAborted(this.signal);
+    if (this.cursorY + requiredHeight <= PDF_PAGE_HEIGHT - PDF_MARGIN) return;
+    await this.startNewPage();
+  }
+
+  private applyTextStyle(style: PdfTextStyle): void {
+    this.context.font = `${style.weight} ${style.fontSize}px ${PDF_FONT_FAMILY}`;
+    this.context.fillStyle = style.color;
+    this.context.textBaseline = 'top';
+  }
+
+  private async flushPage(): Promise<void> {
+    throwIfAborted(this.signal);
+    const blob = await this.canvas.convertToBlob({ type: IMAGE_MIME_TYPE, quality: 0.9 });
+    throwIfAborted(this.signal);
+    await this.emitPage(new Uint8Array(await blob.arrayBuffer()));
+    throwIfAborted(this.signal);
+    this.resetPage();
+  }
+
+  private resetPage(): void {
+    if (typeof OffscreenCanvas !== 'function') {
+      throw new Error('PDF export is not supported in this browser.');
+    }
+    this.canvas = new OffscreenCanvas(PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT);
+    const context = this.canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('Unable to create a PDF rendering canvas.');
+    this.context = context;
+    this.context.fillStyle = '#ffffff';
+    this.context.fillRect(0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT);
+    this.cursorY = PDF_MARGIN;
+    this.hasContent = false;
+  }
+}
+
+async function addPdfEntryText(
+  paginator: GuidePdfPaginator,
+  entry: RenderedEntryContent,
+): Promise<void> {
+  if (entry.annotations.length === 0) {
+    await paginator.addParagraph(textOrDefault(entry.description, DEFAULT_DESCRIPTION), PDF_BODY_TEXT);
+    return;
+  }
+
+  const description = textValue(entry.description);
+  if (description) await paginator.addParagraph(description, PDF_BODY_TEXT);
+  for (const [index, annotation] of entry.annotations.entries()) {
+    await paginator.addNumberedParagraph(index + 1, annotation.description);
+  }
+}
+
+function wrapPdfText(
+  context: PdfCanvasContext,
+  text: string,
+  maxWidth: number,
+  signal?: AbortSignal,
+): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!paragraph) {
+      lines.push('');
+      continue;
+    }
+
+    let line = '';
+    for (const [index, character] of Array.from(paragraph).entries()) {
+      if ((index & 255) === 0) throwIfAborted(signal);
+      const candidate = `${line}${character}`;
+      if (line && context.measureText(candidate).width > maxWidth) {
+        lines.push(line.trimEnd());
+        line = character.trimStart();
+      } else {
+        line = candidate;
+      }
+    }
+    lines.push(line);
+  }
+  return lines.length > 0 ? lines : [''];
 }
 
 const BASE_STYLE = `
@@ -538,12 +790,9 @@ li + li { margin-top: 7px; }
 .guide-description { max-width: 68ch; margin-top: 16px; color: var(--text-muted); font-size: 1.05rem; }
 .guide-content { display: flow-root; }
 .guide-section-heading { margin: 44px 0 18px; padding: 0 4px 12px; border-bottom: 1px solid var(--line); }
-.guide-section-heading p, .step-header p { margin-bottom: 4px; color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.guide-section-heading p { margin-bottom: 4px; color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .guide-section-heading h2 { font-size: 1.65rem; }
 .guide-step {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 18px;
   margin: 0 0 20px;
   padding: 26px;
   border: 1px solid var(--line-soft);
@@ -551,19 +800,14 @@ li + li { margin-top: 7px; }
   background: var(--surface);
   box-shadow: 0 8px 24px rgb(28 25 23 / 0.045);
 }
-.step-index { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid #bef264; border-radius: 12px; background: var(--accent-soft); color: #365314; font-size: .95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-.step-body { min-width: 0; }
-.step-header { margin: 1px 0 14px; }
 .step-description { max-width: 72ch; margin-bottom: 16px; color: #292524; white-space: normal; }
 .annotation-list { margin-bottom: 18px; padding: 16px 18px; border-left: 3px solid #84cc16; border-radius: 0 8px 8px 0; background: var(--surface-muted); }
-.annotation-list h3, .annotation-list h4 { font-size: .9rem; }
-figure { margin: 20px 0 18px; }
+figure { margin: 0 0 18px; }
 img { display: block; width: auto; max-width: 100%; height: auto; margin-inline: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); }
 @media (max-width: 640px) {
   .guide { width: min(calc(100% - 20px), 1040px); padding: 18px 0 36px; }
   .guide-header { padding: 24px 20px; border-radius: 12px; }
   .guide-overline { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .guide-step { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 18px 16px; border-radius: 10px; }
-  .step-index { width: 34px; height: 34px; border-radius: 9px; font-size: .82rem; }
+  .guide-step { padding: 18px 16px; border-radius: 10px; }
 }
 `;

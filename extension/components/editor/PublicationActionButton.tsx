@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   FileCode2,
+  FileDown,
   FileText,
   Images,
   Loader2,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
-export type PublicationAction = 'markdown' | 'html' | 'images';
+export type PublicationAction = 'markdown' | 'html' | 'pdf' | 'images';
 export type ActionPresentation = 'featured' | 'compact';
 
 type PublicationActionContent = {
@@ -32,6 +33,12 @@ export const PUBLICATION_ACTION_CONTENT: Readonly<Record<PublicationAction, Publ
     format: '.html · 最適合分享',
     badge: '推薦',
     icon: FileCode2,
+  },
+  pdf: {
+    label: '下載 PDF',
+    description: '將圖片、說明與標註整理成可直接分享的 PDF 文件。',
+    format: '.pdf · 離線閱讀',
+    icon: FileDown,
   },
   images: {
     label: '下載圖片',
