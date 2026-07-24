@@ -48,6 +48,7 @@ import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from 
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
+import { waitForTabComplete } from '@/lib/runtime/tab-loading';
 import { getRecordingState, setRecordingState } from '@/lib/storage/storage';
 import {
   clearEditorRecovery,
@@ -519,29 +520,6 @@ async function validateRecaptureTarget(
     );
   }
   return { target, entryId: anchor.id, sourceUrl: anchor.url };
-}
-
-async function waitForTabComplete(tabId: number, timeoutMs = 15_000): Promise<Browser.tabs.Tab> {
-  const current = await browser.tabs.get(tabId);
-  if (current.status === 'complete') return current;
-  return new Promise<Browser.tabs.Tab>((resolve, reject) => {
-    const timeout = setTimeout(() => finish(new Error('Timed out while loading the source page.')), timeoutMs);
-    const onUpdated = (updatedTabId: number, changeInfo: { status?: string }, tab: Browser.tabs.Tab) => {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') finish(null, tab);
-    };
-    const onRemoved = (removedTabId: number) => {
-      if (removedTabId === tabId) finish(new Error('The source tab was closed while loading.'));
-    };
-    const finish = (error: Error | null, tab?: Browser.tabs.Tab) => {
-      clearTimeout(timeout);
-      browser.tabs.onUpdated.removeListener(onUpdated);
-      browser.tabs.onRemoved.removeListener(onRemoved);
-      if (error) reject(error);
-      else resolve(tab!);
-    };
-    browser.tabs.onUpdated.addListener(onUpdated);
-    browser.tabs.onRemoved.addListener(onRemoved);
-  });
 }
 
 async function findOrCreateRecaptureSourceTab(

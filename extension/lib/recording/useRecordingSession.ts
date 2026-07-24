@@ -87,6 +87,8 @@ export function useRecordingSession(explicitSessionId?: string | null) {
   explicitSessionIdRef.current = explicitGuideSessionId;
   hasExplicitSessionRef.current = hasExplicitSession;
   const sessionId = hasExplicitSession ? explicitGuideSessionId : recordingState.sessionId;
+  const effectiveSessionIdRef = useRef(sessionId);
+  effectiveSessionIdRef.current = sessionId;
 
   const refreshSteps = useCallback((sid: string | null): Promise<void> => {
     const request = ++latestStepsRequest.current;
@@ -124,15 +126,23 @@ export function useRecordingSession(explicitSessionId?: string | null) {
     let disposed = false;
     let stateVersion = 0;
 
-    const applyState = (state: Awaited<ReturnType<typeof getRecordingState>>) => {
+    const applyState = (
+      state: Awaited<ReturnType<typeof getRecordingState>>,
+      refreshUnchangedSession: boolean,
+    ) => {
       if (disposed) return;
+      const nextSessionId = hasExplicitSessionRef.current
+        ? explicitSessionIdRef.current
+        : state.sessionId;
+      const sessionChanged = effectiveSessionIdRef.current !== nextSessionId;
+      effectiveSessionIdRef.current = nextSessionId;
       setRecordingState(state);
       // A same-session state change can signal an IndexedDB write (notably a
-      // completed recapture), so refresh even when the data-source id itself
-      // did not change. An explicit editor URL still wins over that state.
-      void refreshStepsSafely(
-        hasExplicitSessionRef.current ? explicitSessionIdRef.current : state.sessionId,
-      );
+      // completed recapture). A changed data source is refreshed by the
+      // sessionId effect below, avoiding two concurrent full IndexedDB reads.
+      if (refreshUnchangedSession && !sessionChanged) {
+        void refreshStepsSafely(nextSessionId);
+      }
     };
 
     const initialVersion = stateVersion;
@@ -140,7 +150,7 @@ export function useRecordingSession(explicitSessionId?: string | null) {
       .then((state) => {
         // A storage change can arrive while the initial read is pending. Its
         // newer state wins even if the older read resolves last.
-        if (stateVersion === initialVersion) applyState(state);
+        if (stateVersion === initialVersion) applyState(state, false);
       })
       .catch((error) => {
         if (disposed) return;
@@ -150,7 +160,7 @@ export function useRecordingSession(explicitSessionId?: string | null) {
 
     const unsubscribe = onRecordingStateChange((state) => {
       stateVersion++;
-      applyState(state);
+      applyState(state, true);
     });
 
     return () => {

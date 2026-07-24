@@ -496,6 +496,10 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
   const entries: StepEntry[] = [];
   const seenGroups = new Set<string>();
   const seenIds = new Set<string>();
+  const lastGroupIndex = new Map<string, number>();
+  sorted.forEach((step, index) => {
+    if (step.groupId) lastGroupIndex.set(step.groupId, index);
+  });
 
   for (let index = 0; index < sorted.length;) {
     const step = sorted[index];
@@ -539,7 +543,7 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
     if (annotations.length === 0) {
       throw new GuideStructureIntegrityError('A snapshot group has no complete annotation.');
     }
-    if (sorted.slice(index).some((candidate) => candidate.groupId === groupId)) {
+    if ((lastGroupIndex.get(groupId) ?? -1) >= index) {
       throw new GuideStructureIntegrityError('A snapshot group is split across the timeline.');
     }
     entries.push({ kind: 'group', anchor, annotations });

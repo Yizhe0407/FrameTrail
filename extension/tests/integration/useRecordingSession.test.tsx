@@ -77,6 +77,38 @@ beforeEach(() => {
 });
 
 describe('useRecordingSession', () => {
+  it('reads an explicit Guide from IndexedDB only once during initial mount', async () => {
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockResolvedValue([{ id: 'url-step' }]);
+
+    const { result } = renderHook(() => useRecordingSession('url-session'));
+
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'url-step' }]));
+    expect(mocks.getSteps.mock.calls).toEqual([['url-session']]);
+  });
+
+  it('reads the active recording from IndexedDB only once after initial state resolves', async () => {
+    mocks.getRecordingState.mockResolvedValue(state('recording-session'));
+    mocks.getSteps.mockResolvedValue([{ id: 'recording-step' }]);
+
+    const { result } = renderHook(() => useRecordingSession());
+
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'recording-step' }]));
+    expect(mocks.getSteps.mock.calls).toEqual([['recording-session']]);
+  });
+
+  it('refreshes a changed recording session once instead of from both the event and effect', async () => {
+    mocks.getRecordingState.mockResolvedValue(state('old-session'));
+    mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step` }]);
+    const { result } = renderHook(() => useRecordingSession());
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'old-session-step' }]));
+
+    act(() => mocks.emit(state('new-session')));
+
+    await waitFor(() => expect(result.current.steps).toEqual([{ id: 'new-session-step' }]));
+    expect(mocks.getSteps.mock.calls.filter(([sessionId]) => sessionId === 'new-session')).toHaveLength(1);
+  });
+
   it('does not let a stale initial storage read replace a newer change event', async () => {
     const initial = deferred<ReturnType<typeof state>>();
     mocks.getRecordingState.mockReturnValue(initial.promise);
@@ -160,6 +192,7 @@ describe('useRecordingSession', () => {
     act(() => mocks.emit(state('recording-session')));
 
     await waitFor(() => expect(result.current.steps).toEqual([{ id: 'url-session-step-2' }]));
+    expect(mocks.getSteps.mock.calls.filter(([sessionId]) => sessionId === 'url-session')).toHaveLength(2);
     expect(mocks.getSteps).not.toHaveBeenCalledWith('recording-session');
   });
 
