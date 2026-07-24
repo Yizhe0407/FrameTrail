@@ -86,6 +86,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
         error={error}
         onRetry={() => void retry().catch(() => undefined)}
         className={`mt-1 ml-8 ${status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}`}
+        hideSaved
       />
       <DescriptionDraftRecoveries
         recoveries={recoveries}

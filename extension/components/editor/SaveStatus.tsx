@@ -6,9 +6,12 @@ interface Props {
   error: string | null;
   onRetry: () => void;
   className?: string;
+  hideSaved?: boolean;
 }
 
-export default function SaveStatus({ status, error, onRetry, className = '' }: Props) {
+export default function SaveStatus({ status, error, onRetry, className = '', hideSaved = false }: Props) {
+  if (hideSaved && status === 'saved') return null;
+
   return (
     <div className={`flex min-h-[18px] items-center gap-1.5 text-xs ${className}`}>
       {status === 'saving' && <Loader2 className="size-3 animate-spin" />}
