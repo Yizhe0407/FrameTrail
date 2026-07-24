@@ -24,6 +24,21 @@ function makeEntry(id: string, order: number): StepEntry {
   };
 }
 
+function makeGroupEntry(id: string, annotationCount: number): StepEntry {
+  const single = makeEntry(id, 0);
+  if (single.kind !== 'single') throw new Error('Expected a single entry fixture.');
+  return {
+    kind: 'group',
+    anchor: { ...single.step, bounds: null, groupId: id },
+    annotations: Array.from({ length: annotationCount }, (_, index) => {
+      const annotation = makeEntry(`${id}-annotation-${index + 1}`, index + 1);
+      if (annotation.kind !== 'single') throw new Error('Expected a single annotation fixture.');
+      const { screenshotBlob: _screenshotBlob, ...step } = annotation.step;
+      return { ...step, groupId: id };
+    }),
+  };
+}
+
 describe('StepRail keyboard navigation', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -114,6 +129,21 @@ describe('StepRail keyboard navigation', () => {
     screen.getByRole('button', { name: 'Dialog control' }).focus();
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('不在左側欄顯示單頁標註類型或標註數量', () => {
+    render(
+      <StepRail
+        entries={[makeGroupEntry('snapshot-1', 2)]}
+        selectedEntryId="snapshot-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const rail = screen.getByRole('navigation', { name: '步驟導覽' });
+    expect(rail.textContent).not.toContain('單頁標註');
+    expect(rail.textContent).not.toContain('2 個標註');
   });
 
   it('只顯示單一目前步驟，不提供批次選取控制', () => {

@@ -117,9 +117,8 @@ export default function StepRail({
     function handleKey(e: KeyboardEvent) {
       if (e.defaultPrevented || e.isComposing) return;
       const activeElement = document.activeElement as HTMLElement | null;
-      // Keep rail navigation scoped to the rail. Global handling used to also
-      // react to arrow keys inside the visual editor and lightbox, which could
-      // switch entries and discard an in-progress visual draft.
+      // Keep rail navigation scoped to the rail so arrow keys used by other
+      // editor controls do not unexpectedly switch the current entry.
       if (!activeElement || !railRef.current?.contains(activeElement)) return;
       const tag = activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
@@ -136,11 +135,6 @@ export default function StepRail({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [entries, isDesktop, onSelect, selectedEntryId]);
-
-  function entrySummary(entry: StepEntry): string {
-    if (entry.kind === 'group') return `單頁標註 · ${entry.annotations.length} 個標註`;
-    return entry.step.description.trim() || '尚未填寫說明';
-  }
 
   function renderThumbnail(entry: StepEntry) {
     const privacy = getEntryPrivacyState(entry);
@@ -257,9 +251,11 @@ export default function StepRail({
                             {renderThumbnail(entry)}
                           </LazyRailPreview>
                         </div>
-                        <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
-                          <span className="line-clamp-2">{entrySummary(entry)}</span>
-                        </span>
+                        {entry.kind === 'single' && (
+                          <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
+                            <span className="line-clamp-2">{entry.step.description.trim() || '尚未填寫說明'}</span>
+                          </span>
+                        )}
                         <span className="absolute top-1/2 right-1 z-[3] flex -translate-y-1/2 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                           {handle}
                         </span>
