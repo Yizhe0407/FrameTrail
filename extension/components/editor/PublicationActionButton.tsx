@@ -1,16 +1,14 @@
 import {
   ChevronRight,
-  Clipboard,
   FileCode2,
   FileText,
   Images,
   Loader2,
-  Printer,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/shared/utils';
 
-export type PublicationAction = 'markdown' | 'html' | 'print' | 'copy' | 'images';
+export type PublicationAction = 'markdown' | 'html' | 'images';
 export type ActionPresentation = 'featured' | 'compact';
 
 type PublicationActionContent = {
@@ -24,8 +22,8 @@ type PublicationActionContent = {
 export const PUBLICATION_ACTION_CONTENT: Readonly<Record<PublicationAction, PublicationActionContent>> = {
   markdown: {
     label: '下載 Markdown',
-    description: '適合版本控制、文件平台與後續文字編輯。',
-    format: '.md · 圖片已內嵌',
+    description: '包含 Markdown 文件與所有標註圖片，解壓後即可編輯。',
+    format: '.zip · Markdown + 圖片',
     icon: FileText,
   },
   html: {
@@ -35,21 +33,8 @@ export const PUBLICATION_ACTION_CONTENT: Readonly<Record<PublicationAction, Publ
     badge: '推薦',
     icon: FileCode2,
   },
-  print: {
-    label: '開啟列印版',
-    description: '以紙張版面預覽，再列印或另存為 PDF。',
-    format: '列印 / PDF · 最適合交付',
-    badge: '列印最佳化',
-    icon: Printer,
-  },
-  copy: {
-    label: '複製完整教學',
-    description: '一次複製富文字與純文字，直接貼到文件或訊息。',
-    format: 'HTML + 純文字',
-    icon: Clipboard,
-  },
   images: {
-    label: '下載圖片 ZIP',
+    label: '下載圖片',
     description: '只匯出已套用標註與遮罩的步驟圖片。',
     format: '.zip · 個別圖片',
     icon: Images,

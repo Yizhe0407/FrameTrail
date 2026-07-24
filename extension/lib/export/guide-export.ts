@@ -1,3 +1,4 @@
+import { strToU8, Zip, ZipPassThrough } from 'fflate';
 import { encodeBase64 } from './base64';
 import { compositeStepEntry } from './entry-render';
 import type { Step, StepEntry } from '../storage/db';
@@ -21,18 +22,36 @@ export interface GuideExportOptions {
   signal?: AbortSignal;
 }
 
-export type GuideExportFormat = 'markdown' | 'html' | 'print-html';
+export type GuideExportFormat = 'markdown' | 'markdown-archive' | 'html';
 
 type GuideExportControl = GuideExportOptions | AbortSignal | undefined;
 
-type RenderedEntry = {
+type RenderedEntryContent = {
   entryId: string;
   ordinal: number;
   description: string;
   annotations: readonly Step[];
   sourceUrl: string | null;
+};
+
+type RenderedEntry = RenderedEntryContent & {
   imageDataUri: string;
 };
+
+type RenderedEntryImage = {
+  content: RenderedEntryContent;
+  imageBytes: Uint8Array;
+};
+
+type RenderedMarkdownEntry = RenderedEntryContent & {
+  imageReference: string;
+};
+
+export interface GuideMarkdownArchive {
+  blob: Blob;
+  markdownFilename: string;
+  imageCount: number;
+}
 
 const DEFAULT_TITLE = 'FrameTrail Guide';
 const DEFAULT_DESCRIPTION = 'No description provided.';
@@ -58,9 +77,8 @@ export class GuideExportLimitError extends Error {
  * local export without silently creating a differently named publication.
  */
 export function guideExportFilename(metadata: GuideExportMetadata = {}, format: GuideExportFormat): string {
-  const extension = format === 'markdown' ? 'md' : 'html';
-  const suffix = format === 'print-html' ? '-print' : '';
-  return `${filenameStem(metadata)}${suffix}.${extension}`;
+  const extension = format === 'markdown' ? 'md' : format === 'markdown-archive' ? 'zip' : 'html';
+  return `${filenameStem(metadata)}.${extension}`;
 }
 
 /** Escapes text before placing it in generated HTML text or attribute content. */
@@ -110,6 +128,57 @@ export async function generateGuideMarkdown(
   const renderedEntries = await renderEntries(entries, signal);
   throwIfAborted(signal);
 
+  return renderGuideMarkdown(renderedEntries, entries, metadata, (entry) => entry.imageDataUri);
+}
+
+/**
+ * Builds a portable Markdown ZIP containing one Markdown document and every
+ * composited guide image under images/. The Markdown uses relative paths so
+ * the archive remains editable without embedding large data URIs.
+ */
+export async function generateGuideMarkdownArchive(
+  entries: readonly StepEntry[],
+  metadata: GuideExportMetadata = {},
+  control?: GuideExportControl,
+): Promise<GuideMarkdownArchive> {
+  const signal = getSignal(control);
+  const markdownEntries: RenderedMarkdownEntry[] = [];
+  const markdownFilename = guideExportFilename(metadata, 'markdown');
+  const pad = Math.max(2, String(entries.length).length);
+  const { archive, result } = createStreamingZip();
+
+  try {
+    for await (const rendered of renderEntryImages(entries, signal)) {
+      const imageReference = `images/${String(rendered.content.ordinal).padStart(pad, '0')}.jpg`;
+      addZipFile(archive, imageReference, rendered.imageBytes);
+      markdownEntries.push({ ...rendered.content, imageReference });
+    }
+
+    throwIfAborted(signal);
+    const markdown = renderGuideMarkdown(
+      markdownEntries,
+      entries,
+      metadata,
+      (entry) => entry.imageReference,
+    );
+    addZipFile(archive, markdownFilename, strToU8(markdown));
+    archive.end();
+  } catch (error) {
+    archive.terminate();
+    throw error;
+  }
+
+  const blob = await result;
+  throwIfAborted(signal);
+  return { blob, markdownFilename, imageCount: markdownEntries.length };
+}
+
+function renderGuideMarkdown<T extends RenderedEntryContent>(
+  renderedEntries: readonly T[],
+  sourceEntries: readonly StepEntry[],
+  metadata: GuideExportMetadata,
+  imageReference: (entry: T) => string,
+): string {
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const lines = [`# ${escapeGuideMarkdown(title)}`];
   const description = textValue(metadata.description);
@@ -118,7 +187,7 @@ export async function generateGuideMarkdown(
   const sourceUrl = safeExternalUrl(metadata.sourceUrl);
   if (sourceUrl) lines.push('', `Source: <${escapeMarkdownUrl(sourceUrl)}>`);
 
-  const sections = sectionsByStartEntry(metadata.sections, entries);
+  const sections = sectionsByStartEntry(metadata.sections, sourceEntries);
   let insideSection = false;
   for (const entry of renderedEntries) {
     const section = sections.get(entry.entryId);
@@ -128,10 +197,9 @@ export async function generateGuideMarkdown(
     }
     lines.push('', `${insideSection ? '###' : '##'} Step ${entry.ordinal}`);
     appendMarkdownEntryText(lines, entry);
-    lines.push('', `![${escapeGuideMarkdown(`Step ${entry.ordinal}`)}](${entry.imageDataUri})`);
+    lines.push('', `![${escapeGuideMarkdown(`Step ${entry.ordinal}`)}](${imageReference(entry)})`);
   }
 
-  throwIfAborted(signal);
   return `${lines.join('\n')}\n`;
 }
 
@@ -145,20 +213,7 @@ export async function generateGuideHtml(
   metadata: GuideExportMetadata = {},
   control?: GuideExportControl,
 ): Promise<string> {
-  return generateGuideHtmlDocument(entries, metadata, false, getSignal(control));
-}
-
-/**
- * Generates a self-contained HTML document with print CSS. Open the returned
- * document in a browser and use its native "Save as PDF" print destination;
- * no PDF library, network request, or browser-extension API is required.
- */
-export async function generatePrintReadyGuideHtml(
-  entries: readonly StepEntry[],
-  metadata: GuideExportMetadata = {},
-  control?: GuideExportControl,
-): Promise<string> {
-  return generateGuideHtmlDocument(entries, metadata, true, getSignal(control));
+  return generateGuideHtmlDocument(entries, metadata, getSignal(control));
 }
 
 function filenameStem(metadata: GuideExportMetadata): string {
@@ -232,17 +287,19 @@ function assertGuideImageBudget(imageBytes: number, totalImageBytes: number, ord
   }
 }
 
-async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal): Promise<RenderedEntry[]> {
+async function* renderEntryImages(
+  entries: readonly StepEntry[],
+  signal?: AbortSignal,
+): AsyncGenerator<RenderedEntryImage> {
   if (entries.length > GUIDE_EXPORT_LIMITS.maxEntries) {
     throw new GuideExportLimitError('Guide contains too many entries to export safely.');
   }
 
-  const rendered: RenderedEntry[] = [];
   let declaredImageBytes = 0;
   let actualImageBytes = 0;
 
-  // Deliberately sequential: a large guide never holds decoded canvases or
-  // base64 copies for multiple screenshots while an image is being composited.
+  // Deliberately sequential: a large guide never holds decoded canvases for
+  // multiple screenshots while an image is being composited.
   for (const [index, entry] of entries.entries()) {
     throwIfAborted(signal);
     // This is the single rasterization path used by previews/image exports.
@@ -261,24 +318,32 @@ async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal
     // implementations used by tests or future adapters.
     assertGuideImageBudget(bytes.byteLength, actualImageBytes, ordinal);
     actualImageBytes += bytes.byteLength;
-    const imageDataUri = `data:${IMAGE_MIME_TYPE};base64,${encodeBase64(bytes, signal)}`;
-    throwIfAborted(signal);
 
     const owner = entryOwner(entry);
-    rendered.push({
-      entryId: owner.id,
-      ordinal,
-      description: textValue(owner.description),
-      annotations: sortedAnnotations(entry),
-      sourceUrl: safeExternalUrl(owner.url),
-      imageDataUri,
-    });
+    yield {
+      content: {
+        entryId: owner.id,
+        ordinal,
+        description: textValue(owner.description),
+        annotations: sortedAnnotations(entry),
+        sourceUrl: safeExternalUrl(owner.url),
+      },
+      imageBytes: bytes,
+    };
   }
+}
 
+async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal): Promise<RenderedEntry[]> {
+  const rendered: RenderedEntry[] = [];
+  for await (const entry of renderEntryImages(entries, signal)) {
+    const imageDataUri = `data:${IMAGE_MIME_TYPE};base64,${encodeBase64(entry.imageBytes, signal)}`;
+    throwIfAborted(signal);
+    rendered.push({ ...entry.content, imageDataUri });
+  }
   return rendered;
 }
 
-function appendMarkdownEntryText(lines: string[], entry: RenderedEntry): void {
+function appendMarkdownEntryText(lines: string[], entry: RenderedEntryContent): void {
   if (entry.annotations.length === 0) {
     lines.push('', escapeGuideMarkdown(textOrDefault(entry.description, DEFAULT_DESCRIPTION)));
   } else {
@@ -293,10 +358,40 @@ function appendMarkdownEntryText(lines: string[], entry: RenderedEntry): void {
   if (entry.sourceUrl) lines.push('', `Source: <${escapeMarkdownUrl(entry.sourceUrl)}>`);
 }
 
+
+function createStreamingZip(): { archive: Zip; result: Promise<Blob> } {
+  const chunks: ArrayBuffer[] = [];
+  let resolveZip!: (value: Blob) => void;
+  let rejectZip!: (reason: unknown) => void;
+  const result = new Promise<Blob>((resolve, reject) => {
+    resolveZip = resolve;
+    rejectZip = reject;
+  });
+
+  const archive = new Zip((error, chunk, final) => {
+    if (error) {
+      rejectZip(error);
+      return;
+    }
+    // fflate may reuse its output buffer after the callback.
+    const owned = new Uint8Array(chunk.byteLength);
+    owned.set(chunk);
+    chunks.push(owned.buffer);
+    if (final) resolveZip(new Blob(chunks, { type: 'application/zip' }));
+  });
+
+  return { archive, result };
+}
+
+function addZipFile(archive: Zip, filename: string, bytes: Uint8Array): void {
+  const file = new ZipPassThrough(filename);
+  archive.add(file);
+  file.push(bytes, true);
+}
+
 async function generateGuideHtmlDocument(
   entries: readonly StepEntry[],
   metadata: GuideExportMetadata,
-  printReady: boolean,
   signal?: AbortSignal,
 ): Promise<string> {
   const renderedEntries = await renderEntries(entries, signal);
@@ -304,12 +399,10 @@ async function generateGuideHtmlDocument(
 
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const description = textValue(metadata.description);
-  const sourceUrl = safeExternalUrl(metadata.sourceUrl);
   const header = [
     `<div class="guide-overline"><span>FrameTrail Guide</span><span>${renderedEntries.length} ${renderedEntries.length === 1 ? 'step' : 'steps'}</span></div>`,
     `<h1>${escapeGuideHtml(title)}</h1>`,
     description ? `<p class="guide-description">${htmlText(description)}</p>` : '',
-    sourceUrl ? `<p class="guide-source"><span>Source</span>${htmlLink(sourceUrl)}</p>` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -326,9 +419,6 @@ async function generateGuideHtmlDocument(
     stepChunks.push(renderHtmlEntry(entry, insideSection));
   }
   const steps = stepChunks.join('\n');
-  const printClass = printReady ? ' print-ready' : '';
-  const printHint = printReady ? PRINT_HINT : '';
-  const printStyle = printReady ? PRINT_STYLE : '';
   throwIfAborted(signal);
 
   return `<!doctype html>
@@ -339,11 +429,10 @@ async function generateGuideHtmlDocument(
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
 <title>${escapeGuideHtml(title)}</title>
 <style>
-${BASE_STYLE}${printStyle}
+${BASE_STYLE}
 </style>
 </head>
-<body class="guide-document${printClass}">
-${printHint}
+<body class="guide-document">
 <main class="guide">
 <header class="guide-header">
 ${header}
@@ -368,10 +457,7 @@ function renderHtmlEntry(entry: RenderedEntry, nested: boolean): string {
   const text = entry.annotations.length === 0
     ? `<p class="step-description">${htmlText(textOrDefault(entry.description, DEFAULT_DESCRIPTION))}</p>`
     : renderHtmlAnnotations(entry, nested);
-  const source = entry.sourceUrl
-    ? `<p class="step-source"><span>Source</span>${htmlLink(entry.sourceUrl)}</p>`
-    : '';
-  const alt = escapeGuideHtml(`Annotated screenshot for step ${entry.ordinal}`);
+  const alt = escapeGuideHtml(textOrDefault(entry.description, `Step ${entry.ordinal}`));
   const heading = nested ? 'h3' : 'h2';
 
   return `<section class="guide-step">
@@ -381,12 +467,10 @@ function renderHtmlEntry(entry: RenderedEntry, nested: boolean): string {
 <p>Step</p>
 <${heading}>Step ${entry.ordinal}</${heading}>
 </div>
-${text}
-${source}
 <figure>
 <img src="${entry.imageDataUri}" alt="${alt}">
-<figcaption>Annotated screenshot for step ${entry.ordinal}</figcaption>
 </figure>
+${text}
 </div>
 </section>`;
 }
@@ -413,19 +497,6 @@ function sectionsByStartEntry(value: unknown, entries: readonly StepEntry[]): Ma
 function htmlText(value: string): string {
   return escapeGuideHtml(value).replace(/\r\n?|\n/g, '<br>');
 }
-
-function htmlLink(url: string): string {
-  const escaped = escapeGuideHtml(url);
-  return `<a href="${escaped}" target="_blank" rel="noopener noreferrer">${escaped}</a>`;
-}
-
-const PRINT_HINT = `<aside class="print-hint" aria-label="Print instructions">
-<div>
-<span class="print-hint-icon" aria-hidden="true">P</span>
-<p><strong>Print-ready layout</strong><span>Use your browser’s print command, then choose “Save as PDF”.</span></p>
-<kbd>Ctrl / ⌘ + P</kbd>
-</div>
-</aside>`;
 
 const BASE_STYLE = `
 :root {
@@ -465,8 +536,6 @@ ol { margin: 10px 0 0; padding-left: 1.5rem; }
 li { padding-left: .3rem; }
 li + li { margin-top: 7px; }
 .guide-description { max-width: 68ch; margin-top: 16px; color: var(--text-muted); font-size: 1.05rem; }
-.guide-source, .step-source { display: flex; align-items: baseline; gap: 9px; margin-top: 16px; color: var(--text-muted); font-size: .86rem; overflow-wrap: anywhere; }
-.guide-source span, .step-source span { flex: 0 0 auto; color: var(--text); font-size: .7rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .guide-content { display: flow-root; }
 .guide-section-heading { margin: 44px 0 18px; padding: 0 4px 12px; border-bottom: 1px solid var(--line); }
 .guide-section-heading p, .step-header p { margin-bottom: 4px; color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
@@ -488,57 +557,13 @@ li + li { margin-top: 7px; }
 .step-description { max-width: 72ch; margin-bottom: 16px; color: #292524; white-space: normal; }
 .annotation-list { margin-bottom: 18px; padding: 16px 18px; border-left: 3px solid #84cc16; border-radius: 0 8px 8px 0; background: var(--surface-muted); }
 .annotation-list h3, .annotation-list h4 { font-size: .9rem; }
-figure { margin: 20px 0 0; }
+figure { margin: 20px 0 18px; }
 img { display: block; width: auto; max-width: 100%; height: auto; margin-inline: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); }
-figcaption { margin-top: 8px; color: #78716c; font-size: .78rem; }
-a { color: #1d4ed8; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .guide { width: min(calc(100% - 20px), 1040px); padding: 18px 0 36px; }
   .guide-header { padding: 24px 20px; border-radius: 12px; }
   .guide-overline { align-items: flex-start; flex-direction: column; gap: 4px; }
   .guide-step { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; padding: 18px 16px; border-radius: 10px; }
   .step-index { width: 34px; height: 34px; border-radius: 9px; font-size: .82rem; }
-  .guide-source, .step-source { align-items: flex-start; flex-direction: column; gap: 3px; }
-}
-`;
-
-const PRINT_STYLE = `
-.print-hint { position: sticky; z-index: 10; top: 0; padding: 10px 16px; border-bottom: 1px solid #a8a29e; background: rgb(28 25 23 / .94); color: #fafaf9; backdrop-filter: blur(10px); }
-.print-hint > div { display: flex; max-width: 1040px; margin: 0 auto; align-items: center; gap: 12px; }
-.print-hint-icon { display: flex; width: 34px; height: 34px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 9px; background: #a3e635; color: #1c1917; font-size: .8rem; font-weight: 850; }
-.print-hint p { display: flex; min-width: 0; flex: 1; flex-direction: column; line-height: 1.35; }
-.print-hint strong { font-size: .86rem; }
-.print-hint p span { color: #d6d3d1; font-size: .75rem; }
-kbd { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #57534e; border-bottom-width: 2px; border-radius: 6px; background: #292524; color: #fafaf9; font: 700 .72rem/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
-body.print-ready { background: #d6d3d1; }
-.print-ready .guide { width: min(calc(100% - 32px), 210mm); margin: 32px auto 56px; padding: 16mm; background: #fff; box-shadow: 0 18px 55px rgb(28 25 23 / .18); }
-.print-ready .guide-header { padding: 0 0 12mm; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: #fff; box-shadow: none; }
-@page { margin: 14mm 13mm 16mm; size: auto; }
-@media print {
-  html, body, body.print-ready { background: #fff; }
-  body { font-size: 10pt; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .print-hint { display: none !important; }
-  .guide, .print-ready .guide { width: 100%; max-width: none; margin: 0; padding: 0; box-shadow: none; }
-  .guide-header, .print-ready .guide-header { margin-bottom: 9mm; padding: 0 0 8mm; background: transparent; }
-  .guide-overline { margin-bottom: 4mm; }
-  h1 { max-width: none; font-size: 25pt; }
-  .guide-description { margin-top: 4mm; font-size: 10.5pt; }
-  .guide-source, .step-source { margin-top: 3mm; font-size: 8pt; }
-  .guide-section-heading { break-after: avoid-page; page-break-after: avoid; margin: 10mm 0 4mm; padding: 0 0 3mm; }
-  .guide-section-heading h2 { font-size: 16pt; }
-  .guide-step { display: grid; grid-template-columns: 9mm minmax(0, 1fr); gap: 4mm; break-inside: auto; page-break-inside: auto; margin: 0 0 9mm; padding: 5mm 0 0; border: 0; border-top: .3mm solid var(--line); border-radius: 0; box-shadow: none; }
-  .step-index { width: 8mm; height: 8mm; border-radius: 2.2mm; font-size: 8.5pt; }
-  .step-header, h1, h2, h3, h4, p, ol { break-after: avoid-page; page-break-after: avoid; }
-  .step-header { margin-bottom: 3mm; }
-  .step-description { margin-bottom: 4mm; }
-  .annotation-list { margin-bottom: 4mm; padding: 3.5mm 4mm; }
-  figure { break-inside: avoid-page; page-break-inside: avoid; margin-top: 4mm; }
-  img { max-height: 190mm; border-radius: 2mm; object-fit: contain; }
-  figcaption { margin-top: 2mm; font-size: 7.5pt; }
-  a { color: inherit; text-decoration: none; }
-}
-@media (max-width: 640px) {
-  .print-hint p span, .print-hint kbd { display: none; }
-  .print-ready .guide { width: min(calc(100% - 16px), 210mm); margin: 12px auto 28px; padding: 20px 16px; }
 }
 `;

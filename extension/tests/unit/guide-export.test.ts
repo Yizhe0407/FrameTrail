@@ -1,3 +1,4 @@
+import { strFromU8, unzipSync } from 'fflate';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StepEntry } from '@/lib/storage/db';
 
@@ -14,7 +15,7 @@ import {
   GuideExportLimitError,
   generateGuideHtml,
   generateGuideMarkdown,
-  generatePrintReadyGuideHtml,
+  generateGuideMarkdownArchive,
   guideExportFilename,
 } from '@/lib/export/guide-export';
 
@@ -85,8 +86,35 @@ beforeEach(() => {
 describe('guide export', () => {
   it('uses deterministic, traversal-safe filenames', () => {
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown')).toBe('my-guide.md');
+    expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown-archive')).toBe('my-guide.zip');
     expect(guideExportFilename({ filename: '../../Report 2026' }, 'html')).toBe('report-2026.html');
-    expect(guideExportFilename({}, 'print-html')).toBe('frame-trail-guide-print.html');
+  });
+
+  it('packs one Markdown file and every composited image into a portable ZIP', async () => {
+    mocks.composite
+      .mockResolvedValueOnce(new Blob(['first-image'], { type: 'image/jpeg' }))
+      .mockResolvedValueOnce(new Blob(['second-image'], { type: 'image/jpeg' }));
+
+    const archive = await generateGuideMarkdownArchive(
+      [entry(), groupEntry()],
+      { title: 'Bundle guide', filename: '../../Bundle Guide' },
+    );
+    const files = unzipSync(new Uint8Array(await archive.blob.arrayBuffer()));
+    const markdown = strFromU8(files['bundle-guide.md']);
+
+    expect(archive.blob.type).toBe('application/zip');
+    expect(archive.markdownFilename).toBe('bundle-guide.md');
+    expect(archive.imageCount).toBe(2);
+    expect(Object.keys(files).sort()).toEqual([
+      'bundle-guide.md',
+      'images/01.jpg',
+      'images/02.jpg',
+    ]);
+    expect(strFromU8(files['images/01.jpg'])).toBe('first-image');
+    expect(strFromU8(files['images/02.jpg'])).toBe('second-image');
+    expect(markdown).toContain('![Step 1](images/01.jpg)');
+    expect(markdown).toContain('![Step 2](images/02.jpg)');
+    expect(markdown).not.toContain('data:image/');
   });
 
   it('builds safe self-contained Markdown through the shared composite renderer', async () => {
@@ -126,11 +154,10 @@ describe('guide export', () => {
     expect(html).toContain('&lt;svg onload=alert(1)&gt;');
     expect(html).toContain('&quot;quoted&quot; &amp; &lt;b&gt;unsafe&lt;/b&gt;');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
-    expect(html).toContain('href="https://example.com/?q=%3Cunsafe%3E&amp;x=1"');
+    expect(html).not.toContain('https://example.com/?q=');
     expect(html).toContain('src="data:image/jpeg;base64,YW5ub3RhdGVk"');
     expect(html).toContain('http-equiv="Content-Security-Policy"');
     expect(html).toContain("default-src 'none'; img-src data:");
-    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html.match(/<header class="guide-header">/g)).toHaveLength(1);
     expect(html.match(/<\/header>/g)).toHaveLength(1);
     expect(html).not.toContain('<svg onload=alert(1)>');
@@ -163,7 +190,7 @@ describe('guide export', () => {
     expect(markdown).not.toContain('Must also not render');
   });
 
-  it('renders escaped section headings before matching entries in HTML and print output', async () => {
+  it('renders escaped section headings before matching entries in HTML', async () => {
     const metadata = {
       sections: [
         { id: 'section', title: '<img src=x onerror=alert(1)>', startEntryId: 'step-1' },
@@ -171,26 +198,26 @@ describe('guide export', () => {
       ],
     };
     const html = await generateGuideHtml([entry()], metadata);
-    const printHtml = await generatePrintReadyGuideHtml([entry()], metadata);
+    const heading = html.indexOf('&lt;img src=x onerror=alert(1)&gt;');
+    const step = html.indexOf('<h3>Step 1</h3>');
 
-    for (const document of [html, printHtml]) {
-      const heading = document.indexOf('&lt;img src=x onerror=alert(1)&gt;');
-      const step = document.indexOf('<h3>Step 1</h3>');
-      expect(heading).toBeGreaterThan(-1);
-      expect(heading).toBeLessThan(step);
-      expect(document).not.toContain('<img src=x onerror=alert(1)>');
-      expect(document).not.toContain('broken');
-    }
+    expect(heading).toBeGreaterThan(-1);
+    expect(heading).toBeLessThan(step);
+    expect(html).not.toContain('<img src=x onerror=alert(1)>');
+    expect(html).not.toContain('broken');
   });
 
-  it('keeps group annotations ordered and emits print CSS for browser Save as PDF', async () => {
-    const html = await generatePrintReadyGuideHtml([groupEntry()], { title: 'Print guide' });
+  it('keeps the image above ordered group annotations in HTML', async () => {
+    const html = await generateGuideHtml([groupEntry()], { title: 'Guide' });
 
+    const image = html.indexOf('<figure>');
+    const annotations = html.indexOf('<div class="annotation-list">');
+    expect(image).toBeGreaterThan(-1);
+    expect(image).toBeLessThan(annotations);
     expect(html.indexOf('First annotation')).toBeLessThan(html.indexOf('Second annotation'));
-    expect(html).toContain('@page { margin: 14mm 13mm 16mm; size: auto; }');
-    expect(html).toContain('class="print-hint"');
-    expect(html).toContain('body.print-ready');
-    expect(html).toContain('figure { break-inside: avoid-page; page-break-inside: avoid;');
+    expect(html).not.toContain('Source');
+    expect(html).not.toContain('<figcaption>');
+    expect(html).not.toContain('Annotated screenshot for step');
   });
 
   it('propagates shared compositing failures so redaction review remains fail-closed', async () => {

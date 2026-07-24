@@ -11,17 +11,14 @@ import {
 } from '@/components/ui/dialog';
 import {
   generateGuideHtml,
-  generateGuideMarkdown,
-  generatePrintReadyGuideHtml,
+  generateGuideMarkdownArchive,
   guideExportFilename,
   type GuideExportMetadata,
 } from '@/lib/export/guide-export';
 import type { StepEntry } from '@/lib/storage/db';
 import {
-  copyRichText,
+  downloadBlob,
   downloadText,
-  loadHtmlIntoWindow,
-  openPrintPlaceholder,
   throwIfDownloadAborted,
 } from '@/lib/export/download-utils';
 import PublicationActionButton, {
@@ -70,32 +67,15 @@ export type PublishGuideDialogProps = GuideEntriesSource & {
 
 type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html'>;
 
-const DOWNLOAD_ACTIONS = {
-  markdown: {
-    generate: generateGuideMarkdown,
-    filenameFormat: 'markdown' as const,
-    mimeType: 'text/markdown;charset=utf-8',
-    successMessage: 'Markdown 已開始下載。',
-  },
-  html: {
-    generate: generateGuideHtml,
-    filenameFormat: 'html' as const,
-    mimeType: 'text/html;charset=utf-8',
-    successMessage: '自包含 HTML 已開始下載。',
-  },
-} satisfies Readonly<Record<DownloadPublicationAction, {
-  generate: typeof generateGuideMarkdown;
-  filenameFormat: 'markdown' | 'html';
-  mimeType: string;
-  successMessage: string;
-}>>;
+const HTML_DOWNLOAD = {
+  mimeType: 'text/html;charset=utf-8',
+  successMessage: '自包含 HTML 已開始下載。',
+} as const;
 
 const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
   markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與教學內容後再試一次。',
   html: '無法下載 HTML。請確認所有敏感資訊遮罩與教學內容後再試一次。',
-  print: '無法開啟列印版。請允許彈出式視窗、確認遮罩後再試一次。',
-  copy: '無法複製完整教學。請確認剪貼簿權限後再試一次。',
-  images: '無法下載圖片 ZIP。請確認所有敏感資訊遮罩後再試一次。',
+  images: '無法下載圖片。請確認所有敏感資訊遮罩後再試一次。',
 };
 
 function isAbortError(error: unknown): boolean {
@@ -148,12 +128,8 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     action: PublicationAction,
     task: (signal: AbortSignal) => Promise<void>,
     successMessage: string,
-    popupToCloseOnFailure?: Window,
   ) {
-    if (activeController.current) {
-      popupToCloseOnFailure?.close();
-      return;
-    }
+    if (activeController.current) return;
 
     const controller = new AbortController();
     activeController.current = controller;
@@ -166,7 +142,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       throwIfDownloadAborted(controller.signal);
       setNotice(successMessage);
     } catch (actionError) {
-      popupToCloseOnFailure?.close();
       if (isAbortError(actionError) || controller.signal.aborted) {
         setNotice('已取消發佈操作。');
       } else {
@@ -180,61 +155,31 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   }
 
   function downloadGuide(action: DownloadPublicationAction) {
-    const config = DOWNLOAD_ACTIONS[action];
     void runAction(
       action,
       async (signal) => {
         const snapshot = await resolveGuideEntries(signal);
-        const output = await config.generate(snapshot.entries, snapshot.metadata, { signal });
+        if (action === 'markdown') {
+          const archive = await generateGuideMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
+          throwIfDownloadAborted(signal);
+          await downloadBlob(
+            archive.blob,
+            guideExportFilename(snapshot.metadata, 'markdown-archive'),
+            { signal },
+          );
+          return;
+        }
+
+        const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
         throwIfDownloadAborted(signal);
         await downloadText(
-          output,
-          guideExportFilename(snapshot.metadata, config.filenameFormat),
-          config.mimeType,
+          html,
+          guideExportFilename(snapshot.metadata, 'html'),
+          HTML_DOWNLOAD.mimeType,
           { signal },
         );
       },
-      config.successMessage,
-    );
-  }
-
-  function openPrintVersion() {
-    // Keep this before every await, including the entry snapshot callback.
-    const printWindow = openPrintPlaceholder();
-    if (!printWindow) {
-      setNotice(null);
-      setError('瀏覽器封鎖了列印視窗。請允許彈出式視窗後再試一次。');
-      return;
-    }
-
-    void runAction(
-      'print',
-      async (signal) => {
-        const snapshot = await resolveGuideEntries(signal);
-        const html = await generatePrintReadyGuideHtml(snapshot.entries, snapshot.metadata, { signal });
-        throwIfDownloadAborted(signal);
-        await loadHtmlIntoWindow(printWindow, html, signal);
-        printWindow.focus?.();
-      },
-      '列印版已開啟；請在新分頁按 Ctrl / ⌘ + P 列印或另存為 PDF。',
-      printWindow,
-    );
-  }
-
-  function copyGuide() {
-    void runAction(
-      'copy',
-      async (signal) => {
-        const snapshot = await resolveGuideEntries(signal);
-        // Both representations go through the fail-closed publication
-        // generators; callers cannot supply pre-rendered, unredacted markup.
-        const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
-        throwIfDownloadAborted(signal);
-        const plainText = await generateGuideMarkdown(snapshot.entries, snapshot.metadata, { signal });
-        throwIfDownloadAborted(signal);
-        await copyRichText(html, plainText, signal);
-      },
-      '完整教學已複製，可貼到支援富文字的編輯器。',
+      action === 'markdown' ? 'Markdown ZIP 已開始下載。' : HTML_DOWNLOAD.successMessage,
     );
   }
 
@@ -298,9 +243,8 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
               <Sparkles className="size-4 text-lime-700 dark:text-lime-400" aria-hidden="true" />
               <h2 id={`${messageId}-recommended-title`} className="text-sm font-semibold">推薦格式</h2>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div>
               {actionButton('html', 'featured', () => downloadGuide('html'))}
-              {actionButton('print', 'featured', openPrintVersion)}
             </div>
           </section>
 
@@ -313,14 +257,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
               {actionButton('markdown', 'compact', () => downloadGuide('markdown'))}
               {onExportImages && actionButton('images', 'compact', exportImages)}
             </div>
-          </section>
-
-          <section aria-labelledby={`${messageId}-copy-title`} className="space-y-3">
-            <div>
-              <h2 id={`${messageId}-copy-title`} className="text-sm font-semibold">快速複製</h2>
-              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">不用建立檔案，直接貼到支援富文字的工具。</p>
-            </div>
-            {actionButton('copy', 'compact', copyGuide)}
           </section>
 
           <div aria-live="polite" aria-atomic="true">
