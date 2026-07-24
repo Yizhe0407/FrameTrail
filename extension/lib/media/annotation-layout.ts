@@ -1,7 +1,6 @@
 import type { Bounds } from '../storage/models';
 import {
   BADGE_RADIUS,
-  HIGHLIGHT_PADDING,
   MARKER_RADIUS,
   type Annotation,
   type AnnotationLayout,

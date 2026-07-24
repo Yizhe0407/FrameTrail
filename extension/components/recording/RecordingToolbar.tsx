@@ -282,6 +282,7 @@ export default function RecordingToolbar({
       return () => window.clearTimeout(timer);
     }
     previousCount.current = state.itemCount;
+    return undefined;
   }, [state.itemCount, state.mode]);
 
   useEffect(() => {

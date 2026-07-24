@@ -3,6 +3,7 @@ import { browser } from 'wxt/browser';
 import {
   Archive,
   ArchiveRestore,
+  CheckCircle2,
   Copy,
   Download,
   FilePlus2,
@@ -40,7 +41,7 @@ function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp);
 }
 
-function archiveFilename(title: string): string {
+function exportFilename(title: string): string {
   const stem = title.normalize('NFKC').toLocaleLowerCase('zh-TW')
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
@@ -56,13 +57,16 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GuideSummary | null>(null);
-  const [backupTarget, setBackupTarget] = useState<GuideSummary | null>(null);
+  const [exportTarget, setExportTarget] = useState<GuideSummary | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
+  const operationInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [operationLocked, setOperationLocked] = useState(false);
 
-  async function refresh() {
-    setLoading(true);
+  async function refresh(options: { showLoading?: boolean } = {}) {
+    const showLoading = options.showLoading ?? true;
+    if (showLoading) setLoading(true);
     try {
       const [nextGuides, state] = await Promise.all([getGuideSummaries(true), getRecordingState()]);
       setGuides(nextGuides);
@@ -71,7 +75,7 @@ export default function App() {
       console.error('[frametrail] failed to load guide library', refreshError);
       setError('無法讀取本機作品庫。');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }
 
@@ -93,17 +97,24 @@ export default function App() {
 
   const storageBytes = useMemo(() => guides.reduce((sum, guide) => sum + guide.storageBytes, 0), [guides]);
 
-  async function run(id: string, action: () => Promise<void>) {
-    if (pendingId || operationLocked) return;
+  async function run(id: string, action: () => Promise<void>, options: { refreshAfter?: boolean } = {}) {
+    // State updates are asynchronous, so pendingId alone cannot prevent two
+    // actions fired in the same event turn from overlapping storage writes.
+    if (loading || operationInFlight.current || operationLocked) return false;
+    operationInFlight.current = true;
     setPendingId(id);
     setError(null);
+    setNotice(null);
     try {
       await action();
-      await refresh();
+      if (options.refreshAfter !== false) await refresh({ showLoading: false });
+      return true;
     } catch (operationError) {
       console.error('[frametrail] library operation failed', operationError);
       setError(operationError instanceof Error ? operationError.message : '操作失敗，請再試一次。');
+      return false;
     } finally {
+      operationInFlight.current = false;
       setPendingId(null);
     }
   }
@@ -115,7 +126,7 @@ export default function App() {
     });
   }
 
-  async function downloadBackup(guide: GuideSummary) {
+  async function exportGuide(guide: GuideSummary) {
     await run(guide.id, async () => {
       const blob = await exportProjectArchive(await getSteps(guide.id), {
         metadata: {
@@ -126,17 +137,26 @@ export default function App() {
       });
       const url = URL.createObjectURL(blob);
       try {
-        await browser.downloads.download({ url, filename: archiveFilename(guide.title), saveAs: true });
+        await browser.downloads.download({
+          url,
+          filename: exportFilename(guide.title),
+          saveAs: true,
+          conflictAction: 'uniquify',
+        });
       } finally {
         URL.revokeObjectURL(url);
       }
-      setBackupTarget(null);
-    });
+      setNotice(`「${guide.title}」的可編輯檔案已開始下載。`);
+    }, { refreshAfter: false });
+    // A failed export reports through the page-level live alert. Close the
+    // modal so it does not aria-hide that alert from assistive technology.
+    setExportTarget(null);
   }
 
-  async function importBackup(file: File) {
+  async function importGuideFile(file: File) {
     if (file.size > PROJECT_ARCHIVE_LIMITS.maxArchiveBytes) {
-      setError('備份檔超過 128 MB 安全上限。');
+      setNotice(null);
+      setError('匯入檔案超過 128 MB 安全上限。');
       return;
     }
     await run('import', async () => {
@@ -160,7 +180,7 @@ export default function App() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-5 py-5 sm:px-8">
           <div className="mr-auto">
             <h1 className="text-lg font-semibold">FrameTrail 作品庫</h1>
-            <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">所有內容只保存在這個瀏覽器設定檔中。</p>
+            <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">所有內容只保存在這個瀏覽器設定檔中，可匯出 .frametrail 檔案保存或移轉。</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
             <HardDrive className="size-4" />
@@ -174,13 +194,13 @@ export default function App() {
             onChange={(event) => {
               const file = event.target.files?.[0];
               event.currentTarget.value = '';
-              if (file) void importBackup(file);
+              if (file) void importGuideFile(file);
             }}
           />
-          <Button variant="outline" onClick={() => importInput.current?.click()} disabled={operationLocked || pendingId !== null}>
-            {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}匯入備份
+          <Button variant="outline" onClick={() => importInput.current?.click()} disabled={loading || operationLocked || pendingId !== null}>
+            {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}匯入檔案
           </Button>
-          <Button onClick={() => void createNewGuide()} disabled={operationLocked || pendingId !== null}>
+          <Button onClick={() => void createNewGuide()} disabled={loading || operationLocked || pendingId !== null}>
             {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <FilePlus2 />}
             新增教學
           </Button>
@@ -191,6 +211,12 @@ export default function App() {
         {operationLocked && (
           <Alert>
             <AlertDescription>錄製或補拍進行中；為避免資料寫入錯誤，目前只能瀏覽作品庫。</AlertDescription>
+          </Alert>
+        )}
+        {notice && (
+          <Alert className="border-lime-300 bg-lime-50 text-lime-900 dark:border-lime-900 dark:bg-lime-950/40 dark:text-lime-100">
+            <CheckCircle2 />
+            <AlertDescription>{notice}</AlertDescription>
           </Alert>
         )}
         {error && (
@@ -263,8 +289,15 @@ export default function App() {
                         <Copy />複製
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" onClick={() => setBackupTarget(guide)} disabled={operationLocked || pending}>
-                      <Download />備份
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`匯出 ${guide.title}`}
+                      title="匯出可編輯 .frametrail 檔案"
+                      onClick={() => setExportTarget(guide)}
+                      disabled={operationLocked || pending}
+                    >
+                      <Download />匯出
                     </Button>
                     <Button
                       size="sm"
@@ -290,19 +323,23 @@ export default function App() {
       </main>
 
       <ConfirmationDialog
-        open={backupTarget !== null}
-        title="匯出可編輯備份？"
-        description="備份會包含未套用遮罩的原始截圖，請只保存在可信任的位置，不要直接公開分享。"
-        confirmLabel="下載備份"
-        pending={backupTarget ? pendingId === backupTarget.id : false}
-        onOpenChange={(open) => { if (!open) setBackupTarget(null); }}
-        onConfirm={() => { if (backupTarget) void downloadBackup(backupTarget); }}
+        open={exportTarget !== null}
+        title="匯出可編輯檔案？"
+        description={exportTarget
+          ? `將下載 ${exportFilename(exportTarget.title)}。檔案包含原始截圖、標註、遮罩、說明與章節，可再次匯入 FrameTrail 編輯；因含未套用遮罩的原始截圖，請勿直接公開分享。`
+          : ''}
+        confirmLabel="下載 .frametrail"
+        confirmVariant="default"
+        pendingLabel="匯出中"
+        pending={exportTarget ? pendingId === exportTarget.id : false}
+        onOpenChange={(open) => { if (!open) setExportTarget(null); }}
+        onConfirm={() => { if (exportTarget) void exportGuide(exportTarget); }}
       />
 
       <ConfirmationDialog
         open={deleteTarget !== null}
         title="永久刪除這份教學？"
-        description="原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出可編輯備份。"
+        description="原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出 .frametrail 可編輯檔案。"
         confirmLabel="永久刪除"
         pending={deleteTarget ? pendingId === deleteTarget.id : false}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}

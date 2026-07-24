@@ -223,7 +223,6 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   let capturing = false;
   let start: RegionPoint | null = null;
   let pointerId: number | null = null;
-  let currentRect: RegionRect | null = null;
   let cancelNotified = false;
 
   const consume = (event: Event) => {
@@ -232,7 +231,6 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   };
 
   const renderRect = (rect: RegionRect | null) => {
-    currentRect = rect;
     if (!rect || rect.width === 0 || rect.height === 0) {
       selection.dataset.visible = 'false';
       return;

@@ -8,7 +8,6 @@ import {
   assertExactEntryIds,
   buildCompleteStepEntries,
   entryId,
-  entrySteps,
   GuideStructureIntegrityError,
   flattenEntrySteps,
   orderedSessionSteps,

@@ -25,7 +25,6 @@ import {
   setGuideEntriesNumberedAtomically,
   updateGuide,
   type Guide,
-  type GuideStructureSnapshot,
   type Step,
   type StepEntry,
 } from '@/lib/storage/db';
@@ -934,7 +933,7 @@ function EditorApp() {
               <AlertCircle className="mx-auto mb-3 size-8" aria-hidden="true" />
               <h2 className="font-semibold text-stone-900 dark:text-stone-100">教學結構需要修復</h2>
               <p className="mt-2 text-sm">
-                為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份教學。請先從作品庫匯出備份，再重新開啟或復原內容。
+                為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份教學。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。
               </p>
             </div>
           </main>

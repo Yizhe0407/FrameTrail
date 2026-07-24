@@ -27,7 +27,7 @@ pnpm dev:firefox
 - 作品庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
 - 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
 - 發佈支援 PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
-- `.frametrail` 是包含原始未遮罩圖的可編輯本機備份，不應當作公開輸出。
+- `.frametrail` 是包含原始未遮罩圖的可編輯匯出檔案，不應當作公開輸出。
 - 首次導覽、練習頁與縮圖 lazy mounting 均不需要網路或後端。
 
 ## 原始碼分類
@@ -52,6 +52,7 @@ pnpm test
 pnpm test:e2e
 pnpm test:all
 pnpm compile
+pnpm validate
 pnpm validate:architecture
 pnpm build
 pnpm build:firefox
@@ -63,6 +64,7 @@ pnpm build:firefox
 - `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行目前設定的 Playwright Chromium E2E 測試套件。
 - `pnpm test:all`：依序執行 Vitest 與 Chromium E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
+- `pnpm validate`：依序執行型別、架構、完整 Vitest、Chrome／Firefox production build、產物與 Firefox lint 檢查。
 - `pnpm validate:architecture`：檢查 alias import cycle 與 `shared`、`ui`、storage model 的依賴邊界；CI 在 compile 後也會執行這個檢查。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。

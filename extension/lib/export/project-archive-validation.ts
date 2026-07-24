@@ -14,7 +14,6 @@ import {
   RUNTIME_STEP_KEYS,
   SAFE_SCREENSHOT_MEDIA_TYPES,
   SECTION_KEYS,
-  STEP_KEYS,
   ProjectArchiveError,
   type ArchiveMetadataV2,
   type JsonRecord,

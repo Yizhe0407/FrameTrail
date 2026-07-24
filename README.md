@@ -1,6 +1,6 @@
 # FrameTrail
 
-FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴充功能。每個步驟包含原始截圖、紅框標註與可編輯說明；可在本機作品庫管理多份教學，並發佈成 Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿或圖片 ZIP。所有資料都留在本機，不需要帳號、雲端服務或後端伺服器。
+FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴充功能。每個步驟包含原始截圖、紅框標註與可編輯說明；可在本機作品庫管理多份教學，並發佈成自包含 HTML、PDF、Markdown ZIP（含 `.md` 與圖片）或標註圖片 ZIP。所有資料都留在本機，不需要帳號、雲端服務或後端伺服器。
 
 完整架構與技術決策見 [PLAN.md](./PLAN.md)。
 
@@ -48,7 +48,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 ### 編輯、儲存與匯出
 
 - popup 提供錄製前設定與錄製中摘要；頁面浮動控制器負責錄製中的復原、暫停與完成。獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
-- **作品庫與多份 Guide**：作品庫可搜尋、新增、改名、複製、封存、永久刪除、匯出或匯入可編輯備份。Editor URL 的 `sessionId` 是唯一資料來源；網址缺少或 Guide 不存在時會安全顯示錯誤，不會 fallback 到其他正在錄製的內容。
+- **作品庫與多份 Guide**：作品庫可搜尋、新增、改名、複製、封存、永久刪除、匯出或匯入 `.frametrail` 可編輯檔案。Editor URL 的 `sessionId` 是唯一資料來源；網址缺少或 Guide 不存在時會安全顯示錯誤，不會 fallback 到其他正在錄製的內容。
 - **單選步驟與章節**：StepRail 一次只開啟一個完整步驟或快照群組，可用方向鍵切換、拖曳排序，並在項目邊界管理章節。
 - 拖曳使用 `@dnd-kit`，只由拖曳把手啟動，支援滑鼠、觸控與鍵盤。UI 先做 optimistic reorder，再以單一 IndexedDB transaction 持久化，失敗時復原；不同高度的列只做 translate，不會被縮放閃動。
 - 圖片 Blob 在狀態更新時保留穩定參照，rail、stage 與 lightbox 共用同一個 object URL；最後一個使用者卸載後才 revoke，避免非圖片變更觸發重新解碼與白閃。
@@ -58,7 +58,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，清除不再適用於新圖片的舊框選與遮罩，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
 - **既有遮罩相容性**：舊版或匯入資料中的 owner-level `redactions` 仍會由預覽、Lightbox、剪貼簿與匯出管線安全渲染，避免既有敏感資訊意外露出；Editor 不再提供新增或調整遮罩的介面。
 - **隱私 fail-closed**：讀到舊版待確認或格式錯誤的隱私 metadata 時，圖片預覽保持全黑，複製與匯出被阻擋；使用補拍取代圖片後會清除不再適用的舊遮罩並解除封鎖。
-- Markdown、HTML、列印用 HTML／PDF、富文字剪貼簿與 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。可編輯 `.frametrail` v2 備份另包含標題、說明與章節；因備份保留未遮罩原圖，匯出前會明確警告。
+- PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與標註圖片 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。`.frametrail` v2 可編輯匯出檔案另包含標題、說明與章節；因檔案保留未遮罩原圖，匯出前會明確警告。
 
 ### 狀態與效能
 
@@ -106,6 +106,7 @@ pnpm test
 pnpm test:e2e
 pnpm test:all
 pnpm compile
+pnpm validate
 pnpm build
 pnpm build:firefox
 pnpm zip

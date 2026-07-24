@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium, expect, test as base, type BrowserContext, type Page } from '@playwright/test';
 import { preparedExtensionPath } from './paths';
-import { resetExtensionData } from './harness';
 
 export const FIXTURE_URL = 'http://127.0.0.1:4175/';
 

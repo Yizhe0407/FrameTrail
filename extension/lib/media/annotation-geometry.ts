@@ -3,7 +3,6 @@ import {
   BADGE_FONT_RATIO,
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_PADDING,
-  MARKER_RADIUS,
   type AnnotationPoint,
 } from './annotation-contract';
 

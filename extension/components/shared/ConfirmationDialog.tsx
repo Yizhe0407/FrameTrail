@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react';
+import type { ComponentProps } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,6 +16,8 @@ interface Props {
   description: string;
   confirmLabel: string;
   pending?: boolean;
+  pendingLabel?: string;
+  confirmVariant?: ComponentProps<typeof Button>['variant'];
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void | Promise<void>;
 }
@@ -25,6 +28,8 @@ export default function ConfirmationDialog({
   description,
   confirmLabel,
   pending = false,
+  pendingLabel = '處理中',
+  confirmVariant = 'destructive',
   onOpenChange,
   onConfirm,
 }: Props) {
@@ -46,9 +51,9 @@ export default function ConfirmationDialog({
           <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button type="button" variant="destructive" disabled={pending} onClick={() => void onConfirm()}>
+          <Button type="button" variant={confirmVariant} disabled={pending} onClick={() => void onConfirm()}>
             {pending && <Loader2 className="animate-spin" />}
-            {pending ? '處理中' : confirmLabel}
+            {pending ? pendingLabel : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

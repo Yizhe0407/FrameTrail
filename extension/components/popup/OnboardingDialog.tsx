@@ -50,7 +50,7 @@ const WORKFLOW = [
   {
     number: '03',
     title: '匯出',
-    description: '確認內容後，從「發佈教學」下載、複製或列印。',
+    description: '確認內容後，從「發佈教學」下載 HTML、PDF、Markdown ZIP 或標註圖片。',
     Icon: Download,
   },
 ];

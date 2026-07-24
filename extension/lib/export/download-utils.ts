@@ -58,25 +58,3 @@ export async function downloadText(
 ): Promise<void> {
   return downloadBlob(new Blob([text], { type: mimeType }), filename, options);
 }
-
-/** Writes one rich clipboard item so paste targets can choose HTML or plain text. */
-export async function copyRichText(
-  html: string,
-  plainText: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  throwIfDownloadAborted(signal);
-  const ClipboardItemConstructor = globalThis.ClipboardItem;
-  const clipboard = globalThis.navigator?.clipboard;
-  if (!ClipboardItemConstructor || typeof clipboard?.write !== 'function') {
-    throw new Error('Rich clipboard writing is not available.');
-  }
-
-  const item = new ClipboardItemConstructor({
-    'text/html': new Blob([html], { type: 'text/html;charset=utf-8' }),
-    'text/plain': new Blob([plainText], { type: 'text/plain;charset=utf-8' }),
-  });
-  throwIfDownloadAborted(signal);
-  await clipboard.write([item]);
-  throwIfDownloadAborted(signal);
-}

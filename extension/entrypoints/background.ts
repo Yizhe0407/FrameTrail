@@ -67,7 +67,6 @@ import type {
   FrameTrailRecaptureReadyMessage,
   FrameTrailRecaptureTargetMessage,
   FrameTrailSnapshotActiveMessage,
-  FrameTrailStopMessage,
   OpenEditorMessage,
   OpenEditorResult,
   PreflightStepRecaptureSourcePermissionErrorCode,
@@ -311,9 +310,6 @@ function readPendingSnapshotContext(): SnapshotCaptureContext | undefined {
   return pendingSnapshotContext;
 }
 
-function equalIds(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
 
 async function persistRecordingSteps(
   state: RecordingState,

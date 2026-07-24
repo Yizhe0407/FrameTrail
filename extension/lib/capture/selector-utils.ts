@@ -175,7 +175,7 @@ function hasOwnInteractionDisabledState(el: Element): boolean {
   );
 }
 
-function hasOwnVisualUnavailableState(el: Element, style: CSSStyleDeclaration): boolean {
+function hasOwnVisualUnavailableState(style: CSSStyleDeclaration): boolean {
   return (
     style.display === 'none' ||
     style.visibility === 'hidden' ||
@@ -203,7 +203,7 @@ function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
     const element = elements[index];
     const style = getComputedStyle(element);
     interactionUnavailable ||= hasOwnInteractionDisabledState(element);
-    visualUnavailable ||= hasOwnVisualUnavailableState(element, style);
+    visualUnavailable ||= hasOwnVisualUnavailableState(style);
     entries[index] = {
       element,
       kind: interactionKind(element, style),

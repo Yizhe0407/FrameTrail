@@ -3,7 +3,6 @@ import {
   getEffectiveBounds,
   sanitizeStepForStorage,
   type Bounds,
-  type Redaction,
   type Step,
 } from './models';
 import {

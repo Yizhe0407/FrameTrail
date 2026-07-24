@@ -1,5 +1,4 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
-import { repairGuideSections } from '../guide/guide-sections';
 import {
   STEP_STORAGE_LIMITS,
   defaultGuideTitle,

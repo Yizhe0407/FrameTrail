@@ -680,7 +680,7 @@ Phase 3 的核心摩擦已以本機優先方案完成：
 - StepRail 完成搜尋／品質／類型篩選、手機展開入口、lazy thumbnail mounting、多選鍵盤模型與章節 heading；hidden selection 會被移除，批次破壞操作不會影響不可見項目。
 - 完成 entry-safe CAS 批次刪除、移動、複製、快照編號、章節 CRUD 與 revision-guarded Undo；快照群組不可拆，stale transaction rollback。
 - 完成指定位置補錄與手動區域擷取，沿用 sender/session/token 驗證及 durable MV3 restart guards。
-- 完成品質 dialog 與 Markdown、HTML、列印/PDF、rich clipboard、ZIP 發佈；所有公開 raster 維持 redaction fail-closed。`.frametrail` v2 備份加入標題、說明、章節，並保留 v1 import 相容。
+- 完成品質 dialog 與自包含 HTML、PDF、Markdown ZIP（`.md` + 圖片）、標註圖片 ZIP 發佈；所有公開 raster 維持 redaction fail-closed。`.frametrail` v2 可編輯匯出檔案加入標題、說明、章節，並保留 v1 import 相容。
 
 ### Phase 4：Accessibility 與視覺收斂（P1，3 至 5 天）
 

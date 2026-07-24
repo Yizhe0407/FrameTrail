@@ -18,8 +18,7 @@ describe('OnboardingDialog', () => {
     expect(screen.getByRole('heading', { name: '編輯' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '匯出' })).toBeTruthy();
     expect(screen.getByText(/完成錄製後開啟編輯器/)).toBeTruthy();
-    expect(screen.getByText(/從「發佈教學」下載、複製或列印/)).toBeTruthy();
-    expect(screen.getByText(/從「發佈教學」下載、複製或列印/)).toBeTruthy();
+    expect(screen.getByText(/下載 HTML、PDF、Markdown ZIP 或標註圖片/)).toBeTruthy();
     expect(screen.getByRole('heading', { name: '先選錄製方式' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '操作流程' })).toBeTruthy();
     expect(screen.getByText(/依實際點選順序建立多張步驟圖/)).toBeTruthy();
@@ -27,7 +26,6 @@ describe('OnboardingDialog', () => {
     expect(screen.getByRole('heading', { name: '單頁標註' })).toBeTruthy();
     expect(screen.getByText(/對同一張圖加入多個標註/)).toBeTruthy();
     expect(screen.getByText(/畫面導覽、欄位總覽與介面說明/)).toBeTruthy();
-    expect(screen.getByText(/從「發佈教學」下載、複製或列印/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '關閉' })).toBeTruthy();
     expect(document.querySelector('a, iframe, img')).toBeNull();
   });

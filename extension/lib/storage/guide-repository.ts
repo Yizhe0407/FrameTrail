@@ -1,7 +1,6 @@
 import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
 import {
   buildCompleteStepEntries,
-  defaultGuideTitle,
   sanitizeGuide,
   STEP_STORAGE_LIMITS,
   storageError,

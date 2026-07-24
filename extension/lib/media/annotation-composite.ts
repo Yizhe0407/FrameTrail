@@ -19,7 +19,6 @@ import {
   getBadgeFontSize,
   layoutAnnotations,
   type Annotation,
-  type AnnotationLayout,
   type AnnotationPoint,
 } from './annotation-layout';
 

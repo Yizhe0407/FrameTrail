@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyRichText, downloadBlob } from '@/lib/export/download-utils';
+import { downloadBlob } from '@/lib/export/download-utils';
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
 describe('download utilities', () => {
@@ -35,30 +34,6 @@ describe('download utilities', () => {
       name: 'AbortError',
     });
     expect(createObjectURL).not.toHaveBeenCalled();
-  });
-
-  it('writes HTML and plain text in the same ClipboardItem', async () => {
-    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
-    class ClipboardItemMock {
-      readonly types: Record<string, Blob>;
-      constructor(types: Record<string, Blob>) {
-        this.types = types;
-      }
-    }
-    vi.stubGlobal('ClipboardItem', ClipboardItemMock);
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { write: clipboardWrite },
-    });
-
-    await copyRichText('<main>完整教學</main>', '# 完整教學');
-
-    expect(clipboardWrite).toHaveBeenCalledOnce();
-    const [items] = clipboardWrite.mock.calls[0] as [[ClipboardItemMock]];
-    expect(items).toHaveLength(1);
-    expect(Object.keys(items[0].types).sort()).toEqual(['text/html', 'text/plain']);
-    expect(items[0].types['text/html'].type).toBe('text/html;charset=utf-8');
-    expect(items[0].types['text/plain'].type).toBe('text/plain;charset=utf-8');
   });
 
 });
