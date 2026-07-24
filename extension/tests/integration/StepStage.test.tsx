@@ -2,33 +2,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
-import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
-
-const visualEditDialogSpy = vi.hoisted(() => vi.fn());
-
 vi.mock('@/components/editor/HighlightThumbnail', () => ({ default: () => null }));
 vi.mock('@/components/editor/MultiHighlightThumbnail', () => ({ default: () => null }));
 vi.mock('@/components/editor/DescriptionField', () => ({ default: () => null }));
 vi.mock('@/components/editor/AnnotationList', () => ({ default: () => null }));
 vi.mock('@/components/editor/StepActions', () => ({ default: () => null }));
-vi.mock('@/components/editor/VisualEditDialog', () => ({
-  default: (props: { open: boolean }) => {
-    visualEditDialogSpy(props);
-    return props.open ? <div role="dialog" aria-label="VisualEditDialog" /> : null;
-  },
-}));
 
 import StepStage from '@/components/editor/StepStage';
-
-type VisualDialogProps = {
-  open: boolean;
-  onSave: (commit: VisualEditCommit) => Promise<void>;
-};
 
 interface StageOptions {
   entry?: StepEntry;
   editingDisabled?: boolean;
-  onEditVisuals?: (commit: VisualEditCommit) => Promise<void>;
   onSetNumbered?: (entryId: string, next: boolean) => Promise<void>;
   onZoom?: () => void;
 }
@@ -74,7 +58,6 @@ function deferred<T = void>() {
 function stage({
   entry = groupEntry(),
   editingDisabled = false,
-  onEditVisuals = vi.fn().mockResolvedValue(undefined),
   onSetNumbered = vi.fn().mockResolvedValue(undefined),
   onZoom = vi.fn(),
 }: StageOptions = {}) {
@@ -87,7 +70,6 @@ function stage({
       onDeleteAnnotation={vi.fn().mockResolvedValue(undefined)}
       onZoom={onZoom}
       onReorderAnnotations={vi.fn().mockResolvedValue(undefined)}
-      onEditVisuals={onEditVisuals}
       onRecapture={vi.fn().mockResolvedValue(undefined)}
       onSetNumbered={onSetNumbered}
       editingDisabled={editingDisabled}
@@ -99,14 +81,9 @@ function renderStage(options: StageOptions = {}) {
   return render(stage(options));
 }
 
-function latestVisualDialogProps(): VisualDialogProps {
-  return visualEditDialogSpy.mock.calls.at(-1)?.[0] as VisualDialogProps;
-}
-
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  visualEditDialogSpy.mockClear();
 });
 
 describe('StepStage numbered snapshots', () => {
@@ -149,51 +126,5 @@ describe('StepStage numbered snapshots', () => {
     fireEvent.click(toggle);
 
     expect(onSetNumbered).not.toHaveBeenCalled();
-  });
-});
-
-describe('StepStage visual editing lock', () => {
-  it('closes an open visual editor when editing becomes disabled', () => {
-    const onEditVisuals = vi.fn().mockResolvedValue(undefined);
-    const options = { onEditVisuals };
-    const view = renderStage(options);
-
-    fireEvent.click(screen.getByRole('button', { name: '調整圖片' }));
-    expect(screen.getByRole('dialog', { name: 'VisualEditDialog' })).toBeTruthy();
-
-    view.rerender(stage({ ...options, editingDisabled: true }));
-
-    expect(screen.queryByRole('dialog', { name: 'VisualEditDialog' })).toBeNull();
-    expect(latestVisualDialogProps().open).toBe(false);
-  });
-
-  it('disables the privacy-review image action while editing is disabled', () => {
-    const onZoom = vi.fn();
-    renderStage({
-      entry: groupEntry({ redactionReviewRequired: true }),
-      editingDisabled: true,
-      onZoom,
-    });
-
-    const imageAction = screen.getByRole('button', { name: '確認敏感資訊遮罩' });
-    expect((imageAction as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(imageAction);
-
-    expect(screen.queryByRole('dialog', { name: 'VisualEditDialog' })).toBeNull();
-    expect(onZoom).not.toHaveBeenCalled();
-  });
-
-  it('does not call onEditVisuals when a scheduled dialog save runs after editing is disabled', async () => {
-    const onEditVisuals = vi.fn().mockResolvedValue(undefined);
-    const options = { onEditVisuals };
-    const view = renderStage(options);
-
-    fireEvent.click(screen.getByRole('button', { name: '調整圖片' }));
-    const scheduledSave = latestVisualDialogProps().onSave;
-
-    view.rerender(stage({ ...options, editingDisabled: true }));
-    await scheduledSave({ updates: [], restoreUpdates: [] });
-
-    expect(onEditVisuals).not.toHaveBeenCalled();
   });
 });

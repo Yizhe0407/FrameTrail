@@ -5,20 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const database = vi.hoisted(() => {
   class GuideContentConflictError extends Error {}
-  class StepUpdateConflictError extends Error {}
 
   const entryId = (entry: any) => entry.kind === 'single' ? entry.step.id : entry.anchor.id;
 
   return {
     GuideContentConflictError,
-    StepUpdateConflictError,
-    addGuideSectionAtomically: vi.fn(),
     buildStepEntries: vi.fn((steps: any[]) => steps),
     deleteGuideAnnotationAtomically: vi.fn(),
     deleteGuideEntriesAtomically: vi.fn(),
     deleteGuideSectionAtomically: vi.fn(),
     deleteStepsAndReorder: vi.fn(),
-    duplicateGuideEntryAtomically: vi.fn(),
     entryId,
     flattenEntries: vi.fn((entries: any[]) => entries.flatMap((entry) => (
       entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations]
@@ -26,7 +22,6 @@ const database = vi.hoisted(() => {
     getGuide: vi.fn(),
     getGuideStructureSnapshot: vi.fn(),
     getSteps: vi.fn(),
-    moveGuideEntriesAtomically: vi.fn(),
     renameGuideSectionAtomically: vi.fn(),
     reorderGuideAnnotationsAtomically: vi.fn(),
     reorderGuideEntriesAtomically: vi.fn(),
@@ -36,7 +31,6 @@ const database = vi.hoisted(() => {
     restoreStepsAndReorder: vi.fn(),
     setGuideEntriesNumberedAtomically: vi.fn(),
     updateGuide: vi.fn(),
-    updateGuideVisualsAtomically: vi.fn(),
     updateStepsAtomically: vi.fn(),
   };
 });
@@ -59,7 +53,6 @@ const editorSave = vi.hoisted(() => ({
 const rendered = vi.hoisted(() => ({
   stepRailProps: null as any,
   stepStageProps: null as any,
-  batchToolbarProps: null as any,
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -99,21 +92,12 @@ vi.mock('@/components/editor/StepRail', () => ({
         aria-label="StepRail test double"
         data-reorder-disabled={String(props.reorderDisabled)}
       >
-        <output data-testid="rail-selected">{[...props.selectedEntryIds].join(',')}</output>
+        <output data-testid="rail-selected">{props.selectedEntryId}</output>
         <output data-testid="rail-sections">
           {(props.sections ?? []).map((section: any) => `${section.title}:${section.startEntryId}`).join('|')}
         </output>
-        <button
-          type="button"
-          onClick={() => props.onSelect('entry-2', { additive: true, range: false })}
-        >
-          Ctrl 選取 entry-2
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onSelect('entry-3', { additive: false, range: true })}
-        >
-          Shift 選取 entry-3
+        <button type="button" onClick={() => props.onSelect('entry-2')}>
+          開啟 entry-2
         </button>
       </aside>
     );
@@ -136,17 +120,6 @@ vi.mock('@/components/editor/StepStage', () => ({
           準備補拍
         </button>
       </main>
-    );
-  },
-}));
-vi.mock('@/components/editor/GuideBatchToolbar', () => ({
-  default: (props: any) => {
-    rendered.batchToolbarProps = props;
-    if (props.selectedEntryIds.length < 2) return null;
-    return (
-      <section aria-label="GuideBatchToolbar test double">
-        {props.selectedEntryIds.join(',')}
-      </section>
     );
   },
 }));
@@ -245,7 +218,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   rendered.stepRailProps = null;
   rendered.stepStageProps = null;
-  rendered.batchToolbarProps = null;
   editorSave.flushAll.mockResolvedValue(undefined);
   recordingSession.refresh.mockResolvedValue(undefined);
   recordingSession.useRecordingSession.mockImplementation((explicitSessionId?: string | null) => {
@@ -288,40 +260,17 @@ afterEach(() => {
 });
 
 describe('Editor App structure wiring', () => {
-  it('passes selection and Guide sections to StepRail, and applies Ctrl/Shift callback modifiers', async () => {
+  it('passes the active entry and Guide sections to StepRail, and switches one entry at a time', async () => {
     render(<EditorApp />);
 
     await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1'));
     expect(screen.getByTestId('rail-sections').textContent).toBe('準備:entry-1|完成:entry-3');
     expect(rendered.stepRailProps.sections).toEqual(guide.sections);
-    expect([...rendered.stepRailProps.selectedEntryIds]).toEqual(['entry-1']);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ctrl 選取 entry-2' }));
+    fireEvent.click(screen.getByRole('button', { name: '開啟 entry-2' }));
 
-    await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1,entry-2'));
-    expect([...rendered.stepRailProps.selectedEntryIds]).toEqual(['entry-1', 'entry-2']);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Shift 選取 entry-3' }));
-
-    await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-2,entry-3'));
-    expect([...rendered.stepRailProps.selectedEntryIds]).toEqual(['entry-2', 'entry-3']);
-  });
-
-  it('disables stage editing and rail DnD, and shows the batch toolbar for multiple selection', async () => {
-    render(<EditorApp />);
-
-    await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1'));
-    expect(screen.queryByLabelText('GuideBatchToolbar test double')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Ctrl 選取 entry-2' }));
-
-    const toolbar = await screen.findByLabelText('GuideBatchToolbar test double');
-    expect(toolbar.textContent).toBe('entry-1,entry-2');
-    expect(screen.getByLabelText('StepStage test double').getAttribute('data-editing-disabled')).toBe('true');
-    expect(screen.getByLabelText('StepRail test double').getAttribute('data-reorder-disabled')).toBe('true');
-    expect(rendered.stepStageProps.editingDisabled).toBe(true);
-    expect(rendered.stepRailProps.reorderDisabled).toBe(true);
-    expect(rendered.batchToolbarProps.selectedEntryIds).toEqual(['entry-1', 'entry-2']);
+    await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-2'));
+    expect(screen.getByLabelText('StepStage test double').getAttribute('data-entry-id')).toBe('entry-2');
   });
 
   it('uses a fresh structure snapshot revision for StepStage onSetNumbered atomic writes', async () => {

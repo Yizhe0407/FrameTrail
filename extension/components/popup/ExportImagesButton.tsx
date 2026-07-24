@@ -31,7 +31,7 @@ export default function ExportImagesButton({ steps, className, variant = 'outlin
   );
 
   const privacyNotice = privacyReviewRequired
-    ? '有圖片待確認敏感資訊遮罩；請在顯示為黑色的步驟開啟「調整圖片」並儲存。'
+    ? '有舊圖片的敏感資訊遮罩尚未確認；請在 Editor 使用補拍取代顯示為黑色的圖片。'
     : null;
 
   useEffect(() => () => abortController.current?.abort(), []);
@@ -39,7 +39,7 @@ export default function ExportImagesButton({ steps, className, variant = 'outlin
   async function handleClick() {
     if (steps.length === 0 || busy || disabled) return;
     if (privacyReviewRequired) {
-      setExportError('請先完成所有圖片的敏感資訊遮罩確認，再匯出。');
+      setExportError('請先補拍並取代所有顯示為黑色的舊圖片，再匯出。');
       return;
     }
     const controller = new AbortController();
@@ -66,7 +66,7 @@ export default function ExportImagesButton({ steps, className, variant = 'outlin
       if (isExportCancelledError(err) || controller.signal.aborted) {
         setExportNotice('已取消匯出');
       } else if (err instanceof RedactionReviewRequiredError) {
-        setExportError('請先完成所有圖片的敏感資訊遮罩確認，再匯出。');
+        setExportError('請先補拍並取代所有顯示為黑色的舊圖片，再匯出。');
       } else {
         console.error('匯出圖片失敗', err);
         setExportError('無法完成儲存或匯出，請重試。');

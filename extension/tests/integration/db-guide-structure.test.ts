@@ -23,7 +23,6 @@ import {
   restoreGuideAnnotationAtomically,
   restoreGuideEntriesAtomically,
   setGuideEntriesNumberedAtomically,
-  updateGuideVisualsAtomically,
   type GuideSection,
   type Step,
 } from '@/lib/storage/db';
@@ -465,68 +464,6 @@ describe('strict annotation and visual CAS mutations', () => {
       secondGroup.annotations[0].id,
     ]);
     expect(stored.map((step) => step.order)).toEqual([0, 1, 2, 3, 4]);
-  });
-
-  it('atomically checks guide and capture revisions for visual edits and supports CAS undo', async () => {
-    const { guide, snapshot } = await createTrackedGuide(makeMixedSteps());
-    const group = snapshot.entries[1];
-    expect(group.kind).toBe('group');
-    if (group.kind !== 'group') throw new Error('Expected snapshot group.');
-    const annotation = group.annotations[0];
-    const manualBounds = { x: 9, y: 8, width: 7, height: 6 };
-    const mask = { id: 'mask-1', kind: 'solid' as const, bounds: { x: 1, y: 1, width: 2, height: 2 } };
-
-    const result = await updateGuideVisualsAtomically(guide.id, [
-      { id: annotation.id, expectedCaptureRevision: 0, changes: { manualBounds } },
-      { id: group.anchor.id, expectedCaptureRevision: 0, changes: { redactions: [mask] } },
-    ], snapshot.guide.contentRevision);
-
-    expect(result.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
-    expect(result.previousSteps.map((step) => step.id)).toEqual([annotation.id, group.anchor.id]);
-    expect(result.steps.find((step) => step.id === annotation.id)?.manualBounds).toEqual(manualBounds);
-    expect(result.steps.find((step) => step.id === group.anchor.id)?.redactions).toEqual([mask]);
-
-    const undone = await updateGuideVisualsAtomically(guide.id, result.previousSteps.map((previous) => ({
-      id: previous.id,
-      expectedCaptureRevision: result.steps.find((step) => step.id === previous.id)?.captureRevision ?? 0,
-      changes: {
-        manualBounds: previous.manualBounds,
-        redactions: previous.redactions,
-        redactionReviewRequired: previous.redactionReviewRequired,
-      },
-    })), result.guide.contentRevision);
-    expect(undone.guide.contentRevision).toBe(result.guide.contentRevision + 1);
-    const stored = await getSteps(guide.id);
-    expect(stored.find((step) => step.id === annotation.id)?.manualBounds).toBeUndefined();
-    expect(stored.find((step) => step.id === group.anchor.id)?.redactions).toBeUndefined();
-  });
-
-  it('rolls back every visual row on content or capture CAS conflict', async () => {
-    const steps = makeSingleSteps(2);
-    steps[1].captureRevision = 1;
-    const { guide, snapshot } = await createTrackedGuide(steps);
-    const firstId = snapshot.entryIds[0];
-    const secondId = snapshot.entryIds[1];
-
-    await expect(updateGuideVisualsAtomically(guide.id, [
-      { id: firstId, expectedCaptureRevision: 0, changes: { manualBounds: { x: 2, y: 2, width: 2, height: 2 } } },
-      { id: secondId, expectedCaptureRevision: 0, changes: { redactions: [] } },
-    ], snapshot.guide.contentRevision)).rejects.toMatchObject({ name: 'StepUpdateConflictError', stepId: secondId });
-    let after = await getGuideStructureSnapshot(guide.id);
-    expect(after.guide.contentRevision).toBe(snapshot.guide.contentRevision);
-    expect((await getSteps(guide.id)).find((step) => step.id === firstId)?.manualBounds).toBeUndefined();
-
-    const moved = await reorderGuideEntriesAtomically(
-      guide.id,
-      [...snapshot.entryIds].reverse(),
-      snapshot.guide.contentRevision,
-    );
-    await expect(updateGuideVisualsAtomically(guide.id, [
-      { id: firstId, expectedCaptureRevision: 0, changes: { redactions: [] } },
-    ], snapshot.guide.contentRevision)).rejects.toBeInstanceOf(GuideContentConflictError);
-    after = await getGuideStructureSnapshot(guide.id);
-    expect(after.guide.contentRevision).toBe(moved.guide.contentRevision);
-    expect(after.entryIds).toEqual(moved.entryIds);
   });
 
   it('fails closed at the section cap without advancing contentRevision', async () => {

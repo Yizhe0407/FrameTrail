@@ -416,8 +416,7 @@ describe('atomic visual edits and recapture', () => {
       runId: 'original-run',
       bounds: { x: 20, y: 30, width: 40, height: 50 },
       manualBounds: null,
-      redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }],
-      redactionReviewRequired: true,
+      redactions: [],
       captureRevision: 1,
       lastCaptureRunId: 'recapture-run',
     });
@@ -425,7 +424,7 @@ describe('atomic visual edits and recapture', () => {
   });
 
 
-  it('rejects a stale visual save after ordinary recapture without clearing the privacy gate', async () => {
+  it('rejects a stale capture-revision update after ordinary recapture and keeps privacy metadata cleared', async () => {
     const step = makeStep({
       redactions: [{ id: 'old-mask', kind: 'solid', bounds: { x: 1, y: 1, width: 2, height: 2 } }],
     });
@@ -458,8 +457,8 @@ describe('atomic visual edits and recapture', () => {
     const stored = (await getSteps(step.sessionId))[0];
     expect(stored.captureRevision).toBe(1);
     expect(stored.manualBounds).toBeNull();
-    expect(stored.redactions?.[0]?.id).toBe('old-mask');
-    expect(stored.redactionReviewRequired).toBe(true);
+    expect(stored.redactions).toEqual([]);
+    expect(stored.redactionReviewRequired).toBeUndefined();
   });
 
   it('rolls back stale snapshot annotation edits when the anchor revision changed', async () => {
@@ -503,8 +502,8 @@ describe('atomic visual edits and recapture', () => {
     const storedAnchor = stored.find((item) => item.id === anchorId)!;
     const storedAnnotation = stored.find((item) => item.id === annotation.id)!;
     expect(storedAnchor.captureRevision).toBe(1);
-    expect(storedAnchor.redactions?.[0]?.id).toBe('old-mask');
-    expect(storedAnchor.redactionReviewRequired).toBe(true);
+    expect(storedAnchor.redactions).toEqual([]);
+    expect(storedAnchor.redactionReviewRequired).toBeUndefined();
     expect(storedAnnotation.manualBounds).toBeNull();
     expect(storedAnnotation.bounds).toEqual({ x: 20, y: 30, width: 40, height: 50 });
   });

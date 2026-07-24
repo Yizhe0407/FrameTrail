@@ -77,12 +77,9 @@ export {
   reorderSteps,
   replaceStepCaptureAtomically,
   restoreStepsAndReorder,
-  updateGuideVisualsAtomically,
   updateStep,
   updateStepsAtomically,
   type CaptureReplacement,
-  type GuideVisualMutationResult,
-  type GuideVisualStepUpdate,
   type StepRecaptureTarget,
   type StepUpdate,
 } from './step-repository';

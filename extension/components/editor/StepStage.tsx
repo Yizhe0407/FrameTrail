@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, EyeOff, Loader2, ZoomIn } from 'lucide-react';
+import { useState } from 'react';
+import { AlertCircle, Loader2, ZoomIn } from 'lucide-react';
 import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type Step, type StepEntry } from '@/lib/storage/db';
 import { cn } from '@/lib/shared/utils';
 import { Switch } from '@/components/ui/switch';
@@ -8,8 +8,6 @@ import MultiHighlightThumbnail from './MultiHighlightThumbnail';
 import StepActions from './StepActions';
 import DescriptionField from './DescriptionField';
 import AnnotationList from './AnnotationList';
-import VisualEditDialog, { type VisualEditCommit } from './VisualEditDialog';
-import { Button } from '@/components/ui/button';
 
 interface Props {
   entry: StepEntry;
@@ -19,7 +17,6 @@ interface Props {
   onDeleteAnnotation: (step: Step) => Promise<void>;
   onZoom: () => void;
   onReorderAnnotations: (reordered: Step[]) => Promise<void>;
-  onEditVisuals: (commit: VisualEditCommit) => Promise<void>;
   onRecapture: () => Promise<void>;
   onSetNumbered: (entryId: string, next: boolean) => Promise<void>;
   editingDisabled?: boolean;
@@ -33,31 +30,13 @@ export default function StepStage({
   onDeleteAnnotation,
   onZoom,
   onReorderAnnotations,
-  onEditVisuals,
   onRecapture,
   onSetNumbered,
   editingDisabled = false,
 }: Props) {
   const [numberingPending, setNumberingPending] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
-  const [visualEditorOpen, setVisualEditorOpen] = useState(false);
-  const [visualSavePending, setVisualSavePending] = useState(false);
-  const editingDisabledRef = useRef(editingDisabled);
-  const visualSavePendingRef = useRef(false);
   const privacy = getEntryPrivacyState(entry);
-
-  // Keep asynchronous callbacks aligned with the latest parent operation state.
-  // A dialog can have an already-scheduled save callback when recording or a
-  // batch action disables editing.
-  editingDisabledRef.current = editingDisabled;
-
-  useEffect(() => {
-    if (editingDisabled) setVisualEditorOpen(false);
-  }, [editingDisabled]);
-
-  function openVisualEditor() {
-    if (!editingDisabled) setVisualEditorOpen(true);
-  }
 
   async function setNumbered(next: boolean) {
     if (entry.kind !== 'group' || numberingPending || editingDisabled) return;
@@ -100,16 +79,6 @@ export default function StepStage({
           </label>
         )}
         {numberingPending && <Loader2 className="size-3.5 animate-spin text-stone-400" aria-label="正在儲存編號設定" />}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={openVisualEditor}
-          disabled={editingDisabled}
-          title={editingDisabled ? '錄製或資料操作期間無法編輯圖片' : '調整操作框選或遮罩敏感資訊'}
-        >
-          <EyeOff />調整圖片
-        </Button>
         <StepActions
           entry={entry}
           onDelete={onDelete}
@@ -126,22 +95,10 @@ export default function StepStage({
     </div>
   );
 
-  // A privacy-blocked preview should lead directly to the recovery action
-  // instead of opening a second black-only lightbox. This reduces the
-  // dead-end path while preserving the normal zoom affordance for reviewed
-  // images.
-  const imageAction = privacy.reviewRequired
-    ? openVisualEditor
-    : () => {
-        if (!editingDisabled) onZoom();
-      };
-  const imageActionLabel = privacy.reviewRequired ? '確認敏感資訊遮罩' : '放大圖片';
-  const imageActionHint = privacy.reviewRequired ? '確認遮罩' : '放大';
-  const imageActionIcon = privacy.reviewRequired ? <EyeOff className="size-3.5" /> : <ZoomIn className="size-3.5" />;
   const zoomHint = (
     <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-xs opacity-0 shadow backdrop-blur transition-opacity group-hover:opacity-100 dark:bg-stone-900/90">
-      {imageActionIcon}
-      {imageActionHint}
+      <ZoomIn className="size-3.5" />
+      點擊放大
     </span>
   );
 
@@ -154,39 +111,12 @@ export default function StepStage({
 
   const privacyReviewNotice = privacy.reviewRequired && (
     <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-      此圖片的遮罩需要重新確認；確認前預覽會保持全黑，複製與匯出也會被阻擋。請開啟「調整圖片」檢查後儲存。
+      此舊圖片的敏感資訊遮罩尚未確認，因此預覽會保持全黑，複製與匯出也會被阻擋。請使用補拍取代這張圖片。
     </div>
-  );
-
-  const visualEditor = (
-    <VisualEditDialog
-      entry={entry}
-      open={visualEditorOpen && !editingDisabled}
-      saving={visualSavePending}
-      onOpenChange={(open) => {
-        if (!editingDisabled) setVisualEditorOpen(open);
-      }}
-      onSave={async (commit) => {
-        // Do not begin a new write after editing has been disabled. A write
-        // that already reached onEditVisuals is deliberately allowed to finish.
-        if (editingDisabledRef.current || visualSavePendingRef.current) return;
-
-        visualSavePendingRef.current = true;
-        setVisualSavePending(true);
-        try {
-          await onEditVisuals(commit);
-          setVisualEditorOpen(false);
-        } finally {
-          visualSavePendingRef.current = false;
-          setVisualSavePending(false);
-        }
-      }}
-    />
   );
 
   if (entry.kind === 'single') {
     return (
-      <>
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:overflow-hidden lg:px-16 lg:pt-10 lg:pb-8 dark:bg-stone-800">
         <div className="flex w-full max-w-[1040px] flex-none flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-5">
           {headerRow}
@@ -194,13 +124,9 @@ export default function StepStage({
           {privacyReviewNotice}
           <button
             type="button"
-            onClick={imageAction}
-            disabled={editingDisabled}
-            aria-label={imageActionLabel}
-            className={cn(
-              'group relative w-full shrink-0 overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm lg:min-h-0 lg:shrink dark:border-stone-700 dark:bg-stone-900',
-              privacy.reviewRequired ? 'cursor-pointer' : 'cursor-zoom-in',
-            )}
+            onClick={onZoom}
+            aria-label="放大圖片"
+            className="group relative w-full shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm lg:min-h-0 lg:shrink dark:border-stone-700 dark:bg-stone-900"
           >
             <HighlightThumbnail
               blob={entry.step.screenshotBlob}
@@ -222,13 +148,10 @@ export default function StepStage({
           />
         </div>
       </main>
-      {visualEditor}
-      </>
     );
   }
 
   return (
-    <>
     <main className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:gap-5 lg:overflow-hidden lg:px-9 lg:pt-7 lg:pb-7 dark:bg-stone-800">
       {headerRow}
       {errorNotice}
@@ -237,13 +160,9 @@ export default function StepStage({
         <div className="flex min-w-0 shrink-0 items-center justify-center lg:flex-1">
           <button
             type="button"
-            onClick={imageAction}
-            disabled={editingDisabled}
-            aria-label={imageActionLabel}
-            className={cn(
-              'group relative w-full overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900',
-              privacy.reviewRequired ? 'cursor-pointer' : 'cursor-zoom-in',
-            )}
+            onClick={onZoom}
+            aria-label="放大圖片"
+            className="group relative w-full cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900"
           >
             <MultiHighlightThumbnail
               blob={entry.anchor.screenshotBlob}
@@ -270,7 +189,5 @@ export default function StepStage({
         </aside>
       </div>
     </main>
-    {visualEditor}
-    </>
   );
 }

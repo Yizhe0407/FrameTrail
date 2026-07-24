@@ -25,7 +25,7 @@ pnpm dev:firefox
 ## 本機 UX 與資料安全
 
 - 作品庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
-- 多選、批次、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
+- 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
 - 發佈支援 Markdown、HTML、列印/PDF、rich clipboard 與 ZIP，公開圖片統一走遮罩 fail-closed compositor。
 - `.frametrail` 是包含原始未遮罩圖的可編輯本機備份，不應當作公開輸出。
 - 首次導覽、練習頁與縮圖 lazy mounting 均不需要網路或後端。
@@ -72,7 +72,7 @@ pnpm build:firefox
 
 - `lib/export/project-archive.ts` 是 archive 的穩定公開入口；contract、validation、serialization 與 import codec 已拆為獨立檔案。
 - `lib/media/annotation-layout.ts` 是 annotation layout facade；純幾何、badge/callout collision placement、常數與型別分別位於相鄰的 `annotation-*.ts` 模組。
-- `lib/editor/use-editor-entry-workspace.ts` 封裝 Editor 的完整項目列表與多選 view state；儲存、permission 與 undo transaction 仍由 `editor/App.tsx` 協調。
+- `lib/editor/use-editor-entry-workspace.ts` 封裝 Editor 的完整項目列表、單一目前項目與 view state；儲存、permission 與 undo transaction 仍由 `editor/App.tsx` 協調。
 - `lib/recording/background/recorder-runtime.ts` 提供 background state machine 使用的瀏覽器 capture/injection adapter，讓 retry 與 image scale 判定可獨立測試與重用。
 
 ## 封裝

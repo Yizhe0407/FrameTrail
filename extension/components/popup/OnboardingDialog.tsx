@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   Check,
   Download,
-  EyeOff,
   Image,
   ListChecks,
   Loader2,
@@ -50,14 +49,8 @@ const WORKFLOW = [
   },
   {
     number: '03',
-    title: '遮罩',
-    description: '在「調整圖片」加入敏感資訊遮罩，確認後儲存。',
-    Icon: EyeOff,
-  },
-  {
-    number: '04',
     title: '匯出',
-    description: '確認內容與遮罩後，從「發佈教學」下載、複製或列印。',
+    description: '確認內容後，從「發佈教學」下載、複製或列印。',
     Icon: Download,
   },
 ];
@@ -118,7 +111,7 @@ export default function OnboardingDialog({
           <p className="text-xs font-medium text-lime-700 dark:text-lime-300">FrameTrail · 開始導覽</p>
           <DialogTitle className="mt-2 text-2xl font-semibold">歡迎使用 FrameTrail</DialogTitle>
           <DialogDescription className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-300">
-            把網頁操作整理成教學：錄製、編輯、遮罩，再匯出。每一步都可回來調整。
+            把網頁操作整理成教學：錄製、編輯，再匯出。每一步都可回來調整。
           </DialogDescription>
         </DialogHeader>
 
@@ -126,11 +119,11 @@ export default function OnboardingDialog({
           <section aria-labelledby="onboarding-workflow-title">
             <div className="flex items-baseline justify-between gap-4">
               <h2 id="onboarding-workflow-title" className="text-sm font-semibold">
-                四步完成一份教學
+                三步完成一份教學
               </h2>
-              <span className="text-xs text-stone-500 dark:text-stone-400">錄製 → 編輯 → 遮罩 → 匯出</span>
+              <span className="text-xs text-stone-500 dark:text-stone-400">錄製 → 編輯 → 匯出</span>
             </div>
-            <ol className="mt-4 grid border-y border-stone-200 dark:border-stone-700 sm:grid-cols-4">
+            <ol className="mt-4 grid border-y border-stone-200 dark:border-stone-700 sm:grid-cols-3">
               {WORKFLOW.map(({ number, title, description, Icon }) => (
                 <li key={number} className="min-w-0 border-stone-200 py-4 sm:border-r sm:px-4 sm:first:pl-0 sm:last:border-r-0 sm:last:pr-0 dark:border-stone-700">
                   <div className="flex items-center gap-2 text-stone-500 dark:text-stone-400">
@@ -142,9 +135,6 @@ export default function OnboardingDialog({
                 </li>
               ))}
             </ol>
-            <p className="mt-3 text-xs leading-5 text-stone-500 dark:text-stone-400">
-              遮罩尚待確認時，預覽、複製與匯出會先被限制；請回到「調整圖片」確認並儲存。
-            </p>
           </section>
 
           <section aria-labelledby="onboarding-modes-title">

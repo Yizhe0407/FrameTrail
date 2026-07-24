@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -59,19 +58,12 @@ function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactN
   );
 }
 
-export interface StepRailSelectionModifiers {
-  additive: boolean;
-  range: boolean;
-}
 
 interface Props {
   entries: StepEntry[];
   selectedEntryId: string | null;
-  selectedEntryIds?: ReadonlySet<string>;
   sections?: readonly GuideSection[];
-  onSelect: (id: string, modifiers?: StepRailSelectionModifiers) => void;
-  onSelectAllVisible?: () => void;
-  onCollapseSelection?: () => void;
+  onSelect: (id: string) => void;
   onRenameSection?: (sectionId: string, title: string) => Promise<void>;
   onDeleteSection?: (sectionId: string) => Promise<void>;
   onReorder: (reordered: StepEntry[]) => Promise<void>;
@@ -81,11 +73,8 @@ interface Props {
 export default function StepRail({
   entries,
   selectedEntryId,
-  selectedEntryIds,
   sections = [],
   onSelect,
-  onSelectAllVisible,
-  onCollapseSelection,
   onRenameSection,
   onDeleteSection,
   onReorder,
@@ -94,7 +83,6 @@ export default function StepRail({
   const sensors = useSortableSensors();
   const selectedItem = useRef<HTMLButtonElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
-  const effectiveSelectedIds = selectedEntryIds ?? new Set(selectedEntryId ? [selectedEntryId] : []);
   const sectionByStartId = new Map(sections.map((section) => [section.startEntryId, section]));
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1024px)').matches : true,
@@ -135,16 +123,6 @@ export default function StepRail({
       if (!activeElement || !railRef.current?.contains(activeElement)) return;
       const tag = activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLocaleLowerCase() === 'a' && onSelectAllVisible) {
-        e.preventDefault();
-        onSelectAllVisible();
-        return;
-      }
-      if (e.key === 'Escape' && onCollapseSelection) {
-        e.preventDefault();
-        onCollapseSelection();
-        return;
-      }
       const previousKey = isDesktop ? 'ArrowUp' : 'ArrowLeft';
       const nextKey = isDesktop ? 'ArrowDown' : 'ArrowRight';
       if (e.key !== previousKey && e.key !== nextKey) return;
@@ -153,11 +131,11 @@ export default function StepRail({
       const nextIdx = e.key === previousKey ? idx - 1 : idx + 1;
       if (nextIdx < 0 || nextIdx >= entries.length) return;
       e.preventDefault();
-      onSelect(entryId(entries[nextIdx]), { additive: false, range: e.shiftKey });
+      onSelect(entryId(entries[nextIdx]));
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [entries, isDesktop, onCollapseSelection, onSelect, onSelectAllVisible, selectedEntryId]);
+  }, [entries, isDesktop, onSelect, selectedEntryId]);
 
   function entrySummary(entry: StepEntry): string {
     if (entry.kind === 'group') return `單頁標註 · ${entry.annotations.length} 個標註`;
@@ -231,7 +209,6 @@ export default function StepRail({
             {entries.map((entry, index) => {
               const id = entryId(entry);
               const active = id === selectedEntryId;
-              const selected = effectiveSelectedIds.has(id);
               const section = sectionByStartId.get(id);
               return (
                 <SortableItem
@@ -252,51 +229,25 @@ export default function StepRail({
                       )}
                       <div
                         data-active={active || undefined}
-                        data-selected={selected || undefined}
                         className={cn(
                           "group relative flex min-w-0 items-center gap-2 rounded-md p-2 pr-11 text-left transition-colors before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r-sm before:content-[''] lg:min-h-[76px] lg:gap-2.5",
-                          active && selected
-                            ? 'border border-emerald-300 bg-emerald-50/70 before:bg-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/25 dark:before:bg-emerald-400'
-                            : active
-                              ? 'border border-stone-300 bg-white shadow-sm before:bg-emerald-700 dark:border-stone-600 dark:bg-stone-800 dark:before:bg-emerald-400'
-                              : selected
-                                ? 'border border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20'
-                                : 'border border-transparent hover:bg-stone-100 dark:hover:bg-stone-800',
+                          active
+                            ? 'border border-stone-300 bg-white shadow-sm before:bg-emerald-700 dark:border-stone-600 dark:bg-stone-800 dark:before:bg-emerald-400'
+                            : 'border border-transparent hover:bg-stone-100 dark:hover:bg-stone-800',
                         )}
                       >
                         <button
                           ref={active ? selectedItem : undefined}
                           type="button"
-                          onClick={(event) => onSelect(id, {
-                            additive: event.ctrlKey || event.metaKey,
-                            range: event.shiftKey,
-                          })}
+                          onClick={() => onSelect(id)}
                           aria-label={`開啟步驟 ${index + 1}`}
                           aria-current={active ? 'step' : undefined}
                           className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
                         />
-                        <button
-                          type="button"
-                          aria-label={`選取步驟 ${index + 1}`}
-                          aria-pressed={selected}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSelect(id, { additive: true, range: false });
-                          }}
-                          className={cn(
-                            'relative z-[3] inline-flex size-10 shrink-0 items-center justify-center rounded-full border transition-colors',
-                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-50 dark:focus-visible:ring-offset-stone-900',
-                            selected
-                              ? 'border-emerald-700 bg-emerald-700 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-stone-950'
-                              : 'border-stone-300 bg-white text-transparent hover:border-emerald-400 hover:bg-emerald-50 dark:border-stone-600 dark:bg-stone-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30',
-                          )}
-                        >
-                          <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
-                        </button>
                         <span
                           className={cn(
                             'pointer-events-none relative z-[1] w-5 shrink-0 text-center text-xs tabular-nums',
-                            active ? 'font-semibold text-stone-800 dark:text-stone-100' : selected ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-stone-400 dark:text-stone-500',
+                            active ? 'font-semibold text-stone-800 dark:text-stone-100' : 'text-stone-400 dark:text-stone-500',
                           )}
                         >
                           {index + 1}

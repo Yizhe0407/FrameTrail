@@ -1,10 +1,8 @@
 import {
   assertMutationItems,
-  buildCompleteStepEntries,
   getEffectiveBounds,
   sanitizeStepForStorage,
   type Bounds,
-  type Guide,
   type Redaction,
   type Step,
 } from './models';
@@ -15,10 +13,6 @@ import {
   requireWritableGuide,
   writeDenseOrder,
 } from './database';
-import {
-  commitGuideStructure,
-  requireWritableGuideStructure,
-} from './guide-structure';
 import { resetGuide } from './guide-repository';
 
 export async function addStep(step: Step): Promise<void> {
@@ -81,20 +75,6 @@ export interface StepUpdate {
   expectedCaptureRevision?: number;
 }
 
-/** Strict visual-edit path: every target row must carry a capture-generation
- * CAS in addition to the guide content-generation CAS on the API call. */
-export interface GuideVisualStepUpdate extends StepUpdate {
-  expectedCaptureRevision: number;
-}
-
-export interface GuideVisualMutationResult {
-  guide: Guide;
-  /** Fresh rows read before mutation, in first-target order, for deterministic undo. */
-  previousSteps: Step[];
-  /** Sanitized rows committed by this mutation, with their post-mutation capture revisions. */
-  steps: Step[];
-}
-
 export class StepUpdateConflictError extends Error {
   constructor(
     public readonly stepId: string,
@@ -142,72 +122,7 @@ export async function updateStepsAtomically(sessionId: string, updates: StepUpda
   }
 }
 
-/** Strict visual edit commit. Guide and capture revisions are checked against
- * fresh values in the same guides+steps transaction that writes every row and
- * advances contentRevision. Duplicate updates for one row are applied in input
- * order, but each must assert the same fresh capture generation. */
-export async function updateGuideVisualsAtomically(
-  sessionId: string,
-  updates: readonly GuideVisualStepUpdate[],
-  expectedContentRevision: number,
-): Promise<GuideVisualMutationResult> {
-  if (updates.length === 0) throw new TypeError('A visual edit must update at least one step.');
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  try {
-    const structure = await requireWritableGuideStructure(tx, sessionId, expectedContentRevision);
-    const originalById = new Map(structure.steps.map((step) => [step.id, step]));
-    const nextById = new Map(originalById);
-    const targetIds: string[] = [];
-    const seenTargetIds = new Set<string>();
 
-    for (const update of updates) {
-      if (!Number.isSafeInteger(update.expectedCaptureRevision) || update.expectedCaptureRevision < 0) {
-        throw new TypeError('Expected capture revision must be a non-negative integer.');
-      }
-      const original = originalById.get(update.id);
-      if (!original) throw new Error(`Step ${update.id} is no longer available.`);
-      const actualCaptureRevision = original.captureRevision ?? 0;
-      if (actualCaptureRevision !== update.expectedCaptureRevision) {
-        throw new StepUpdateConflictError(
-          update.id,
-          update.expectedCaptureRevision,
-          actualCaptureRevision,
-        );
-      }
-      if (!seenTargetIds.has(update.id)) {
-        seenTargetIds.add(update.id);
-        targetIds.push(update.id);
-      }
-      nextById.set(update.id, applyStepChanges(nextById.get(update.id)!, update.changes));
-    }
-
-    const nextSteps = structure.steps.map((step) => nextById.get(step.id)!);
-    const nextEntries = buildCompleteStepEntries(nextSteps, sessionId);
-    const affectedEntryIds = targetIds.map((id) => {
-      const step = nextById.get(id)!;
-      return step.groupId ?? step.id;
-    });
-    const result = await commitGuideStructure(
-      tx,
-      structure,
-      nextEntries,
-      structure.guide.sections,
-      affectedEntryIds,
-    );
-    const previousSteps = targetIds.map((id) => ({ ...originalById.get(id)! }));
-    const committedSteps = targetIds.map((id) => ({ ...nextById.get(id)! }));
-    await tx.done;
-    return { guide: result.guide, previousSteps, steps: committedSteps };
-  } catch (error) {
-    return abortTransaction(tx, error);
-  }
-}
-
-/** Replaces only capture-owned fields while preserving identity, description,
- * order and recording provenance. Snapshot replacement is allowed only when
- * the shared image has exactly one annotation, otherwise old coordinates
- * would silently point at unrelated pixels. */
 export async function replaceStepCaptureAtomically(
   sessionId: string,
   target: StepRecaptureTarget,
@@ -231,10 +146,8 @@ export async function replaceStepCaptureAtomically(
         ...step,
         ...capture,
         manualBounds: null,
-        redactions: Array.isArray(step.redactions) ? step.redactions : [],
-        redactionReviewRequired:
-          step.redactionReviewRequired === true ||
-          (Array.isArray(step.redactions) ? step.redactions.length > 0 : step.redactions !== undefined),
+        redactions: [],
+        redactionReviewRequired: false,
         captureRevision,
         lastCaptureRunId: recaptureRunId,
       }));
@@ -274,10 +187,8 @@ export async function replaceStepCaptureAtomically(
       screenshotScale: capture.screenshotScale,
       url: capture.url,
       timestamp: capture.timestamp,
-      redactions: Array.isArray(anchor.redactions) ? anchor.redactions : [],
-      redactionReviewRequired:
-        anchor.redactionReviewRequired === true ||
-        (Array.isArray(anchor.redactions) ? anchor.redactions.length > 0 : anchor.redactions !== undefined),
+      redactions: [],
+      redactionReviewRequired: false,
       captureRevision,
       lastCaptureRunId: recaptureRunId,
     }));

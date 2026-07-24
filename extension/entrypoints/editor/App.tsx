@@ -5,32 +5,25 @@ import { useRecordingSession } from '@/lib/recording/useRecordingSession';
 import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
 import {
   EMPTY_STEP_ENTRIES,
-  entrySteps,
   equalIds,
-  stepMatchesVisualBaseline,
   type PreparedCapturePermission,
   type UndoAction,
 } from '@/lib/editor/editor-app-model';
 import {
-  addGuideSectionAtomically,
   deleteGuideAnnotationAtomically,
   deleteGuideEntriesAtomically,
   deleteGuideSectionAtomically,
-  duplicateGuideEntryAtomically,
   entryId,
   getGuideStructureSnapshot,
   getGuide,
   GuideContentConflictError,
-  moveGuideEntriesAtomically,
   renameGuideSectionAtomically,
   reorderGuideAnnotationsAtomically,
   reorderGuideEntriesAtomically,
   restoreGuideAnnotationAtomically,
   restoreGuideEntriesAtomically,
   setGuideEntriesNumberedAtomically,
-  StepUpdateConflictError,
   updateGuide,
-  updateGuideVisualsAtomically,
   type Guide,
   type GuideStructureSnapshot,
   type Step,
@@ -41,12 +34,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/editor/EditorHeader';
 import StepRail from '@/components/editor/StepRail';
 import StepStage from '@/components/editor/StepStage';
-import GuideBatchToolbar from '@/components/editor/GuideBatchToolbar';
 import EmptyState from '@/components/shared/EmptyState';
 import Lightbox from '@/components/editor/Lightbox';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
 import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
-import type { VisualEditCommit } from '@/components/editor/VisualEditDialog';
 import { Button } from '@/components/ui/button';
 import { exportImagesAsZip } from '@/lib/export/export-images';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
@@ -109,22 +100,15 @@ function EditorApp() {
   }, [dbEntries, dataOperation]);
   const entries = optimisticEntries ?? dbEntries;
   const {
-    collapseSelection,
-    entrySelection,
-    multipleEntriesSelected,
-    orderedSelectedEntryIds,
     publishOpen,
     selectedEntry,
     selectedEntryId,
     selectedIndex,
-    setEntrySelection,
     setPublishOpen,
+    setSelectedEntryId,
     setZoomOpen,
-    snapshotNumberingEnabled,
-    selectAllVisible,
     selectEntry,
     visibleEntries,
-    visibleEntryIds,
     zoomOpen,
   } = useEditorEntryWorkspace({
     entries,
@@ -141,12 +125,11 @@ function EditorApp() {
     if (!flowEntryId) return;
     if (
       flowEntryId !== selectedEntryId ||
-      permissionFlowSessionId.current !== sessionId ||
-      multipleEntriesSelected
+      permissionFlowSessionId.current !== sessionId
     ) {
       clearPreparedPermission();
     }
-  }, [multipleEntriesSelected, selectedEntryId, sessionId]);
+  }, [selectedEntryId, sessionId]);
 
   useEffect(() => {
     setUndoAction((current) => {
@@ -170,12 +153,12 @@ function EditorApp() {
     void (async () => {
       try {
         await refresh();
-        setEntrySelection({ activeId: result.entryId, selectedIds: new Set([result.entryId]), anchorId: result.entryId });
+        setSelectedEntryId(result.entryId);
         setZoomOpen(false);
         setOperationError(result.status === 'failed' ? result.message ?? '補拍失敗，原本內容未變更。' : null);
         setOperationNotice(
           result.status === 'replaced'
-            ? '補拍完成；原步驟的說明與順序已保留。若原圖有遮罩，已保留為待確認狀態；確認前會封鎖預覽、複製與匯出。'
+            ? '補拍完成；原步驟的說明與順序已保留。原有圖片遮罩已清除。'
             : result.status === 'cancelled'
               ? '已取消補拍，原本內容未變更。'
               : null,
@@ -210,14 +193,9 @@ function EditorApp() {
     setDataOperation(null);
   }
 
-  function requireSingleSelectedEntry(expectedEntryId?: string): StepEntry {
-    if (
-      orderedSelectedEntryIds.length !== 1 ||
-      !selectedEntry ||
-      orderedSelectedEntryIds[0] !== entryId(selectedEntry) ||
-      (expectedEntryId !== undefined && expectedEntryId !== entryId(selectedEntry))
-    ) {
-      throw new Error('單筆編輯只允許在單選狀態執行。');
+  function requireSelectedEntry(expectedEntryId?: string): StepEntry {
+    if (!selectedEntry || (expectedEntryId !== undefined && expectedEntryId !== entryId(selectedEntry))) {
+      throw new Error('找不到目前選取的步驟。');
     }
     return selectedEntry;
   }
@@ -310,7 +288,7 @@ function EditorApp() {
   }
 
   async function handleReorderAnnotations(anchorId: string, reordered: Step[]) {
-    requireSingleSelectedEntry(anchorId);
+    requireSelectedEntry(anchorId);
     if (!sessionId || !beginDataOperation('正在儲存標注順序…')) return;
     const previousEntries = entries;
     const previousGroup = previousEntries.find(
@@ -373,40 +351,37 @@ function EditorApp() {
     }
   }
 
-  async function deleteSelectedEntries(entryIdsToDelete: readonly string[]) {
-    const label = entryIdsToDelete.length > 1 ? '正在刪除已選步驟…' : '正在刪除步驟…';
-    if (!sessionId || entryIdsToDelete.length === 0 || !beginDataOperation(label)) return;
+  async function deleteEntry() {
+    const currentEntry = requireSelectedEntry();
+    const currentEntryId = entryId(currentEntry);
+    if (!sessionId || !beginDataOperation('正在刪除步驟…')) return;
     setUndoAction(null);
     setOperationError(null);
     try {
       await flushDescriptions();
       const snapshot = await getGuideStructureSnapshot(sessionId);
-      const deletingIds = new Set(entryIdsToDelete);
-      const deletingEntries = snapshot.entries.filter((entry) => deletingIds.has(entryId(entry)));
-      if (deletingEntries.length !== deletingIds.size) throw new Error('選取內容已變更，無法安全刪除。');
-      const firstDeletingIndex = snapshot.entryIds.findIndex((id) => deletingIds.has(id));
+      const deletingEntry = snapshot.entries.find((entry) => entryId(entry) === currentEntryId);
+      if (!deletingEntry) throw new Error('步驟內容已變更，無法安全刪除。');
+      const deletingIndex = snapshot.entryIds.indexOf(currentEntryId);
       const result = await deleteGuideEntriesAtomically(
         sessionId,
-        entryIdsToDelete,
+        [currentEntryId],
         snapshot.guide.contentRevision,
       );
       setGuide(result.guide);
-      const nextIndex = Math.min(Math.max(firstDeletingIndex, 0), result.entryIds.length - 1);
-      const nextActiveId = nextIndex >= 0 ? result.entryIds[nextIndex] : null;
-      setEntrySelection({
-        activeId: nextActiveId,
-        selectedIds: new Set(nextActiveId ? [nextActiveId] : []),
-        anchorId: nextActiveId,
-      });
+      const nextIndex = Math.min(Math.max(deletingIndex, 0), result.entryIds.length - 1);
+      setSelectedEntryId(nextIndex >= 0 ? result.entryIds[nextIndex] : null);
       setZoomOpen(false);
       await refreshEditorData();
-      const deletedSteps = deletingEntries.flatMap(entrySteps);
+      const deletedSteps = deletingEntry.kind === 'single'
+        ? [deletingEntry.step]
+        : [deletingEntry.anchor, ...deletingEntry.annotations];
       setUndoAction({
         id: ++undoSequence.current,
-        message: entryIdsToDelete.length > 1 ? `已刪除 ${entryIdsToDelete.length} 個項目` : `已刪除步驟 ${firstDeletingIndex + 1}`,
+        message: `已刪除步驟 ${deletingIndex + 1}`,
         guideId: sessionId,
         expectedRevision: result.guide.contentRevision,
-        restoreSelectionId: entryIdsToDelete[0],
+        restoreSelectionId: currentEntryId,
         restore: () => restoreGuideEntriesAtomically(
           sessionId,
           deletedSteps,
@@ -428,13 +403,8 @@ function EditorApp() {
     }
   }
 
-  async function deleteEntry() {
-    const currentEntry = requireSingleSelectedEntry();
-    await deleteSelectedEntries([entryId(currentEntry)]);
-  }
-
   async function handleDeleteAnnotation(step: Step) {
-    const currentEntry = requireSingleSelectedEntry(step.groupId);
+    const currentEntry = requireSelectedEntry(step.groupId);
     if (currentEntry.kind !== 'group') throw new Error('只有快照標註可以個別刪除。');
     if (!sessionId || !step.groupId || !beginDataOperation('正在刪除標注…')) return;
     const previousEntries = entries;
@@ -467,11 +437,7 @@ function EditorApp() {
         const previousIndex = result.previousEntryIds.indexOf(step.groupId);
         const nextIndex = Math.min(Math.max(previousIndex, 0), result.entryIds.length - 1);
         const nextActiveId = nextIndex >= 0 ? result.entryIds[nextIndex] : null;
-        setEntrySelection({
-          activeId: nextActiveId,
-          selectedIds: new Set(nextActiveId ? [nextActiveId] : []),
-          anchorId: nextActiveId,
-        });
+        setSelectedEntryId(nextActiveId);
         setZoomOpen(false);
       }
       await refreshEditorData();
@@ -504,83 +470,6 @@ function EditorApp() {
       showStructureMutationError('標註刪除', deleteError);
       await refreshEditorData().catch((refreshError) => console.error('重新讀取標註刪除結果失敗', refreshError));
       throw deleteError;
-    } finally {
-      endDataOperation();
-    }
-  }
-
-  async function moveSelectedEntries(entryIdsToMove: readonly string[], destination: 'start' | 'end') {
-    const label = destination === 'start' ? '正在移到開頭…' : '正在移到結尾…';
-    if (!sessionId || entryIdsToMove.length === 0 || !beginDataOperation(label)) return;
-    setUndoAction(null);
-    setOperationError(null);
-    try {
-      await flushDescriptions();
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      const result = await moveGuideEntriesAtomically(
-        sessionId,
-        entryIdsToMove,
-        destination,
-        snapshot.guide.contentRevision,
-      );
-      setGuide(result.guide);
-      await refreshEditorData();
-      setUndoAction({
-        id: ++undoSequence.current,
-        message: destination === 'start' ? '已將選取項目移到開頭' : '已將選取項目移到結尾',
-        guideId: sessionId,
-        expectedRevision: result.guide.contentRevision,
-        restoreSelectionId: entryIdsToMove[0],
-        restore: () => reorderGuideEntriesAtomically(
-          sessionId,
-          snapshot.entryIds,
-          result.guide.contentRevision,
-        ).then(() => undefined),
-      });
-    } catch (mutationError) {
-      showStructureMutationError('移動步驟', mutationError);
-      await refreshEditorData().catch((refreshError) => console.error('移動失敗後重新載入資料失敗', refreshError));
-      throw mutationError;
-    } finally {
-      endDataOperation();
-    }
-  }
-
-  async function duplicateActiveEntry(activeEntryId: string) {
-    if (!sessionId || !beginDataOperation('正在複製步驟…')) return;
-    setUndoAction(null);
-    setOperationError(null);
-    try {
-      await flushDescriptions();
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      const result = await duplicateGuideEntryAtomically(
-        sessionId,
-        activeEntryId,
-        snapshot.guide.contentRevision,
-      );
-      setGuide(result.guide);
-      setEntrySelection({
-        activeId: result.createdEntryId,
-        selectedIds: new Set([result.createdEntryId]),
-        anchorId: result.createdEntryId,
-      });
-      await refreshEditorData();
-      setUndoAction({
-        id: ++undoSequence.current,
-        message: '已複製目前項目',
-        guideId: sessionId,
-        expectedRevision: result.guide.contentRevision,
-        restoreSelectionId: activeEntryId,
-        restore: () => deleteGuideEntriesAtomically(
-          sessionId,
-          [result.createdEntryId],
-          result.guide.contentRevision,
-        ).then(() => undefined),
-      });
-    } catch (mutationError) {
-      showStructureMutationError('複製步驟', mutationError);
-      await refreshEditorData().catch((refreshError) => console.error('複製失敗後重新載入資料失敗', refreshError));
-      throw mutationError;
     } finally {
       endDataOperation();
     }
@@ -628,30 +517,6 @@ function EditorApp() {
     } catch (mutationError) {
       showStructureMutationError('快照編號設定', mutationError);
       await refreshEditorData().catch((refreshError) => console.error('編號設定失敗後重新載入資料失敗', refreshError));
-      throw mutationError;
-    } finally {
-      endDataOperation();
-    }
-  }
-
-  async function addSectionBefore(startEntryId: string) {
-    if (!sessionId || !beginDataOperation('正在新增章節…')) return;
-    setUndoAction(null);
-    setOperationError(null);
-    try {
-      await flushDescriptions();
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      const result = await addGuideSectionAtomically(
-        sessionId,
-        startEntryId,
-        `章節 ${snapshot.guide.sections.length + 1}`,
-        snapshot.guide.contentRevision,
-      );
-      setGuide(result.guide);
-      await refreshEditorData();
-    } catch (mutationError) {
-      showStructureMutationError('新增章節', mutationError);
-      await refreshEditorData().catch((refreshError) => console.error('新增章節失敗後重新載入資料失敗', refreshError));
       throw mutationError;
     } finally {
       endDataOperation();
@@ -774,7 +639,7 @@ function EditorApp() {
       permissionFlowSessionId.current !== sessionId
     ) return;
 
-    requireSingleSelectedEntry(prepared.entryId);
+    requireSelectedEntry(prepared.entryId);
     validatePreparedPermissionSource(prepared.sourceOrigin, prepared.permissionPattern);
     const generation = permissionFlowGeneration.current;
     setPermissionPending(true);
@@ -815,7 +680,7 @@ function EditorApp() {
 
   async function handleRecapture(): Promise<void> {
     if (!sessionId || dataOperationLock.current || permissionFlowLock.current || operationActive) return;
-    const currentEntry = requireSingleSelectedEntry();
+    const currentEntry = requireSelectedEntry();
     const target: StepRecaptureTarget =
       currentEntry.kind === 'single'
         ? { kind: 'single', stepId: currentEntry.step.id }
@@ -897,71 +762,6 @@ function EditorApp() {
     }
   }
 
-  async function handleVisualEdit(commit: VisualEditCommit) {
-    if (!sessionId) throw new Error('找不到目前的錄製工作階段，修改尚未儲存。');
-    requireSingleSelectedEntry();
-    if (!beginDataOperation('正在儲存框選與遮罩…')) {
-      throw new Error('目前有其他操作進行中，修改尚未儲存。');
-    }
-    setUndoAction(null);
-    setOperationError(null);
-    try {
-      await flushDescriptions();
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      const freshSteps = new Map(snapshot.entries.flatMap(entrySteps).map((step) => [step.id, step]));
-      for (const restoreUpdate of commit.restoreUpdates) {
-        const current = freshSteps.get(restoreUpdate.id);
-        if (!current || !stepMatchesVisualBaseline(current, restoreUpdate.changes)) {
-          throw new GuideContentConflictError(
-            sessionId,
-            guide?.contentRevision ?? snapshot.guide.contentRevision,
-            snapshot.guide.contentRevision,
-          );
-        }
-      }
-      const strictUpdates = commit.updates.map((update) => {
-        if (update.expectedCaptureRevision === undefined) {
-          throw new TypeError('圖片修改缺少擷取版本，已拒絕儲存。');
-        }
-        return { ...update, expectedCaptureRevision: update.expectedCaptureRevision };
-      });
-      const result = await updateGuideVisualsAtomically(
-        sessionId,
-        strictUpdates,
-        snapshot.guide.contentRevision,
-      );
-      setGuide(result.guide);
-      await refreshEditorData();
-      const committedById = new Map(result.steps.map((step) => [step.id, step]));
-      const undoUpdates = commit.restoreUpdates.map((update) => ({
-        ...update,
-        expectedCaptureRevision: committedById.get(update.id)?.captureRevision ?? 0,
-      }));
-      setUndoAction({
-        id: ++undoSequence.current,
-        message: '已更新框選與敏感資訊遮罩',
-        guideId: sessionId,
-        expectedRevision: result.guide.contentRevision,
-        restoreSelectionId: selectedEntry ? entryId(selectedEntry) : undefined,
-        restore: () => updateGuideVisualsAtomically(
-          sessionId,
-          undoUpdates,
-          result.guide.contentRevision,
-        ).then(() => undefined),
-      });
-    } catch (editError) {
-      console.error('儲存框選與遮罩失敗', editError);
-      setOperationError(
-        editError instanceof StepUpdateConflictError || editError instanceof GuideContentConflictError
-          ? '圖片或教學內容已在其他操作中更新，請重新開啟「調整圖片」確認最新內容。'
-          : '框選或遮罩儲存失敗，請再試一次。',
-      );
-      throw editError;
-    } finally {
-      endDataOperation();
-    }
-  }
-
   async function handleUndo() {
     if (!undoAction || !beginDataOperation('正在還原…')) return;
     setOperationError(null);
@@ -977,11 +777,7 @@ function EditorApp() {
       await undoAction.restore();
       await refreshEditorData();
       if (undoAction.restoreSelectionId) {
-        setEntrySelection({
-          activeId: undoAction.restoreSelectionId,
-          selectedIds: new Set([undoAction.restoreSelectionId]),
-          anchorId: undoAction.restoreSelectionId,
-        });
+        setSelectedEntryId(undoAction.restoreSelectionId);
       }
       setUndoAction(null);
     } catch (undoError) {
@@ -1025,7 +821,7 @@ function EditorApp() {
   }
 
   async function setSelectedEntryNumbered(id: string, numbered: boolean): Promise<void> {
-    requireSingleSelectedEntry(id);
+    requireSelectedEntry(id);
     await setEntriesNumbered([id], numbered);
   }
 
@@ -1149,33 +945,15 @@ function EditorApp() {
             <StepRail
               entries={visibleEntries}
               selectedEntryId={selectedEntryId}
-              selectedEntryIds={entrySelection.selectedIds}
               sections={guide?.sections}
-              onSelect={(id, modifiers) => void selectEntry(id, modifiers)}
-              onSelectAllVisible={() => void selectAllVisible()}
-              onCollapseSelection={collapseSelection}
+              onSelect={(id) => void selectEntry(id)}
               onRenameSection={renameSection}
               onDeleteSection={deleteSection}
               onReorder={handleReorderEntries}
-              reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive || multipleEntriesSelected}
+              reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive}
             />
             {selectedEntry ? (
               <div className="flex min-w-0 flex-1 flex-col">
-                {multipleEntriesSelected && <GuideBatchToolbar
-                  selectedEntryIds={orderedSelectedEntryIds}
-                  visibleEntryIds={visibleEntryIds}
-                  activeEntryId={selectedEntryId}
-                  snapshotNumberingEnabled={snapshotNumberingEnabled}
-                  busy={operationActive || dataOperation !== null || permissionFlowActive}
-                  onSelectAllVisible={() => selectAllVisible()}
-                  onClearSelection={collapseSelection}
-                  onDeleteSelected={deleteSelectedEntries}
-                  onMoveSelectedToStart={(ids) => moveSelectedEntries(ids, 'start')}
-                  onMoveSelectedToEnd={(ids) => moveSelectedEntries(ids, 'end')}
-                  onCopyActiveEntry={duplicateActiveEntry}
-                  onSetSnapshotNumbering={(enabled) => setEntriesNumbered(orderedSelectedEntryIds, enabled)}
-                  onAddSectionBefore={addSectionBefore}
-                />}
                 <StepStage
                   key={entryId(selectedEntry)}
                   entry={selectedEntry}
@@ -1185,10 +963,9 @@ function EditorApp() {
                   onDeleteAnnotation={handleDeleteAnnotation}
                   onZoom={() => setZoomOpen(true)}
                   onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
-                  onEditVisuals={handleVisualEdit}
                   onRecapture={handleRecapture}
                   onSetNumbered={setSelectedEntryNumbered}
-                  editingDisabled={operationActive || dataOperation !== null || permissionFlowActive || multipleEntriesSelected}
+                  editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
                 />
               </div>
             ) : (

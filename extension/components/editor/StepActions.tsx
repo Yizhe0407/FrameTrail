@@ -48,7 +48,7 @@ export default function StepActions({
 
   async function handleCopy() {
     if (copying || operationsDisabled || privacyReviewRequired) {
-      if (privacyReviewRequired) setActionError('請先開啟「調整圖片」重新確認敏感資訊遮罩。');
+      if (privacyReviewRequired) setActionError('此舊圖片的敏感資訊遮罩尚未確認，請先使用補拍取代圖片。');
       return;
     }
     setCopying(true);
