@@ -251,11 +251,6 @@ export default function StepRail({
                             {renderThumbnail(entry)}
                           </LazyRailPreview>
                         </div>
-                        {entry.kind === 'single' && (
-                          <span className="pointer-events-none relative z-[1] hidden min-w-0 flex-1 text-xs leading-[18px] text-stone-600 lg:block dark:text-stone-300">
-                            <span className="line-clamp-2">{entry.step.description.trim() || '尚未填寫說明'}</span>
-                          </span>
-                        )}
                         <span className="absolute top-1/2 right-1 z-[3] flex -translate-y-1/2 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                           {handle}
                         </span>

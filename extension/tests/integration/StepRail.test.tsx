@@ -131,10 +131,10 @@ describe('StepRail keyboard navigation', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('不在左側欄顯示單頁標註類型或標註數量', () => {
+  it('每個項目只顯示編號與縮圖，不顯示說明或標註摘要', () => {
     render(
       <StepRail
-        entries={[makeGroupEntry('snapshot-1', 2)]}
+        entries={[makeGroupEntry('snapshot-1', 2), makeEntry('step-2', 1)]}
         selectedEntryId="snapshot-1"
         onSelect={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
@@ -144,6 +144,9 @@ describe('StepRail keyboard navigation', () => {
     const rail = screen.getByRole('navigation', { name: '步驟導覽' });
     expect(rail.textContent).not.toContain('單頁標註');
     expect(rail.textContent).not.toContain('2 個標註');
+    expect(rail.textContent).not.toContain('Step 2');
+    expect(screen.getByRole('button', { name: '開啟步驟 1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '開啟步驟 2' })).toBeTruthy();
   });
 
   it('只顯示單一目前步驟，不提供批次選取控制', () => {
