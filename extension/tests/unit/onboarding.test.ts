@@ -27,7 +27,6 @@ import {
   markOnboardingComplete,
   openLocalPracticePage,
   normalizeOnboardingState,
-  resetOnboarding,
   shouldShowOnboarding,
 } from '@/lib/runtime/onboarding';
 
@@ -92,10 +91,5 @@ describe('onboarding state', () => {
     expect(tabs.create).toHaveBeenCalledWith({
       url: 'chrome-extension://frametrail-test/practice.html?mode=snapshot',
     });
-  });
-
-  it('resets only the current onboarding marker', async () => {
-    await resetOnboarding();
-    expect(localStorage.remove).toHaveBeenCalledWith(ONBOARDING_STORAGE_KEY);
   });
 });

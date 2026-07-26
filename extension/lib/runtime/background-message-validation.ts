@@ -1,7 +1,6 @@
 import type {
   BackgroundMessage,
   ClickCapture,
-  RecordingControlMessage,
   StepRecaptureTarget,
 } from './messages';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
@@ -86,6 +85,15 @@ function isTarget(value: unknown): value is StepRecaptureTarget {
   );
 }
 
+function isContinuation(value: unknown): value is { preferredTabId?: number } | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return (
+    Object.keys(value).every((key) => key === 'preferredTabId') &&
+    (value.preferredTabId === undefined || isBrowserId(value.preferredTabId))
+  );
+}
+
 const RECORDING_CONTROLS = new Set([
   'PAUSE_RECORDING',
   'RESUME_RECORDING',
@@ -111,8 +119,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return (
         isString(value.sessionId) &&
         (value.mode === 'steps' || value.mode === 'snapshot') &&
-        typeof value.numbered === 'boolean' &&
-        (value.permissionScope === undefined || value.permissionScope === 'current-page' || value.permissionScope === 'cross-page')
+        isContinuation(value.continuation)
       );
     case 'STOP_RECORDING':
       return true;
@@ -153,6 +160,8 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       );
     case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
       return isString(value.sessionId) && isTarget(value.target);
+    case 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION':
+      return isString(value.sessionId);
     case 'START_STEP_RECAPTURE':
       return isString(value.sessionId) && isTarget(value.target) &&
         (value.preferredTabId === undefined || isBrowserId(value.preferredTabId));
@@ -202,12 +211,6 @@ export function isTrustedExtensionPageSender(sender: RuntimeMessageSenderLike, e
   if (!sameExtensionOrigin(sender.url, extensionUrl)) return false;
   if (!sender.tab) return true; // popup and other extension views are not associated with a tab
   return sender.frameId === 0 && sender.tab.id != null && sameExtensionOrigin(sender.tab.url, extensionUrl);
-}
-
-export function isRecordingControlMessage(
-  message: BackgroundMessage,
-): message is RecordingControlMessage {
-  return RECORDING_CONTROLS.has(message.type);
 }
 
 /**

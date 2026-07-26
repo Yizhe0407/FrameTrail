@@ -1,6 +1,9 @@
 import { MIN_CAPTURE_INTERVAL_MS, sleep } from '../background-queues';
 import { injectRecorderScript } from '../recorder-injection';
+import { isMissingTabError } from '../../runtime/browser-errors';
 import type { ClickCapture, FrameTrailStopMessage } from '../../runtime/messages';
+
+const STOP_RETRY_DELAY_MS = 250;
 
 export interface RecorderRuntimeDependencies {
   captureVisibleTab: (windowId: number) => Promise<string>;
@@ -57,8 +60,20 @@ export function createRecorderRuntime({
     if (tabId == null) return;
     try {
       await sendStopMessage(tabId, { type: 'FRAME_TRAIL_STOP' });
+      return;
     } catch (error) {
-      // A closed/navigated tab has no content listener left to clean up.
+      // A closed tab has no content listener left to clean up; anything else
+      // may be a transient channel failure, so retry once rather than leave an
+      // orphaned recorder that keeps the service worker awake via keep-alive.
+      if (isMissingTabError(error)) return;
+      console.warn('[frametrail] failed to send stop message to tab; retrying once', tabId, error);
+    }
+    await sleep(STOP_RETRY_DELAY_MS);
+    try {
+      await sendStopMessage(tabId, { type: 'FRAME_TRAIL_STOP' });
+    } catch (error) {
+      // A navigated tab also has no listener; the keep-alive rejection path is
+      // the durable backstop for a recorder this message could not reach.
       console.warn('[frametrail] failed to send stop message to tab', tabId, error);
     }
   }

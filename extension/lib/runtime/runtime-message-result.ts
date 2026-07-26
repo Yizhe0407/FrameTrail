@@ -3,6 +3,7 @@ import type {
   ClickCaptureResult,
   FocusStepRecaptureSourceResult,
   OpenEditorResult,
+  PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingControlResult,
   ResetGuideResult,
@@ -77,6 +78,13 @@ const RECAPTURE_PREFLIGHT_ERROR_CODES = [
 ] as const;
 
 
+const CONTINUATION_PREFLIGHT_ERROR_CODES = [
+  'INVALID_EDITOR',
+  'SOURCE_NOT_FOUND',
+  'RESTRICTED_SOURCE',
+] as const;
+
+
 const RECAPTURE_START_ERROR_CODES = [
   'ACTIVE_OPERATION',
   ...RECAPTURE_PREFLIGHT_ERROR_CODES,
@@ -147,6 +155,19 @@ export function isPreflightStepRecaptureSourcePermissionResult(
     value.ok === false &&
     hasOnlyKeys(value, ['ok', 'code', 'message']) &&
     isOneOf(value.code, RECAPTURE_PREFLIGHT_ERROR_CODES) &&
+    isErrorMessage(value.message)
+  );
+}
+
+export function isPreflightGuideContinuationSourcePermissionResult(
+  value: unknown,
+): value is PreflightGuideContinuationSourcePermissionResult {
+  if (!isRecord(value)) return false;
+  if (value.ok === true) return isSourcePermissionPreflightSuccess(value);
+  return (
+    value.ok === false &&
+    hasOnlyKeys(value, ['ok', 'code', 'message']) &&
+    isOneOf(value.code, CONTINUATION_PREFLIGHT_ERROR_CODES) &&
     isErrorMessage(value.message)
   );
 }

@@ -4,6 +4,7 @@ import {
   isClickCaptureResult,
   isFocusStepRecaptureSourceResult,
   isOpenEditorResult,
+  isPreflightGuideContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
   isRecordingControlResult,
   isResetGuideResult,
@@ -63,6 +64,16 @@ describe('runtime response contracts', () => {
       { ok: false, code: 'TARGET_CHANGED', message: 'target changed' },
     ],
     [
+      'continuation preflight',
+      isPreflightGuideContinuationSourcePermissionResult,
+      {
+        ok: true,
+        sourceUrl: 'https://example.com/page',
+        sourceOrigin: 'https://example.com',
+        permissionPattern: 'https://example.com/*',
+      },
+    ],
+    [
       'start recapture',
       isStartStepRecaptureResult,
       { ok: true, runId: 'run-1', tabId: 5, reusedTab: true },
@@ -89,6 +100,11 @@ describe('runtime response contracts', () => {
       'recapture preflight with unsupported error code',
       isPreflightStepRecaptureSourcePermissionResult,
       { ok: false, code: 'GUIDE_ARCHIVED', message: 'nope' },
+    ],
+    [
+      'continuation preflight borrowing a recapture-only error code',
+      isPreflightGuideContinuationSourcePermissionResult,
+      { ok: false, code: 'TARGET_CHANGED', message: 'nope' },
     ],
     [
       'start recapture with a negative tab id',

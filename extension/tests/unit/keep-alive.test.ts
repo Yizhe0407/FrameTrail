@@ -1,20 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startKeepAlive, type KeepAlivePortLike } from '@/lib/runtime/keep-alive';
+import {
+  KEEPALIVE_REJECTED_MESSAGE_TYPE,
+  startKeepAlive,
+  type KeepAlivePortLike,
+} from '@/lib/runtime/keep-alive';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 function port(): KeepAlivePortLike & {
   disconnect: ReturnType<typeof vi.fn>;
   emitDisconnect(): void;
+  emitMessage(message: unknown): void;
 } {
   let listener: (() => void) | undefined;
+  let messageListener: ((message: unknown) => void) | undefined;
   const result = {
     postMessage: vi.fn(),
     disconnect: vi.fn(() => listener?.()),
+    onMessage: {
+      addListener: (next: (message: unknown) => void) => {
+        messageListener = next;
+      },
+    },
     onDisconnect: {
       addListener: (next: () => void) => {
         listener = next;
       },
     },
     emitDisconnect: () => listener?.(),
+    emitMessage: (message: unknown) => messageListener?.(message),
   };
   return result;
 }
@@ -26,6 +39,7 @@ afterEach(() => {
 
 describe('startKeepAlive', () => {
   it('backs off after connect failures instead of recursively spinning', () => {
+    silenceIntentionalErrorLogs();
     vi.useFakeTimers();
     const first = port();
     const connect = vi.fn()
@@ -102,6 +116,7 @@ describe('startKeepAlive', () => {
   });
 
   it('reconnects when a heartbeat throws and stop cancels future retries', () => {
+    silenceIntentionalErrorLogs();
     vi.useFakeTimers();
     const first = port();
     const firstPost = vi.spyOn(first, 'postMessage');
@@ -120,5 +135,65 @@ describe('startKeepAlive', () => {
     handle.stop();
     vi.advanceTimersByTime(100);
     expect(connect).toHaveBeenCalledOnce();
+  });
+
+  it('stops for good and notifies onRejected when the background rejects the port', () => {
+    vi.useFakeTimers();
+    const first = port();
+    const connect = vi.fn().mockReturnValue(first);
+    const onRejected = vi.fn();
+    startKeepAlive(
+      { connect },
+      { name: 'test', intervalMs: 100, initialReconnectDelayMs: 10, onRejected },
+    );
+
+    first.emitMessage({ type: 'unrelated' });
+    expect(onRejected).not.toHaveBeenCalled();
+
+    first.emitMessage({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
+    expect(onRejected).toHaveBeenCalledOnce();
+    expect(first.disconnect).toHaveBeenCalledOnce();
+
+    // The background's follow-up disconnect and any amount of time must not
+    // schedule another connection for an authoritatively rejected client.
+    first.emitDisconnect();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledOnce();
+  });
+
+  it('gives up after consecutive failed connection cycles without a heartbeat', () => {
+    silenceIntentionalErrorLogs();
+    vi.useFakeTimers();
+    const first = port();
+    const second = port();
+    const third = port();
+    const connect = vi.fn()
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second)
+      .mockReturnValueOnce(third);
+    const onRejected = vi.fn();
+    startKeepAlive(
+      { connect },
+      {
+        name: 'test',
+        intervalMs: 100,
+        initialReconnectDelayMs: 10,
+        maxConsecutiveFailures: 2,
+        onRejected,
+      },
+    );
+
+    first.emitDisconnect();
+    vi.advanceTimersByTime(10);
+    second.emitDisconnect();
+    vi.advanceTimersByTime(20);
+    expect(connect).toHaveBeenCalledTimes(3);
+    expect(onRejected).not.toHaveBeenCalled();
+
+    third.emitDisconnect();
+    expect(onRejected).toHaveBeenCalledOnce();
+    expect(third.disconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledTimes(3);
   });
 });

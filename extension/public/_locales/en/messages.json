@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "FrameTrail",
+    "description": "Extension name shown in the browser and store listing."
+  },
+  "extDescription": {
+    "message": "Record clicks and auto-generate a step-by-step annotated image guide",
+    "description": "Extension description shown in the browser and store listing."
+  }
+}

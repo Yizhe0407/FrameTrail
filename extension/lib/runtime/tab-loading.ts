@@ -4,6 +4,12 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/** Discriminated settle result so the one-shot finish path cannot resolve
+ * without a tab or reject without an error. */
+type TabSettle =
+  | { ok: true; tab: Browser.tabs.Tab }
+  | { ok: false; error: Error };
+
 /** Waits until a tab is fully loaded without missing a completion transition
  * between the initial status check and listener registration. */
 export async function waitForTabComplete(
@@ -17,28 +23,30 @@ export async function waitForTabComplete(
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
 
-    const finish = (error: Error | null, tab?: Browser.tabs.Tab) => {
+    const finish = (result: TabSettle) => {
       if (settled) return;
       settled = true;
       if (timeout !== null) clearTimeout(timeout);
       browser.tabs.onUpdated.removeListener(onUpdated);
       browser.tabs.onRemoved.removeListener(onRemoved);
-      if (error) reject(error);
-      else resolve(tab!);
+      if (result.ok) resolve(result.tab);
+      else reject(result.error);
     };
     const onUpdated = (
       updatedTabId: number,
       changeInfo: { status?: string },
       tab: Browser.tabs.Tab,
     ) => {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') finish(null, tab);
+      if (updatedTabId === tabId && changeInfo.status === 'complete') finish({ ok: true, tab });
     };
     const onRemoved = (removedTabId: number) => {
-      if (removedTabId === tabId) finish(new Error('The source tab was closed while loading.'));
+      if (removedTabId === tabId) {
+        finish({ ok: false, error: new Error('The source tab was closed while loading.') });
+      }
     };
 
     timeout = setTimeout(
-      () => finish(new Error('Timed out while loading the source page.')),
+      () => finish({ ok: false, error: new Error('Timed out while loading the source page.') }),
       timeoutMs,
     );
     browser.tabs.onUpdated.addListener(onUpdated);
@@ -48,8 +56,8 @@ export async function waitForTabComplete(
     // installed. Recheck after subscribing so that transition cannot be lost.
     void browser.tabs.get(tabId)
       .then((tab) => {
-        if (tab.status === 'complete') finish(null, tab);
+        if (tab.status === 'complete') finish({ ok: true, tab });
       })
-      .catch((error: unknown) => finish(asError(error)));
+      .catch((error: unknown) => finish({ ok: false, error: asError(error) }));
   });
 }

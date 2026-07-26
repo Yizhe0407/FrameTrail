@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "FrameTrail",
+    "description": "Extension name shown in the browser and store listing."
+  },
+  "extDescription": {
+    "message": "記錄點擊操作，自動產生逐步的圖解教學",
+    "description": "Extension description shown in the browser and store listing."
+  }
+}

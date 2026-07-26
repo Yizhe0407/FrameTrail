@@ -15,8 +15,10 @@ export function getEditorSessionIdFromUrl(url: string | URL): string | null {
 
 async function openOrFocusExtensionPage(path: '/library.html'): Promise<void> {
   const url = browser.runtime.getURL(path);
-  const tabs = await browser.tabs.query({});
-  const existing = tabs.find((tab) => tab.url === url && tab.id != null);
+  // Prefix match, like openOrFocusEditor: an exact-URL comparison misses tabs
+  // that gained query params or a hash and would open a duplicate page.
+  const tabs = await browser.tabs.query({ url: `${url}*` });
+  const existing = tabs.find((tab) => tab.id != null);
   if (existing?.id != null) {
     await browser.tabs.update(existing.id, { active: true });
     if (existing.windowId != null) await browser.windows.update(existing.windowId, { focused: true });

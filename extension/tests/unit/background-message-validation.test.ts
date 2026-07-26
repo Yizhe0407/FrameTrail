@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
-  isRecordingControlMessage,
   isTrustedExtensionPageSender,
   isTrustedKeepAliveSender,
   isTrustedRecorderControlSender,
@@ -26,7 +25,7 @@ const validClick = {
 describe('background runtime message validation', () => {
   it.each<unknown>([
     validClick,
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', numbered: true },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps' },
     { type: 'OPEN_EDITOR', sessionId: 'guide-1', entryId: 'step-1' },
     { type: 'PAUSE_RECORDING', runId: 'run-1' },
     {
@@ -46,6 +45,9 @@ describe('background runtime message validation', () => {
       target: { kind: 'snapshot-singleton', anchorId: 'anchor-1', annotationId: 'annotation-1' },
       preferredTabId: 7,
     },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: {} },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: 4 } },
+    { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: 'guide-1' },
   ])('accepts a structurally valid message %#', (message) => {
     expect(isBackgroundMessage(message)).toBe(true);
   });
@@ -64,7 +66,7 @@ describe('background runtime message validation', () => {
     { ...validClick, url: 'javascript:alert(1)' },
     { ...validClick, url: 'https://user:secret@example.com/' },
     { ...validClick, timestamp: 1.5 },
-    { type: 'START_RECORDING', sessionId: '', mode: 'steps', numbered: true },
+    { type: 'START_RECORDING', sessionId: '', mode: 'steps' },
     { type: 'OPEN_EDITOR', sessionId: 'x'.repeat(257) },
     { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'other' },
     { type: 'SNAPSHOT_RECORDER_FAILED', runId: '', reason: 'shield-channel' },
@@ -79,6 +81,11 @@ describe('background runtime message validation', () => {
       sessionId: 'guide-1',
       target: { kind: 'snapshot-singleton', anchorId: 'same', annotationId: 'same' },
     },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: -1 } },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: null },
+    // A caller-supplied source URL must never reach the permission prompt.
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { sourceUrl: 'https://attacker.example/' } },
+    { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: '' },
   ])('rejects malformed or resource-unbounded input %#', (message) => {
     expect(isBackgroundMessage(message)).toBe(false);
   });
@@ -122,7 +129,7 @@ describe('background sender authorization', () => {
 
   it('classifies lifecycle, toolbar controls, and recorder events separately', () => {
     const extensionOnly: BackgroundMessage[] = [
-      { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', numbered: true },
+      { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps' },
       { type: 'STOP_RECORDING' },
       { type: 'RESET_GUIDE', sessionId: 'guide-1' },
       { type: 'OPEN_EDITOR' },
@@ -140,8 +147,7 @@ describe('background sender authorization', () => {
 
     expect(extensionOnly.every(isExtensionPageOnlyMessage)).toBe(true);
     expect(recordingControls.some(isExtensionPageOnlyMessage)).toBe(false);
-    expect(recordingControls.every(isRecordingControlMessage)).toBe(true);
-    expect(recorderMessages.some(isRecordingControlMessage)).toBe(false);
+    expect(recorderMessages.some(isExtensionPageOnlyMessage)).toBe(false);
   });
 
   it('authorizes keep-alive ports only for the top frame owning the active job', () => {

@@ -8,8 +8,18 @@ export default defineConfig({
     plugins: [tailwindcss()],
   }),
   manifest: {
-    name: 'FrameTrail',
-    description: 'Record clicks and auto-generate a step-by-step annotated image guide',
+    name: '__MSG_extName__',
+    description: '__MSG_extDescription__',
+    // The product UI is Traditional Chinese; store metadata follows it, with
+    // an English fallback locale for non-Chinese browsers.
+    default_locale: 'zh_TW',
+    // Every request/response message relies on Promise-returning
+    // runtime.onMessage listeners (wxt/browser is the bare chrome namespace,
+    // no webextension-polyfill). Chrome only honours a Promise returned from a
+    // listener as the async response starting with Chrome 148; on earlier
+    // versions the response channel closes immediately and every caller sees a
+    // generic channel error. Gate installation instead of failing silently.
+    minimum_chrome_version: '148',
     permissions: ['storage', 'unlimitedStorage', 'activeTab', 'scripting', 'downloads', 'clipboardWrite'],
     optional_host_permissions: ['<all_urls>'],
     // No default keys: users bind them at chrome://extensions/shortcuts so we
@@ -23,6 +33,12 @@ export default defineConfig({
       {
         resources: ['snapshot-shield.html'],
         matches: ['<all_urls>'],
+        // use_dynamic_url would hide the static URL from fingerprinting, but
+        // navigating a content-script-created iframe to the per-session GUID
+        // URL fails in Chrome (the shield page never loads and snapshot
+        // recording times out on every site), so the static URL stays. The
+        // exposure is install fingerprinting only: loading the page grants
+        // nothing without the storage-parked init token.
       },
     ],
     browser_specific_settings: {

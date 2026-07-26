@@ -1,17 +1,3 @@
-const RESTRICTED_URL_PREFIXES = [
-  'chrome://',
-  'chrome-extension://',
-  'edge://',
-  'about:',
-  'https://chrome.google.com/webstore',
-  'https://chromewebstore.google.com',
-];
-
-export function isRestrictedUrl(url: string | undefined): boolean {
-  if (!url) return true;
-  return RESTRICTED_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
-}
-
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

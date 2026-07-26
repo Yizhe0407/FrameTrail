@@ -46,9 +46,13 @@ export interface StartRecordingMessage {
   /** Explicit Guide target. UI selection is intentionally separate from RecordingState. */
   sessionId: string;
   mode: RecordingMode;
-  /** Snapshot mode only: whether boxes get a numbered order badge. */
-  numbered: boolean;
-  permissionScope?: 'current-page' | 'cross-page';
+  /**
+   * Editor-initiated continuation of an existing Guide. The editor tab itself
+   * cannot be recorded, so background resolves the Guide's own persisted source
+   * page instead of using whichever tab happens to be active. The source URL is
+   * never accepted from the caller.
+   */
+  continuation?: { preferredTabId?: number };
 }
 
 export type StartRecordingResult =
@@ -228,6 +232,20 @@ export type PreflightStepRecaptureSourcePermissionResult =
   | SourcePermissionPreflightSuccess
   | { ok: false; code: PreflightStepRecaptureSourcePermissionErrorCode; message: string };
 
+export interface PreflightGuideContinuationSourcePermissionMessage {
+  type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION';
+  sessionId: string;
+}
+
+export type PreflightGuideContinuationSourcePermissionErrorCode =
+  | 'INVALID_EDITOR'
+  | 'SOURCE_NOT_FOUND'
+  | 'RESTRICTED_SOURCE';
+
+export type PreflightGuideContinuationSourcePermissionResult =
+  | SourcePermissionPreflightSuccess
+  | { ok: false; code: PreflightGuideContinuationSourcePermissionErrorCode; message: string };
+
 export interface StartStepRecaptureMessage {
   type: 'START_STEP_RECAPTURE';
   sessionId: string;
@@ -308,6 +326,7 @@ export type BackgroundMessage =
   | RecordingControlMessage
   | RecorderReadyMessage
   | PreflightStepRecaptureSourcePermissionMessage
+  | PreflightGuideContinuationSourcePermissionMessage
   | StartStepRecaptureMessage
   | FrameTrailRecaptureReadyMessage
   | FrameTrailRecaptureTargetMessage
@@ -326,6 +345,8 @@ export interface RecordingState {
   recoverableError: RecoverableRecordingError | null;
   mode: RecordingMode;
   itemCount: number;
+  /** Every run starts numbered; the editor turns it off per snapshot. Captures
+   * stamp this onto each step so a later change cannot rewrite old images. */
   numbered: boolean;
   /** Snapshot mode: id of the current recording run's shared-image anchor
    * step. START_RECORDING captures and creates it before accepting clicks;

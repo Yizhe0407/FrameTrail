@@ -64,11 +64,6 @@ export async function markOnboardingComplete(completedAt = Date.now()): Promise<
   return state;
 }
 
-/** Removes only the current onboarding marker, allowing onboarding to reappear. */
-export async function resetOnboarding(): Promise<void> {
-  await browser.storage.local.remove(ONBOARDING_STORAGE_KEY);
-}
-
 
 /** The bundled, extension-only page used for first-run practice. */
 export const PRACTICE_PAGE_PATH = '/practice.html' as const;

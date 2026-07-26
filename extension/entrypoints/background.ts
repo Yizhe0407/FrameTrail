@@ -3,7 +3,6 @@ import {
   SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
   SnapshotViewportChangedError,
   StaleCaptureError,
-  isRestrictedUrl,
   queueCapture,
   queueClick,
   queueLifecycle,
@@ -11,6 +10,7 @@ import {
   waitForQueuedClicks,
 } from '@/lib/recording/background-queues';
 import { generateActionDescription } from '@/lib/capture/action-description';
+import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -47,12 +47,19 @@ import {
 import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
+import {
+  clearPendingUndoRecord,
+  readPendingUndoRecord,
+  savePendingUndoRecord,
+} from '@/lib/recording/background/pending-undo-store';
+import { KEEPALIVE_REJECTED_MESSAGE_TYPE } from '@/lib/runtime/keep-alive';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
 import { waitForTabComplete } from '@/lib/runtime/tab-loading';
 import { getRecordingState, setRecordingState } from '@/lib/storage/storage';
 import {
   clearEditorRecovery,
   markEditorOpenFailed,
+  needsEditorRecovery,
   RECORDED_TAB_CLOSED_ERROR,
 } from '@/lib/recording/recording-recovery';
 import type {
@@ -70,6 +77,9 @@ import type {
   FrameTrailSnapshotActiveMessage,
   OpenEditorMessage,
   OpenEditorResult,
+  PreflightGuideContinuationSourcePermissionErrorCode,
+  PreflightGuideContinuationSourcePermissionMessage,
+  PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionErrorCode,
   PreflightStepRecaptureSourcePermissionMessage,
   PreflightStepRecaptureSourcePermissionResult,
@@ -92,6 +102,11 @@ import type {
 
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 const RECORDER_READY_TIMEOUT_MS = 5_000;
+/** Every run starts numbered. Numbering is a per-snapshot presentation choice,
+ * so the editor owns turning it off where the result is visible; asking before
+ * the first capture made the user decide blind. Captures still stamp the run's
+ * value onto each step, so turning it off later never rewrites older images. */
+const RUN_STARTS_NUMBERED = true;
 const recorderRuntime = createRecorderRuntime({
   captureVisibleTab: (windowId) => browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 }),
   executeRecorderScript: (target) => browser.scripting.executeScript({
@@ -117,6 +132,19 @@ let pendingUndo:
       expiresAt: number;
     }
   | null = null;
+
+/**
+ * Invalidates the in-memory undo window synchronously (control flows rely on
+ * that ordering) and lazily hard-deletes its persisted copy — the last copy of
+ * the removed step's screenshot once the window is gone.
+ */
+function discardPendingUndo(): void {
+  pendingUndo = null;
+  void clearPendingUndoRecord().catch((error) => {
+    console.warn('[frametrail] failed to clear the persisted undo record', error);
+  });
+}
+
 const cancelledCaptureIds = new Set<string>();
 const committingCaptureIds = new Set<string>();
 
@@ -202,7 +230,7 @@ async function invalidateSnapshotRun(
     }
 
     acceptingClicks = false;
-    pendingUndo = null;
+    discardPendingUndo();
     controlVersion++;
     await setRecordingState({
       ...current,
@@ -299,8 +327,9 @@ async function assertCaptureContext(
     activeTab,
   });
   if (failure === 'stale-run') throw new StaleCaptureError('Recording changed before the screenshot could be taken.');
-  if (failure === 'inactive-tab') throw new Error('Step skipped because the recorded tab was no longer active.');
-  if (failure === 'changed-url') throw new Error('Step skipped because the page changed before the screenshot could be taken.');
+  // These two surface to the user through setRunError, so they are zh-Hant.
+  if (failure === 'inactive-tab') throw new Error('已略過此步驟：錄製分頁已不是目前作用中的分頁。');
+  if (failure === 'changed-url') throw new Error('已略過此步驟：頁面在截圖前已變更。');
 }
 
 type SnapshotCaptureContext = NonNullable<
@@ -463,21 +492,6 @@ function sourcePermissionPreflightSuccess(sourceUrl: string): SourcePermissionPr
   };
 }
 
-function isValidRecaptureTarget(target: unknown): target is StartStepRecaptureMessage['target'] {
-  if (!target || typeof target !== 'object') return false;
-  const candidate = target as Partial<StartStepRecaptureMessage['target']>;
-  if (candidate.kind === 'single') {
-    return typeof candidate.stepId === 'string' && candidate.stepId.trim().length > 0;
-  }
-  return (
-    candidate.kind === 'snapshot-singleton' &&
-    typeof candidate.anchorId === 'string' &&
-    candidate.anchorId.trim().length > 0 &&
-    typeof candidate.annotationId === 'string' &&
-    candidate.annotationId.trim().length > 0
-  );
-}
-
 async function validateRecaptureTarget(
   sessionId: string,
   target: StartStepRecaptureMessage['target'],
@@ -522,7 +536,43 @@ async function validateRecaptureTarget(
   return { target, entryId: anchor.id, sourceUrl: anchor.url };
 }
 
-async function findOrCreateRecaptureSourceTab(
+/** Where a continuation run resumes: the persisted URL of the Guide's last
+ * step. Editors never supply this — a caller-provided URL would let an editor
+ * page nominate an arbitrary origin for the permission prompt. */
+async function resolveGuideContinuationSourceUrl(sessionId: string): Promise<string | null> {
+  const steps = await getSteps(sessionId);
+  return steps.length > 0 ? steps[steps.length - 1].url : null;
+}
+
+function continuationPreflightFailure(
+  code: PreflightGuideContinuationSourcePermissionErrorCode,
+  message: string,
+): PreflightGuideContinuationSourcePermissionResult {
+  return { ok: false, code, message };
+}
+
+async function preflightGuideContinuationSourcePermission(
+  message: PreflightGuideContinuationSourcePermissionMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<PreflightGuideContinuationSourcePermissionResult> {
+  if (
+    typeof message.sessionId !== 'string' ||
+    message.sessionId.trim().length === 0 ||
+    !isEditorSenderForSession(sender, message.sessionId)
+  ) {
+    return continuationPreflightFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。');
+  }
+  const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
+  if (!sourceUrl) {
+    return continuationPreflightFailure('SOURCE_NOT_FOUND', '這份教學還沒有可接續的來源頁面。');
+  }
+  return (
+    sourcePermissionPreflightSuccess(sourceUrl) ??
+    continuationPreflightFailure('RESTRICTED_SOURCE', '此來源頁面不允許錄製。')
+  );
+}
+
+async function findOrCreateSourceTab(
   sourceUrl: string,
   preferredTabId?: number,
 ): Promise<{ tab: Browser.tabs.Tab; reused: boolean }> {
@@ -541,7 +591,30 @@ async function findOrCreateRecaptureSourceTab(
   if (exact?.id != null) return { tab: await waitForTabComplete(exact.id), reused: true };
   const created = await browser.tabs.create({ url: sourceUrl, active: false });
   if (created.id == null) throw new Error('Browser did not create a source tab.');
-  return { tab: await waitForTabComplete(created.id), reused: false };
+  try {
+    return { tab: await waitForTabComplete(created.id), reused: false };
+  } catch (error) {
+    // Nothing owns this tab yet (no persisted state references it), so a load
+    // timeout or removal race must close it here or every attempt leaks a tab.
+    await browser.tabs.remove(created.id).catch((cleanupError) => {
+      console.warn('[frametrail] failed to close an unloaded source tab', cleanupError);
+    });
+    throw error;
+  }
+}
+
+/**
+ * Closes a tab findOrCreateSourceTab created while no persisted state owns it
+ * yet. Every failure path between creation and the state write that records
+ * sourceTabCreated must call this, or each failed attempt leaks a stray tab.
+ */
+async function discardUncommittedSourceTab(
+  source: { tab: Browser.tabs.Tab; reused: boolean },
+): Promise<void> {
+  if (source.reused || source.tab.id == null) return;
+  await browser.tabs.remove(source.tab.id).catch((error) => {
+    console.warn('[frametrail] failed to close an unused source tab', error);
+  });
 }
 
 async function returnToRecaptureEditor(context: RecordingState['recapture']): Promise<void> {
@@ -640,7 +713,25 @@ async function wasRecaptureCommitted(context: NonNullable<RecordingState['recapt
 async function recoverInterruptedRecapture(): Promise<void> {
   const state = await getRecordingState();
   const context = state.recapture;
-  if (state.operation !== 'recapture' || !context || context.phase === 'awaiting-target') return;
+  if (state.operation !== 'recapture' || !context) return;
+
+  if (context.phase === 'awaiting-target') {
+    // Selection mode survives ordinary worker restarts — the injected recorder
+    // lives on in the source tab. A browser restart, however, reissues tab
+    // ids: the persisted sourceTabId then names nothing or an unrelated page,
+    // and the claimed single-owner slot would block every future operation.
+    if (await isRecaptureSourceTabIntact(context)) return;
+    acceptingClicks = false;
+    const version = ++controlVersion;
+    await settleStepRecapture(
+      context.runId,
+      'failed',
+      version,
+      'SOURCE_TAB_CLOSED',
+      '補拍已停止，因為原始分頁已關閉或已變更。原內容未變更。',
+    );
+    return;
+  }
 
   const committed = context.phase === 'capturing' && await wasRecaptureCommitted(context);
   acceptingClicks = false;
@@ -656,6 +747,88 @@ async function recoverInterruptedRecapture(): Promise<void> {
     'WORKER_RESTARTED',
     '補拍流程曾中斷，原內容未變更；請重新補拍。',
   );
+}
+
+async function isRecaptureSourceTabIntact(
+  context: NonNullable<RecordingState['recapture']>,
+): Promise<boolean> {
+  try {
+    const tab = await browser.tabs.get(context.sourceTabId);
+    // Recapture required a host permission grant for the source origin, so the
+    // URL is readable whenever the tab still shows the page selection armed on.
+    return tab.url === context.sourceUrl;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `operation: 'recording'` persists across restarts by design so ordinary MV3
+ * worker restarts resume seamlessly, but a browser restart reissues tab ids:
+ * the recorded tab is gone (or its id names an unrelated page), no recorder is
+ * injected anywhere, and the stale single-owner state would make every future
+ * start return "already recording" forever. Validate the recorded tab at
+ * startup and settle impossible runs the same way a mid-run tab close does —
+ * recoverable, captured content kept.
+ */
+async function recoverInterruptedRecording(): Promise<void> {
+  const state = await getRecordingState();
+  if (state.operation !== 'recording' || !state.isRecording || !state.runId) return;
+  const expectedControlVersion = controlVersion;
+  if (await isRecordedTabIntact(state)) return;
+  await stopRunWithError(
+    state.runId,
+    RECORDED_TAB_CLOSED_ERROR.message,
+    expectedControlVersion,
+    RECORDED_TAB_CLOSED_ERROR,
+  );
+}
+
+async function isRecordedTabIntact(state: RecordingState): Promise<boolean> {
+  if (state.tabId == null) return false;
+  let tab: Browser.tabs.Tab;
+  try {
+    tab = await browser.tabs.get(state.tabId);
+  } catch {
+    return false;
+  }
+  // A live run can read its tab's URL through the activeTab/host grant that
+  // started it. After a browser restart those grants are gone or the reissued
+  // id shows a browser page, so an unreadable or restricted URL means this
+  // run can never capture again. A readable ordinary URL is kept — steps mode
+  // legitimately navigates, so a stricter match would kill healthy runs.
+  if (isRestrictedUrl(tab.url)) return false;
+  if (state.mode === 'snapshot' && state.groupAnchorId) {
+    // Snapshot coordinates belong to one immutable document; a restart that
+    // left the tab on any other URL invalidates every further annotation.
+    const anchor = await getStep(state.groupAnchorId);
+    if (anchor && tab.url !== anchor.url) return false;
+  }
+  return true;
+}
+
+/**
+ * The in-memory undo window dies with the service worker while its persisted
+ * copy survives. Rehydrate the window when the persisted run still matches;
+ * otherwise the window is over and the record is hard-deleted — the deferred
+ * deletion undoLastCapture's soft delete left to this point.
+ */
+async function recoverPendingUndo(): Promise<void> {
+  const record = await readPendingUndoRecord();
+  if (!record) return;
+  const state = await getRecordingState();
+  const windowStillOpen =
+    state.isRecording &&
+    state.operation === 'recording' &&
+    state.runId === record.runId &&
+    state.itemCount === record.expectedItemCount &&
+    (state.phase === 'recording' || state.phase === 'paused') &&
+    record.expiresAt > Date.now();
+  if (!windowStillOpen) {
+    await clearPendingUndoRecord();
+    return;
+  }
+  pendingUndo ??= record;
 }
 
 function failStepRecapture(
@@ -705,10 +878,12 @@ async function preflightStepRecaptureSourcePermission(
   message: PreflightStepRecaptureSourcePermissionMessage,
   sender: Browser.runtime.MessageSender,
 ): Promise<PreflightStepRecaptureSourcePermissionResult> {
+  // The message shape (including the target) was already validated by the
+  // canonical isBackgroundMessage guard at listener entry; only the trust
+  // relationship between this editor and the session remains to check here.
   if (
     typeof message.sessionId !== 'string' ||
     message.sessionId.trim().length === 0 ||
-    !isValidRecaptureTarget(message.target) ||
     !isEditorSenderForSession(sender, message.sessionId)
   ) {
     return recapturePreflightFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器驗證補拍來源。');
@@ -763,18 +938,22 @@ async function handleStartStepRecapture(
     return recaptureFailure('HOST_PERMISSION_REQUIRED', '需要先允許 FrameTrail 存取此網站，才能補拍。');
   }
 
-  let source: Awaited<ReturnType<typeof findOrCreateRecaptureSourceTab>>;
+  let source: Awaited<ReturnType<typeof findOrCreateSourceTab>>;
   try {
-    source = await findOrCreateRecaptureSourceTab(validated.sourceUrl, message.preferredTabId);
+    source = await findOrCreateSourceTab(validated.sourceUrl, message.preferredTabId);
   } catch (error) {
     console.error('[frametrail] failed to open recapture source tab', error);
     return recaptureFailure('SOURCE_TAB_FAILED', '無法開啟原始頁面。');
   }
   const sourceTab = source.tab;
   if (sourceTab.id == null || sourceTab.windowId == null || sourceTab.url !== validated.sourceUrl) {
+    await discardUncommittedSourceTab(source);
     return recaptureFailure('SOURCE_TAB_FAILED', '原始頁面已重新導向，未開始補拍。');
   }
-  if (version !== controlVersion) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+  if (version !== controlVersion) {
+    await discardUncommittedSourceTab(source);
+    return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+  }
 
   const runId = crypto.randomUUID();
   const recapture = {
@@ -804,7 +983,10 @@ async function handleStartStepRecapture(
     recapture,
     recaptureResult: null,
   }));
-  if (!started) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+  if (!started) {
+    await discardUncommittedSourceTab(source);
+    return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
+  }
 
   const readyGate = new RecorderReadyGate(
     { runId, tabId: sourceTab.id, controlVersion: version },
@@ -866,7 +1048,7 @@ async function startStepRecapture(
     pendingRecorderReady = null;
     pendingRecaptureReady?.cancel();
     pendingRecaptureReady = null;
-    pendingUndo = null;
+    discardPendingUndo();
     const version = ++controlVersion;
     return await handleStartStepRecapture(message, sender, version);
   } finally {
@@ -938,7 +1120,47 @@ async function focusStepRecaptureSource(
   }
 }
 
-async function startRecording(message: StartRecordingMessage): Promise<StartRecordingResult> {
+/**
+ * Continuation resolves its own target tab because the editor page cannot be
+ * recorded and holds no activeTab grant over the source site. Every precondition
+ * recapture enforces applies here too: trusted editor, persisted source URL, an
+ * explicit host permission, and an exact-URL tab.
+ */
+async function resolveContinuationTab(
+  message: StartRecordingMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<{ ok: true; tab: Browser.tabs.Tab } | { ok: false; error: string }> {
+  if (!isEditorSenderForSession(sender, message.sessionId)) {
+    return { ok: false, error: '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。' };
+  }
+  const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
+  if (!sourceUrl) {
+    return { ok: false, error: '這份教學還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。' };
+  }
+  const permissionPattern = recapturePermissionPattern(sourceUrl);
+  if (!permissionPattern || isRestrictedUrl(sourceUrl)) {
+    return { ok: false, error: '此來源頁面不允許錄製。' };
+  }
+  if (!(await browser.permissions.contains({ origins: [permissionPattern] }))) {
+    return { ok: false, error: '需要先允許 FrameTrail 存取此網站，才能接續錄製。' };
+  }
+  try {
+    const source = await findOrCreateSourceTab(sourceUrl, message.continuation?.preferredTabId);
+    if (source.tab.id == null || source.tab.url !== sourceUrl) {
+      await discardUncommittedSourceTab(source);
+      return { ok: false, error: '原始頁面已重新導向，未開始錄製。' };
+    }
+    return { ok: true, tab: source.tab };
+  } catch (error) {
+    console.error('[frametrail] failed to open continuation source tab', error);
+    return { ok: false, error: '無法開啟原始頁面。' };
+  }
+}
+
+async function startRecording(
+  message: StartRecordingMessage,
+  sender: Browser.runtime.MessageSender,
+): Promise<StartRecordingResult> {
   const current = await getRecordingState();
   // A global capture operation remains single-owner. Never let a second start
   // invalidate another Guide's recording or one-shot replacement.
@@ -947,14 +1169,21 @@ async function startRecording(message: StartRecordingMessage): Promise<StartReco
   }
   const targetGuide = await getGuide(message.sessionId);
   if (!targetGuide) return { ok: false, error: '找不到要錄製的教學。請回作品庫重新選擇。' };
-  if (targetGuide.archivedAt != null) return { ok: false, error: '封存的教學無法錄製，請先還原。' };
+
+  let continuationTab: Browser.tabs.Tab | null = null;
+  if (message.continuation) {
+    const resolved = await resolveContinuationTab(message, sender);
+    if (!resolved.ok) return resolved;
+    continuationTab = resolved.tab;
+  }
+
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
   pendingSnapshotContext = undefined;
-  pendingUndo = null;
+  discardPendingUndo();
   const version = ++controlVersion;
-  await handleStartRecording(message, version);
+  await handleStartRecording(message, version, continuationTab);
   const started = await getRecordingState();
   if (
     version === controlVersion &&
@@ -968,14 +1197,18 @@ async function startRecording(message: StartRecordingMessage): Promise<StartReco
   return { ok: false, error: started.recoverableError?.message ?? started.error ?? '無法在這個頁面開始錄製。' };
 }
 
-async function handleStartRecording(message: StartRecordingMessage, version: number): Promise<void> {
+async function handleStartRecording(
+  message: StartRecordingMessage,
+  version: number,
+  continuationTab: Browser.tabs.Tab | null = null,
+): Promise<void> {
   // Reset waits for all writes from the old run through STOP. START uses the
   // same barrier so an old capture cannot append to the reused session later.
   await waitForQueuedClicks();
   if (version !== controlVersion) return;
 
   const prevState = await getRecordingState();
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  const tab = continuationTab ?? (await browser.tabs.query({ active: true, currentWindow: true }))[0];
   if (version !== controlVersion) return;
 
   await recorderRuntime.stopRecorderInTab(prevState.tabId);
@@ -987,14 +1220,14 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       isRecording: false,
       phase: 'error',
       tabId: null,
-      error: 'No active tab was found. Open a regular website and try again.',
+      error: '找不到可錄製的分頁。請開啟一般網站後再試一次。',
       recoverableError: {
         code: 'NO_ACTIVE_TAB',
         message: '找不到可錄製的分頁。請開啟一般網站後再試一次。',
       },
       mode: message.mode,
       itemCount: 0,
-      numbered: message.numbered,
+      numbered: RUN_STARTS_NUMBERED,
       groupAnchorId: null,
       runId: null,
       snapshotViewport: null,
@@ -1011,20 +1244,53 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
       phase: 'error',
       sessionId: current.sessionId,
       tabId: null,
-      error: 'This page cannot be recorded because Chrome blocks scripting on it.',
+      error: '此瀏覽器頁面不允許錄製。',
       recoverableError: {
         code: 'RESTRICTED_PAGE',
         message: '此瀏覽器頁面不允許錄製。',
       },
       mode: message.mode,
       itemCount: 0,
-      numbered: message.numbered,
+      numbered: RUN_STARTS_NUMBERED,
       groupAnchorId: null,
       runId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
     }));
     return;
+  }
+
+  // Captures read the visible viewport, and snapshot mode captures its base
+  // image during startup, so a resumed source tab must reach the foreground
+  // before the recorder is injected — not after the run is live.
+  if (continuationTab) {
+    try {
+      await browser.tabs.update(tab.id!, { active: true });
+      if (tab.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
+    } catch (error) {
+      console.error('[frametrail] failed to focus the continuation source tab', error);
+      await writeStateForControl(version, (current) => ({
+        ...current,
+        operation: null,
+        isRecording: false,
+        phase: 'error',
+        tabId: null,
+        error: '無法切換到原始頁面，未開始錄製。',
+        recoverableError: {
+          code: 'SOURCE_TAB_FAILED',
+          message: '無法切換到原始頁面，未開始錄製。',
+        },
+        mode: message.mode,
+        itemCount: 0,
+        numbered: RUN_STARTS_NUMBERED,
+        groupAnchorId: null,
+        runId: null,
+        snapshotViewport: null,
+        snapshotDevicePixelRatio: null,
+      }));
+      return;
+    }
+    if (version !== controlVersion) return;
   }
 
   const runId = crypto.randomUUID();
@@ -1038,7 +1304,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
     recoverableError: null,
     mode: message.mode,
     itemCount: 0,
-    numbered: message.numbered,
+    numbered: RUN_STARTS_NUMBERED,
     groupAnchorId: null,
     runId,
     snapshotViewport: null,
@@ -1058,7 +1324,10 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
   let startupAnchorId: string | null = null;
   try {
     const [, recorderReady] = await Promise.all([
-      recorderRuntime.injectRecorder(tab.id, message.mode === 'snapshot'),
+      // Both modes instrument every accessible frame: snapshot mode for its
+      // child-frame probes, step mode so iframe clicks are captured and
+      // relayed to the top-frame recorder instead of being silently lost.
+      recorderRuntime.injectRecorder(tab.id, true),
       readyGate.promise,
     ]);
     if (!recorderReady) throw new Error('Recorder did not become ready before the startup timeout.');
@@ -1098,7 +1367,7 @@ async function handleStartRecording(message: StartRecordingMessage, version: num
     }
     if (version !== controlVersion) return;
     try {
-      await stopRunWithError(runId, 'Failed to start recording on this page. Try a regular website.', version);
+      await stopRunWithError(runId, '無法在這個頁面開始錄製，請改用一般網站再試一次。', version);
     } catch (recoveryError) {
       acceptingClicks = false;
       console.error(
@@ -1121,7 +1390,7 @@ async function stopRecording(): Promise<void> {
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
   pendingSnapshotContext = undefined;
-  pendingUndo = null;
+  discardPendingUndo();
   const version = ++controlVersion;
   return handleStopRecording(version);
 }
@@ -1312,8 +1581,24 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
       .find((step) => step.runId === message.runId && step.bounds !== null);
     if (!last || state.itemCount === 0) return controlFailure('目前沒有可復原的錄製內容。');
 
-    await deleteStep(last.id);
     const nextCount = Math.max(0, state.itemCount - 1);
+    const undoRecord = {
+      token: crypto.randomUUID(),
+      runId: message.runId,
+      step: last,
+      expectedItemCount: nextCount,
+      expiresAt: Date.now() + 5_000,
+    };
+    // Soft delete: persist a copy before removing the step, because the
+    // in-memory window below would otherwise hold the only copy of this
+    // screenshot and MV3 may terminate the worker inside the restore window.
+    // Best-effort — a persistence failure degrades to memory-only undo.
+    try {
+      await savePendingUndoRecord(undoRecord);
+    } catch (persistError) {
+      console.warn('[frametrail] failed to persist the undo window', persistError);
+    }
+    await deleteStep(last.id);
     const updated = await updateRunState(
       message.runId,
       (current) => ({
@@ -1326,18 +1611,12 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
     );
     if (!updated) {
       await addStep(last);
+      discardPendingUndo();
       return controlFailure('錄製狀態已變更，未移除內容。');
     }
 
-    const token = crypto.randomUUID();
-    pendingUndo = {
-      token,
-      runId: message.runId,
-      step: last,
-      expectedItemCount: nextCount,
-      expiresAt: Date.now() + 5_000,
-    };
-    return { ok: true, undoToken: token, removedItemNumber: state.itemCount };
+    pendingUndo = undoRecord;
+    return { ok: true, undoToken: undoRecord.token, removedItemNumber: state.itemCount };
   });
 }
 
@@ -1355,9 +1634,12 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
       !state.sessionId ||
       !state.runId ||
       state.runId !== message.runId ||
-      state.itemCount !== undo.expectedItemCount
+      state.itemCount !== undo.expectedItemCount ||
+      // Same phases undo itself allows: a window rehydrated after a worker
+      // restart must not restore into preparing-next/invalidated/finishing.
+      (state.phase !== 'recording' && state.phase !== 'paused')
     ) {
-      pendingUndo = null;
+      discardPendingUndo();
       return controlFailure('已無法還原這筆內容。');
     }
 
@@ -1376,7 +1658,7 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
       await deleteStep(undo.step.id);
       return controlFailure('錄製狀態已變更，未還原內容。');
     }
-    pendingUndo = null;
+    discardPendingUndo();
     return { ok: true };
   });
 }
@@ -1394,7 +1676,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
   }
 
   acceptingClicks = false;
-  pendingUndo = null;
+  discardPendingUndo();
   await waitForQueuedClicks();
 
   const previous = await queueStateMutation(async () => {
@@ -1426,7 +1708,9 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
     if (previous.tabId == null) throw new Error('Recorded tab is no longer available.');
     // Re-injection tears down the shield instance and mounts the lightweight
     // preparing-next toolbar without installing step-capture listeners.
-    await recorderRuntime.injectRecorder(previous.tabId);
+    // All-frames mirrors the startup injection so stale child-frame recorders
+    // are torn down too (children are no-ops in this phase).
+    await recorderRuntime.injectRecorder(previous.tabId, true);
   } catch (error) {
     console.error('[frametrail] failed to enter snapshot preparation state', error);
     await setRunError(message.runId, '無法顯示下一張快照控制，請重新載入一般網站後再試一次。');
@@ -1468,7 +1752,7 @@ async function createNextSnapshot(
   if (!claimed) return controlFailure('目前無法建立下一張快照。');
 
   acceptingClicks = false;
-  pendingUndo = null;
+  discardPendingUndo();
   pendingSnapshotContext = undefined;
   const { state, previous, version } = claimed;
   const readyGate = new RecorderReadyGate(
@@ -1525,7 +1809,7 @@ async function createNextSnapshot(
         version,
       );
       try {
-        await recorderRuntime.injectRecorder(state.tabId!);
+        await recorderRuntime.injectRecorder(state.tabId!, true);
       } catch (reinjectionError) {
         console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
       }
@@ -1553,7 +1837,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
   acceptingClicks = false;
   pendingRecorderReady?.cancel();
   pendingRecorderReady = null;
-  pendingUndo = null;
+  discardPendingUndo();
   const version = ++controlVersion;
   await waitForQueuedClicks();
   const current = await getRecordingState();
@@ -1642,7 +1926,15 @@ async function openEditorForStoredSession(message: OpenEditorMessage): Promise<O
     }
     const guide = await getGuide(targetSessionId);
     if (!guide) return { ok: false, error: '找不到這份教學。' };
-    const result = await latestFinishResult(targetSessionId);
+    // Only a hand-off continues where the capture stopped: finishing a run, or
+    // recovering one whose recorded tab went away. Ordinary navigation opens the
+    // guide at its first entry — deriving the target from the newest capture
+    // made every "open editor" land on the last step.
+    const resumesInterruptedRun =
+      state.sessionId === targetSessionId && needsEditorRecovery(state.recoverableError);
+    const result: FinishResult = resumesInterruptedRun
+      ? await latestFinishResult(targetSessionId)
+      : { sessionId: targetSessionId, entryId: null, groupId: null, itemCount: 0 };
     if (message.entryId) result.entryId = message.entryId;
     await openOrFocusEditor(result);
     if (state.sessionId === targetSessionId) {
@@ -1687,7 +1979,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   }
 
   acceptingClicks = false;
-  pendingUndo = null;
+  discardPendingUndo();
   const markedFinishing = await queueStateMutation(async () => {
     if (startedAtControlVersion !== controlVersion) return false;
     const current = await getRecordingState();
@@ -1767,7 +2059,7 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
   }
 
   acceptingClicks = false;
-  pendingUndo = null;
+  discardPendingUndo();
   const version = ++controlVersion;
   await waitForQueuedClicks();
 
@@ -2094,13 +2386,14 @@ async function handleSnapshotClick(
     );
   }
 
-  if (!anchorId) throw new Error('Snapshot annotation skipped because its base image is missing.');
+  // These throw messages surface to the user through setRunError, so zh-Hant.
+  if (!anchorId) throw new Error('已略過此標註：快照底圖遺失。');
   let existingSteps = await getSteps(sessionId);
   const anchor = existingSteps.find((step) => step.id === anchorId);
 
-  if (!anchor?.screenshotBlob) throw new Error('Snapshot annotation skipped because its base image is missing.');
+  if (!anchor?.screenshotBlob) throw new Error('已略過此標註：快照底圖遺失。');
   if (anchor.url !== message.url) {
-    throw new Error('Snapshot annotation skipped because the page changed after its base image was captured.');
+    throw new Error('已略過此標註：頁面在底圖拍攝後已變更。');
   }
   if (expectedControlVersion !== controlVersion) {
     throw new StaleCaptureError('Recording control changed while saving the annotation.');
@@ -2178,7 +2471,7 @@ async function handleClick(
   if (windowId == null || tabId == null) return rejectBeforeTransaction();
 
   try {
-    pendingUndo = null;
+    discardPendingUndo();
     if (state.mode === 'snapshot') {
       await handleSnapshotClick(message, state.sessionId, state, expectedControlVersion);
     } else {
@@ -2234,7 +2527,7 @@ async function handleClick(
           RECORDED_TAB_CLOSED_ERROR,
         );
       } else if (!(err instanceof StaleCaptureError)) {
-        const messageText = describeBrowserError(err, 'Failed to capture and save this step.');
+        const messageText = describeBrowserError(err, '無法擷取並儲存此步驟。');
         console.error(
           '[frametrail] failed to capture/annotate/save step:',
           messageText,
@@ -2285,22 +2578,64 @@ export default defineBackground(() => {
     switch (message.type) {
       case 'START_RECORDING':
         return withMessageFailureFallback(
-          queueLifecycle(() => startRecording(message)),
+          queueLifecycle(() => startRecording(message, sender)),
           'start recording request failed',
           { ok: false, error: '無法啟動錄製服務，請重新整理頁面後再試一次。' } satisfies StartRecordingResult,
         );
       case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
-        return preflightStepRecaptureSourcePermission(message, sender);
+        return withMessageFailureFallback(
+          preflightStepRecaptureSourcePermission(message, sender),
+          'recapture source preflight failed',
+          {
+            ok: false,
+            code: 'INVALID_EDITOR',
+            message: '補拍服務發生錯誤，請重新整理編輯器後再試一次。',
+          } satisfies PreflightStepRecaptureSourcePermissionResult,
+        );
+      case 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION':
+        return withMessageFailureFallback(
+          preflightGuideContinuationSourcePermission(message, sender),
+          'continuation source preflight failed',
+          {
+            ok: false,
+            code: 'INVALID_EDITOR',
+            message: '接續錄製服務發生錯誤，請重新整理編輯器後再試一次。',
+          } satisfies PreflightGuideContinuationSourcePermissionResult,
+        );
       case 'START_STEP_RECAPTURE':
-        return startStepRecapture(message, sender);
+        return withMessageFailureFallback(
+          startStepRecapture(message, sender),
+          'start recapture request failed',
+          {
+            ok: false,
+            code: 'INJECTION_FAILED',
+            error: '補拍服務發生錯誤，請再試一次。',
+          } satisfies StartStepRecaptureResult,
+        );
       case 'CANCEL_STEP_RECAPTURE':
-        return cancelStepRecapture(message, sender);
+        return withMessageFailureFallback(
+          cancelStepRecapture(message, sender),
+          'cancel recapture request failed',
+          { ok: false, error: '取消補拍時發生錯誤，請再試一次。' } satisfies CancelStepRecaptureResult,
+        );
       case 'ACK_STEP_RECAPTURE_RESULT':
-        return ackStepRecaptureResult(message, sender);
+        return withMessageFailureFallback(
+          ackStepRecaptureResult(message, sender),
+          'recapture result ack failed',
+          false,
+        );
       case 'FOCUS_STEP_RECAPTURE_SOURCE':
-        return focusStepRecaptureSource(message, sender);
+        return withMessageFailureFallback(
+          focusStepRecaptureSource(message, sender),
+          'focus recapture source failed',
+          { ok: false, error: '無法切換到補拍分頁，請再試一次。' } satisfies FocusStepRecaptureSourceResult,
+        );
       case 'STOP_RECORDING':
-        return stopRecording();
+        return withMessageFailureFallback(
+          queueLifecycle(() => stopRecording()),
+          'stop recording request failed',
+          undefined,
+        );
       case 'RESET_GUIDE':
         return withMessageFailureFallback(
           queueLifecycle(() => resetGuideLifecycle(message)),
@@ -2328,7 +2663,11 @@ export default defineBackground(() => {
           { ok: false, error: '錄製服務發生錯誤，請重新整理頁面後再試一次。' } satisfies RecordingControlResult,
         );
       case 'SNAPSHOT_INVALIDATED':
-        return handleSnapshotInvalidated(message, sender);
+        return withMessageFailureFallback(
+          handleSnapshotInvalidated(message, sender),
+          'snapshot invalidation handling failed',
+          false,
+        );
       case 'SNAPSHOT_RECORDER_FAILED':
         return withMessageFailureFallback(
           handleSnapshotRecorderFailure(message, sender),
@@ -2354,11 +2693,23 @@ export default defineBackground(() => {
           );
         }
       case 'FRAME_TRAIL_CANCEL_CAPTURE':
-        return handleCancelCapture(message, sender);
+        return withMessageFailureFallback(
+          handleCancelCapture(message, sender),
+          'capture cancellation failed',
+          { ok: false } satisfies ClickCaptureResult,
+        );
       case 'FRAME_TRAIL_READY':
-        return handleRecorderReady(message, sender);
+        return withMessageFailureFallback(
+          handleRecorderReady(message, sender),
+          'recorder ready handling failed',
+          false,
+        );
       case 'FRAME_TRAIL_RECAPTURE_READY':
-        return handleRecaptureReady(message, sender);
+        return withMessageFailureFallback(
+          handleRecaptureReady(message, sender),
+          'recapture ready handling failed',
+          false,
+        );
     }
   });
 
@@ -2380,10 +2731,24 @@ export default defineBackground(() => {
         // The sender may already have disappeared during authorization.
       }
     };
+    // An authoritative rejection tells the client its capture job is over so
+    // it tears its UI down, instead of mistaking the disconnect for a worker
+    // restart and reconnecting (and waking this worker) forever.
+    const reject = () => {
+      if (disconnected) return;
+      try {
+        port.postMessage({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
+      } catch {
+        // The port may already be gone; the client's give-up cap still applies.
+      }
+      disconnect();
+    };
     const authorize = () => {
       void getRecordingState().then((state) => {
-        if (!disconnected && !isTrustedKeepAliveSender(port.sender ?? {}, state)) disconnect();
+        if (!disconnected && !isTrustedKeepAliveSender(port.sender ?? {}, state)) reject();
       }).catch((error) => {
+        // Reading state failed, which says nothing about the sender: drop the
+        // port without the rejection message so a healthy recorder reconnects.
         console.error('[frametrail] failed to authorize keep-alive port', error);
         disconnect();
       });
@@ -2393,7 +2758,7 @@ export default defineBackground(() => {
     });
     port.onMessage.addListener((message) => {
       if (message?.type !== 'heartbeat') {
-        disconnect();
+        reject();
         return;
       }
       authorize();
@@ -2445,7 +2810,7 @@ export default defineBackground(() => {
           return;
         }
         try {
-          await recorderRuntime.injectRecorder(tabId);
+          await recorderRuntime.injectRecorder(tabId, true);
         } catch (err) {
           if (isMissingTabError(err)) {
             await stopRunWithError(
@@ -2471,7 +2836,7 @@ export default defineBackground(() => {
       // as soon as that document navigates, and never re-inject merely because a
       // document that was loading at START later reports status=complete.
       if (updateAction === 'stop-snapshot') {
-        await stopRunWithError(runId, 'Recording stopped because the snapshot page changed.', expectedControlVersion);
+        await stopRunWithError(runId, '錄製已停止，因為快照頁面已變更。', expectedControlVersion);
         return;
       }
       if (updateAction !== 'reinject') return;
@@ -2479,13 +2844,16 @@ export default defineBackground(() => {
       if (isRestrictedUrl(tab.url)) {
         await stopRunWithError(
           runId,
-          'Recording stopped because the new page does not allow scripting.',
+          '錄製已停止，因為新開啟的頁面不允許錄製。',
           expectedControlVersion,
         );
         return;
       }
       try {
-        await recorderRuntime.injectRecorder(tabId);
+        // All-frames mirrors the START injection: step mode instruments every
+        // accessible child frame so iframe clicks keep being relayed to the
+        // top-frame recorder after a navigation, not silently lost.
+        await recorderRuntime.injectRecorder(tabId, true);
       } catch (err) {
         if (isMissingTabError(err)) {
           await stopRunWithError(
@@ -2503,7 +2871,7 @@ export default defineBackground(() => {
         );
         await stopRunWithError(
           runId,
-          'Recording stopped because the recorder could not be loaded after navigation.',
+          '錄製已停止，因為頁面切換後無法載入錄製工具。',
           expectedControlVersion,
         );
       }
@@ -2540,7 +2908,7 @@ export default defineBackground(() => {
       }
       await stopRunWithError(
         state.runId,
-        'Recording stopped because the recorded tab was closed.',
+        RECORDED_TAB_CLOSED_ERROR.message,
         expectedControlVersion,
         RECORDED_TAB_CLOSED_ERROR,
       );
@@ -2549,7 +2917,15 @@ export default defineBackground(() => {
     });
   });
 
-  void recoverInterruptedRecapture().catch((error) => {
-    console.error('[frametrail] failed to recover interrupted recapture', error);
+  void (async () => {
+    await recoverInterruptedRecapture();
+    await recoverInterruptedRecording();
+  })().catch((error) => {
+    console.error('[frametrail] failed to recover an interrupted operation', error);
+  });
+  // Through the click queue so rehydration is ordered before any queued
+  // restore/undo message this startup is already receiving.
+  void queueClick(recoverPendingUndo).catch((error) => {
+    console.error('[frametrail] failed to recover the undo window', error);
   });
 });

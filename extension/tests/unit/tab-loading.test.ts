@@ -122,6 +122,16 @@ describe('waitForTabComplete', () => {
     }
   });
 
+  it('rejects with the recheck error when the tab disappears between reads', async () => {
+    mocks.tabsGet
+      .mockResolvedValueOnce({ id: 7, status: 'loading' })
+      .mockRejectedValueOnce(new Error('No tab with id: 7.'));
+
+    await expect(waitForTabComplete(7)).rejects.toThrow('No tab with id: 7.');
+    expect(mocks.updatedListeners).toHaveLength(0);
+    expect(mocks.removedListeners).toHaveLength(0);
+  });
+
   it('rejects and cleans up when the tab is removed while loading', async () => {
     mocks.tabsGet
       .mockResolvedValueOnce({ id: 7, status: 'loading' })
