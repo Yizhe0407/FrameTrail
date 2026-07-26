@@ -2,12 +2,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
-import { test, expect } from '../support/fixture';
+import { test, expect, FIXTURE_URL } from '../support/fixture';
 
 import {
   clickSnapshotTarget,
   clickTarget,
   readLatestDownload,
+  readRecordingState,
   readSteps,
   resetExtensionData,
   startRecording,
@@ -448,6 +449,45 @@ test.describe('editor workflows', () => {
     expect(panelBox.x).toBeGreaterThanOrEqual(0);
     expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(320);
     await expect(annotationPanel.getByLabel('標註 1 說明')).toBeVisible();
+  });
+
+  test('continues recording the same guide on a different page via 改在其他頁面接續', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await recordStepTargets(appPage, popupPage, ['#plain-text']);
+    const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
+
+    // The user has since moved on to a completely different page than the
+    // guide's stored source URL.
+    await appPage.goto(`${FIXTURE_URL}navigated.html`);
+    await editor.bringToFront();
+    const pagesBefore = extensionContext.pages().length;
+
+    await editor.getByRole('button', { name: '接續錄製', exact: true }).click();
+    const dialog = editor.getByRole('dialog');
+    await expect(dialog).toContainText('接續錄製前需要存取來源網站');
+    await expect(dialog).toContainText('新步驟會接在最後。');
+    await dialog.getByRole('button', { name: '改在其他頁面接續' }).click();
+
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(true);
+    // The elsewhere path records the already-open navigated.html tab; the
+    // source-locked default would have reopened the stored index URL instead.
+    expect(extensionContext.pages().length).toBe(pagesBefore);
+    await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+    expect(appPage.url()).toBe(`${FIXTURE_URL}navigated.html`);
+
+    await clickTarget(appPage, 'h1');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await stopRecording(popupPage);
+
+    const steps = await readSteps(popupPage);
+    expect(steps).toHaveLength(2);
+    expect(steps[1].sessionId).toBe(steps[0].sessionId);
+    expect(steps[1].order).toBeGreaterThan(steps[0].order);
   });
 
   test('undoes direct entry deletion and keeps confirmation for session reset', async ({

@@ -81,10 +81,13 @@ function EditorApp() {
     preparedPermission,
     permissionPending,
     permissionFlowActive,
+    continueElsewherePending,
+    continueElsewhereError,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,
     confirmPreparedPermission,
+    confirmContinueElsewhere,
     handleRecapture,
     handleContinueRecording,
   } = usePermissionFlow({
@@ -110,7 +113,7 @@ function EditorApp() {
   } = useEditorEntryWorkspace({
     entries,
     flushDescriptions,
-    isSelectionBlocked: () => dataOperationLock.current || permissionPending,
+    isSelectionBlocked: () => dataOperationLock.current || permissionPending || continueElsewherePending,
     onSelectionInteraction: () => {
       if (isPermissionFlowLocked()) clearPreparedPermission();
     },
@@ -364,9 +367,19 @@ function EditorApp() {
       />
       <SourcePermissionDialog
         open={preparedPermission !== null}
-        sourceOrigin={preparedPermission?.sourceOrigin ?? ''}
+        sourceOrigin={preparedPermission?.source.kind === 'origin' ? preparedPermission.source.sourceOrigin : ''}
         actionLabel={preparedPermission?.action.kind === 'continuation' ? '接續錄製' : '補拍'}
         pending={permissionPending}
+        onContinueElsewhere={
+          preparedPermission?.action.kind === 'continuation'
+            ? () => void confirmContinueElsewhere()
+            : undefined
+        }
+        continueElsewherePending={continueElsewherePending}
+        continueElsewhereError={continueElsewhereError}
+        sourceUnavailableReason={
+          preparedPermission?.source.kind === 'unavailable' ? preparedPermission.source.reason : null
+        }
         onCancel={clearPreparedPermission}
         onConfirm={() => void confirmPreparedPermission()}
       />

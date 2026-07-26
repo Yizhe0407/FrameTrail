@@ -17,9 +17,16 @@ export interface UndoAction {
  * either. */
 export type PendingUndoAction = Omit<UndoAction, 'id' | 'guideId'>;
 
+export type PreparedCaptureSource =
+  | { kind: 'origin'; sourceOrigin: string; permissionPattern: string }
+  /** The Guide has no recorded source page (no steps), so the confirmation
+   * dialog can only offer the site-agnostic elsewhere continuation. Only a
+   * continuation action may carry this: recapture always targets a stored
+   * step and therefore always has an origin. */
+  | { kind: 'unavailable'; reason: string };
+
 export type PreparedCapturePermission = {
-  sourceOrigin: string;
-  permissionPattern: string;
+  source: PreparedCaptureSource;
   /** The entry the grant is bound to, so changing the selection cancels it.
    * Continuation records into the Guide as a whole and has no such anchor. */
   entryId: string | null;

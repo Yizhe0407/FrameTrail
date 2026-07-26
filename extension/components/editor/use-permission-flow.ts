@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
-import { browser } from 'wxt/browser';
+import { browser, type Browser } from 'wxt/browser';
 import type { PreparedCapturePermission } from '@/lib/editor/editor-app-model';
+import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
 import { entryId, type StepEntry } from '@/lib/storage/db';
 import type {
   PreflightGuideContinuationSourcePermissionResult,
@@ -36,6 +37,29 @@ function validatePreparedPermissionSource(
   }
 }
 
+/** Same recordability rule the popup start path applies: a normal web page.
+ * Tab URLs are only visible for origins the user already granted (or the
+ * active tab), which is exactly the set the recorder can be injected into. */
+function isRecordableContinuationTab(tab: Browser.tabs.Tab): boolean {
+  return (
+    tab.id != null &&
+    tab.windowId != null &&
+    typeof tab.url === 'string' &&
+    (tab.url.startsWith('http://') || tab.url.startsWith('https://')) &&
+    !isRestrictedUrl(tab.url)
+  );
+}
+
+/** The most recently used normal web page tab, so 「改在其他頁面接續」 lands on
+ * the page the user was just working in rather than an arbitrary tab. */
+async function findLatestRecordableTab(): Promise<Browser.tabs.Tab | null> {
+  const tabs = await browser.tabs.query({});
+  const candidates = tabs
+    .filter(isRecordableContinuationTab)
+    .sort((first, second) => (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0));
+  return candidates[0] ?? null;
+}
+
 interface UsePermissionFlowOptions {
   sessionId: string | null;
   operationActive: boolean;
@@ -68,6 +92,8 @@ export function usePermissionFlow({
 }: UsePermissionFlowOptions) {
   const [preparedPermission, setPreparedPermission] = useState<PreparedCapturePermission | null>(null);
   const [permissionPending, setPermissionPending] = useState(false);
+  const [continueElsewherePending, setContinueElsewherePending] = useState(false);
+  const [continueElsewhereError, setContinueElsewhereError] = useState<string | null>(null);
   const lock = useRef(false);
   const generation = useRef(0);
   const flowEntryId = useRef<string | null>(null);
@@ -83,6 +109,8 @@ export function usePermissionFlow({
     flowSessionId.current = null;
     setPreparedPermission(null);
     setPermissionPending(false);
+    setContinueElsewherePending(false);
+    setContinueElsewhereError(null);
   }, []);
 
   /** Cancels a prepared grant when the selection or Guide it was bound to is
@@ -129,14 +157,16 @@ export function usePermissionFlow({
     const prepared = preparedPermission;
     if (
       !prepared ||
+      prepared.source.kind !== 'origin' ||
       !sessionId ||
       permissionPending ||
+      continueElsewherePending ||
       !lock.current ||
       flowSessionId.current !== sessionId
     ) return;
 
     if (prepared.entryId) requireSelectedEntry(prepared.entryId);
-    validatePreparedPermissionSource(prepared.sourceOrigin, prepared.permissionPattern);
+    validatePreparedPermissionSource(prepared.source.sourceOrigin, prepared.source.permissionPattern);
     const flowGeneration = generation.current;
     setPermissionPending(true);
     setOperationError(null);
@@ -144,7 +174,7 @@ export function usePermissionFlow({
     try {
       // This must remain the first asynchronous browser API in this explicit
       // confirmation click so Chromium preserves transient user activation.
-      const granted = await browser.permissions.request({ origins: [prepared.permissionPattern] });
+      const granted = await browser.permissions.request({ origins: [prepared.source.permissionPattern] });
       if (generation.current !== flowGeneration) return;
       if (!granted) throw new Error('需要允許存取來源網站，才能回到該頁面錄製。');
 
@@ -192,6 +222,90 @@ export function usePermissionFlow({
     }
   }
 
+  /**
+   * The site-agnostic continuation path: instead of reopening the Guide's
+   * stored source URL, recording resumes on the most recently used normal web
+   * page tab. It sends a plain START_RECORDING (no continuation field), i.e.
+   * the popup's contract — the background records the active tab under the
+   * grants it already holds, so no host-permission request happens here and
+   * the editor still never nominates a source URL.
+   */
+  async function confirmContinueElsewhere(): Promise<void> {
+    const prepared = preparedPermission;
+    if (
+      !prepared ||
+      prepared.action.kind !== 'continuation' ||
+      !sessionId ||
+      permissionPending ||
+      continueElsewherePending ||
+      !lock.current ||
+      flowSessionId.current !== sessionId
+    ) return;
+    const flowGeneration = generation.current;
+    setContinueElsewherePending(true);
+    setContinueElsewhereError(null);
+    setOperationError(null);
+    // The dialog stays open only for the "no eligible tab" outcome so the user
+    // can open a site and retry; every other outcome settles the flow.
+    let keepDialogOpen = false;
+
+    try {
+      const target = await findLatestRecordableTab();
+      if (generation.current !== flowGeneration) return;
+      if (!target || target.id == null) {
+        keepDialogOpen = true;
+        setContinueElsewhereError('找不到可錄製的一般網頁分頁，請先開啟要接續錄製的網站。');
+        return;
+      }
+
+      try {
+        await flushDescriptions();
+      } catch {
+        // flushDescriptions already surfaced its own localized message; a
+        // generic overwrite here would hide which descriptions failed to save.
+        return;
+      }
+      if (generation.current !== flowGeneration) return;
+
+      // The background resolves a plain start against the active tab of the
+      // last focused window, so focus the target window and tab first, then
+      // confirm the switch actually took before sending the message.
+      if (target.windowId != null) {
+        await browser.windows.update(target.windowId, { focused: true });
+      }
+      await browser.tabs.update(target.id, { active: true });
+      const confirmed = await browser.tabs.get(target.id);
+      if (generation.current !== flowGeneration) return;
+      if (!confirmed.active || !isRecordableContinuationTab(confirmed)) {
+        throw new Error('無法切換到要錄製的分頁，請再試一次。');
+      }
+
+      const started = requireRuntimeMessageResult<StartRecordingResult>(
+        await browser.runtime.sendMessage({
+          type: 'START_RECORDING',
+          sessionId,
+          mode: 'steps',
+        }),
+        isStartRecordingResult,
+      );
+      if (!started.ok) throw new Error(started.error);
+    } catch (continueError) {
+      console.error('改在其他頁面接續錄製失敗', continueError);
+      if (generation.current === flowGeneration) {
+        setOperationError(
+          continueError instanceof Error
+            ? continueError.message
+            : '無法在其他頁面接續錄製；現有內容未變更，請再試一次。',
+        );
+      }
+    } finally {
+      if (generation.current === flowGeneration) {
+        if (keepDialogOpen) setContinueElsewherePending(false);
+        else clearPreparedPermission();
+      }
+    }
+  }
+
   async function handleRecapture(): Promise<void> {
     if (!sessionId || isDataOperationLocked() || lock.current || operationActive) return;
     const currentEntry = requireSelectedEntry();
@@ -223,8 +337,7 @@ export function usePermissionFlow({
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
       prepared = {
-        sourceOrigin: result.sourceOrigin,
-        permissionPattern: result.permissionPattern,
+        source: { kind: 'origin', sourceOrigin: result.sourceOrigin, permissionPattern: result.permissionPattern },
         entryId: targetEntryId,
         action: { kind: 'recapture', target },
       };
@@ -258,14 +371,24 @@ export function usePermissionFlow({
         }),
         isPreflightGuideContinuationSourcePermissionResult,
       );
-      if (!result.ok) throw new Error(result.message);
-      validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
-      prepared = {
-        sourceOrigin: result.sourceOrigin,
-        permissionPattern: result.permissionPattern,
-        entryId: null,
-        action: { kind: 'continuation' },
-      };
+      if (!result.ok) {
+        // A Guide without steps has no source page to lock onto. That is not a
+        // terminal error: the dialog still opens and offers the site-agnostic
+        // 「改在其他頁面接續」 path, which needs no stored source.
+        if (result.code !== 'SOURCE_NOT_FOUND') throw new Error(result.message);
+        prepared = {
+          source: { kind: 'unavailable', reason: result.message },
+          entryId: null,
+          action: { kind: 'continuation' },
+        };
+      } else {
+        validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
+        prepared = {
+          source: { kind: 'origin', sourceOrigin: result.sourceOrigin, permissionPattern: result.permissionPattern },
+          entryId: null,
+          action: { kind: 'continuation' },
+        };
+      }
     } catch (continuationError) {
       console.error('檢查接續錄製來源失敗', continuationError);
       if (generation.current === flowGeneration) {
@@ -284,10 +407,13 @@ export function usePermissionFlow({
     preparedPermission,
     permissionPending,
     permissionFlowActive,
+    continueElsewherePending,
+    continueElsewhereError,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,
     confirmPreparedPermission,
+    confirmContinueElsewhere,
     handleRecapture,
     handleContinueRecording,
   };
