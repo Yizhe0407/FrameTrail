@@ -4,6 +4,13 @@ import type {
   StepRecaptureTarget,
 } from './messages';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
+import {
+  isBoundedString,
+  isFiniteRect,
+  isFiniteWithin as isFiniteWithinRange,
+  isRecord,
+  isSafeId,
+} from '../shared/validation';
 
 const MAX_ID_LENGTH = PERSISTED_STEP_LIMITS.maxIdLength;
 const MAX_URL_LENGTH = 8_192;
@@ -11,32 +18,23 @@ const MAX_TEXT_LENGTH = 10_000;
 const MAX_COORDINATE_MAGNITUDE = 10_000_000;
 const MAX_DEVICE_PIXEL_RATIO = 32;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function isString(value: unknown, maximumLength: number = MAX_ID_LENGTH): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= maximumLength;
+  return isBoundedString(value, maximumLength);
 }
 
 function isOptionalString(value: unknown, maximumLength: number = MAX_ID_LENGTH): value is string | undefined {
   return value === undefined || isString(value, maximumLength);
 }
 
-function isBrowserId(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
+const isBrowserId = isSafeId;
+const isTimestamp = isSafeId;
 
 function isFiniteWithin(value: unknown, maximumMagnitude = MAX_COORDINATE_MAGNITUDE): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= maximumMagnitude;
+  return isFiniteWithinRange(value, -maximumMagnitude, maximumMagnitude);
 }
 
 function isDevicePixelRatio(value: unknown): value is number {
   return isFiniteWithin(value, MAX_DEVICE_PIXEL_RATIO) && value > 0;
-}
-
-function isTimestamp(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
 function isViewport(value: unknown): value is ClickCapture['viewport'] {
@@ -50,13 +48,7 @@ function isViewport(value: unknown): value is ClickCapture['viewport'] {
 }
 
 function isRect(value: unknown): value is ClickCapture['rect'] {
-  if (!isRecord(value)) return false;
-  return (
-    isFiniteWithin(value.x) &&
-    isFiniteWithin(value.y) &&
-    isFiniteWithin(value.width) && value.width > 0 &&
-    isFiniteWithin(value.height) && value.height > 0
-  );
+  return isFiniteRect(value, { maxMagnitude: MAX_COORDINATE_MAGNITUDE });
 }
 
 function isHttpUrl(value: unknown): value is string {

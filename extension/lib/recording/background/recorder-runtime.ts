@@ -80,3 +80,5 @@ export function createRecorderRuntime({
 
   return { captureVisibleTabWithRetry, dataUrlToBlob, getScreenshotScale, injectRecorder, stopRecorderInTab };
 }
+
+export type RecorderRuntime = ReturnType<typeof createRecorderRuntime>;

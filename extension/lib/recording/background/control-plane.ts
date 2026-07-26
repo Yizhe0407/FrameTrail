@@ -1,0 +1,111 @@
+import type { RecorderReadyGate } from '../recorder-ready';
+import { queueStateMutation } from '../background-queues';
+import { getRecordingState, setRecordingState } from '../../storage/storage';
+import type { BackgroundMessage, RecordingState } from '../../runtime/messages';
+
+/** How long a startup waits for the injected recorder's READY handshake. */
+export const RECORDER_READY_TIMEOUT_MS = 5_000;
+
+/** The viewport/url/timestamp context a snapshot recorder reports alongside
+ * its READY handshake; the anchor capture consumes it during startup. */
+export type SnapshotCaptureContext = NonNullable<
+  Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext']
+>;
+
+export interface ClaimControlOptions {
+  /** Cancel and clear the recorder startup gate. */
+  cancelRecorderGate?: boolean;
+  /** Cancel and clear the recapture startup gate. */
+  cancelRecaptureGate?: boolean;
+  /** Drop a snapshot capture context left behind by a previous startup. */
+  clearSnapshotContext?: boolean;
+  /** Invalidate the undo window (and lazily its persisted copy). */
+  discardUndo?: boolean;
+  /** Set false when the caller already bumped the version (e.g. inside an
+   * earlier queued state mutation) and only needs the gates cleared. */
+  bumpVersion?: boolean;
+}
+
+export type ConditionalStateWrite = { previous: RecordingState; next: RecordingState };
+
+export interface ControlPlaneHooks {
+  /** Invalidates the undo window synchronously; the plane never touches the
+   * undo storage itself. */
+  discardPendingUndo(): void;
+}
+
+/**
+ * The single owner of the background's in-memory control state: the control
+ * version, the click gate, the two recorder-ready gates and the pending
+ * snapshot context. Control messages invalidate work synchronously, before
+ * their first await — claimControl is that contract's one enforcement point —
+ * while the persisted runId provides the same protection across
+ * service-worker restarts.
+ */
+export function createControlPlane(hooks: ControlPlaneHooks) {
+  const plane = {
+    controlVersion: 0,
+    acceptingClicks: true,
+    pendingRecorderReady: null as RecorderReadyGate | null,
+    pendingRecaptureReady: null as RecorderReadyGate | null,
+    pendingSnapshotContext: undefined as SnapshotCaptureContext | undefined,
+
+    bumpVersion(): number {
+      return ++plane.controlVersion;
+    },
+
+    /**
+     * Claims control of the capture machinery synchronously so all in-flight
+     * async work observes the change and cancels itself; the bumped version is
+     * the durable half of that contract. Each caller names exactly the gates
+     * it owns: clearing a gate another flow still needs would cancel that
+     * flow's startup.
+     */
+    claimControl(options: ClaimControlOptions): number {
+      plane.acceptingClicks = false;
+      if (options.cancelRecorderGate) {
+        plane.pendingRecorderReady?.cancel();
+        plane.pendingRecorderReady = null;
+      }
+      if (options.cancelRecaptureGate) {
+        plane.pendingRecaptureReady?.cancel();
+        plane.pendingRecaptureReady = null;
+      }
+      if (options.clearSnapshotContext) plane.pendingSnapshotContext = undefined;
+      if (options.discardUndo) hooks.discardPendingUndo();
+      return options.bumpVersion === false ? plane.controlVersion : plane.bumpVersion();
+    },
+
+    /**
+     * Serialized compare-then-write against the recording state: `update`
+     * applies only when the control version still matches (checked again after
+     * the read, because a control message may claim control while the read is
+     * in flight) and `predicate` accepts the freshly read state. Pass a null
+     * version for writes guarded by their predicate alone.
+     */
+    async writeStateIf(
+      version: number | null,
+      predicate: (current: RecordingState) => boolean,
+      update: (current: RecordingState) => RecordingState,
+    ): Promise<ConditionalStateWrite | null> {
+      return queueStateMutation(async () => {
+        if (version != null && version !== plane.controlVersion) return null;
+        const current = await getRecordingState();
+        if ((version != null && version !== plane.controlVersion) || !predicate(current)) return null;
+        const next = update(current);
+        await setRecordingState(next);
+        return { previous: current, next };
+      });
+    },
+
+    async writeStateForControl(
+      version: number,
+      update: (current: RecordingState) => RecordingState,
+    ): Promise<RecordingState | null> {
+      return (await plane.writeStateIf(version, () => true, update))?.next ?? null;
+    },
+  };
+  return plane;
+}
+
+export type ControlPlane = ReturnType<typeof createControlPlane>;

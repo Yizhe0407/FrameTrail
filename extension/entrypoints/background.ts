@@ -1,7 +1,5 @@
 import { browser, type Browser } from 'wxt/browser';
 import {
-  SNAPSHOT_VIEWPORT_CHANGED_MESSAGE,
-  SnapshotViewportChangedError,
   StaleCaptureError,
   queueCapture,
   queueClick,
@@ -11,6 +9,7 @@ import {
 } from '@/lib/recording/background-queues';
 import { generateActionDescription } from '@/lib/capture/action-description';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import { focusTab } from '@/lib/runtime/navigation';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -28,15 +27,11 @@ import {
   addStep,
   deleteStep,
   deleteStepsForRun,
-  getEffectiveBounds,
   getGuide,
   getStep,
   getSteps,
-  replaceStepCaptureAtomically,
   resetGuide,
-  StepRecaptureError,
   type Step,
-  type StepRecaptureTarget as DbStepRecaptureTarget,
 } from '@/lib/storage/db';
 import {
   getCaptureGuardFailure,
@@ -44,19 +39,33 @@ import {
   isMatchingSnapshotViewport,
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
-import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
 import { discardPristineGuide } from '@/lib/storage/db';
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
+import {
+  createControlPlane,
+  RECORDER_READY_TIMEOUT_MS,
+  type SnapshotCaptureContext,
+} from '@/lib/recording/background/control-plane';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
+import { ACTIVE_OPERATION_MESSAGE, createRecaptureFlow } from '@/lib/recording/background/recapture-flow';
+import { createFollowMode } from '@/lib/recording/background/follow-mode';
+import {
+  EDITOR_ONLY_CONTINUATION_MESSAGE,
+  isEditorSenderForSession,
+  resolveContinuationTab,
+  resolveGuideContinuationSourceUrl,
+  RESTRICTED_CONTINUATION_SOURCE_MESSAGE,
+  sourcePermissionPreflightSuccess,
+} from '@/lib/recording/background/source-tab';
 import {
   clearPendingUndoRecord,
   readPendingUndoRecord,
   savePendingUndoRecord,
+  type PendingUndoRecord,
 } from '@/lib/recording/background/pending-undo-store';
 import { KEEPALIVE_REJECTED_MESSAGE_TYPE } from '@/lib/runtime/keep-alive';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
-import { waitForTabComplete } from '@/lib/runtime/tab-loading';
-import { getRecordingState, setRecordingState } from '@/lib/storage/storage';
+import { getRecordingState, resetRunStateToIdle, setRecordingState } from '@/lib/storage/storage';
 import {
   clearEditorRecovery,
   markEditorOpenFailed,
@@ -64,25 +73,18 @@ import {
   RECORDED_TAB_CLOSED_ERROR,
 } from '@/lib/recording/recording-recovery';
 import type {
-  AckStepRecaptureResultMessage,
   BackgroundMessage,
-  CancelStepRecaptureMessage,
   CancelStepRecaptureResult,
   ClickCapture,
   ClickCaptureResult,
   FinishResult,
-  FocusStepRecaptureSourceMessage,
   FocusStepRecaptureSourceResult,
-  FrameTrailRecaptureReadyMessage,
-  FrameTrailRecaptureTargetMessage,
   FrameTrailSnapshotActiveMessage,
   OpenEditorMessage,
   OpenEditorResult,
   PreflightGuideContinuationSourcePermissionErrorCode,
   PreflightGuideContinuationSourcePermissionMessage,
   PreflightGuideContinuationSourcePermissionResult,
-  PreflightStepRecaptureSourcePermissionErrorCode,
-  PreflightStepRecaptureSourcePermissionMessage,
   PreflightStepRecaptureSourcePermissionResult,
   RecoverableRecordingError,
   ResetGuideMessage,
@@ -94,20 +96,20 @@ import type {
   SnapshotRecorderFailureMessage,
   StartRecordingMessage,
   StartRecordingResult,
-  StartStepRecaptureMessage,
   StartStepRecaptureResult,
-  StepRecaptureResult,
-  SourcePermissionPreflightSuccess,
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
 
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
-const RECORDER_READY_TIMEOUT_MS = 5_000;
-/** Every run starts numbered. Numbering is a per-snapshot presentation choice,
- * so the editor owns turning it off where the result is visible; asking before
- * the first capture made the user decide blind. Captures still stamp the run's
- * value onto each step, so turning it off later never rewrites older images. */
-const RUN_STARTS_NUMBERED = true;
+
+const REBUILD_SNAPSHOT_FAILED_MESSAGE = '無法重建快照，請重試。';
+const CREATE_SNAPSHOT_FAILED_MESSAGE = '無法建立新快照，請重試。';
+
+const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
+/** Raised when a snapshot annotation arrives from a viewport that no longer
+ * matches the anchor's. Typed so handleClick invalidates the run instead of
+ * surfacing a per-click error. */
+class SnapshotViewportChangedError extends Error {}
 /** A snapshot run whose anchor row (or its base image) is gone can never accept
  * another annotation. Settling the whole run once — instead of failing every
  * click — is what makes the state recoverable from the popup. */
@@ -127,23 +129,32 @@ const recorderRuntime = createRecorderRuntime({
   }),
   sendStopMessage: (tabId, message) => browser.tabs.sendMessage(tabId, message),
 });
-// Control messages invalidate work synchronously, before their first await.
-// Persisted runId provides the same protection across service-worker restarts.
-let controlVersion = 0;
-let acceptingClicks = true;
-let pendingRecorderReady: RecorderReadyGate | null = null;
-let pendingRecaptureReady: RecorderReadyGate | null = null;
-let activeRecaptureCaptureId: string | null = null;
-let pendingSnapshotContext: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext'] = undefined;
-let pendingUndo:
-  | {
-      token: string;
-      runId: string;
-      step: Step;
-      expectedItemCount: number;
-      expiresAt: number;
-    }
-  | null = null;
+let pendingUndo: PendingUndoRecord | null = null;
+
+// Owns the control version, the click gate, the ready gates and the pending
+// snapshot context; its claimControl is the one enforcement point of the
+// "invalidate synchronously before the first await" contract.
+const control = createControlPlane({ discardPendingUndo });
+
+// The recapture flow shares the capture pipeline and its cancellation/commit
+// markers with step capture, so those cross the deps boundary as callbacks.
+const recaptureFlow = createRecaptureFlow({
+  control,
+  runtime: recorderRuntime,
+  captureScreenshotWithGuard,
+  cancelCapture,
+  assertCaptureNotCancelled,
+  isCaptureCommitting: (captureId) => committingCaptureIds.has(captureId),
+  markCaptureCommitting: (captureId) => {
+    committingCaptureIds.add(captureId);
+  },
+  releaseCapture: (captureId) => {
+    committingCaptureIds.delete(captureId);
+    cancelledCaptureIds.delete(captureId);
+  },
+});
+
+const followMode = createFollowMode({ control, runtime: recorderRuntime });
 
 /**
  * Invalidates the in-memory undo window synchronously (control flows rely on
@@ -174,29 +185,17 @@ function assertCaptureNotCancelled(captureId: string): void {
   if (cancelledCaptureIds.has(captureId)) throw new StaleCaptureError('Capture was cancelled before it could be saved.');
 }
 
-async function stopRecordingSource(state: RecordingState): Promise<void> {
-  await recorderRuntime.stopRecorderInTab(state.tabId);
-}
-
 async function updateRunState(
   runId: string,
   update: (current: RecordingState) => RecordingState,
   expectedControlVersion?: number,
 ): Promise<boolean> {
-  return queueStateMutation(async () => {
-    if (expectedControlVersion != null && expectedControlVersion !== controlVersion) return false;
-    const current = await getRecordingState();
-    if (
-      (expectedControlVersion != null && expectedControlVersion !== controlVersion) ||
-      !current.isRecording ||
-      current.operation !== 'recording' ||
-      current.runId !== runId
-    ) {
-      return false;
-    }
-    await setRecordingState(update(current));
-    return true;
-  });
+  const written = await control.writeStateIf(
+    expectedControlVersion ?? null,
+    (current) => current.isRecording && current.operation === 'recording' && current.runId === runId,
+    update,
+  );
+  return written !== null;
 }
 
 async function setRunError(runId: string, error: string): Promise<void> {
@@ -207,6 +206,9 @@ async function setRunError(runId: string, error: string): Promise<void> {
   }));
 }
 
+// Deliberately not writeStateIf: the already-invalidated → true answer must
+// stay atomic with the claim-and-write, or a racing control could make this
+// report false for a run that is in fact invalidated.
 async function invalidateSnapshotRun(
   runId: string,
   viewport: ClickCapture['viewport'],
@@ -224,7 +226,7 @@ async function invalidateSnapshotRun(
       return true;
     }
     if (
-      expectedControlVersion !== controlVersion ||
+      expectedControlVersion !== control.controlVersion ||
       !current.isRecording ||
       current.runId !== runId ||
       current.mode !== 'snapshot' ||
@@ -241,9 +243,7 @@ async function invalidateSnapshotRun(
       return false;
     }
 
-    acceptingClicks = false;
-    discardPendingUndo();
-    controlVersion++;
+    control.claimControl({ discardUndo: true });
     await setRecordingState({
       ...current,
       phase: 'invalidated',
@@ -263,12 +263,8 @@ function stopRunWithError(
   expectedControlVersion: number,
   recoverableError?: RecoverableRecordingError,
 ): Promise<void> {
-  if (expectedControlVersion !== controlVersion) return Promise.resolve();
-  acceptingClicks = false;
-  pendingRecorderReady?.cancel();
-  pendingRecorderReady = null;
-  pendingSnapshotContext = undefined;
-  const version = ++controlVersion;
+  if (expectedControlVersion !== control.controlVersion) return Promise.resolve();
+  const version = control.claimControl({ cancelRecorderGate: true, clearSnapshotContext: true });
   return handleStopRunWithError(runId, error, version, recoverableError);
 }
 
@@ -278,10 +274,12 @@ async function handleStopRunWithError(
   version: number,
   recoverableError?: RecoverableRecordingError,
 ): Promise<void> {
-  const stoppedState = await queueStateMutation(async () => {
-    const state = await getRecordingState();
-    if (version !== controlVersion || !state.isRecording || state.runId !== runId) return null;
-    await setRecordingState({
+  // The error-stop shape deliberately differs from resetRunStateToIdle: phase
+  // 'error' plus the kept error text drive the popup's recovery flow.
+  const stopped = await control.writeStateIf(
+    version,
+    (state) => state.isRecording && state.runId === runId,
+    (state) => ({
       ...state,
       operation: null,
       isRecording: false,
@@ -296,32 +294,14 @@ async function handleStopRunWithError(
       autoCreatedGuideId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
-    });
-    return state;
-  });
-  if (!stoppedState) return;
+    }),
+  );
+  if (!stopped) return;
+  const stoppedState = stopped.previous;
   // Only after the run stopped referencing it: an interruption here leaks an
   // orphan row at worst, never a live run pointing at a deleted anchor.
-  try {
-    await deleteEmptySnapshotAnchor(stoppedState);
-  } catch (cleanupError) {
-    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
-  }
-  await stopRecordingSource(stoppedState);
-}
-
-async function writeStateForControl(
-  version: number,
-  update: (current: RecordingState) => RecordingState,
-): Promise<RecordingState | null> {
-  return queueStateMutation(async () => {
-    if (version !== controlVersion) return null;
-    const current = await getRecordingState();
-    if (version !== controlVersion) return null;
-    const next = update(current);
-    await setRecordingState(next);
-    return next;
-  });
+  await deleteEmptySnapshotAnchorBestEffort(stoppedState);
+  await recorderRuntime.stopRecorderInTab(stoppedState.tabId);
 }
 
 async function assertCaptureContext(
@@ -332,14 +312,14 @@ async function assertCaptureContext(
   windowId: number,
   expectedUrl: string,
 ): Promise<void> {
-  if (expectedControlVersion !== controlVersion) {
+  if (expectedControlVersion !== control.controlVersion) {
     throw new StaleCaptureError('Recording control changed before the screenshot could be taken.');
   }
   const state = await getRecordingState();
   const [activeTab] = await browser.tabs.query({ active: true, windowId });
   const failure = getCaptureGuardFailure({
     expectedControlVersion,
-    currentControlVersion: controlVersion,
+    currentControlVersion: control.controlVersion,
     runId,
     sessionId,
     tabId,
@@ -353,22 +333,40 @@ async function assertCaptureContext(
   if (failure === 'changed-url') throw new Error('已略過此步驟：頁面在截圖前已變更。');
 }
 
-type SnapshotCaptureContext = NonNullable<
-  Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext']
->;
-
-function readPendingSnapshotContext(): SnapshotCaptureContext | undefined {
-  return pendingSnapshotContext;
-}
-
-
-async function persistRecordingSteps(
-  state: RecordingState,
-  steps: Step[],
-  _expectedControlVersion: number,
-): Promise<void> {
+async function persistRecordingSteps(state: RecordingState, steps: Step[]): Promise<void> {
   if (!state.sessionId || !state.runId) throw new StaleCaptureError('Recording is no longer active.');
   for (const step of steps) await addStep(step);
+}
+
+/**
+ * Removes a snapshot anchor that failed to become (or stay) usable. A
+ * published anchor id must be withdrawn from the run state before its row
+ * disappears; if the withdrawal cannot be applied, the row is kept (an orphan
+ * at worst) so the state never dangles into a deleted anchor.
+ */
+async function withdrawAnchorThenDelete(
+  runId: string,
+  anchorId: string,
+  version: number,
+  anchorPublished: boolean,
+): Promise<void> {
+  const safeToDelete = !anchorPublished || await updateRunState(
+    runId,
+    (current) => current.groupAnchorId === anchorId
+      ? { ...current, groupAnchorId: null, snapshotViewport: null, snapshotDevicePixelRatio: null }
+      : current,
+    version,
+  ).catch(() => false);
+  if (!safeToDelete) return;
+  try {
+    await deleteStep(anchorId);
+  } catch (cleanupError) {
+    console.error(
+      '[frametrail] failed to remove incomplete snapshot:',
+      describeBrowserError(cleanupError),
+      cleanupError,
+    );
+  }
 }
 
 async function createAndActivateSnapshotAnchor(
@@ -408,7 +406,7 @@ async function createAndActivateSnapshotAnchor(
       timestamp: context.timestamp,
       groupId: anchorId,
       numbered: state.numbered,
-    }], version);
+    }]);
     const updated = await updateRunState(
       runId,
       (current) => ({
@@ -424,7 +422,7 @@ async function createAndActivateSnapshotAnchor(
     if (!updated) throw new StaleCaptureError('Recording changed while saving the snapshot.');
     anchorPublished = true;
 
-    acceptingClicks = true;
+    control.acceptingClicks = true;
     const activateMessage: FrameTrailSnapshotActiveMessage = {
       type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE',
       runId,
@@ -435,149 +433,12 @@ async function createAndActivateSnapshotAnchor(
     }
     return anchorId;
   } catch (error) {
-    acceptingClicks = false;
-    if (anchorId) {
-      // A published anchor id must be withdrawn from the run state before its
-      // row disappears; if withdrawal fails, keep the row (an orphan at worst)
-      // so the state never dangles into a deleted anchor.
-      const removedAnchorId = anchorId;
-      const safeToDelete = !anchorPublished || await updateRunState(
-        runId,
-        (current) => current.groupAnchorId === removedAnchorId
-          ? { ...current, groupAnchorId: null, snapshotViewport: null, snapshotDevicePixelRatio: null }
-          : current,
-        version,
-      ).catch(() => false);
-      if (safeToDelete) {
-        try {
-          await deleteStep(anchorId);
-        } catch (cleanupError) {
-          console.error(
-            '[frametrail] failed to remove incomplete snapshot:',
-            describeBrowserError(cleanupError),
-            cleanupError,
-          );
-        }
-      }
-    }
+    control.acceptingClicks = false;
+    if (anchorId) await withdrawAnchorThenDelete(runId, anchorId, version, anchorPublished);
     throw error;
   } finally {
     cancelledCaptureIds.delete(captureId);
   }
-}
-
-type ValidatedRecaptureTarget = {
-  target: DbStepRecaptureTarget;
-  entryId: string;
-  sourceUrl: string;
-};
-
-type StepRecaptureValidationErrorCode = Exclude<
-  PreflightStepRecaptureSourcePermissionErrorCode,
-  'INVALID_EDITOR' | 'RESTRICTED_SOURCE'
->;
-
-class StepRecaptureStartError extends Error {
-  constructor(
-    readonly code: StepRecaptureValidationErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'StepRecaptureStartError';
-  }
-}
-
-let startingRecapture = false;
-
-function recaptureFailure(
-  code: Exclude<StartStepRecaptureResult, { ok: true }>['code'],
-  error: string,
-): StartStepRecaptureResult {
-  return { ok: false, code, error };
-}
-
-function isEditorSenderForSession(sender: Browser.runtime.MessageSender, sessionId: string): boolean {
-  return isTrustedEditorSenderForSession(sender, browser.runtime.getURL('/editor.html'), sessionId);
-}
-
-function isRecaptureSourceSender(
-  sender: Browser.runtime.MessageSender,
-  context: NonNullable<RecordingState['recapture']>,
-): boolean {
-  return isTrustedRecaptureSourceSender(sender, context);
-}
-
-function recapturePermissionPattern(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    return `${parsed.origin}/*`;
-  } catch {
-    return null;
-  }
-}
-
-function sourcePermissionPreflightSuccess(sourceUrl: string): SourcePermissionPreflightSuccess | null {
-  const permissionPattern = recapturePermissionPattern(sourceUrl);
-  if (!permissionPattern || isRestrictedUrl(sourceUrl)) return null;
-  return {
-    ok: true,
-    sourceUrl,
-    sourceOrigin: new URL(sourceUrl).origin,
-    permissionPattern,
-  };
-}
-
-async function validateRecaptureTarget(
-  sessionId: string,
-  target: StartStepRecaptureMessage['target'],
-): Promise<ValidatedRecaptureTarget> {
-  if (target.kind === 'single') {
-    const step = await getStep(target.stepId);
-    if (!step || step.sessionId !== sessionId) {
-      throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的步驟。');
-    }
-    if (step.groupId || !step.screenshotBlob || !getEffectiveBounds(step)) {
-      throw new StepRecaptureStartError('TARGET_CHANGED', '此步驟已變更，請重新整理編輯器後再試一次。');
-    }
-    return { target, entryId: step.id, sourceUrl: step.url };
-  }
-
-  const [anchor, annotation, steps] = await Promise.all([
-    getStep(target.anchorId),
-    getStep(target.annotationId),
-    getSteps(sessionId),
-  ]);
-  if (!anchor || !annotation || anchor.sessionId !== sessionId || annotation.sessionId !== sessionId) {
-    throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的快照。');
-  }
-  if (
-    anchor.groupId !== anchor.id ||
-    annotation.groupId !== anchor.id ||
-    annotation.id === anchor.id ||
-    !anchor.screenshotBlob ||
-    !getEffectiveBounds(annotation)
-  ) {
-    throw new StepRecaptureStartError('TARGET_CHANGED', '快照結構已變更，請重新整理編輯器後再試一次。');
-  }
-  const annotations = steps.filter(
-    (step) => step.groupId === anchor.id && step.id !== anchor.id && getEffectiveBounds(step),
-  );
-  if (annotations.length !== 1 || annotations[0].id !== annotation.id) {
-    throw new StepRecaptureStartError(
-      'UNSUPPORTED_SNAPSHOT_GROUP',
-      '此快照包含多個標註；更換底圖會使其他標註失效，請改用重拍整張快照。',
-    );
-  }
-  return { target, entryId: anchor.id, sourceUrl: anchor.url };
-}
-
-/** Where a continuation run resumes: the persisted URL of the Guide's last
- * step. Editors never supply this — a caller-provided URL would let an editor
- * page nominate an arbitrary origin for the permission prompt. */
-async function resolveGuideContinuationSourceUrl(sessionId: string): Promise<string | null> {
-  const steps = await getSteps(sessionId);
-  return steps.length > 0 ? steps[steps.length - 1].url : null;
 }
 
 function continuationPreflightFailure(
@@ -596,7 +457,7 @@ async function preflightGuideContinuationSourcePermission(
     message.sessionId.trim().length === 0 ||
     !isEditorSenderForSession(sender, message.sessionId)
   ) {
-    return continuationPreflightFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。');
+    return continuationPreflightFailure('INVALID_EDITOR', EDITOR_ONLY_CONTINUATION_MESSAGE);
   }
   const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
   if (!sourceUrl) {
@@ -604,198 +465,8 @@ async function preflightGuideContinuationSourcePermission(
   }
   return (
     sourcePermissionPreflightSuccess(sourceUrl) ??
-    continuationPreflightFailure('RESTRICTED_SOURCE', '此來源頁面不允許錄製。')
+    continuationPreflightFailure('RESTRICTED_SOURCE', RESTRICTED_CONTINUATION_SOURCE_MESSAGE)
   );
-}
-
-async function findOrCreateSourceTab(
-  sourceUrl: string,
-  preferredTabId?: number,
-): Promise<{ tab: Browser.tabs.Tab; reused: boolean }> {
-  if (preferredTabId != null) {
-    try {
-      const preferred = await browser.tabs.get(preferredTabId);
-      if (preferred.id != null && preferred.url === sourceUrl) {
-        return { tab: await waitForTabComplete(preferred.id), reused: true };
-      }
-    } catch {
-      // The nominated tab disappeared; fall through to another exact match.
-    }
-  }
-  const tabs = await browser.tabs.query({});
-  const exact = tabs.find((tab) => tab.id != null && tab.url === sourceUrl);
-  if (exact?.id != null) return { tab: await waitForTabComplete(exact.id), reused: true };
-  const created = await browser.tabs.create({ url: sourceUrl, active: false });
-  if (created.id == null) throw new Error('Browser did not create a source tab.');
-  try {
-    return { tab: await waitForTabComplete(created.id), reused: false };
-  } catch (error) {
-    // Nothing owns this tab yet (no persisted state references it), so a load
-    // timeout or removal race must close it here or every attempt leaks a tab.
-    await browser.tabs.remove(created.id).catch((cleanupError) => {
-      console.warn('[frametrail] failed to close an unloaded source tab', cleanupError);
-    });
-    throw error;
-  }
-}
-
-/**
- * Closes a tab findOrCreateSourceTab created while no persisted state owns it
- * yet. Every failure path between creation and the state write that records
- * sourceTabCreated must call this, or each failed attempt leaks a stray tab.
- */
-async function discardUncommittedSourceTab(
-  source: { tab: Browser.tabs.Tab; reused: boolean },
-): Promise<void> {
-  if (source.reused || source.tab.id == null) return;
-  await browser.tabs.remove(source.tab.id).catch((error) => {
-    console.warn('[frametrail] failed to close an unused source tab', error);
-  });
-}
-
-async function returnToRecaptureEditor(context: RecordingState['recapture']): Promise<void> {
-  if (!context) return;
-  try {
-    await browser.tabs.update(context.editorTabId, { active: true });
-    if (context.editorWindowId != null) {
-      await browser.windows.update(context.editorWindowId, { focused: true });
-    }
-    return;
-  } catch {
-    // The initiating editor was closed. Reuse another editor or recreate it.
-  }
-  const editorBase = browser.runtime.getURL('/editor.html');
-  const [existing] = await browser.tabs.query({ url: `${editorBase}*` });
-  if (existing?.id != null) {
-    await browser.tabs.update(existing.id, { active: true });
-    if (existing.windowId != null) await browser.windows.update(existing.windowId, { focused: true });
-    return;
-  }
-  const editorUrl = new URL(editorBase);
-  editorUrl.searchParams.set('sessionId', context.sessionId);
-  editorUrl.searchParams.set('entryId', context.entryId);
-  editorUrl.searchParams.set('recaptureRunId', context.runId);
-  await browser.tabs.create({ url: editorUrl.href, active: true });
-}
-
-async function settleStepRecapture(
-  runId: string,
-  status: StepRecaptureResult['status'],
-  version: number,
-  errorCode?: string,
-  message?: string,
-): Promise<boolean> {
-  const context = await queueStateMutation(async () => {
-    const current = await getRecordingState();
-    if (
-      version !== controlVersion ||
-      current.operation !== 'recapture' ||
-      current.recapture?.runId !== runId
-    ) {
-      return null;
-    }
-    const recapture = current.recapture;
-    const result: StepRecaptureResult = {
-      runId,
-      status,
-      sessionId: recapture.sessionId,
-      entryId: recapture.entryId,
-      ...(errorCode ? { errorCode } : {}),
-      ...(message ? { message } : {}),
-      completedAt: Date.now(),
-    };
-    await setRecordingState({
-      ...current,
-      operation: null,
-      isRecording: false,
-      phase: 'idle',
-      tabId: null,
-      runId: null,
-      recapture: null,
-      recaptureResult: result,
-      error: status === 'failed' ? message ?? '補拍失敗。' : null,
-      recoverableError: null,
-    });
-    return recapture;
-  });
-  if (!context) return false;
-  activeRecaptureCaptureId = null;
-  await recorderRuntime.stopRecorderInTab(context.sourceTabId);
-  if (context.sourceTabCreated) {
-    await browser.tabs.remove(context.sourceTabId).catch((error) => {
-      console.warn('[frametrail] failed to close temporary recapture tab', error);
-    });
-  }
-  try {
-    await returnToRecaptureEditor(context);
-  } catch (error) {
-    console.error('[frametrail] failed to return to editor after recapture', error);
-  }
-  return true;
-}
-
-async function wasRecaptureCommitted(context: NonNullable<RecordingState['recapture']>): Promise<boolean> {
-  const ownerId = context.target.kind === 'single' ? context.target.stepId : context.target.anchorId;
-  const owner = await getStep(ownerId);
-  return owner?.sessionId === context.sessionId && owner.lastCaptureRunId === context.runId;
-}
-
-/**
- * MV3 may terminate the service worker between capture and durable result
- * handoff. A persisted capture marker lets startup distinguish a committed
- * replacement from abandoned in-flight work instead of leaving the editor
- * permanently locked in recapture mode.
- */
-async function recoverInterruptedRecapture(): Promise<void> {
-  const state = await getRecordingState();
-  const context = state.recapture;
-  if (state.operation !== 'recapture' || !context) return;
-
-  if (context.phase === 'awaiting-target') {
-    // Selection mode survives ordinary worker restarts — the injected recorder
-    // lives on in the source tab. A browser restart, however, reissues tab
-    // ids: the persisted sourceTabId then names nothing or an unrelated page,
-    // and the claimed single-owner slot would block every future operation.
-    if (await isRecaptureSourceTabIntact(context)) return;
-    acceptingClicks = false;
-    const version = ++controlVersion;
-    await settleStepRecapture(
-      context.runId,
-      'failed',
-      version,
-      'SOURCE_TAB_CLOSED',
-      '補拍已停止，因為原始分頁已關閉或已變更。原內容未變更。',
-    );
-    return;
-  }
-
-  const committed = context.phase === 'capturing' && await wasRecaptureCommitted(context);
-  acceptingClicks = false;
-  const version = ++controlVersion;
-  if (committed) {
-    await settleStepRecapture(context.runId, 'replaced', version);
-    return;
-  }
-  await settleStepRecapture(
-    context.runId,
-    'failed',
-    version,
-    'WORKER_RESTARTED',
-    '補拍流程曾中斷，原內容未變更；請重新補拍。',
-  );
-}
-
-async function isRecaptureSourceTabIntact(
-  context: NonNullable<RecordingState['recapture']>,
-): Promise<boolean> {
-  try {
-    const tab = await browser.tabs.get(context.sourceTabId);
-    // Recapture required a host permission grant for the source origin, so the
-    // URL is readable whenever the tab still shows the page selection armed on.
-    return tab.url === context.sourceUrl;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -810,7 +481,7 @@ async function isRecaptureSourceTabIntact(
 async function recoverInterruptedRecording(): Promise<void> {
   const state = await getRecordingState();
   if (state.operation !== 'recording' || !state.isRecording || !state.runId) return;
-  const expectedControlVersion = controlVersion;
+  const expectedControlVersion = control.controlVersion;
   const assessment = await assessInterruptedRecording(state);
   if (assessment === 'intact') return;
   const recoverableError = assessment === 'anchor-missing'
@@ -882,449 +553,30 @@ async function recoverPendingUndo(): Promise<void> {
   pendingUndo ??= record;
 }
 
-/** How long a newly activated tab must stay active before a live steps run
- * follows it. Flicking through several tabs (Ctrl+Tab, tab strip scrubbing)
- * must not inject the recorder into every tab passed on the way. */
-const FOLLOW_ACTIVATION_DEBOUNCE_MS = 300;
-let followDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Debounces tab activations, then serializes the actual move through the
- * lifecycle queue so it can never interleave with START/STOP or another move. */
-function scheduleRecordingFollow(tabId: number): void {
-  if (followDebounceTimer != null) clearTimeout(followDebounceTimer);
-  followDebounceTimer = setTimeout(() => {
-    followDebounceTimer = null;
-    void queueLifecycle(() => followRecordingToTab(tabId)).catch((error) => {
-      console.error('[frametrail] failed to follow the activated tab', describeBrowserError(error), error);
-    });
-  }, FOLLOW_ACTIVATION_DEBOUNCE_MS);
-}
-
-/** True for a tab the follow-mode recorder may move into: a normal web page,
- * never a browser/extension page (the editor included). */
-function isFollowableTab(tab: Browser.tabs.Tab): boolean {
-  return (
-    typeof tab.url === 'string' &&
-    (tab.url.startsWith('http://') || tab.url.startsWith('https://')) &&
-    !isRestrictedUrl(tab.url)
-  );
-}
-
-/**
- * Follow-the-user recording: while a steps run is live and the user activates
- * a different eligible tab, the run moves there instead of silently dropping
- * every click. Snapshot mode never follows (its coordinates belong to one
- * frozen document), and without the <all_urls> grant (asked once at the first
- * steps start, or opted into later via the popup's 「啟用跨分頁錄製」 link)
- * the run keeps its original single-tab behavior. An ineligible tab
- * (restricted/extension page) moves nothing: the recording stays on the
- * previous tab, toolbar and all, until an eligible tab is activated.
- */
-async function followRecordingToTab(tabId: number): Promise<void> {
-  const expectedControlVersion = controlVersion;
-  const state = await getRecordingState();
-  if (
-    expectedControlVersion !== controlVersion ||
-    state.operation !== 'recording' ||
-    !state.isRecording ||
-    state.mode !== 'steps' ||
-    !state.runId ||
-    state.tabId == null ||
-    state.tabId === tabId ||
-    (state.phase !== 'recording' && state.phase !== 'paused')
-  ) {
-    return;
-  }
-  if (!(await browser.permissions.contains({ origins: ['<all_urls>'] }))) return;
-  let tab: Browser.tabs.Tab;
-  try {
-    tab = await browser.tabs.get(tabId);
-  } catch {
-    return; // The activated tab is already gone; a later activation will follow.
-  }
-  // `active` re-checks after the debounce that this tab still holds focus in
-  // its window; a same-window switch-away already scheduled its own follow.
-  if (!tab.active || !isFollowableTab(tab)) return;
-
-  const runId = state.runId;
-  const previousTabId = state.tabId;
-  // Publish the new tabId BEFORE injecting: the recorder's READY handshake and
-  // its keep-alive port are validated against state.tabId, so injecting first
-  // would make the fresh recorder reject itself and tear down immediately.
-  const moved = await queueStateMutation(async () => {
-    if (expectedControlVersion !== controlVersion) return false;
-    const current = await getRecordingState();
-    if (
-      expectedControlVersion !== controlVersion ||
-      !current.isRecording ||
-      current.operation !== 'recording' ||
-      current.runId !== runId ||
-      current.tabId !== previousTabId
-    ) {
-      return false;
-    }
-    await setRecordingState({ ...current, tabId });
-    return true;
-  });
-  if (!moved) return;
-  try {
-    // All-frames mirrors the START injection so iframe clicks in the followed
-    // tab are relayed to its top-frame recorder rather than silently lost.
-    await recorderRuntime.injectRecorder(tabId, true);
-  } catch (error) {
-    console.warn(
-      '[frametrail] failed to move the recording into the activated tab',
-      describeBrowserError(error),
-      error,
-    );
-    // Hand the run back to the previous tab, whose recorder was never stopped;
-    // no error is surfaced because nothing about the run was lost.
-    await queueStateMutation(async () => {
-      const current = await getRecordingState();
-      if (
-        expectedControlVersion !== controlVersion ||
-        !current.isRecording ||
-        current.operation !== 'recording' ||
-        current.runId !== runId ||
-        current.tabId !== tabId
-      ) {
-        return false;
-      }
-      await setRecordingState({ ...current, tabId: previousTabId });
-      return true;
-    });
-    return;
-  }
-  // The keep-alive rejection path would retire the old recorder eventually; an
-  // explicit stop removes its toolbar right away. If the message cannot reach
-  // a bfcached document, that same rejection path remains the backstop.
-  await recorderRuntime.stopRecorderInTab(previousTabId);
-}
-
-function failStepRecapture(
-  runId: string,
-  errorCode: string,
+/** The three start-failure writes share one shape: a version-independent error
+ * stop that records the requested mode and resets every run-scoped field. */
+function startFailureState(
+  current: RecordingState,
+  mode: StartRecordingMessage['mode'],
+  code: string,
   message: string,
-  expectedControlVersion: number,
-): Promise<boolean> {
-  if (expectedControlVersion !== controlVersion) return Promise.resolve(false);
-  acceptingClicks = false;
-  pendingRecaptureReady?.cancel();
-  pendingRecaptureReady = null;
-  if (activeRecaptureCaptureId) cancelCapture(activeRecaptureCaptureId);
-  const version = ++controlVersion;
-  return settleStepRecapture(runId, 'failed', version, errorCode, message);
-}
-
-async function handleRecaptureReady(
-  message: FrameTrailRecaptureReadyMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<boolean> {
-  const context = (await getRecordingState()).recapture;
-  if (
-    !context ||
-    context.runId !== message.runId ||
-    context.phase !== 'starting' ||
-    !isRecaptureSourceSender(sender, context) ||
-    message.url !== context.sourceUrl
-  ) {
-    return false;
-  }
-  return pendingRecaptureReady?.signal({
-    runId: message.runId,
-    tabId: context.sourceTabId,
-    controlVersion,
-  }) ?? false;
-}
-
-function recapturePreflightFailure(
-  code: Exclude<PreflightStepRecaptureSourcePermissionResult, { ok: true }>['code'],
-  message: string,
-): PreflightStepRecaptureSourcePermissionResult {
-  return { ok: false, code, message };
-}
-
-async function preflightStepRecaptureSourcePermission(
-  message: PreflightStepRecaptureSourcePermissionMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<PreflightStepRecaptureSourcePermissionResult> {
-  // The message shape (including the target) was already validated by the
-  // canonical isBackgroundMessage guard at listener entry; only the trust
-  // relationship between this editor and the session remains to check here.
-  if (
-    typeof message.sessionId !== 'string' ||
-    message.sessionId.trim().length === 0 ||
-    !isEditorSenderForSession(sender, message.sessionId)
-  ) {
-    return recapturePreflightFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器驗證補拍來源。');
-  }
-
-  let validated: ValidatedRecaptureTarget;
-  try {
-    validated = await validateRecaptureTarget(message.sessionId, message.target);
-  } catch (error) {
-    if (error instanceof StepRecaptureStartError) {
-      return recapturePreflightFailure(error.code, error.message);
-    }
-    throw error;
-  }
-
-  return (
-    sourcePermissionPreflightSuccess(validated.sourceUrl) ??
-    recapturePreflightFailure('RESTRICTED_SOURCE', '此來源頁面不允許補拍。')
-  );
-}
-
-async function handleStartStepRecapture(
-  message: StartStepRecaptureMessage,
-  sender: Browser.runtime.MessageSender,
-  version: number,
-): Promise<StartStepRecaptureResult> {
-  await waitForQueuedClicks();
-  if (version !== controlVersion) return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
-
-  const editorTab = sender.tab;
-  if (!isEditorSenderForSession(sender, message.sessionId) || editorTab?.id == null) {
-    return recaptureFailure('INVALID_EDITOR', '只能從 FrameTrail 編輯器啟動補拍。');
-  }
-  const current = await getRecordingState();
-  if (current.operation !== null || current.isRecording) {
-    return recaptureFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
-  }
-
-  let validated: ValidatedRecaptureTarget;
-  try {
-    validated = await validateRecaptureTarget(message.sessionId, message.target);
-  } catch (error) {
-    if (error instanceof StepRecaptureStartError) return recaptureFailure(error.code, error.message);
-    throw error;
-  }
-  const permissionPattern = recapturePermissionPattern(validated.sourceUrl);
-  if (!permissionPattern || isRestrictedUrl(validated.sourceUrl)) {
-    return recaptureFailure('RESTRICTED_SOURCE', '此來源頁面不允許補拍。');
-  }
-  const hasPermission = await browser.permissions.contains({ origins: [permissionPattern] });
-  if (!hasPermission) {
-    return recaptureFailure('HOST_PERMISSION_REQUIRED', '需要先允許 FrameTrail 存取此網站，才能補拍。');
-  }
-
-  let source: Awaited<ReturnType<typeof findOrCreateSourceTab>>;
-  try {
-    source = await findOrCreateSourceTab(validated.sourceUrl, message.preferredTabId);
-  } catch (error) {
-    console.error('[frametrail] failed to open recapture source tab', error);
-    return recaptureFailure('SOURCE_TAB_FAILED', '無法開啟原始頁面。');
-  }
-  const sourceTab = source.tab;
-  if (sourceTab.id == null || sourceTab.windowId == null || sourceTab.url !== validated.sourceUrl) {
-    await discardUncommittedSourceTab(source);
-    return recaptureFailure('SOURCE_TAB_FAILED', '原始頁面已重新導向，未開始補拍。');
-  }
-  if (version !== controlVersion) {
-    await discardUncommittedSourceTab(source);
-    return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
-  }
-
-  const runId = crypto.randomUUID();
-  const recapture = {
-    runId,
-    sessionId: message.sessionId,
-    target: validated.target,
-    entryId: validated.entryId,
-    phase: 'starting' as const,
-    editorTabId: editorTab.id,
-    editorWindowId: editorTab.windowId ?? null,
-    sourceTabId: sourceTab.id,
-    sourceWindowId: sourceTab.windowId,
-    sourceUrl: validated.sourceUrl,
-    sourceTabCreated: !source.reused,
-    startedAt: Date.now(),
-  };
-  const started = await writeStateForControl(version, (state) => ({
-    ...state,
-    operation: 'recapture',
+): RecordingState {
+  return {
+    ...current,
+    operation: null,
     isRecording: false,
-    phase: 'idle',
-    sessionId: message.sessionId,
+    phase: 'error',
     tabId: null,
+    error: message,
+    recoverableError: { code, message },
+    mode,
+    itemCount: 0,
+    numbered: true,
+    groupAnchorId: null,
     runId: null,
-    error: null,
-    recoverableError: null,
-    recapture,
-    recaptureResult: null,
-  }));
-  if (!started) {
-    await discardUncommittedSourceTab(source);
-    return recaptureFailure('ACTIVE_OPERATION', '操作狀態已改變，請再試一次。');
-  }
-
-  const readyGate = new RecorderReadyGate(
-    { runId, tabId: sourceTab.id, controlVersion: version },
-    RECORDER_READY_TIMEOUT_MS,
-  );
-  pendingRecaptureReady = readyGate;
-  try {
-    const [, ready] = await Promise.all([recorderRuntime.injectRecorder(sourceTab.id, true), readyGate.promise]);
-    if (!ready) throw new Error('Recapture recorder did not become ready before timeout.');
-    const activated = await queueStateMutation(async () => {
-      const state = await getRecordingState();
-      if (
-        version !== controlVersion ||
-        state.operation !== 'recapture' ||
-        state.recapture?.runId !== runId ||
-        state.recapture.phase !== 'starting'
-      ) {
-        return false;
-      }
-      await setRecordingState({
-        ...state,
-        recapture: { ...state.recapture, phase: 'awaiting-target' },
-      });
-      return true;
-    });
-    if (!activated) throw new StaleCaptureError('Recapture changed during startup.');
-    acceptingClicks = true;
-    await browser.tabs.update(sourceTab.id, { active: true });
-    await browser.windows.update(sourceTab.windowId, { focused: true });
-    return { ok: true, runId, tabId: sourceTab.id, reusedTab: source.reused };
-  } catch (error) {
-    console.error('[frametrail] failed to start recapture recorder', error);
-    if (version === controlVersion) {
-      await failStepRecapture(runId, 'INJECTION_FAILED', '無法在原始頁面啟動補拍。', version);
-    }
-    return recaptureFailure('INJECTION_FAILED', '無法在原始頁面啟動補拍。');
-  } finally {
-    if (pendingRecaptureReady === readyGate) pendingRecaptureReady = null;
-    readyGate.cancel();
-  }
-}
-
-async function startStepRecapture(
-  message: StartStepRecaptureMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<StartStepRecaptureResult> {
-  if (!isEditorSenderForSession(sender, message.sessionId)) {
-    return recaptureFailure('INVALID_EDITOR', '只能從目前 Guide 的 FrameTrail 編輯器啟動補拍。');
-  }
-  if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', '目前已有補拍正在啟動。');
-  startingRecapture = true;
-  try {
-    const current = await getRecordingState();
-    if (current.operation !== null || current.isRecording) {
-      return recaptureFailure('ACTIVE_OPERATION', '目前已有錄製或補拍正在進行。');
-    }
-    acceptingClicks = false;
-    pendingRecorderReady?.cancel();
-    pendingRecorderReady = null;
-    pendingRecaptureReady?.cancel();
-    pendingRecaptureReady = null;
-    discardPendingUndo();
-    const version = ++controlVersion;
-    return await handleStartStepRecapture(message, sender, version);
-  } finally {
-    startingRecapture = false;
-  }
-}
-
-async function cancelStepRecapture(
-  message: CancelStepRecaptureMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<CancelStepRecaptureResult> {
-  const state = await getRecordingState();
-  if (state.recaptureResult?.runId === message.runId) return { ok: true, status: 'already-completed' };
-  if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
-    return { ok: false, error: '這次補拍已經結束。' };
-  }
-  const context = state.recapture;
-  if (!isEditorSenderForSession(sender, context.sessionId) && !isRecaptureSourceSender(sender, context)) {
-    return { ok: false, error: '無效的補拍來源。' };
-  }
-  const captureId = activeRecaptureCaptureId;
-  if (captureId && committingCaptureIds.has(captureId)) {
-    await waitForQueuedClicks();
-    return { ok: true, status: 'already-completed' };
-  }
-  acceptingClicks = false;
-  pendingRecaptureReady?.cancel();
-  pendingRecaptureReady = null;
-  if (captureId) cancelCapture(captureId);
-  const version = ++controlVersion;
-  await waitForQueuedClicks();
-  const settled = await settleStepRecapture(message.runId, 'cancelled', version, 'CANCELLED', '已取消補拍，原內容未變更。');
-  return settled ? { ok: true, status: 'cancelled' } : { ok: true, status: 'already-completed' };
-}
-
-async function ackStepRecaptureResult(
-  message: AckStepRecaptureResultMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<boolean> {
-  if (!isEditorSenderForSession(sender, message.sessionId)) return false;
-  return queueStateMutation(async () => {
-    const state = await getRecordingState();
-    if (
-      state.recaptureResult?.runId !== message.runId ||
-      state.recaptureResult.sessionId !== message.sessionId
-    ) return false;
-    await setRecordingState({ ...state, recaptureResult: null });
-    return true;
-  });
-}
-
-async function focusStepRecaptureSource(
-  message: FocusStepRecaptureSourceMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<FocusStepRecaptureSourceResult> {
-  const state = await getRecordingState();
-  if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
-    return { ok: false, error: '這次補拍已經結束。' };
-  }
-  if (!isEditorSenderForSession(sender, state.recapture.sessionId)) {
-    return { ok: false, error: '無效的編輯器來源。' };
-  }
-  try {
-    await browser.tabs.update(state.recapture.sourceTabId, { active: true });
-    await browser.windows.update(state.recapture.sourceWindowId, { focused: true });
-    return { ok: true };
-  } catch {
-    return { ok: false, error: '找不到補拍分頁。' };
-  }
-}
-
-/**
- * Continuation resolves its own target tab because the editor page cannot be
- * recorded and holds no activeTab grant over the source site. Every precondition
- * recapture enforces applies here too: trusted editor, persisted source URL, an
- * explicit host permission, and an exact-URL tab.
- */
-async function resolveContinuationTab(
-  message: StartRecordingMessage,
-  sender: Browser.runtime.MessageSender,
-): Promise<{ ok: true; tab: Browser.tabs.Tab } | { ok: false; error: string }> {
-  if (!isEditorSenderForSession(sender, message.sessionId)) {
-    return { ok: false, error: '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。' };
-  }
-  const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
-  if (!sourceUrl) {
-    return { ok: false, error: '這份教學還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。' };
-  }
-  const permissionPattern = recapturePermissionPattern(sourceUrl);
-  if (!permissionPattern || isRestrictedUrl(sourceUrl)) {
-    return { ok: false, error: '此來源頁面不允許錄製。' };
-  }
-  if (!(await browser.permissions.contains({ origins: [permissionPattern] }))) {
-    return { ok: false, error: '需要先允許 FrameTrail 存取此網站，才能接續錄製。' };
-  }
-  try {
-    const source = await findOrCreateSourceTab(sourceUrl, message.continuation?.preferredTabId);
-    if (source.tab.id == null || source.tab.url !== sourceUrl) {
-      await discardUncommittedSourceTab(source);
-      return { ok: false, error: '原始頁面已重新導向，未開始錄製。' };
-    }
-    return { ok: true, tab: source.tab };
-  } catch (error) {
-    console.error('[frametrail] failed to open continuation source tab', error);
-    return { ok: false, error: '無法開啟原始頁面。' };
-  }
+    snapshotViewport: null,
+    snapshotDevicePixelRatio: null,
+  };
 }
 
 async function startRecording(
@@ -1334,8 +586,8 @@ async function startRecording(
   const current = await getRecordingState();
   // A global capture operation remains single-owner. Never let a second start
   // invalidate another Guide's recording or one-shot replacement.
-  if (current.operation !== null || current.isRecording || startingRecapture) {
-    return { ok: false, error: '目前已有錄製或補拍正在進行。' };
+  if (current.operation !== null || current.isRecording || recaptureFlow.isStartingRecapture()) {
+    return { ok: false, error: ACTIVE_OPERATION_MESSAGE };
   }
   const targetGuide = await getGuide(message.sessionId);
   if (!targetGuide) return { ok: false, error: '找不到要錄製的教學。請回作品庫重新選擇。' };
@@ -1347,16 +599,15 @@ async function startRecording(
     continuationTab = resolved.tab;
   }
 
-  acceptingClicks = false;
-  pendingRecorderReady?.cancel();
-  pendingRecorderReady = null;
-  pendingSnapshotContext = undefined;
-  discardPendingUndo();
-  const version = ++controlVersion;
+  const version = control.claimControl({
+    cancelRecorderGate: true,
+    clearSnapshotContext: true,
+    discardUndo: true,
+  });
   await handleStartRecording(message, version, continuationTab);
   const started = await getRecordingState();
   if (
-    version === controlVersion &&
+    version === control.controlVersion &&
     started.operation === 'recording' &&
     started.isRecording &&
     started.sessionId === message.sessionId &&
@@ -1375,58 +626,23 @@ async function handleStartRecording(
   // Reset waits for all writes from the old run through STOP. START uses the
   // same barrier so an old capture cannot append to the reused session later.
   await waitForQueuedClicks();
-  if (version !== controlVersion) return;
+  if (version !== control.controlVersion) return;
 
   const prevState = await getRecordingState();
   const tab = continuationTab ?? (await browser.tabs.query({ active: true, currentWindow: true }))[0];
-  if (version !== controlVersion) return;
+  if (version !== control.controlVersion) return;
 
   await recorderRuntime.stopRecorderInTab(prevState.tabId);
-  if (version !== controlVersion) return;
+  if (version !== control.controlVersion) return;
   if (!tab?.id) {
-    await writeStateForControl(version, (current) => ({
-      ...current,
-      operation: null,
-      isRecording: false,
-      phase: 'error',
-      tabId: null,
-      error: '找不到可錄製的分頁。請開啟一般網站後再試一次。',
-      recoverableError: {
-        code: 'NO_ACTIVE_TAB',
-        message: '找不到可錄製的分頁。請開啟一般網站後再試一次。',
-      },
-      mode: message.mode,
-      itemCount: 0,
-      numbered: RUN_STARTS_NUMBERED,
-      groupAnchorId: null,
-      runId: null,
-      snapshotViewport: null,
-      snapshotDevicePixelRatio: null,
-    }));
+    await control.writeStateForControl(version, (current) =>
+      startFailureState(current, message.mode, 'NO_ACTIVE_TAB', '找不到可錄製的分頁。請開啟一般網站後再試一次。'));
     return;
   }
 
   if (isRestrictedUrl(tab.url)) {
-    await writeStateForControl(version, (current) => ({
-      ...current,
-      operation: null,
-      isRecording: false,
-      phase: 'error',
-      sessionId: current.sessionId,
-      tabId: null,
-      error: '此瀏覽器頁面不允許錄製。',
-      recoverableError: {
-        code: 'RESTRICTED_PAGE',
-        message: '此瀏覽器頁面不允許錄製。',
-      },
-      mode: message.mode,
-      itemCount: 0,
-      numbered: RUN_STARTS_NUMBERED,
-      groupAnchorId: null,
-      runId: null,
-      snapshotViewport: null,
-      snapshotDevicePixelRatio: null,
-    }));
+    await control.writeStateForControl(version, (current) =>
+      startFailureState(current, message.mode, 'RESTRICTED_PAGE', '此瀏覽器頁面不允許錄製。'));
     return;
   }
 
@@ -1435,36 +651,18 @@ async function handleStartRecording(
   // before the recorder is injected — not after the run is live.
   if (continuationTab) {
     try {
-      await browser.tabs.update(tab.id!, { active: true });
-      if (tab.windowId != null) await browser.windows.update(tab.windowId, { focused: true });
+      await focusTab(tab.id!, tab.windowId);
     } catch (error) {
       console.error('[frametrail] failed to focus the continuation source tab', error);
-      await writeStateForControl(version, (current) => ({
-        ...current,
-        operation: null,
-        isRecording: false,
-        phase: 'error',
-        tabId: null,
-        error: '無法切換到原始頁面，未開始錄製。',
-        recoverableError: {
-          code: 'SOURCE_TAB_FAILED',
-          message: '無法切換到原始頁面，未開始錄製。',
-        },
-        mode: message.mode,
-        itemCount: 0,
-        numbered: RUN_STARTS_NUMBERED,
-        groupAnchorId: null,
-        runId: null,
-        snapshotViewport: null,
-        snapshotDevicePixelRatio: null,
-      }));
+      await control.writeStateForControl(version, (current) =>
+        startFailureState(current, message.mode, 'SOURCE_TAB_FAILED', '無法切換到原始頁面，未開始錄製。'));
       return;
     }
-    if (version !== controlVersion) return;
+    if (version !== control.controlVersion) return;
   }
 
   const runId = crypto.randomUUID();
-  const startedState = await writeStateForControl(version, (current) => ({
+  const startedState = await control.writeStateForControl(version, (current) => ({
     operation: 'recording',
     isRecording: true,
     phase: 'starting',
@@ -1474,7 +672,12 @@ async function handleStartRecording(
     recoverableError: null,
     mode: message.mode,
     itemCount: 0,
-    numbered: RUN_STARTS_NUMBERED,
+    // Every run starts numbered. Numbering is a per-snapshot presentation
+    // choice, so the editor owns turning it off where the result is visible;
+    // asking before the first capture made the user decide blind. Captures
+    // still stamp the run's value onto each step, so turning it off later
+    // never rewrites older images.
+    numbered: true,
     groupAnchorId: null,
     runId,
     // Durable (not module state): a MV3 service-worker restart mid-run must
@@ -1486,14 +689,14 @@ async function handleStartRecording(
     recaptureResult: current.recaptureResult,
   }));
   if (!startedState) return;
-  if (!startedState.sessionId || startedState.sessionId !== message.sessionId) return;
-  if (version !== controlVersion) return;
+  if (startedState.sessionId !== message.sessionId) return;
+  if (version !== control.controlVersion) return;
 
   const readyGate = new RecorderReadyGate(
     { runId, tabId: tab.id, controlVersion: version },
     RECORDER_READY_TIMEOUT_MS,
   );
-  pendingRecorderReady = readyGate;
+  control.pendingRecorderReady = readyGate;
   let startupAnchorId: string | null = null;
   try {
     const [, recorderReady] = await Promise.all([
@@ -1504,9 +707,9 @@ async function handleStartRecording(
       readyGate.promise,
     ]);
     if (!recorderReady) throw new Error('Recorder did not become ready before the startup timeout.');
-    if (version !== controlVersion) return;
+    if (version !== control.controlVersion) return;
     if (message.mode === 'snapshot') {
-      const context = pendingSnapshotContext;
+      const context = control.pendingSnapshotContext;
       if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
       if (!startedState.sessionId || tab.windowId == null) throw new Error('Snapshot capture context is incomplete.');
       startupAnchorId = await createAndActivateSnapshotAnchor(
@@ -1523,39 +726,18 @@ async function handleStartRecording(
       version,
     );
     const current = await getRecordingState();
-    acceptingClicks = current.isRecording && current.runId === runId;
+    control.acceptingClicks = current.isRecording && current.runId === runId;
     startupAnchorId = null;
   } catch (err) {
     console.error('[frametrail] failed to inject recorder:', describeBrowserError(err), err);
-    if (startupAnchorId) {
-      // The anchor was already published to the run state; withdraw it first
-      // so no state ever points at a deleted row, and keep the row (an orphan
-      // at worst) when the withdrawal cannot be applied.
-      const removedAnchorId = startupAnchorId;
-      const safeToDelete = await updateRunState(
-        runId,
-        (current) => current.groupAnchorId === removedAnchorId
-          ? { ...current, groupAnchorId: null, snapshotViewport: null, snapshotDevicePixelRatio: null }
-          : current,
-        version,
-      ).catch(() => false);
-      if (safeToDelete) {
-        try {
-          await deleteStep(startupAnchorId);
-        } catch (cleanupError) {
-          console.error(
-            '[frametrail] failed to remove incomplete snapshot:',
-            describeBrowserError(cleanupError),
-            cleanupError,
-          );
-        }
-      }
-    }
-    if (version !== controlVersion) return;
+    // The anchor was already published to the run state, so it must be
+    // withdrawn before its row can go.
+    if (startupAnchorId) await withdrawAnchorThenDelete(runId, startupAnchorId, version, true);
+    if (version !== control.controlVersion) return;
     try {
       await stopRunWithError(runId, '無法在這個頁面開始錄製，請改用一般網站再試一次。', version);
     } catch (recoveryError) {
-      acceptingClicks = false;
+      control.acceptingClicks = false;
       console.error(
         '[frametrail] failed to persist recording startup failure:',
         describeBrowserError(recoveryError),
@@ -1563,8 +745,8 @@ async function handleStartRecording(
       );
     }
   } finally {
-    if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
-    pendingSnapshotContext = undefined;
+    if (control.pendingRecorderReady === readyGate) control.pendingRecorderReady = null;
+    control.pendingSnapshotContext = undefined;
     readyGate.cancel();
   }
 }
@@ -1572,12 +754,11 @@ async function handleStartRecording(
 async function stopRecording(): Promise<void> {
   const current = await getRecordingState();
   if (current.operation !== 'recording' || !current.isRecording) return;
-  acceptingClicks = false;
-  pendingRecorderReady?.cancel();
-  pendingRecorderReady = null;
-  pendingSnapshotContext = undefined;
-  discardPendingUndo();
-  const version = ++controlVersion;
+  const version = control.claimControl({
+    cancelRecorderGate: true,
+    clearSnapshotContext: true,
+    discardUndo: true,
+  });
   return handleStopRecording(version);
 }
 
@@ -1587,10 +768,10 @@ async function handleRecorderReady(
 ): Promise<boolean> {
   const tabId = sender.tab?.id;
   if (tabId == null || sender.frameId !== 0) return false;
-  const expectedControlVersion = controlVersion;
+  const expectedControlVersion = control.controlVersion;
   const state = await getRecordingState();
   if (
-    expectedControlVersion !== controlVersion ||
+    expectedControlVersion !== control.controlVersion ||
     !state.isRecording ||
     state.runId !== message.runId ||
     state.tabId !== tabId ||
@@ -1604,9 +785,9 @@ async function handleRecorderReady(
     tabId,
     controlVersion: expectedControlVersion,
   };
-  const matchesPendingStartup = pendingRecorderReady?.matches(identity) === true;
-  const signaled = pendingRecorderReady?.signal(identity);
-  if (matchesPendingStartup) pendingSnapshotContext = message.snapshotContext;
+  const matchesPendingStartup = control.pendingRecorderReady?.matches(identity) === true;
+  const signaled = control.pendingRecorderReady?.signal(identity);
+  if (matchesPendingStartup) control.pendingSnapshotContext = message.snapshotContext;
 
   // Re-injections after navigation have no startup gate; the current run is
   // already accepting clicks and only needs its new listener set validated.
@@ -1615,7 +796,7 @@ async function handleRecorderReady(
     signaled === true ||
     state.phase === 'paused' ||
     state.phase === 'preparing-next' ||
-    acceptingClicks
+    control.acceptingClicks
   );
 }
 
@@ -1631,7 +812,7 @@ async function handleSnapshotInvalidated(
   ) {
     return false;
   }
-  const expectedControlVersion = controlVersion;
+  const expectedControlVersion = control.controlVersion;
   const state = await getRecordingState();
   if (
     !state.isRecording ||
@@ -1657,10 +838,10 @@ async function handleSnapshotRecorderFailure(
 ): Promise<boolean> {
   const tabId = sender.tab?.id;
   if (tabId == null || sender.frameId !== 0) return false;
-  const expectedControlVersion = controlVersion;
+  const expectedControlVersion = control.controlVersion;
   const state = await getRecordingState();
   if (
-    expectedControlVersion !== controlVersion ||
+    expectedControlVersion !== control.controlVersion ||
     !state.isRecording ||
     state.operation !== 'recording' ||
     state.runId !== message.runId ||
@@ -1679,31 +860,20 @@ async function handleSnapshotRecorderFailure(
 
 async function handleStopRecording(version: number): Promise<void> {
   await waitForQueuedClicks();
-  if (version !== controlVersion) return;
+  if (version !== control.controlVersion) return;
   const current = await getRecordingState();
-  if (version !== controlVersion) return;
-  const state = await writeStateForControl(version, (latest) => ({
-    ...latest,
-    operation: null,
-    isRecording: false,
-    phase: 'idle',
-    tabId: null,
-    itemCount: 0,
-    groupAnchorId: null,
-    runId: null,
-    autoCreatedGuideId: null,
-    snapshotViewport: null,
-    snapshotDevicePixelRatio: null,
+  if (version !== control.controlVersion) return;
+  // Unlike FINISH, STOP keeps any already-surfaced error text visible.
+  const state = await control.writeStateForControl(version, (latest) => ({
+    ...resetRunStateToIdle(latest),
+    error: latest.error,
+    recoverableError: latest.recoverableError,
   }));
   if (!state) return;
   // Only after the stop won: deleting first left a live run pointing at a
   // deleted anchor whenever the state write lost to a concurrent control.
-  try {
-    await deleteEmptySnapshotAnchor(current);
-  } catch (cleanupError) {
-    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
-  }
-  await stopRecordingSource(current);
+  await deleteEmptySnapshotAnchorBestEffort(current);
+  await recorderRuntime.stopRecorderInTab(current.tabId);
   // After the anchor cleanup so a zero-annotation snapshot run counts as empty.
   await reclaimAbandonedAutoCreatedGuide(current);
 }
@@ -1746,6 +916,21 @@ async function deleteEmptySnapshotAnchor(state: RecordingState): Promise<string 
   return state.groupAnchorId;
 }
 
+/** Best-effort variant for run endings: the cleanup runs only after the stop
+ * already won its state write, so a failure may leak an orphan row but must
+ * never fail the stop itself. */
+async function deleteEmptySnapshotAnchorBestEffort(state: RecordingState): Promise<void> {
+  try {
+    await deleteEmptySnapshotAnchor(state);
+  } catch (cleanupError) {
+    console.error(
+      '[frametrail] failed to remove the empty snapshot anchor:',
+      describeBrowserError(cleanupError),
+      cleanupError,
+    );
+  }
+}
+
 function controlFailure(error: string): RecordingControlResult {
   return { ok: false, error };
 }
@@ -1760,7 +945,7 @@ async function pauseRecording(message: RecordingControlMessage): Promise<Recordi
   ) {
     return controlFailure('目前無法暫停這次錄製。');
   }
-  acceptingClicks = false;
+  control.acceptingClicks = false;
   const updated = await updateRunState(message.runId, (current) => ({ ...current, phase: 'paused' }));
   if (!updated) return controlFailure('錄製狀態已改變，請再試一次。');
   return { ok: true };
@@ -1778,16 +963,16 @@ async function resumeRecording(message: RecordingControlMessage): Promise<Record
   }
   const updated = await updateRunState(message.runId, (current) => ({ ...current, phase: 'recording' }));
   if (!updated) return controlFailure('錄製狀態已改變，請再試一次。');
-  acceptingClicks = true;
+  control.acceptingClicks = true;
   return { ok: true };
 }
 
 async function undoLastCapture(message: RecordingControlMessage): Promise<RecordingControlResult> {
   return queueClick(async () => {
-    const expectedControlVersion = controlVersion;
+    const expectedControlVersion = control.controlVersion;
     const state = await getRecordingState();
     if (
-      expectedControlVersion !== controlVersion ||
+      expectedControlVersion !== control.controlVersion ||
       !state.isRecording ||
       !state.sessionId ||
       !state.runId ||
@@ -1845,7 +1030,7 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
 async function restoreLastCapture(message: RecordingControlMessage): Promise<RecordingControlResult> {
   return queueClick(async () => {
     const undo = pendingUndo;
-    const expectedControlVersion = controlVersion;
+    const expectedControlVersion = control.controlVersion;
     const state = await getRecordingState();
     if (
       !undo ||
@@ -1897,8 +1082,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
     return controlFailure('目前無法建立下一張快照。');
   }
 
-  acceptingClicks = false;
-  discardPendingUndo();
+  control.claimControl({ discardUndo: true, bumpVersion: false });
   await waitForQueuedClicks();
 
   const previous = await queueStateMutation(async () => {
@@ -1957,7 +1141,7 @@ async function createNextSnapshot(
     ) {
       return null;
     }
-    const version = ++controlVersion;
+    const version = control.bumpVersion();
     const next: RecordingState = {
       ...current,
       phase: 'starting',
@@ -1973,16 +1157,15 @@ async function createNextSnapshot(
   });
   if (!claimed) return controlFailure('目前無法建立下一張快照。');
 
-  acceptingClicks = false;
-  discardPendingUndo();
-  pendingSnapshotContext = undefined;
+  // The version was already bumped inside the claim mutation above.
+  control.claimControl({ discardUndo: true, clearSnapshotContext: true, bumpVersion: false });
   const { state, previous, version } = claimed;
   const readyGate = new RecorderReadyGate(
     { runId: message.runId, tabId: state.tabId!, controlVersion: version },
     RECORDER_READY_TIMEOUT_MS,
   );
-  pendingRecorderReady?.cancel();
-  pendingRecorderReady = readyGate;
+  control.pendingRecorderReady?.cancel();
+  control.pendingRecorderReady = readyGate;
 
   try {
     const tab = await browser.tabs.get(state.tabId!);
@@ -1991,10 +1174,10 @@ async function createNextSnapshot(
       recorderRuntime.injectRecorder(state.tabId!, true),
       readyGate.promise,
     ]);
-    if (!recorderReady || version !== controlVersion) {
+    if (!recorderReady || version !== control.controlVersion) {
       throw new StaleCaptureError('Snapshot recorder did not become ready.');
     }
-    const context = readPendingSnapshotContext();
+    const context = control.pendingSnapshotContext;
     if (!context) throw new Error('Snapshot recorder did not provide its capture context.');
     await createAndActivateSnapshotAnchor(state, state.tabId!, tab.windowId, context, version);
     const updated = await updateRunState(
@@ -2003,16 +1186,14 @@ async function createNextSnapshot(
       version,
     );
     if (!updated) throw new StaleCaptureError('Recording changed while activating the next snapshot.');
-    acceptingClicks = true;
+    control.acceptingClicks = true;
     return { ok: true };
   } catch (error) {
     console.error('[frametrail] failed to create next snapshot', error);
-    acceptingClicks = false;
-    if (version === controlVersion) {
-      const rebuildingInvalidated = sourcePhase === 'invalidated';
-      const errorMessage = rebuildingInvalidated
-        ? '無法重建快照，請重試。'
-        : '無法建立新快照，請重試。';
+    control.acceptingClicks = false;
+    const rebuildingInvalidated = sourcePhase === 'invalidated';
+    const errorMessage = rebuildingInvalidated ? REBUILD_SNAPSHOT_FAILED_MESSAGE : CREATE_SNAPSHOT_FAILED_MESSAGE;
+    if (version === control.controlVersion) {
       await updateRunState(
         message.runId,
         (current) => ({
@@ -2036,19 +1217,17 @@ async function createNextSnapshot(
         console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
       }
     }
-    return controlFailure(
-      sourcePhase === 'invalidated' ? '無法重建快照，請重試。' : '無法建立新快照，請重試。',
-    );
+    return controlFailure(errorMessage);
   } finally {
-    if (pendingRecorderReady === readyGate) pendingRecorderReady = null;
-    pendingSnapshotContext = undefined;
+    if (control.pendingRecorderReady === readyGate) control.pendingRecorderReady = null;
+    control.pendingSnapshotContext = undefined;
     readyGate.cancel();
   }
 }
 
 async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGuideResult> {
   const initial = await getRecordingState();
-  if (initial.operation !== null || initial.isRecording || startingRecapture) {
+  if (initial.operation !== null || initial.isRecording || recaptureFlow.isStartingRecapture()) {
     return { ok: false, error: '錄製或補拍期間無法重置教學。' };
   }
   const guide = await getGuide(message.sessionId);
@@ -2056,34 +1235,20 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
 
   // Invalidate any in-memory work first, then wait for all already-queued DB
   // writes. Persisted run/session guards remain authoritative after restarts.
-  acceptingClicks = false;
-  pendingRecorderReady?.cancel();
-  pendingRecorderReady = null;
-  discardPendingUndo();
-  const version = ++controlVersion;
+  const version = control.claimControl({ cancelRecorderGate: true, discardUndo: true });
   await waitForQueuedClicks();
   const current = await getRecordingState();
-  if (version !== controlVersion || current.operation !== null || current.isRecording) {
+  if (version !== control.controlVersion || current.operation !== null || current.isRecording) {
     return { ok: false, error: '錄製狀態已變更，未重置教學。' };
   }
   try {
     const updated = await resetGuide(message.sessionId);
     if (current.sessionId === message.sessionId) {
-      await writeStateForControl(version, (latest) => latest.sessionId === message.sessionId
-        ? {
-            ...latest,
-            operation: null,
-            isRecording: false,
-            phase: 'idle',
-            tabId: null,
-            error: null,
-            recoverableError: null,
-            itemCount: 0,
-            groupAnchorId: null,
-            runId: null,
-            snapshotViewport: null,
-            snapshotDevicePixelRatio: null,
-          }
+      // resetRunStateToIdle also nulls autoCreatedGuideId, which this write
+      // never set explicitly; with operation already null the field reads as
+      // null through state normalization either way.
+      await control.writeStateForControl(version, (latest) => latest.sessionId === message.sessionId
+        ? resetRunStateToIdle(latest)
         : latest);
     }
     return { ok: true, contentRevision: updated.contentRevision };
@@ -2116,8 +1281,7 @@ async function openOrFocusEditor(result?: FinishResult): Promise<void> {
       })
     : editors.find((tab) => tab.id != null && tab.url === editorBase);
   if (existing?.id != null) {
-    await browser.tabs.update(existing.id, { active: true });
-    if (existing.windowId != null) await browser.windows.update(existing.windowId, { focused: true });
+    await focusTab(existing.id, existing.windowId);
     return;
   }
   await browser.tabs.create({ url: editorUrl.href, active: true });
@@ -2136,7 +1300,7 @@ async function latestFinishResult(sessionId: string): Promise<FinishResult> {
 }
 
 async function openEditorForStoredSession(message: OpenEditorMessage): Promise<OpenEditorResult> {
-  const expectedControlVersion = controlVersion;
+  const expectedControlVersion = control.controlVersion;
   let state: RecordingState | null = null;
   let targetSessionId = message.sessionId;
   try {
@@ -2160,7 +1324,7 @@ async function openEditorForStoredSession(message: OpenEditorMessage): Promise<O
     if (message.entryId) result.entryId = message.entryId;
     await openOrFocusEditor(result);
     if (state.sessionId === targetSessionId) {
-      await writeStateForControl(expectedControlVersion, (current) => {
+      await control.writeStateForControl(expectedControlVersion, (current) => {
         if (current.sessionId !== targetSessionId) return current;
         return clearEditorRecovery(current);
       });
@@ -2170,7 +1334,7 @@ async function openEditorForStoredSession(message: OpenEditorMessage): Promise<O
     console.error('[frametrail] failed to open editor:', describeBrowserError(error), error);
     if (state?.sessionId === targetSessionId) {
       try {
-        await writeStateForControl(expectedControlVersion, (current) => {
+        await control.writeStateForControl(expectedControlVersion, (current) => {
           if (current.sessionId !== targetSessionId) return current;
           return markEditorOpenFailed(current);
         });
@@ -2187,7 +1351,7 @@ async function openEditorForStoredSession(message: OpenEditorMessage): Promise<O
 }
 
 async function finishRecording(message: RecordingControlMessage): Promise<RecordingControlResult> {
-  const startedAtControlVersion = controlVersion;
+  const startedAtControlVersion = control.controlVersion;
   const initial = await getRecordingState();
   if (
     !initial.isRecording ||
@@ -2200,28 +1364,22 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     return controlFailure(initial.phase === 'finishing' ? '正在完成錄製。' : '這次錄製已經結束。');
   }
 
-  acceptingClicks = false;
-  discardPendingUndo();
-  const markedFinishing = await queueStateMutation(async () => {
-    if (startedAtControlVersion !== controlVersion) return false;
-    const current = await getRecordingState();
-    if (
-      !current.isRecording ||
-      current.runId !== message.runId ||
-      (current.phase !== 'recording' &&
-        current.phase !== 'paused' &&
-        current.phase !== 'preparing-next' &&
-        current.phase !== 'invalidated')
-    ) {
-      return false;
-    }
-    await setRecordingState({ ...current, phase: 'finishing', error: null, recoverableError: null });
-    return true;
-  });
+  control.claimControl({ discardUndo: true, bumpVersion: false });
+  const markedFinishing = await control.writeStateIf(
+    startedAtControlVersion,
+    (current) =>
+      current.isRecording &&
+      current.runId === message.runId &&
+      (current.phase === 'recording' ||
+        current.phase === 'paused' ||
+        current.phase === 'preparing-next' ||
+        current.phase === 'invalidated'),
+    (current) => ({ ...current, phase: 'finishing', error: null, recoverableError: null }),
+  );
   if (!markedFinishing) return controlFailure('錄製狀態已改變，請再試一次。');
 
   await waitForQueuedClicks();
-  if (startedAtControlVersion !== controlVersion) return controlFailure('錄製狀態已改變。');
+  if (startedAtControlVersion !== control.controlVersion) return controlFailure('錄製狀態已改變。');
 
   const state = await getRecordingState();
   if (!state.isRecording || !state.sessionId || state.runId !== message.runId) {
@@ -2237,50 +1395,32 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     itemCount: runItems.length,
   };
 
-  const version = ++controlVersion;
-  const stopped = await writeStateForControl(version, (current) => ({
-    ...current,
-    operation: null,
-    isRecording: false,
-    phase: 'idle',
-    tabId: null,
-    itemCount: 0,
-    error: null,
-    recoverableError: null,
-    groupAnchorId: null,
-    runId: null,
-    // No reclaim on FINISH even at zero items: openOrFocusEditor below opens
-    // this very Guide, and the user reaches it visibly in the editor.
-    autoCreatedGuideId: null,
-    snapshotViewport: null,
-    snapshotDevicePixelRatio: null,
-  }));
+  const version = control.bumpVersion();
+  // No reclaim on FINISH even at zero items: openOrFocusEditor below opens
+  // this very Guide, and the user reaches it visibly in the editor.
+  const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
   if (!stopped) return controlFailure('無法完成錄製，請再試一次。');
 
   // Only after the finish won the state write: a service-worker death or lost
   // race between an earlier delete and the write used to leave a run in phase
   // 'finishing' whose groupAnchorId pointed at a deleted anchor row.
-  try {
-    await deleteEmptySnapshotAnchor(state);
-  } catch (cleanupError) {
-    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
-  }
-  await stopRecordingSource(state);
+  await deleteEmptySnapshotAnchorBestEffort(state);
+  await recorderRuntime.stopRecorderInTab(state.tabId);
   try {
     await openOrFocusEditor(result);
   } catch (error) {
     console.error('[frametrail] failed to open editor after recording', error);
-    await writeStateForControl(version, markEditorOpenFailed);
+    await control.writeStateForControl(version, markEditorOpenFailed);
     return { ok: true, finish: result };
   }
   return { ok: true, finish: result };
 }
 
 async function discardCurrentRecording(message: RecordingControlMessage): Promise<RecordingControlResult> {
-  const startedAtControlVersion = controlVersion;
+  const startedAtControlVersion = control.controlVersion;
   const initial = await getRecordingState();
   if (
-    startedAtControlVersion !== controlVersion ||
+    startedAtControlVersion !== control.controlVersion ||
     !initial.isRecording ||
     !initial.sessionId ||
     initial.runId !== message.runId ||
@@ -2290,14 +1430,12 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
     return controlFailure('這次錄製已經結束或無法放棄。');
   }
 
-  acceptingClicks = false;
-  discardPendingUndo();
-  const version = ++controlVersion;
+  const version = control.claimControl({ discardUndo: true });
   await waitForQueuedClicks();
 
   const state = await getRecordingState();
   if (
-    version !== controlVersion ||
+    version !== control.controlVersion ||
     !state.isRecording ||
     !state.sessionId ||
     state.runId !== message.runId
@@ -2307,30 +1445,16 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
 
   try {
     await deleteStepsForRun(state.sessionId, message.runId);
-    const stopped = await writeStateForControl(version, (current) => ({
-      ...current,
-      operation: null,
-      isRecording: false,
-      phase: 'idle',
-      tabId: null,
-      itemCount: 0,
-      error: null,
-      recoverableError: null,
-      groupAnchorId: null,
-      runId: null,
-      autoCreatedGuideId: null,
-      snapshotViewport: null,
-      snapshotDevicePixelRatio: null,
-    }));
+    const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
     if (!stopped) return controlFailure('無法放棄錄製，請再試一次。');
-    await stopRecordingSource(state);
+    await recorderRuntime.stopRecorderInTab(state.tabId);
     // The run's steps are already deleted, so a popup-created Guide is back to
     // an empty shell here — the exact case the reclaim exists for.
     await reclaimAbandonedAutoCreatedGuide(state);
     return { ok: true };
   } catch (error) {
     console.error('[frametrail] failed to discard current recording', error);
-    await writeStateForControl(version, (current) => ({
+    await control.writeStateForControl(version, (current) => ({
       ...current,
       error: '無法放棄錄製，請再試一次。',
       recoverableError: { code: 'DISCARD_FAILED', message: '無法放棄錄製，請再試一次。' },
@@ -2461,144 +1585,6 @@ async function captureScreenshot(
   );
 }
 
-async function assertRecaptureCaptureContext(
-  expectedControlVersion: number,
-  runId: string,
-  tabId: number,
-  windowId: number,
-  expectedUrl: string,
-): Promise<void> {
-  if (expectedControlVersion !== controlVersion) {
-    throw new StaleCaptureError('Recapture control changed before the screenshot could be taken.');
-  }
-  const state = await getRecordingState();
-  const [activeTab] = await browser.tabs.query({ active: true, windowId });
-  if (
-    expectedControlVersion !== controlVersion ||
-    state.operation !== 'recapture' ||
-    state.recapture?.runId !== runId ||
-    state.recapture.sourceTabId !== tabId ||
-    state.recapture.sourceWindowId !== windowId ||
-    state.recapture.sourceUrl !== expectedUrl
-  ) {
-    throw new StaleCaptureError('Recapture changed before the screenshot could be taken.');
-  }
-  if (activeTab?.id !== tabId) throw new Error('補拍失敗：原始頁面已不是目前作用中的分頁。');
-  if (activeTab.url !== expectedUrl) throw new Error('補拍失敗：原始頁面已變更。');
-}
-
-async function handleRecaptureTarget(
-  message: FrameTrailRecaptureTargetMessage,
-  sender: Browser.runtime.MessageSender,
-  expectedControlVersion: number,
-): Promise<StepRecaptureTargetResult> {
-  const reject = (status: 'rejected' | 'cancelled' | 'failed', error?: string): StepRecaptureTargetResult => ({
-    ok: false,
-    status,
-    ...(error ? { error } : {}),
-  });
-  if (expectedControlVersion !== controlVersion) return reject('rejected');
-  const state = await getRecordingState();
-  const context = state.recapture;
-  if (
-    state.operation !== 'recapture' ||
-    !context ||
-    context.runId !== message.runId ||
-    context.phase !== 'awaiting-target' ||
-    !isRecaptureSourceSender(sender, context) ||
-    message.url !== context.sourceUrl
-  ) {
-    return reject('rejected');
-  }
-  if (!acceptingClicks || activeRecaptureCaptureId) return reject('rejected');
-  const claimed = await queueStateMutation(async () => {
-    const current = await getRecordingState();
-    if (
-      expectedControlVersion !== controlVersion ||
-      current.operation !== 'recapture' ||
-      current.recapture?.runId !== message.runId ||
-      current.recapture.phase !== 'awaiting-target'
-    ) {
-      return false;
-    }
-    await setRecordingState({
-      ...current,
-      recapture: { ...current.recapture, phase: 'capturing' },
-    });
-    return true;
-  });
-  if (!claimed) return reject('rejected');
-  // Claim globals only after both sender and persisted context validation. An
-  // old or forged content-script message must not consume the one-shot slot.
-  acceptingClicks = false;
-  activeRecaptureCaptureId = message.captureId;
-
-  try {
-    const captured = await captureScreenshotWithGuard(
-      message,
-      context.sourceTabId,
-      context.sourceWindowId,
-      () =>
-        assertRecaptureCaptureContext(
-          expectedControlVersion,
-          message.runId,
-          context.sourceTabId,
-          context.sourceWindowId,
-          context.sourceUrl,
-        ),
-    );
-    assertCaptureNotCancelled(message.captureId);
-    const current = await getRecordingState();
-    if (
-      expectedControlVersion !== controlVersion ||
-      current.operation !== 'recapture' ||
-      current.recapture?.runId !== message.runId ||
-      current.recapture.phase !== 'capturing'
-    ) {
-      throw new StaleCaptureError('Recapture changed before the replacement transaction.');
-    }
-
-    // Synchronous commit marker: cancellation after this point waits for the
-    // atomic IndexedDB replacement and reports the completed result.
-    committingCaptureIds.add(message.captureId);
-    await replaceStepCaptureAtomically(
-      context.sessionId,
-      context.target,
-      {
-        screenshotBlob: captured.blob,
-        bounds: message.rect,
-        devicePixelRatio: message.devicePixelRatio,
-        screenshotScale: captured.scale,
-        url: message.url,
-        timestamp: message.timestamp,
-      },
-      message.runId,
-    );
-    const version = ++controlVersion;
-    await settleStepRecapture(message.runId, 'replaced', version);
-    return { ok: true, status: 'replaced' };
-  } catch (error) {
-    if (error instanceof StaleCaptureError) return reject('cancelled');
-    const errorCode = error instanceof StepRecaptureError ? error.code : 'CAPTURE_FAILED';
-    const errorMessage =
-      error instanceof StepRecaptureError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : '補拍失敗，原內容未變更。';
-    console.error('[frametrail] failed to replace step capture', error);
-    if (expectedControlVersion === controlVersion) {
-      const version = ++controlVersion;
-      await settleStepRecapture(message.runId, 'failed', version, errorCode, errorMessage);
-    }
-    return reject('failed', errorMessage);
-  } finally {
-    committingCaptureIds.delete(message.captureId);
-    cancelledCaptureIds.delete(message.captureId);
-    if (activeRecaptureCaptureId === message.captureId) activeRecaptureCaptureId = null;
-  }
-}
-
 async function handleSnapshotClick(
   message: ClickCapture,
   sessionId: string,
@@ -2636,7 +1622,7 @@ async function handleSnapshotClick(
   if (anchor.url !== message.url) {
     throw new Error('已略過此標註：頁面在底圖拍攝後已變更。');
   }
-  if (expectedControlVersion !== controlVersion) {
+  if (expectedControlVersion !== control.controlVersion) {
     throw new StaleCaptureError('Recording control changed while saving the annotation.');
   }
   const current = await getRecordingState();
@@ -2657,7 +1643,7 @@ async function handleSnapshotClick(
     timestamp: message.timestamp,
     groupId: anchorId,
     numbered: state.numbered,
-  }], expectedControlVersion);
+  }]);
 }
 
 function isTrustedRecordedPageSender(
@@ -2700,7 +1686,7 @@ async function handleClick(
     cancelledCaptureIds.delete(message.captureId);
     return { ok: false };
   };
-  if (expectedControlVersion !== controlVersion) return rejectBeforeTransaction();
+  if (expectedControlVersion !== control.controlVersion) return rejectBeforeTransaction();
   const state = await getRecordingState();
   if (!state.isRecording || !state.sessionId || state.runId !== message.runId) return rejectBeforeTransaction();
   if (state.phase !== 'recording' && state.phase !== 'finishing') return rejectBeforeTransaction();
@@ -2722,7 +1708,7 @@ async function handleClick(
       if (!current.isRecording || current.runId !== message.runId || current.sessionId !== state.sessionId) {
         throw new StaleCaptureError('Recording changed while saving the step.');
       }
-      if (expectedControlVersion !== controlVersion) {
+      if (expectedControlVersion !== control.controlVersion) {
         throw new StaleCaptureError('Recording control changed while saving the step.');
       }
       assertCaptureNotCancelled(message.captureId);
@@ -2742,7 +1728,7 @@ async function handleClick(
         description: generateActionDescription(message),
         url: message.url,
         timestamp: message.timestamp,
-      }], expectedControlVersion);
+      }]);
     }
     await updateRunState(message.runId, (currentState) => ({
       ...currentState,
@@ -2787,7 +1773,7 @@ async function handleClick(
         await setRunError(message.runId, messageText);
       }
     } catch (recoveryError) {
-      acceptingClicks = false;
+      control.acceptingClicks = false;
       console.error(
         '[frametrail] failed to persist capture failure:',
         describeBrowserError(recoveryError),
@@ -2821,7 +1807,7 @@ export default defineBackground(() => {
   // clicks queue behind this settle so a dead run is retired silently by
   // recovery instead of loudly by the click's own error paths.
   const startupRecovery = (async () => {
-    await recoverInterruptedRecapture();
+    await recaptureFlow.recoverInterruptedRecapture();
     await recoverInterruptedRecording();
   })().catch((error) => {
     console.error('[frametrail] failed to recover an interrupted operation', error);
@@ -2846,7 +1832,7 @@ export default defineBackground(() => {
         );
       case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
         return withMessageFailureFallback(
-          preflightStepRecaptureSourcePermission(message, sender),
+          recaptureFlow.preflightStepRecaptureSourcePermission(message, sender),
           'recapture source preflight failed',
           {
             ok: false,
@@ -2866,7 +1852,7 @@ export default defineBackground(() => {
         );
       case 'START_STEP_RECAPTURE':
         return withMessageFailureFallback(
-          startStepRecapture(message, sender),
+          recaptureFlow.startStepRecapture(message, sender),
           'start recapture request failed',
           {
             ok: false,
@@ -2876,23 +1862,25 @@ export default defineBackground(() => {
         );
       case 'CANCEL_STEP_RECAPTURE':
         return withMessageFailureFallback(
-          cancelStepRecapture(message, sender),
+          recaptureFlow.cancelStepRecapture(message, sender),
           'cancel recapture request failed',
           { ok: false, error: '取消補拍時發生錯誤，請再試一次。' } satisfies CancelStepRecaptureResult,
         );
       case 'ACK_STEP_RECAPTURE_RESULT':
         return withMessageFailureFallback(
-          ackStepRecaptureResult(message, sender),
+          recaptureFlow.ackStepRecaptureResult(message, sender),
           'recapture result ack failed',
           false,
         );
       case 'FOCUS_STEP_RECAPTURE_SOURCE':
         return withMessageFailureFallback(
-          focusStepRecaptureSource(message, sender),
+          recaptureFlow.focusStepRecaptureSource(message, sender),
           'focus recapture source failed',
           { ok: false, error: '無法切換到補拍分頁，請再試一次。' } satisfies FocusStepRecaptureSourceResult,
         );
       case 'STOP_RECORDING':
+        // Currently exercised only by the e2e harness; product surfaces end a
+        // run through FINISH_RECORDING or DISCARD_CURRENT_RECORDING.
         return withMessageFailureFallback(
           queueLifecycle(() => stopRecording()),
           'stop recording request failed',
@@ -2902,7 +1890,7 @@ export default defineBackground(() => {
         return withMessageFailureFallback(
           queueLifecycle(() => resetGuideLifecycle(message)),
           'reset guide request failed',
-          { ok: false, error: '無法重設教學，請再試一次。' } satisfies ResetGuideResult,
+          { ok: false, error: '無法重置教學，請再試一次。' } satisfies ResetGuideResult,
         );
       case 'OPEN_EDITOR':
         return withMessageFailureFallback(
@@ -2937,20 +1925,24 @@ export default defineBackground(() => {
           false,
         );
       case 'FRAME_TRAIL_RECAPTURE_TARGET':
-        if (!acceptingClicks) {
+        if (!control.acceptingClicks) {
           return Promise.resolve({ ok: false, status: 'rejected' } satisfies StepRecaptureTargetResult);
         }
         {
-          const expectedControlVersion = controlVersion;
-          return queueClick(async () => {
-            await startupRecovery;
-            return handleRecaptureTarget(message, sender, expectedControlVersion);
-          });
+          const expectedControlVersion = control.controlVersion;
+          return withMessageFailureFallback(
+            queueClick(async () => {
+              await startupRecovery;
+              return recaptureFlow.handleRecaptureTarget(message, sender, expectedControlVersion);
+            }),
+            'recapture target handling failed',
+            { ok: false, status: 'failed' } satisfies StepRecaptureTargetResult,
+          );
         }
       case 'FRAME_TRAIL_CLICK':
-        if (!acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
+        if (!control.acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {
-          const expectedControlVersion = controlVersion;
+          const expectedControlVersion = control.controlVersion;
           return withMessageFailureFallback(
             queueClick(async () => {
               // The version was read before recovery: if this very message woke
@@ -2977,7 +1969,7 @@ export default defineBackground(() => {
         );
       case 'FRAME_TRAIL_RECAPTURE_READY':
         return withMessageFailureFallback(
-          handleRecaptureReady(message, sender),
+          recaptureFlow.handleRecaptureReady(message, sender),
           'recapture ready handling failed',
           false,
         );
@@ -3045,10 +2037,10 @@ export default defineBackground(() => {
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     void (async () => {
       if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete' && !changeInfo.url) return;
-      const expectedControlVersion = controlVersion;
+      const expectedControlVersion = control.controlVersion;
       const state = await getRecordingState();
       if (
-        expectedControlVersion === controlVersion &&
+        expectedControlVersion === control.controlVersion &&
         state.operation === 'recapture' &&
         state.recapture?.sourceTabId === tabId
       ) {
@@ -3059,7 +2051,7 @@ export default defineBackground(() => {
           context.phase !== 'starting' &&
           (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== context.sourceUrl))
         ) {
-          await failStepRecapture(
+          await recaptureFlow.failStepRecapture(
             context.runId,
             'SOURCE_NAVIGATED',
             '補拍已停止，因為原始頁面在選取期間發生導覽。原內容未變更。',
@@ -3069,7 +2061,7 @@ export default defineBackground(() => {
         return;
       }
       if (
-        expectedControlVersion !== controlVersion ||
+        expectedControlVersion !== control.controlVersion ||
         !state.isRecording ||
         state.operation !== 'recording' ||
         state.tabId !== tabId ||
@@ -3157,7 +2149,7 @@ export default defineBackground(() => {
   });
 
   browser.tabs.onActivated.addListener(({ tabId }) => {
-    scheduleRecordingFollow(tabId);
+    followMode.scheduleRecordingFollow(tabId);
   });
 
   // Cross-window switches raise no tabs.onActivated; follow the newly focused
@@ -3165,7 +2157,7 @@ export default defineBackground(() => {
   browser.windows.onFocusChanged.addListener((windowId) => {
     if (windowId == null || windowId < 0) return;
     void browser.tabs.query({ active: true, windowId }).then(([tab]) => {
-      if (tab?.id != null) scheduleRecordingFollow(tab.id);
+      if (tab?.id != null) followMode.scheduleRecordingFollow(tab.id);
     }).catch((error) => {
       console.warn('[frametrail] failed to inspect the focused window', error);
     });
@@ -3173,14 +2165,14 @@ export default defineBackground(() => {
 
   browser.tabs.onRemoved.addListener((tabId) => {
     void (async () => {
-      const expectedControlVersion = controlVersion;
+      const expectedControlVersion = control.controlVersion;
       const state = await getRecordingState();
       if (
-        expectedControlVersion === controlVersion &&
+        expectedControlVersion === control.controlVersion &&
         state.operation === 'recapture' &&
         state.recapture?.sourceTabId === tabId
       ) {
-        await failStepRecapture(
+        await recaptureFlow.failStepRecapture(
           state.recapture.runId,
           'SOURCE_TAB_CLOSED',
           '補拍已停止，因為原始分頁已關閉。原內容未變更。',
@@ -3189,7 +2181,7 @@ export default defineBackground(() => {
         return;
       }
       if (
-        expectedControlVersion !== controlVersion ||
+        expectedControlVersion !== control.controlVersion ||
         !state.isRecording ||
         state.operation !== 'recording' ||
         state.tabId !== tabId ||

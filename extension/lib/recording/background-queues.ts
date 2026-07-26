@@ -42,5 +42,3 @@ export const queueStateMutation = stateMutationQueue.enqueue;
 export const waitForQueuedClicks = () => clickQueue.wait();
 
 export class StaleCaptureError extends Error {}
-export class SnapshotViewportChangedError extends Error {}
-export const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
