@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import ContinuationTabPicker from '@/components/editor/ContinuationTabPicker';
+import type { ContinuationTabOption } from '@/lib/editor/editor-app-model';
 
 interface Props {
   open: boolean;
@@ -17,11 +19,18 @@ interface Props {
   /** What the grant is for, e.g. 補拍 or 接續錄製. */
   actionLabel: string;
   pending?: boolean;
-  /** Continuation only: offers the site-agnostic 「改在其他頁面接續」 path,
-   * which records the most recent normal tab without a source grant. */
+  /** Continuation only: opens the explicit 「改在其他頁面接續」 tab picker,
+   * which records a user-chosen normal tab without a source grant. */
   onContinueElsewhere?: () => void;
   continueElsewherePending?: boolean;
   continueElsewhereError?: string | null;
+  /** Non-null once the elsewhere picker is open: the recordable tabs to choose
+   * from, most recently used first. */
+  continuationTabs?: ContinuationTabOption[] | null;
+  selectedContinuationTabId?: number | null;
+  onSelectContinuationTab?: (tabId: number) => void;
+  /** Confirms the picked tab and starts recording there. */
+  onConfirmContinueElsewhere?: () => void;
   /** When set, the Guide has no stored source page: the source-locked confirm
    * is hidden and only the elsewhere path remains, with this reason shown. */
   sourceUnavailableReason?: string | null;
@@ -37,6 +46,10 @@ interface Props {
  * The confirm button must remain the direct source of the click that calls
  * browser.permissions.request — Chromium only honours the request while
  * transient user activation from that gesture is alive.
+ *
+ * The 改在其他頁面接續 path is two-step: the first click swaps this dialog's
+ * body for an explicit tab picker (no auto-guessing a target), and the second
+ * confirms the picked tab and starts a plain recording there.
  */
 export default function SourcePermissionDialog({
   open,
@@ -46,12 +59,17 @@ export default function SourcePermissionDialog({
   onContinueElsewhere,
   continueElsewherePending = false,
   continueElsewhereError = null,
+  continuationTabs = null,
+  selectedContinuationTabId = null,
+  onSelectContinuationTab,
+  onConfirmContinueElsewhere,
   sourceUnavailableReason = null,
   onCancel,
   onConfirm,
 }: Props) {
   const anyPending = pending || continueElsewherePending;
   const sourceUnavailable = sourceUnavailableReason !== null;
+  const pickerOpen = continuationTabs !== null;
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !anyPending) onCancel(); }}>
       <DialogContent
@@ -62,27 +80,38 @@ export default function SourcePermissionDialog({
       >
         <DialogHeader className="pr-2">
           <DialogTitle className="flex items-center gap-2">
-            {sourceUnavailable ? (
+            {pickerOpen || sourceUnavailable ? (
               <Video className="size-4 text-brand" aria-hidden="true" />
             ) : (
               <ShieldCheck className="size-4 text-brand" aria-hidden="true" />
             )}
-            {sourceUnavailable ? actionLabel : `${actionLabel}前需要存取來源網站`}
+            {pickerOpen ? '選擇要接續錄製的分頁' : sourceUnavailable ? actionLabel : `${actionLabel}前需要存取來源網站`}
           </DialogTitle>
           <DialogDescription className="leading-6 text-muted-foreground">
-            {sourceUnavailable
-              ? `${sourceUnavailableReason}你可以改在目前開啟的網頁分頁繼續錄製。`
-              : 'FrameTrail 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。'}
+            {pickerOpen
+              ? '錄製會從選取的分頁開始，之後會跟著你切換的分頁；新步驟會接在最後。'
+              : sourceUnavailable
+                ? `${sourceUnavailableReason}你可以改在目前開啟的網頁分頁繼續錄製。`
+                : 'FrameTrail 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。'}
           </DialogDescription>
         </DialogHeader>
 
-        {!sourceUnavailable && (
+        {!pickerOpen && !sourceUnavailable && (
           <p className="mt-4 rounded-md border border-border bg-secondary px-3 py-2.5 font-mono text-xs break-all text-foreground">
             {sourceOrigin}
           </p>
         )}
 
-        {onContinueElsewhere && (
+        {pickerOpen && onSelectContinuationTab && (
+          <ContinuationTabPicker
+            tabs={continuationTabs}
+            selectedTabId={selectedContinuationTabId}
+            onSelect={onSelectContinuationTab}
+            disabled={anyPending}
+          />
+        )}
+
+        {!pickerOpen && onContinueElsewhere && (
           <p className="mt-3 text-xs leading-5 text-muted-foreground">新步驟會接在最後。</p>
         )}
 
@@ -97,22 +126,35 @@ export default function SourcePermissionDialog({
           <Button type="button" variant="outline" disabled={anyPending} onClick={onCancel}>
             <X />取消
           </Button>
-          {onContinueElsewhere && (
+          {pickerOpen ? (
             <Button
               type="button"
-              variant={sourceUnavailable ? 'default' : 'outline'}
-              disabled={anyPending}
-              onClick={onContinueElsewhere}
+              disabled={anyPending || selectedContinuationTabId === null}
+              onClick={onConfirmContinueElsewhere}
             >
-              {continueElsewherePending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
-              改在其他頁面接續
+              {continueElsewherePending ? <Loader2 className="animate-spin" /> : <Video />}
+              開始錄製
             </Button>
-          )}
-          {!sourceUnavailable && (
-            <Button type="button" disabled={anyPending} onClick={onConfirm}>
-              {pending && <Loader2 className="animate-spin" />}
-              {pending ? '正在授權…' : '允許並開始'}
-            </Button>
+          ) : (
+            <>
+              {onContinueElsewhere && (
+                <Button
+                  type="button"
+                  variant={sourceUnavailable ? 'default' : 'outline'}
+                  disabled={anyPending}
+                  onClick={onContinueElsewhere}
+                >
+                  {continueElsewherePending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
+                  改在其他頁面接續
+                </Button>
+              )}
+              {!sourceUnavailable && (
+                <Button type="button" disabled={anyPending} onClick={onConfirm}>
+                  {pending && <Loader2 className="animate-spin" />}
+                  {pending ? '正在授權…' : '允許並開始'}
+                </Button>
+              )}
+            </>
           )}
         </DialogFooter>
       </DialogContent>

@@ -47,6 +47,7 @@ vi.mock('wxt/browser', () => ({
       captureVisibleTab: vi.fn(),
       create: mocks.tabsCreate,
       get: mocks.tabsGet,
+      onActivated: { addListener: vi.fn() },
       onRemoved: { addListener: vi.fn() },
       onUpdated: { addListener: vi.fn() },
       query: mocks.tabsQuery,
@@ -54,7 +55,7 @@ vi.mock('wxt/browser', () => ({
       sendMessage: vi.fn(),
       update: mocks.tabsUpdate,
     },
-    windows: { update: vi.fn() },
+    windows: { onFocusChanged: { addListener: vi.fn() }, update: vi.fn() },
     scripting: {
       executeScript: mocks.executeScript,
       insertCSS: mocks.insertCSS,

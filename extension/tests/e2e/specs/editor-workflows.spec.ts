@@ -473,6 +473,17 @@ test.describe('editor workflows', () => {
     await expect(dialog).toContainText('新步驟會接在最後。');
     await dialog.getByRole('button', { name: '改在其他頁面接續' }).click();
 
+    // The elsewhere path shows an explicit tab picker instead of auto-picking
+    // a target. The navigated.html tab differs from the guide's last-step URL,
+    // so it is preselected; extension pages are never listed.
+    const picker = dialog.getByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
+    await expect(picker).toBeVisible();
+    const preselected = picker.getByRole('radio', { name: /FrameTrail Navigated Fixture/ });
+    await expect(preselected).toHaveAttribute('aria-checked', 'true');
+    // Extension pages (editor, popup) are never offered as recording targets.
+    await expect(picker.getByRole('radio')).toHaveCount(1);
+    await dialog.getByRole('button', { name: '開始錄製' }).click();
+
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(true);
     // The elsewhere path records the already-open navigated.html tab; the
     // source-locked default would have reopened the stored index URL instead.

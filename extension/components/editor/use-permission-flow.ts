@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { browser, type Browser } from 'wxt/browser';
-import type { PreparedCapturePermission } from '@/lib/editor/editor-app-model';
+import type { ContinuationTabOption, PreparedCapturePermission } from '@/lib/editor/editor-app-model';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
 import { entryId, type StepEntry } from '@/lib/storage/db';
 import type {
@@ -50,14 +50,30 @@ function isRecordableContinuationTab(tab: Browser.tabs.Tab): boolean {
   );
 }
 
-/** The most recently used normal web page tab, so 「改在其他頁面接續」 lands on
- * the page the user was just working in rather than an arbitrary tab. */
-async function findLatestRecordableTab(): Promise<Browser.tabs.Tab | null> {
+/** Every recordable open tab, most recently used first, so 「改在其他頁面接續」
+ * can let the user pick explicitly instead of guessing a target for them. */
+async function listRecordableTabs(): Promise<ContinuationTabOption[]> {
   const tabs = await browser.tabs.query({});
-  const candidates = tabs
+  return tabs
     .filter(isRecordableContinuationTab)
-    .sort((first, second) => (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0));
-  return candidates[0] ?? null;
+    .sort((first, second) => (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0))
+    .map((tab) => ({
+      id: tab.id!,
+      windowId: tab.windowId!,
+      title: tab.title ?? '',
+      url: tab.url!,
+      ...(tab.favIconUrl ? { favIconUrl: tab.favIconUrl } : {}),
+    }));
+}
+
+/** The tab preselected in the picker: the most recent tab showing something
+ * OTHER than the Guide's last-step URL. Auto-picking by recency alone kept
+ * landing on the page the user had just finished recording. */
+function defaultContinuationTab(
+  tabs: ContinuationTabOption[],
+  lastStepUrl: string | null,
+): ContinuationTabOption | null {
+  return tabs.find((tab) => lastStepUrl === null || tab.url !== lastStepUrl) ?? tabs[0] ?? null;
 }
 
 interface UsePermissionFlowOptions {
@@ -94,6 +110,9 @@ export function usePermissionFlow({
   const [permissionPending, setPermissionPending] = useState(false);
   const [continueElsewherePending, setContinueElsewherePending] = useState(false);
   const [continueElsewhereError, setContinueElsewhereError] = useState<string | null>(null);
+  /** Non-null once the elsewhere path opened its explicit tab picker. */
+  const [continuationTabs, setContinuationTabs] = useState<ContinuationTabOption[] | null>(null);
+  const [selectedContinuationTabId, setSelectedContinuationTabId] = useState<number | null>(null);
   const lock = useRef(false);
   const generation = useRef(0);
   const flowEntryId = useRef<string | null>(null);
@@ -111,6 +130,8 @@ export function usePermissionFlow({
     setPermissionPending(false);
     setContinueElsewherePending(false);
     setContinueElsewhereError(null);
+    setContinuationTabs(null);
+    setSelectedContinuationTabId(null);
   }, []);
 
   /** Cancels a prepared grant when the selection or Guide it was bound to is
@@ -222,15 +243,9 @@ export function usePermissionFlow({
     }
   }
 
-  /**
-   * The site-agnostic continuation path: instead of reopening the Guide's
-   * stored source URL, recording resumes on the most recently used normal web
-   * page tab. It sends a plain START_RECORDING (no continuation field), i.e.
-   * the popup's contract — the background records the active tab under the
-   * grants it already holds, so no host-permission request happens here and
-   * the editor still never nominates a source URL.
-   */
-  async function confirmContinueElsewhere(): Promise<void> {
+  /** Guards shared by both elsewhere steps: a continuation flow must be
+   * prepared, current, and not already mid-transition. */
+  function currentContinuationFlow(): PreparedCapturePermission | null {
     const prepared = preparedPermission;
     if (
       !prepared ||
@@ -240,24 +255,69 @@ export function usePermissionFlow({
       continueElsewherePending ||
       !lock.current ||
       flowSessionId.current !== sessionId
-    ) return;
+    ) {
+      return null;
+    }
+    return prepared;
+  }
+
+  /**
+   * First elsewhere step: list the open recordable tabs so the user picks the
+   * target explicitly. Recency auto-picking is deliberately gone — it kept
+   * choosing the tab the user had just recorded. The most recent tab whose URL
+   * differs from the Guide's last step is preselected instead.
+   */
+  async function openContinueElsewhere(): Promise<void> {
+    const prepared = currentContinuationFlow();
+    if (!prepared) return;
     const flowGeneration = generation.current;
     setContinueElsewherePending(true);
     setContinueElsewhereError(null);
     setOperationError(null);
-    // The dialog stays open only for the "no eligible tab" outcome so the user
-    // can open a site and retry; every other outcome settles the flow.
-    let keepDialogOpen = false;
 
     try {
-      const target = await findLatestRecordableTab();
+      const tabs = await listRecordableTabs();
       if (generation.current !== flowGeneration) return;
-      if (!target || target.id == null) {
-        keepDialogOpen = true;
+      if (tabs.length === 0) {
+        setContinuationTabs(null);
+        setSelectedContinuationTabId(null);
         setContinueElsewhereError('找不到可錄製的一般網頁分頁，請先開啟要接續錄製的網站。');
         return;
       }
+      const lastStepUrl = prepared.source.kind === 'origin' ? prepared.source.sourceUrl : null;
+      setContinuationTabs(tabs);
+      setSelectedContinuationTabId(defaultContinuationTab(tabs, lastStepUrl)?.id ?? null);
+    } catch (listError) {
+      console.error('列出可接續錄製的分頁失敗', listError);
+      if (generation.current === flowGeneration) {
+        setContinueElsewhereError('無法讀取目前開啟的分頁，請再試一次。');
+      }
+    } finally {
+      if (generation.current === flowGeneration) setContinueElsewherePending(false);
+    }
+  }
 
+  /**
+   * Second elsewhere step, after an explicit pick: focus the chosen tab and
+   * send a plain START_RECORDING (no continuation field), i.e. the popup's
+   * contract — the background records the active tab under the grants it
+   * already holds, so no host-permission request happens here and the editor
+   * still never nominates a source URL. With follow-mode recording the user
+   * can freely switch tabs once the run is live.
+   */
+  async function confirmContinueElsewhere(): Promise<void> {
+    if (!currentContinuationFlow()) return;
+    const target = continuationTabs?.find((tab) => tab.id === selectedContinuationTabId) ?? null;
+    if (!target) return;
+    const flowGeneration = generation.current;
+    setContinueElsewherePending(true);
+    setContinueElsewhereError(null);
+    setOperationError(null);
+    // The dialog stays open only for the "picked tab disappeared" outcome so
+    // the user can pick another tab; every other outcome settles the flow.
+    let keepDialogOpen = false;
+
+    try {
       try {
         await flushDescriptions();
       } catch {
@@ -270,11 +330,22 @@ export function usePermissionFlow({
       // The background resolves a plain start against the active tab of the
       // last focused window, so focus the target window and tab first, then
       // confirm the switch actually took before sending the message.
-      if (target.windowId != null) {
+      let confirmed: Browser.tabs.Tab;
+      try {
         await browser.windows.update(target.windowId, { focused: true });
+        await browser.tabs.update(target.id, { active: true });
+        confirmed = await browser.tabs.get(target.id);
+      } catch (switchError) {
+        // The picked tab closed while the dialog was open. Refresh the list in
+        // place instead of settling the flow on a stale choice.
+        console.warn('切換到選取的接續分頁失敗', switchError);
+        if (generation.current === flowGeneration) {
+          keepDialogOpen = true;
+          setContinueElsewherePending(false);
+          await openContinueElsewhere();
+        }
+        return;
       }
-      await browser.tabs.update(target.id, { active: true });
-      const confirmed = await browser.tabs.get(target.id);
       if (generation.current !== flowGeneration) return;
       if (!confirmed.active || !isRecordableContinuationTab(confirmed)) {
         throw new Error('無法切換到要錄製的分頁，請再試一次。');
@@ -299,10 +370,7 @@ export function usePermissionFlow({
         );
       }
     } finally {
-      if (generation.current === flowGeneration) {
-        if (keepDialogOpen) setContinueElsewherePending(false);
-        else clearPreparedPermission();
-      }
+      if (generation.current === flowGeneration && !keepDialogOpen) clearPreparedPermission();
     }
   }
 
@@ -337,7 +405,12 @@ export function usePermissionFlow({
       if (!result.ok) throw new Error(result.message);
       validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
       prepared = {
-        source: { kind: 'origin', sourceOrigin: result.sourceOrigin, permissionPattern: result.permissionPattern },
+        source: {
+          kind: 'origin',
+          sourceOrigin: result.sourceOrigin,
+          permissionPattern: result.permissionPattern,
+          sourceUrl: result.sourceUrl,
+        },
         entryId: targetEntryId,
         action: { kind: 'recapture', target },
       };
@@ -384,7 +457,12 @@ export function usePermissionFlow({
       } else {
         validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
         prepared = {
-          source: { kind: 'origin', sourceOrigin: result.sourceOrigin, permissionPattern: result.permissionPattern },
+          source: {
+            kind: 'origin',
+            sourceOrigin: result.sourceOrigin,
+            permissionPattern: result.permissionPattern,
+            sourceUrl: result.sourceUrl,
+          },
           entryId: null,
           action: { kind: 'continuation' },
         };
@@ -409,10 +487,14 @@ export function usePermissionFlow({
     permissionFlowActive,
     continueElsewherePending,
     continueElsewhereError,
+    continuationTabs,
+    selectedContinuationTabId,
+    selectContinuationTab: setSelectedContinuationTabId,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,
     confirmPreparedPermission,
+    openContinueElsewhere,
     confirmContinueElsewhere,
     handleRecapture,
     handleContinueRecording,

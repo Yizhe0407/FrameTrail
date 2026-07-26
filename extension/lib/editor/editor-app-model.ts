@@ -18,12 +18,24 @@ export interface UndoAction {
 export type PendingUndoAction = Omit<UndoAction, 'id' | 'guideId'>;
 
 export type PreparedCaptureSource =
-  | { kind: 'origin'; sourceOrigin: string; permissionPattern: string }
+  /** `sourceUrl` is the background-resolved persisted URL. The elsewhere tab
+   * picker only compares it against candidate tab URLs (to skip preselecting
+   * the page the user just recorded); it is never sent anywhere. */
+  | { kind: 'origin'; sourceOrigin: string; permissionPattern: string; sourceUrl: string }
   /** The Guide has no recorded source page (no steps), so the confirmation
    * dialog can only offer the site-agnostic elsewhere continuation. Only a
    * continuation action may carry this: recapture always targets a stored
    * step and therefore always has an origin. */
   | { kind: 'unavailable'; reason: string };
+
+/** One open, recordable tab offered by the 改在其他頁面接續 picker. */
+export interface ContinuationTabOption {
+  id: number;
+  windowId: number;
+  title: string;
+  url: string;
+  favIconUrl?: string;
+}
 
 export type PreparedCapturePermission = {
   source: PreparedCaptureSource;

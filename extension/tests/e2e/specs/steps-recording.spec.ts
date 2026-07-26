@@ -1,4 +1,4 @@
-import { test, expect } from '../support/fixture';
+import { test, expect, FIXTURE_URL } from '../support/fixture';
 import {
   clickTarget,
   expectSteady,
@@ -274,6 +274,52 @@ test.describe('step recording', () => {
     await expectSteady(async () => (await readSteps(popupPage)).length, 1);
 
     await stopRecording(popupPage);
+  });
+
+  test('follows the user to another tab mid-recording and keeps capturing there and back', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    // The E2E build grants <all_urls>, so follow mode is armed for steps runs.
+    await startRecording(appPage, popupPage, 'steps');
+    await clickTarget(appPage, '#plain-text');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    const firstTabId = (await readRecordingState(popupPage)).tabId as number;
+
+    // Activate a second normal tab: the run must move with the user instead of
+    // silently dropping every click made there. The tab is loaded while the
+    // recorded tab is active, then explicitly activated, so the activation the
+    // background debounces always carries the final URL (never about:blank).
+    const secondPage = await extensionContext.newPage();
+    await secondPage.goto(`${FIXTURE_URL}navigated.html`);
+    await appPage.bringToFront();
+    await secondPage.bringToFront();
+    await expect.poll(async () => (await readRecordingState(popupPage)).tabId).not.toBe(firstTabId);
+    await expect.poll(() => secondPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+    // The old tab's recorder (toolbar included) is torn down after the move.
+    await expect.poll(() => appPage.locator('[data-frametrail-recording-toolbar]').count()).toBe(0);
+
+    await clickTarget(secondPage, 'h1');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+
+    // Switching back follows again and keeps appending to the same run.
+    await appPage.bringToFront();
+    await expect.poll(async () => (await readRecordingState(popupPage)).tabId).toBe(firstTabId);
+    await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+    await clickTarget(appPage, '#action-button span');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
+
+    await stopRecording(popupPage);
+    const steps = await readSteps(popupPage);
+    expect(steps.map((step) => step.sessionId)).toEqual([
+      steps[0].sessionId,
+      steps[0].sessionId,
+      steps[0].sessionId,
+    ]);
+    expect(steps.map((step) => step.order)).toEqual([0, 1, 2]);
+    await secondPage.close();
   });
 
   test('marks disabled controls, SVG, canvas, and general containers', async ({

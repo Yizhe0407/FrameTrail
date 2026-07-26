@@ -433,26 +433,61 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     expect(within(dialog).getByRole('button', { name: '改在其他頁面接續' })).toBeTruthy();
   });
 
-  it('focuses the most recent normal tab and starts a plain recording without the source grant', async () => {
+  it('opens an explicit tab picker that skips preselecting the last-step URL tab', async () => {
     mockContinuationPreflight();
     browserApi.tabsQuery.mockResolvedValue([
       { id: 21, windowId: 3, url: 'chrome://settings/', lastAccessed: 990 },
       { id: 22, windowId: 3, url: 'chrome-extension://frametrail/editor.html', lastAccessed: 995 },
-      { id: 23, windowId: 3, url: 'https://old.example/page', lastAccessed: 100 },
-      { id: 24, windowId: 4, url: 'https://recent.example/app', lastAccessed: 800 },
+      // Most recently used recordable tab, but it shows the guide's last-step
+      // URL — the page the user just recorded — so it must not be preselected.
+      { id: 26, windowId: 3, url: 'https://example.test/three', title: '來源頁面', lastAccessed: 900 },
+      { id: 24, windowId: 4, url: 'https://recent.example/app', title: '最近的分頁', lastAccessed: 800 },
+      { id: 23, windowId: 3, url: 'https://old.example/page', title: '較舊的分頁', lastAccessed: 100 },
       { id: 25, windowId: 4, lastAccessed: 999 },
     ]);
-    browserApi.tabsUpdate.mockResolvedValue({ id: 24, windowId: 4, active: true });
-    browserApi.windowsUpdate.mockResolvedValue({ id: 4 });
-    browserApi.tabsGet.mockResolvedValue({
-      id: 24,
-      windowId: 4,
-      active: true,
-      url: 'https://recent.example/app',
-    });
     const dialog = await openContinuationDialog();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '改在其他頁面接續' }));
+
+    const picker = await screen.findByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
+    const options = within(picker).getAllByRole('radio');
+    // Recordable tabs only, most recently used first.
+    expect(options.map((option) => option.textContent)).toEqual([
+      '來源頁面example.test',
+      '最近的分頁recent.example',
+      '較舊的分頁old.example',
+    ]);
+    expect(within(picker).getByRole('radio', { name: /最近的分頁/ }).getAttribute('aria-checked')).toBe('true');
+    expect(within(picker).getByRole('radio', { name: /來源頁面/ }).getAttribute('aria-checked')).toBe('false');
+    // Nothing starts until the user confirms a pick.
+    expect(browserApi.tabsUpdate).not.toHaveBeenCalled();
+    expect(browserApi.sendMessage.mock.calls.map(([message]: any[]) => message.type))
+      .not.toContain('START_RECORDING');
+  });
+
+  it('starts a plain recording in the picked tab after explicit confirmation', async () => {
+    mockContinuationPreflight();
+    browserApi.tabsQuery.mockResolvedValue([
+      { id: 26, windowId: 3, url: 'https://example.test/three', title: '來源頁面', lastAccessed: 900 },
+      { id: 24, windowId: 4, url: 'https://recent.example/app', title: '最近的分頁', lastAccessed: 800 },
+      { id: 23, windowId: 3, url: 'https://old.example/page', title: '較舊的分頁', lastAccessed: 100 },
+    ]);
+    browserApi.tabsUpdate.mockResolvedValue({ id: 23, windowId: 3, active: true });
+    browserApi.windowsUpdate.mockResolvedValue({ id: 3 });
+    browserApi.tabsGet.mockResolvedValue({
+      id: 23,
+      windowId: 3,
+      active: true,
+      url: 'https://old.example/page',
+    });
+    const dialog = await openContinuationDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: '改在其他頁面接續' }));
+    const picker = await screen.findByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
+
+    // The user overrides the preselection with an explicit pick.
+    fireEvent.click(within(picker).getByRole('radio', { name: /較舊的分頁/ }));
+    expect(within(picker).getByRole('radio', { name: /較舊的分頁/ }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'START_RECORDING',
@@ -463,8 +498,8 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
       .map(([message]: any[]) => message)
       .find((message: any) => message.type === 'START_RECORDING');
     expect(startCall.continuation).toBeUndefined();
-    expect(browserApi.windowsUpdate).toHaveBeenCalledWith(4, { focused: true });
-    expect(browserApi.tabsUpdate).toHaveBeenCalledWith(24, { active: true });
+    expect(browserApi.windowsUpdate).toHaveBeenCalledWith(3, { focused: true });
+    expect(browserApi.tabsUpdate).toHaveBeenCalledWith(23, { active: true });
     expect(browserApi.tabsUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       browserApi.sendMessage.mock.invocationCallOrder.at(-1)!,
     );
@@ -521,6 +556,11 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     expect(screen.queryByRole('alert')).toBeNull();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '改在其他頁面接續' }));
+
+    // With no last-step URL to avoid, the picker preselects the sole tab.
+    const picker = await screen.findByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
+    expect(within(picker).getByRole('radio', { name: /elsewhere\.example/ }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'START_RECORDING',

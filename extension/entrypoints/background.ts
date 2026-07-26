@@ -878,6 +878,124 @@ async function recoverPendingUndo(): Promise<void> {
   pendingUndo ??= record;
 }
 
+/** How long a newly activated tab must stay active before a live steps run
+ * follows it. Flicking through several tabs (Ctrl+Tab, tab strip scrubbing)
+ * must not inject the recorder into every tab passed on the way. */
+const FOLLOW_ACTIVATION_DEBOUNCE_MS = 300;
+let followDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Debounces tab activations, then serializes the actual move through the
+ * lifecycle queue so it can never interleave with START/STOP or another move. */
+function scheduleRecordingFollow(tabId: number): void {
+  if (followDebounceTimer != null) clearTimeout(followDebounceTimer);
+  followDebounceTimer = setTimeout(() => {
+    followDebounceTimer = null;
+    void queueLifecycle(() => followRecordingToTab(tabId)).catch((error) => {
+      console.error('[frametrail] failed to follow the activated tab', describeBrowserError(error), error);
+    });
+  }, FOLLOW_ACTIVATION_DEBOUNCE_MS);
+}
+
+/** True for a tab the follow-mode recorder may move into: a normal web page,
+ * never a browser/extension page (the editor included). */
+function isFollowableTab(tab: Browser.tabs.Tab): boolean {
+  return (
+    typeof tab.url === 'string' &&
+    (tab.url.startsWith('http://') || tab.url.startsWith('https://')) &&
+    !isRestrictedUrl(tab.url)
+  );
+}
+
+/**
+ * Follow-the-user recording: while a steps run is live and the user activates
+ * a different eligible tab, the run moves there instead of silently dropping
+ * every click. Snapshot mode never follows (its coordinates belong to one
+ * frozen document), and without the <all_urls> grant (the popup's 跨頁錄製
+ * toggle) the run keeps its original single-tab behavior. An ineligible tab
+ * (restricted/extension page) moves nothing: the recording stays on the
+ * previous tab, toolbar and all, until an eligible tab is activated.
+ */
+async function followRecordingToTab(tabId: number): Promise<void> {
+  const expectedControlVersion = controlVersion;
+  const state = await getRecordingState();
+  if (
+    expectedControlVersion !== controlVersion ||
+    state.operation !== 'recording' ||
+    !state.isRecording ||
+    state.mode !== 'steps' ||
+    !state.runId ||
+    state.tabId == null ||
+    state.tabId === tabId ||
+    (state.phase !== 'recording' && state.phase !== 'paused')
+  ) {
+    return;
+  }
+  if (!(await browser.permissions.contains({ origins: ['<all_urls>'] }))) return;
+  let tab: Browser.tabs.Tab;
+  try {
+    tab = await browser.tabs.get(tabId);
+  } catch {
+    return; // The activated tab is already gone; a later activation will follow.
+  }
+  // `active` re-checks after the debounce that this tab still holds focus in
+  // its window; a same-window switch-away already scheduled its own follow.
+  if (!tab.active || !isFollowableTab(tab)) return;
+
+  const runId = state.runId;
+  const previousTabId = state.tabId;
+  // Publish the new tabId BEFORE injecting: the recorder's READY handshake and
+  // its keep-alive port are validated against state.tabId, so injecting first
+  // would make the fresh recorder reject itself and tear down immediately.
+  const moved = await queueStateMutation(async () => {
+    if (expectedControlVersion !== controlVersion) return false;
+    const current = await getRecordingState();
+    if (
+      expectedControlVersion !== controlVersion ||
+      !current.isRecording ||
+      current.operation !== 'recording' ||
+      current.runId !== runId ||
+      current.tabId !== previousTabId
+    ) {
+      return false;
+    }
+    await setRecordingState({ ...current, tabId });
+    return true;
+  });
+  if (!moved) return;
+  try {
+    // All-frames mirrors the START injection so iframe clicks in the followed
+    // tab are relayed to its top-frame recorder rather than silently lost.
+    await recorderRuntime.injectRecorder(tabId, true);
+  } catch (error) {
+    console.warn(
+      '[frametrail] failed to move the recording into the activated tab',
+      describeBrowserError(error),
+      error,
+    );
+    // Hand the run back to the previous tab, whose recorder was never stopped;
+    // no error is surfaced because nothing about the run was lost.
+    await queueStateMutation(async () => {
+      const current = await getRecordingState();
+      if (
+        expectedControlVersion !== controlVersion ||
+        !current.isRecording ||
+        current.operation !== 'recording' ||
+        current.runId !== runId ||
+        current.tabId !== tabId
+      ) {
+        return false;
+      }
+      await setRecordingState({ ...current, tabId: previousTabId });
+      return true;
+    });
+    return;
+  }
+  // The keep-alive rejection path would retire the old recorder eventually; an
+  // explicit stop removes its toolbar right away. If the message cannot reach
+  // a bfcached document, that same rejection path remains the backstop.
+  await recorderRuntime.stopRecorderInTab(previousTabId);
+}
+
 function failStepRecapture(
   runId: string,
   errorCode: string,
@@ -2990,6 +3108,21 @@ export default defineBackground(() => {
       }
     })().catch((error) => {
       console.error('[frametrail] failed to handle recorded tab update', error);
+    });
+  });
+
+  browser.tabs.onActivated.addListener(({ tabId }) => {
+    scheduleRecordingFollow(tabId);
+  });
+
+  // Cross-window switches raise no tabs.onActivated; follow the newly focused
+  // window's active tab instead. WINDOW_ID_NONE (-1) means focus left Chrome.
+  browser.windows.onFocusChanged.addListener((windowId) => {
+    if (windowId == null || windowId < 0) return;
+    void browser.tabs.query({ active: true, windowId }).then(([tab]) => {
+      if (tab?.id != null) scheduleRecordingFollow(tab.id);
+    }).catch((error) => {
+      console.warn('[frametrail] failed to inspect the focused window', error);
     });
   });
 

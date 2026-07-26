@@ -83,10 +83,14 @@ function EditorApp() {
     permissionFlowActive,
     continueElsewherePending,
     continueElsewhereError,
+    continuationTabs,
+    selectedContinuationTabId,
+    selectContinuationTab,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,
     confirmPreparedPermission,
+    openContinueElsewhere,
     confirmContinueElsewhere,
     handleRecapture,
     handleContinueRecording,
@@ -372,11 +376,15 @@ function EditorApp() {
         pending={permissionPending}
         onContinueElsewhere={
           preparedPermission?.action.kind === 'continuation'
-            ? () => void confirmContinueElsewhere()
+            ? () => void openContinueElsewhere()
             : undefined
         }
         continueElsewherePending={continueElsewherePending}
         continueElsewhereError={continueElsewhereError}
+        continuationTabs={continuationTabs}
+        selectedContinuationTabId={selectedContinuationTabId}
+        onSelectContinuationTab={selectContinuationTab}
+        onConfirmContinueElsewhere={() => void confirmContinueElsewhere()}
         sourceUnavailableReason={
           preparedPermission?.source.kind === 'unavailable' ? preparedPermission.source.reason : null
         }

@@ -295,7 +295,7 @@ export default function RecordControls({
         <label className="flex min-h-11 items-center justify-between gap-3 py-2 text-xs font-medium text-foreground dark:text-white">
           <span className="min-w-0">
             <span className="block">跨頁錄製</span>
-            <span className="block text-[11px] font-normal text-muted-foreground">需要時會要求網站存取權</span>
+            <span className="block text-[11px] font-normal text-muted-foreground">錄製會跟著你切換的分頁</span>
           </span>
           <Switch checked={crossPage} onCheckedChange={(checked) => void handleCrossPageChange(checked)} disabled={pending} />
         </label>
