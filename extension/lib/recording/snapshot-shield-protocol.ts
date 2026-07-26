@@ -1,9 +1,5 @@
-import type {
-  RecordingControlMessage,
-  RecordingControlResult,
-  RecordingMode,
-  RecordingPhase,
-} from '../runtime/messages';
+import type { RecordingControlMessage, RecordingControlResult } from '../runtime/messages';
+import type { RecordingMode, RecordingPhase } from '../storage/recording-state';
 import { REGION_CAPTURE_MIN_SIZE, isRegionRectLargeEnough } from '../capture/region-capture';
 import { isFiniteRect } from '../shared/validation';
 

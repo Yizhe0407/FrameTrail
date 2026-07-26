@@ -3,9 +3,10 @@ import type {
   BackgroundMessage,
   PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
-  RecordingState,
   StartRecordingResult,
 } from '@/lib/runtime/messages';
+import type { RecordingState } from '@/lib/storage/recording-state';
+import { makeRecordingState } from '../setup/recording-state';
 import type { Step } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
@@ -26,43 +27,25 @@ const mocks = vi.hoisted(() => ({
   insertCSS: vi.fn(),
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: (path: string) => `chrome-extension://extension-id${path}`,
-      onMessage: {
-        addListener: (listener: typeof mocks.messageListener) => {
-          mocks.messageListener = listener;
-        },
+vi.mock('wxt/browser', async () => {
+  const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makeBackgroundBrowserMock({
+      onMessage: (listener) => {
+        mocks.messageListener = listener;
       },
-      onConnect: { addListener: vi.fn() },
-      sendMessage: vi.fn(),
-    },
-    commands: { onCommand: { addListener: vi.fn() } },
-    permissions: {
-      contains: mocks.permissionsContains,
-      request: mocks.permissionsRequest,
-    },
-    tabs: {
-      captureVisibleTab: vi.fn(),
-      create: mocks.tabsCreate,
-      get: mocks.tabsGet,
-      onActivated: { addListener: vi.fn() },
-      onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
-      query: mocks.tabsQuery,
-      remove: mocks.tabsRemove,
-      sendMessage: vi.fn(),
-      update: mocks.tabsUpdate,
-    },
-    windows: { onFocusChanged: { addListener: vi.fn() }, update: vi.fn() },
-    scripting: {
+      permissionsContains: mocks.permissionsContains,
+      permissionsRequest: mocks.permissionsRequest,
+      tabsCreate: mocks.tabsCreate,
+      tabsGet: mocks.tabsGet,
+      tabsQuery: mocks.tabsQuery,
+      tabsRemove: mocks.tabsRemove,
+      tabsUpdate: mocks.tabsUpdate,
       executeScript: mocks.executeScript,
       insertCSS: mocks.insertCSS,
-      removeCSS: vi.fn(),
-    },
-  },
-}));
+    }),
+  };
+});
 
 vi.mock('@/lib/storage/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/db')>();
@@ -83,25 +66,7 @@ vi.mock('@/lib/storage/storage', async (importOriginal) => {
   };
 });
 
-const idleState: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
+const idleState = makeRecordingState();
 
 const editorUrl = 'chrome-extension://extension-id/editor.html';
 
@@ -152,15 +117,14 @@ function expectNoPermissionOrOperationSideEffects(): void {
 }
 
 function activeRecordingState(): RecordingState {
-  return {
-    ...idleState,
+  return makeRecordingState({
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
     sessionId: 'guide-a',
     tabId: 4,
     runId: 'run-1',
-  };
+  });
 }
 
 beforeAll(async () => {

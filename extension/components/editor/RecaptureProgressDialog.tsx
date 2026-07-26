@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
-import type { RecapturePhase } from '@/lib/runtime/messages';
+import type { RecapturePhase } from '@/lib/storage/recording-state';
 
 interface Props {
   open: boolean;

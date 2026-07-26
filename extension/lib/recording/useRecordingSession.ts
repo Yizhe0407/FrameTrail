@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createDefaultRecordingState, getRecordingState, onRecordingStateChange } from '../storage/storage';
+import { getRecordingState, onRecordingStateChange } from '../storage/storage';
+import { createDefaultRecordingState } from '../storage/recording-state';
 import { getSteps, type Step } from '../storage/db';
 
 

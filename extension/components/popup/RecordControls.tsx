@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { cn } from '@/lib/shared/utils';
-import type { RecordingMode, RecordingState } from '@/lib/runtime/messages';
+import type { RecordingMode, RecordingState } from '@/lib/storage/recording-state';
 import { getSelectedGuide, startRecordingIntoNewGuide } from '@/lib/guide/guide-actions';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import { focusTab } from '@/lib/runtime/navigation';

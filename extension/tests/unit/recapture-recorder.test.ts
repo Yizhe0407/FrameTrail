@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StepRecaptureContext } from '@/lib/runtime/messages';
+import type { StepRecaptureContext } from '@/lib/storage/recording-state';
 
 const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),

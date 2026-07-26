@@ -6,7 +6,8 @@ import {
   getRecordingState,
   setActiveGuideId,
 } from '../storage/storage';
-import type { OpenEditorResult, RecordingMode, StartRecordingResult } from '../runtime/messages';
+import type { OpenEditorResult, StartRecordingResult } from '../runtime/messages';
+import type { RecordingMode } from '../storage/recording-state';
 import {
   isOpenEditorResult,
   isStartRecordingResult,

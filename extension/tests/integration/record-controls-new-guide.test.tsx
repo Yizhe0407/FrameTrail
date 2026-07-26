@@ -13,20 +13,17 @@ const mocks = vi.hoisted(() => ({
   discardPristineGuide: vi.fn(),
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: (path: string) => `chrome-extension://frame${path}`,
+vi.mock('wxt/browser', async () => {
+  const { makePopupBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makePopupBrowserMock({
       sendMessage: mocks.sendMessage,
-    },
-    tabs: { query: mocks.query },
-    permissions: {
-      contains: vi.fn().mockResolvedValue(true),
-      request: vi.fn(),
-    },
-    storage: { local: { get: mocks.storageGet, set: mocks.storageSet, remove: vi.fn() } },
-  },
-}));
+      tabsQuery: mocks.query,
+      storageGet: mocks.storageGet,
+      storageSet: mocks.storageSet,
+    }),
+  };
+});
 // Only the storage primitives are mocked: the real guide-actions transaction
 // (create → send → verify → rollback with the live-run probe) runs under test.
 vi.mock('@/lib/storage/db', () => ({
@@ -36,28 +33,11 @@ vi.mock('@/lib/storage/db', () => ({
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
-import { RECORDING_STATE_KEY, type RecordingState } from '@/lib/runtime/messages';
+import { RECORDING_STATE_KEY } from '@/lib/storage/recording-state';
 import { ACTIVE_GUIDE_ID_KEY } from '@/lib/storage/storage';
+import { makeRecordingState } from '../setup/recording-state';
 
-const IDLE_RECORDING: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
+const IDLE_RECORDING = makeRecordingState();
 
 const SELECTED_GUIDE_WITH_CONTENT = {
   id: 'guide-old',

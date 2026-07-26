@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import type { RecordingMode } from '@/lib/runtime/messages';
+import type { RecordingMode } from '@/lib/storage/recording-state';
 import { createVersionedMarkerStore } from './versioned-marker-store';
 
 /**

@@ -15,8 +15,8 @@ import type {
   StartRecordingMessage,
   StartRecordingResult,
   StartStepRecaptureResult,
-  StepRecaptureTarget,
 } from '@/lib/runtime/messages';
+import type { StepRecaptureTarget } from '@/lib/storage/recording-state';
 import {
   isPreflightGuideContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,

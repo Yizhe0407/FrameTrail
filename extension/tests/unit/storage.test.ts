@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('wxt/browser', () => ({ browser: {} }));
 
-import { createDefaultRecordingState, normalizeRecordingState } from '@/lib/storage/storage';
+import { normalizeRecordingState } from '@/lib/storage/storage';
+import { createDefaultRecordingState } from '@/lib/storage/recording-state';
 
 describe('recording state normalization', () => {
   it('returns an independent complete default after storage is cleared', () => {

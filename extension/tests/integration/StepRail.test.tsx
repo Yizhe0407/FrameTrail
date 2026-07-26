@@ -5,24 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StepRail from '@/components/editor/StepRail';
 import type { StepEntry } from '@/lib/storage/db';
 import type { GuideSection } from '@/lib/guide/guide-sections';
-
-function makeEntry(id: string, order: number): StepEntry {
-  return {
-    kind: 'single',
-    step: {
-      id,
-      sessionId: 'session-1',
-      order,
-      screenshotBlob: new Blob(['image'], { type: 'image/png' }),
-      bounds: { x: 10, y: 10, width: 20, height: 20 },
-      devicePixelRatio: 1,
-      screenshotScale: 1,
-      description: `Step ${order + 1}`,
-      url: 'https://example.com/',
-      timestamp: order,
-    },
-  };
-}
+import { makeEntry } from '../setup/step-entries';
 
 function makeGroupEntry(id: string, annotationCount: number): StepEntry {
   const single = makeEntry(id, 0);

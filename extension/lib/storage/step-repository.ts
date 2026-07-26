@@ -6,7 +6,7 @@ import {
   type Bounds,
   type Step,
 } from './models';
-import type { StepRecaptureTarget } from '../runtime/messages';
+import type { StepRecaptureTarget } from './recording-state';
 import {
   refreshGuideSummary,
   requireWritableGuide,
@@ -47,11 +47,10 @@ export interface CaptureReplacement {
   timestamp: number;
 }
 
-// Canonical home is the shared message contract: the same target shape rides
-// the recapture runtime messages end to end. lib/storage already depends on
-// lib/runtime/messages (see storage.ts), so re-exporting keeps the db facade
+// Canonical home is the persisted-state schema: the same target shape rides
+// the recapture runtime messages end to end. Re-exporting keeps the db facade
 // stable without a second declaration that could drift.
-export type { StepRecaptureTarget } from '../runtime/messages';
+export type { StepRecaptureTarget } from './recording-state';
 
 export class StepRecaptureError extends Error {
   constructor(

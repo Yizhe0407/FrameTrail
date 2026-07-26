@@ -1,7 +1,7 @@
 import { Download, Library } from 'lucide-react';
 import ResetButton from '../shared/ResetButton';
 import type { Step } from '@/lib/storage/db';
-import type { ActiveOperation } from '@/lib/runtime/messages';
+import type { ActiveOperation } from '@/lib/storage/recording-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { openLibrary } from '@/lib/runtime/navigation';

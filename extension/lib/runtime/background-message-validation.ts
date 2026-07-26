@@ -1,8 +1,5 @@
-import type {
-  BackgroundMessage,
-  ClickCapture,
-  StepRecaptureTarget,
-} from './messages';
+import type { BackgroundMessage, ClickCapture } from './messages';
+import type { StepRecaptureTarget } from '../storage/recording-state';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import {
   isBoundedString,

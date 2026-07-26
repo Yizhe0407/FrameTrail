@@ -15,17 +15,20 @@ const mocks = vi.hoisted(() => ({
   storageRemove: vi.fn(),
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: (path: string) => `chrome-extension://frame${path}`,
+vi.mock('wxt/browser', async () => {
+  const { makePopupBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makePopupBrowserMock({
       sendMessage: mocks.sendMessage,
-    },
-    tabs: { query: mocks.query },
-    permissions: { contains: mocks.permissionsContains, request: mocks.permissionsRequest },
-    storage: { local: { get: mocks.storageGet, set: mocks.storageSet, remove: mocks.storageRemove } },
-  },
-}));
+      tabsQuery: mocks.query,
+      permissionsContains: mocks.permissionsContains,
+      permissionsRequest: mocks.permissionsRequest,
+      storageGet: mocks.storageGet,
+      storageSet: mocks.storageSet,
+      storageRemove: mocks.storageRemove,
+    }),
+  };
+});
 // Only the storage primitives are mocked; the real guide-actions flow runs.
 vi.mock('@/lib/storage/db', () => ({
   createGuide: mocks.createGuide,
@@ -35,31 +38,13 @@ vi.mock('@/lib/storage/db', () => ({
 
 import RecordControls from '@/components/popup/RecordControls';
 import { CROSS_TAB_DECLINE_STORAGE_KEY } from '@/lib/runtime/cross-tab-recording';
-import type { RecordingState } from '@/lib/runtime/messages';
+import { makeRecordingState } from '../setup/recording-state';
 
 const ALL_URLS = { origins: ['<all_urls>'] };
 const HINT_TEXT = /目前僅錄製單一分頁/;
 const ENABLE_BUTTON = '啟用跨分頁錄製';
 
-const IDLE_RECORDING: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
+const IDLE_RECORDING = makeRecordingState();
 
 /** Renders the idle form and waits for the mount probes to settle. */
 async function renderIdleControls() {

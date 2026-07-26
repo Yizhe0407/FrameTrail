@@ -20,25 +20,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+// The hook takes its initial value from the real createDefaultRecordingState
+// (lib/storage/recording-state); only the async store access is mocked.
 vi.mock('@/lib/storage/storage', () => ({
-  createDefaultRecordingState: () => ({
-    isRecording: false,
-    phase: 'idle',
-    sessionId: null,
-    tabId: null,
-    error: null,
-    recoverableError: null,
-    mode: 'steps',
-    itemCount: 0,
-    numbered: true,
-    groupAnchorId: null,
-    runId: null,
-    snapshotViewport: null,
-    snapshotDevicePixelRatio: null,
-    operation: null,
-    recapture: null,
-    recaptureResult: null,
-  }),
   getRecordingState: mocks.getRecordingState,
   onRecordingStateChange: mocks.onRecordingStateChange,
 }));

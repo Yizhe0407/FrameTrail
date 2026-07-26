@@ -29,6 +29,7 @@ function classify(file) {
   if (relative.startsWith('lib/shared/')) return 'shared-lib';
   if (relative.startsWith('components/ui/')) return 'ui-component';
   if (relative === 'lib/storage/models.ts') return 'storage-models';
+  if (relative.startsWith('lib/')) return 'domain-lib';
   return 'other';
 }
 
@@ -45,6 +46,10 @@ function boundaryViolation(from, specifier) {
     case 'storage-models':
       return target.startsWith('lib/storage/') || target.startsWith('lib/guide/')
         ? 'storage/models must stay independent of repositories, database, and guide services'
+        : null;
+    case 'domain-lib':
+      return target.startsWith('components/')
+        ? 'lib modules must not depend on components; keep UI local to lib or lift the dependency into the component layer'
         : null;
     default:
       return null;

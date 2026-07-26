@@ -86,12 +86,10 @@ import type {
   PreflightGuideContinuationSourcePermissionMessage,
   PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
-  RecoverableRecordingError,
   ResetGuideMessage,
   ResetGuideResult,
   RecordingControlMessage,
   RecordingControlResult,
-  RecordingState,
   SnapshotInvalidatedMessage,
   SnapshotRecorderFailureMessage,
   StartRecordingMessage,
@@ -99,6 +97,7 @@ import type {
   StartStepRecaptureResult,
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
+import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
 
 const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 

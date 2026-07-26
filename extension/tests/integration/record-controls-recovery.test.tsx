@@ -4,38 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), permissionsContains: vi.fn(), storageGet: vi.fn() }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: { getURL: (path: string) => `chrome-extension://frame${path}` },
-    tabs: { query: mocks.query },
-    permissions: { contains: mocks.permissionsContains, request: vi.fn() },
-    storage: { local: { get: mocks.storageGet, set: vi.fn(), remove: vi.fn() } },
-  },
-}));
+vi.mock('wxt/browser', async () => {
+  const { makePopupBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makePopupBrowserMock({
+      tabsQuery: mocks.query,
+      permissionsContains: mocks.permissionsContains,
+      storageGet: mocks.storageGet,
+    }),
+  };
+});
 
 import RecordControls from '@/components/popup/RecordControls';
-import type { RecordingState, RecoverableRecordingError } from '@/lib/runtime/messages';
+import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
+import { makeRecordingState } from '../setup/recording-state';
 
 function recoveryState(recoverableError: RecoverableRecordingError): RecordingState {
-  return {
-    isRecording: false,
-    operation: null,
-    recapture: null,
-    recaptureResult: null,
+  return makeRecordingState({
     phase: 'error',
     sessionId: 'session-1',
-    tabId: null,
     error: recoverableError.message,
     recoverableError,
-    mode: 'steps',
-    itemCount: 0,
-    numbered: true,
-    groupAnchorId: null,
-    runId: null,
-    autoCreatedGuideId: null,
-    snapshotViewport: null,
-    snapshotDevicePixelRatio: null,
-  };
+  });
 }
 
 beforeEach(() => {

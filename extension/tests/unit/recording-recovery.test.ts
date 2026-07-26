@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RecordingState } from '@/lib/runtime/messages';
+import { makeRecordingState } from '../setup/recording-state';
 import {
   clearEditorRecovery,
   EDITOR_OPEN_FAILED_ERROR,
@@ -8,25 +8,7 @@ import {
   RECORDED_TAB_CLOSED_ERROR,
 } from '@/lib/recording/recording-recovery';
 
-const idleState: RecordingState = {
-  isRecording: false,
-  operation: null,
-  recapture: null,
-  recaptureResult: null,
-  phase: 'idle',
-  sessionId: 'session-1',
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-};
+const idleState = makeRecordingState({ sessionId: 'session-1' });
 
 describe('recording recovery state', () => {
   it('recognizes only recovery states that should lead to the editor', () => {

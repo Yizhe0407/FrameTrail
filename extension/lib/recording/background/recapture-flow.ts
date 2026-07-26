@@ -34,12 +34,11 @@ import type {
   PreflightStepRecaptureSourcePermissionErrorCode,
   PreflightStepRecaptureSourcePermissionMessage,
   PreflightStepRecaptureSourcePermissionResult,
-  RecordingState,
   StartStepRecaptureMessage,
   StartStepRecaptureResult,
-  StepRecaptureResult,
   StepRecaptureTargetResult,
 } from '../../runtime/messages';
+import type { RecordingState, StepRecaptureResult } from '../../storage/recording-state';
 
 // Exported: startRecording rejects with the same wording when the single
 // capture-operation slot is taken.

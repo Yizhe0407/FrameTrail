@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RecordingState } from '@/lib/runtime/messages';
+import type { RecordingState } from '@/lib/storage/recording-state';
+import { makeRecordingState } from '../setup/recording-state';
+import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
 import type { Step } from '@/lib/storage/db';
 
 const mocks = vi.hoisted(() => ({
@@ -22,40 +24,23 @@ const mocks = vi.hoisted(() => ({
   clearPendingUndoRecord: vi.fn(),
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: (path: string) => `chrome-extension://extension-id${path}`,
-      onMessage: {
-        addListener: (listener: typeof mocks.messageListener) => {
-          mocks.messageListener = listener;
-        },
+vi.mock('wxt/browser', async () => {
+  const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makeBackgroundBrowserMock({
+      onMessage: (listener) => {
+        mocks.messageListener = listener;
       },
-      onConnect: { addListener: vi.fn() },
-      sendMessage: vi.fn(),
-    },
-    commands: { onCommand: { addListener: vi.fn() } },
-    permissions: { contains: vi.fn(), request: vi.fn() },
-    tabs: {
-      captureVisibleTab: vi.fn(),
-      create: mocks.tabsCreate,
-      get: mocks.tabsGet,
-      onActivated: { addListener: vi.fn() },
-      onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
-      query: mocks.tabsQuery,
-      remove: vi.fn(),
-      sendMessage: mocks.tabsSendMessage,
-      update: mocks.tabsUpdate,
-    },
-    windows: { onFocusChanged: { addListener: vi.fn() }, update: mocks.windowsUpdate },
-    scripting: {
+      tabsCreate: mocks.tabsCreate,
+      tabsGet: mocks.tabsGet,
+      tabsQuery: mocks.tabsQuery,
+      tabsSendMessage: mocks.tabsSendMessage,
+      tabsUpdate: mocks.tabsUpdate,
+      windowsUpdate: mocks.windowsUpdate,
       executeScript: mocks.executeScript,
-      insertCSS: vi.fn(),
-      removeCSS: vi.fn(),
-    },
-  },
-}));
+    }),
+  };
+});
 
 vi.mock('@/lib/storage/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/db')>();
@@ -86,29 +71,8 @@ vi.mock('@/lib/recording/background/pending-undo-store', () => ({
 
 const PAGE_URL = 'https://site.example/page';
 
-const idleState: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
-
 function snapshotState(overrides: Partial<RecordingState> = {}): RecordingState {
-  return {
-    ...idleState,
+  return makeRecordingState({
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
@@ -118,7 +82,7 @@ function snapshotState(overrides: Partial<RecordingState> = {}): RecordingState 
     mode: 'snapshot',
     groupAnchorId: 'anchor-1',
     ...overrides,
-  };
+  });
 }
 
 function anchorStep(overrides: Partial<Step> = {}): Step {
@@ -138,16 +102,6 @@ function anchorStep(overrides: Partial<Step> = {}): Step {
     numbered: true,
     ...overrides,
   };
-}
-
-async function importBackground(): Promise<void> {
-  vi.resetModules();
-  vi.stubGlobal('defineBackground', (setup: () => unknown) => setup());
-  await import('@/entrypoints/background');
-}
-
-async function flushAsyncWork(rounds = 20): Promise<void> {
-  for (let i = 0; i < rounds; i++) await Promise.resolve();
 }
 
 const recordedPageSender = {
@@ -176,7 +130,7 @@ function clickMessage(): Record<string, unknown> {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.messageListener = null;
-  mocks.getRecordingState.mockResolvedValue(idleState);
+  mocks.getRecordingState.mockResolvedValue(makeRecordingState());
   mocks.setRecordingState.mockResolvedValue(undefined);
   mocks.getStep.mockResolvedValue(undefined);
   mocks.getSteps.mockResolvedValue([]);

@@ -84,10 +84,10 @@ import type {
   FrameTrailStopMessage,
   RecordingControlMessage,
   RecordingControlResult,
-  RecordingState,
   SnapshotInvalidatedMessage,
   SnapshotRecorderFailureMessage,
 } from '@/lib/runtime/messages';
+import type { RecordingState } from '@/lib/storage/recording-state';
 
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 // Only a genuinely hung capture should hit this; normal-latency captures (even

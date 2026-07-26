@@ -2,36 +2,15 @@ import { browser, type Browser } from 'wxt/browser';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import {
   RECORDING_STATE_KEY,
+  createDefaultRecordingState,
   type RecoverableRecordingError,
   type RecordingState,
   type StepRecaptureContext,
   type StepRecaptureResult,
   type StepRecaptureTarget,
-} from '../runtime/messages';
+} from './recording-state';
 
-const DEFAULT_STATE: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
-
-export function createDefaultRecordingState(): RecordingState {
-  return { ...DEFAULT_STATE };
-}
+const DEFAULT_STATE: RecordingState = createDefaultRecordingState();
 
 /**
  * Ends the current run by returning every run-scoped field to its idle

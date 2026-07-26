@@ -1,4 +1,5 @@
-import type { ClickCapture, RecordingMode, RecordingState } from '../runtime/messages';
+import type { ClickCapture } from '../runtime/messages';
+import type { RecordingMode, RecordingState } from '../storage/recording-state';
 import { deepElementFromPoint, getComposedParent } from '../capture/selector-utils';
 
 export type CaptureGuardFailure = 'stale-run' | 'inactive-tab' | 'changed-url' | null;

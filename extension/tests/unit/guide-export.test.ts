@@ -29,6 +29,7 @@ import {
   type GuideExportMetadata,
 } from '@/lib/export/guide-export';
 import { renderEntryImages } from '@/lib/export/guide-export-render';
+import { stubPdfCanvas } from '../setup/pdf-canvas';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
 
 function entry(overrides: Record<string, unknown> = {}): StepEntry {
@@ -98,44 +99,6 @@ async function archiveMarkdown(entries: StepEntry[], metadata: GuideExportMetada
   return strFromU8(files[archive.markdownFilename]);
 }
 
-/**
- * Stubs OffscreenCanvas with a 14px-per-code-point measurer (content width
- * 1072px, so 76 code points fit per line; step headings are indented by the
- * number badge) and returns the fillText spy.
- */
-function stubPdfCanvas() {
-  const fillText = vi.fn();
-  const context = {
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    font: '',
-    textAlign: 'left',
-    textBaseline: 'top',
-    fillRect: vi.fn(),
-    strokeRect: vi.fn(),
-    beginPath: vi.fn(),
-    arc: vi.fn(),
-    fill: vi.fn(),
-    fillText,
-    drawImage: vi.fn(),
-    measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
-  };
-  class OffscreenCanvasMock {
-    constructor(readonly width: number, readonly height: number) {}
-    getContext() {
-      return context;
-    }
-    async convertToBlob() {
-      return new Blob(['jpeg-page'], { type: 'image/jpeg' });
-    }
-  }
-  const close = vi.fn();
-  vi.stubGlobal('OffscreenCanvas', OffscreenCanvasMock);
-  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close }));
-  return Object.assign(fillText, { bitmapClose: close });
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -188,7 +151,7 @@ describe('guide export', () => {
   });
 
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
-    const fillText = stubPdfCanvas();
+    const { fillText, bitmapClose } = stubPdfCanvas();
 
     const pdf = await generateGuidePdf([groupEntry()], { title: 'PDF guide' });
     const drawnText = fillText.mock.calls.map(([text]) => String(text));
@@ -220,11 +183,11 @@ describe('guide export', () => {
     expect(drawnText).not.toContain('Source');
     expect(drawnText).not.toContain('Step');
     expect(drawnText).not.toContain('Annotations');
-    expect(fillText.bitmapClose).toHaveBeenCalledOnce();
+    expect(bitmapClose).toHaveBeenCalledOnce();
   });
 
   it('wraps PDF text at word boundaries instead of splitting English mid-word', async () => {
-    const fillText = stubPdfCanvas();
+    const { fillText } = stubPdfCanvas();
     const description = Array.from({ length: 20 }, () => 'documentation').join(' ');
 
     await generateGuidePdf([entry({ description })], { title: 'T' });
@@ -239,7 +202,7 @@ describe('guide export', () => {
   });
 
   it('never splits grapheme clusters such as ZWJ emoji when wrapping PDF text', async () => {
-    const fillText = stubPdfCanvas();
+    const { fillText } = stubPdfCanvas();
     const cluster = '👩‍👩‍👧‍👦';
     const description = cluster.repeat(30);
 
@@ -254,7 +217,7 @@ describe('guide export', () => {
   });
 
   it('wraps long CJK paragraphs without losing or duplicating characters', async () => {
-    const fillText = stubPdfCanvas();
+    const { fillText } = stubPdfCanvas();
     const description = '點擊瀏覽器工具列上的擴充功能圖示開啟設定頁面'.repeat(8);
 
     await generateGuidePdf([entry({ description })], { title: 'T' });

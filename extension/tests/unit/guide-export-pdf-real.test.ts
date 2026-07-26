@@ -14,6 +14,7 @@ vi.mock('@/lib/export/entry-render', () => ({
 }));
 
 import { GUIDE_EXPORT_LIMITS, generateGuidePdf } from '@/lib/export/guide-export';
+import { stubPdfCanvas } from '../setup/pdf-canvas';
 
 /**
  * A minimal but fully valid baseline JPEG (1x1 white pixel). pdf-lib parses
@@ -28,48 +29,6 @@ const TINY_JPEG = Uint8Array.from(
   ),
   (char) => char.charCodeAt(0),
 );
-
-/**
- * Stands in for OffscreenCanvas in jsdom-less Node: measures 14px per code
- * point (content width 1072px -> 76 code points per line) and rasterizes each
- * finished page to the tiny real JPEG above so pdf-lib embeds genuine bytes.
- */
-function stubPdfCanvas() {
-  const context = {
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    font: '',
-    textAlign: 'left',
-    textBaseline: 'top',
-    fillRect: vi.fn(),
-    strokeRect: vi.fn(),
-    beginPath: vi.fn(),
-    arc: vi.fn(),
-    fill: vi.fn(),
-    fillText: vi.fn(),
-    drawImage: vi.fn(),
-    measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
-  };
-  class OffscreenCanvasStub {
-    constructor(
-      readonly width: number,
-      readonly height: number,
-    ) {}
-    getContext() {
-      return context;
-    }
-    async convertToBlob() {
-      return new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' });
-    }
-  }
-  vi.stubGlobal('OffscreenCanvas', OffscreenCanvasStub);
-  vi.stubGlobal(
-    'createImageBitmap',
-    vi.fn(async () => ({ width: 1_200, height: 700, close: vi.fn() })),
-  );
-  return context;
-}
 
 function entry(id: string, order: number, description: string): StepEntry {
   return {
@@ -91,7 +50,11 @@ function entry(id: string, order: number, description: string): StepEntry {
 let canvasContext: ReturnType<typeof stubPdfCanvas>;
 
 beforeEach(() => {
-  canvasContext = stubPdfCanvas();
+  // Rasterizes pages to the tiny real JPEG above so pdf-lib embeds genuine bytes.
+  canvasContext = stubPdfCanvas({
+    pageBlob: new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }),
+    bitmap: { width: 1_200, height: 700 },
+  });
   mocks.composite.mockReset().mockResolvedValue(new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }));
 });
 

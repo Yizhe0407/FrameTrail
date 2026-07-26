@@ -1,5 +1,7 @@
 /** Shared message contracts between content script, background, and popup. */
 
+import type { RecordingMode, StepRecaptureTarget, Viewport } from '../storage/recording-state';
+
 export type CaptureIntent = 'click' | 'mark';
 
 export interface ClickCapture {
@@ -13,32 +15,13 @@ export interface ClickCapture {
   rect: { x: number; y: number; width: number; height: number };
   devicePixelRatio: number;
   /** CSS viewport occupied by the screenshot, used to derive its real pixel scale. */
-  viewport: { width: number; height: number; scrollX: number; scrollY: number };
+  viewport: Viewport;
   text: string;
   tagName: string;
   /** Controls the generated description; generic visible targets are marks. */
   intent: CaptureIntent;
   url: string;
   timestamp: number;
-}
-
-/** 'steps': one screenshot per selection (default). 'snapshot': every
- * selection in the session is annotated onto one shared screenshot instead. */
-export type RecordingMode = 'steps' | 'snapshot';
-
-export type RecordingPhase =
-  | 'idle'
-  | 'starting'
-  | 'recording'
-  | 'paused'
-  | 'preparing-next'
-  | 'invalidated'
-  | 'finishing'
-  | 'error';
-
-export interface RecoverableRecordingError {
-  code: string;
-  message: string;
 }
 
 export interface StartRecordingMessage {
@@ -187,42 +170,6 @@ export interface RecorderReadyMessage {
   };
 }
 
-
-export type ActiveOperation = 'recording' | 'recapture' | null;
-export type RecapturePhase = 'starting' | 'awaiting-target' | 'capturing';
-
-export type StepRecaptureTarget =
-  | { kind: 'single'; stepId: string }
-  | { kind: 'snapshot-singleton'; anchorId: string; annotationId: string };
-
-export interface StepRecaptureContext {
-  runId: string;
-  sessionId: string;
-  target: StepRecaptureTarget;
-  /** Timeline entry that the editor should reselect after the workflow ends. */
-  entryId: string;
-  phase: RecapturePhase;
-  editorTabId: number;
-  editorWindowId: number | null;
-  sourceTabId: number;
-  sourceWindowId: number;
-  sourceUrl: string;
-  sourceTabCreated: boolean;
-  startedAt: number;
-}
-
-export type StepRecaptureResultStatus = 'replaced' | 'cancelled' | 'failed';
-
-export interface StepRecaptureResult {
-  runId: string;
-  status: StepRecaptureResultStatus;
-  sessionId: string;
-  entryId: string;
-  errorCode?: string;
-  message?: string;
-  completedAt: number;
-}
-
 export interface PreflightStepRecaptureSourcePermissionMessage {
   type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION';
   sessionId: string;
@@ -352,41 +299,3 @@ export type BackgroundMessage =
   | CancelStepRecaptureMessage
   | AckStepRecaptureResultMessage
   | FocusStepRecaptureSourceMessage;
-
-export interface RecordingState {
-  /** Explicitly distinguishes ordinary recording from the one-shot recapture workflow. */
-  operation: ActiveOperation;
-  isRecording: boolean;
-  phase: RecordingPhase;
-  sessionId: string | null;
-  tabId: number | null;
-  error: string | null;
-  recoverableError: RecoverableRecordingError | null;
-  mode: RecordingMode;
-  itemCount: number;
-  /** Every run starts numbered; the editor turns it off per snapshot. Captures
-   * stamp this onto each step so a later change cannot rewrite old images. */
-  numbered: boolean;
-  /** Snapshot mode: id of the current recording run's shared-image anchor
-   * step. START_RECORDING captures and creates it before accepting clicks;
-   * null means startup has not completed or this is not a snapshot run. */
-  groupAnchorId: string | null;
-  /** Changes on every START and is cleared by STOP, invalidating messages and
-   * async work left behind by an older content-script instance. */
-  runId: string | null;
-  /** Set when this run's Guide was auto-created just for it (popup start).
-   * Read by the stop/discard paths to reclaim a still-untouched empty shell;
-   * null for library-created guides and editor continuations. */
-  autoCreatedGuideId: string | null;
-  /** Viewport used by the current snapshot anchor. Later annotations must
-   * match it or their coordinates would be drawn onto the wrong pixels. */
-  snapshotViewport: ClickCapture['viewport'] | null;
-  snapshotDevicePixelRatio: number | null;
-  recapture: StepRecaptureContext | null;
-  /** Durable handoff; the editor clears it with ACK_STEP_RECAPTURE_RESULT. */
-  recaptureResult: StepRecaptureResult | null;
-}
-
-// Preserve the existing key so renaming the product does not discard an
-// in-progress local recording during the upgrade.
-export const RECORDING_STATE_KEY = 'scribe:recordingState';

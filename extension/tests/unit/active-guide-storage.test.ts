@@ -43,7 +43,7 @@ import {
   getActiveGuideId,
   setActiveGuideId,
 } from '@/lib/storage/storage';
-import { RECORDING_STATE_KEY } from '@/lib/runtime/messages';
+import { RECORDING_STATE_KEY } from '@/lib/storage/recording-state';
 
 beforeEach(() => {
   for (const key of Object.keys(mocks.values)) delete mocks.values[key];

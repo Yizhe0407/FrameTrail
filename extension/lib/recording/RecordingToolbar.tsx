@@ -18,12 +18,8 @@ import {
   TriangleAlert,
   Undo2,
 } from 'lucide-react';
-import type {
-  RecordingControlMessage,
-  RecordingControlResult,
-  RecordingMode,
-  RecordingPhase,
-} from '@/lib/runtime/messages';
+import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
+import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-state';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RecordingState } from '@/lib/runtime/messages';
+import type { RecordingState } from '@/lib/storage/recording-state';
+import { makeRecordingState } from '../setup/recording-state';
+import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const mocks = vi.hoisted(() => ({
@@ -27,51 +29,31 @@ const mocks = vi.hoisted(() => ({
   clearPendingUndoRecord: vi.fn(),
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: (path: string) => `chrome-extension://extension-id${path}`,
-      onMessage: {
-        addListener: (listener: typeof mocks.messageListener) => {
-          mocks.messageListener = listener;
-        },
+vi.mock('wxt/browser', async () => {
+  const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
+  return {
+    browser: makeBackgroundBrowserMock({
+      onMessage: (listener) => {
+        mocks.messageListener = listener;
       },
-      onConnect: { addListener: vi.fn() },
-      sendMessage: vi.fn(),
-    },
-    commands: { onCommand: { addListener: vi.fn() } },
-    permissions: { contains: mocks.permissionsContains, request: vi.fn() },
-    tabs: {
-      captureVisibleTab: vi.fn(),
-      create: mocks.tabsCreate,
-      get: mocks.tabsGet,
-      onActivated: {
-        addListener: (listener: typeof mocks.tabActivatedListener) => {
-          mocks.tabActivatedListener = listener;
-        },
+      onTabActivated: (listener) => {
+        mocks.tabActivatedListener = listener;
       },
-      onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: vi.fn() },
-      query: mocks.tabsQuery,
-      remove: mocks.tabsRemove,
-      sendMessage: mocks.tabsSendMessage,
-      update: mocks.tabsUpdate,
-    },
-    windows: {
-      onFocusChanged: {
-        addListener: (listener: typeof mocks.windowFocusListener) => {
-          mocks.windowFocusListener = listener;
-        },
+      onWindowFocusChanged: (listener) => {
+        mocks.windowFocusListener = listener;
       },
-      update: mocks.windowsUpdate,
-    },
-    scripting: {
+      permissionsContains: mocks.permissionsContains,
+      tabsCreate: mocks.tabsCreate,
+      tabsGet: mocks.tabsGet,
+      tabsQuery: mocks.tabsQuery,
+      tabsRemove: mocks.tabsRemove,
+      tabsSendMessage: mocks.tabsSendMessage,
+      tabsUpdate: mocks.tabsUpdate,
+      windowsUpdate: mocks.windowsUpdate,
       executeScript: mocks.executeScript,
-      insertCSS: vi.fn(),
-      removeCSS: vi.fn(),
-    },
-  },
-}));
+    }),
+  };
+});
 
 vi.mock('@/lib/storage/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/db')>();
@@ -100,29 +82,8 @@ vi.mock('@/lib/recording/background/pending-undo-store', () => ({
   clearPendingUndoRecord: mocks.clearPendingUndoRecord,
 }));
 
-const idleState: RecordingState = {
-  operation: null,
-  isRecording: false,
-  phase: 'idle',
-  sessionId: null,
-  tabId: null,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
-  runId: null,
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-  recapture: null,
-  recaptureResult: null,
-};
-
 function recordingState(overrides: Partial<RecordingState> = {}): RecordingState {
-  return {
-    ...idleState,
+  return makeRecordingState({
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
@@ -130,7 +91,7 @@ function recordingState(overrides: Partial<RecordingState> = {}): RecordingState
     tabId: 4,
     runId: 'run-1',
     ...overrides,
-  };
+  });
 }
 
 /** The durable state the mocked storage serves; setRecordingState writes it so
@@ -139,16 +100,6 @@ let storedState: RecordingState;
 
 const RECORDED_TAB = { id: 4, windowId: 1, active: false, url: 'https://example.com/flow' };
 const OTHER_TAB = { id: 9, windowId: 2, active: true, url: 'https://other.example/page' };
-
-async function importBackground(): Promise<void> {
-  vi.resetModules();
-  vi.stubGlobal('defineBackground', (setup: () => unknown) => setup());
-  await import('@/entrypoints/background');
-}
-
-async function flushAsyncWork(rounds = 40): Promise<void> {
-  for (let i = 0; i < rounds; i++) await Promise.resolve();
-}
 
 async function activateTab(tabId: number): Promise<void> {
   mocks.tabActivatedListener?.({ tabId, windowId: 2 });

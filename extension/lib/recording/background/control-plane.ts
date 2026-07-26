@@ -1,7 +1,8 @@
 import type { RecorderReadyGate } from '../recorder-ready';
 import { queueStateMutation } from '../background-queues';
 import { getRecordingState, setRecordingState } from '../../storage/storage';
-import type { BackgroundMessage, RecordingState } from '../../runtime/messages';
+import type { BackgroundMessage } from '../../runtime/messages';
+import type { RecordingState } from '../../storage/recording-state';
 
 /** How long a startup waits for the injected recorder's READY handshake. */
 export const RECORDER_READY_TIMEOUT_MS = 5_000;

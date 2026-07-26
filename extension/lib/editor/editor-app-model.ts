@@ -1,4 +1,4 @@
-import type { StepRecaptureTarget } from '../runtime/messages';
+import type { StepRecaptureTarget } from '../storage/recording-state';
 import type { StepEntry } from '../storage/db';
 
 export const EMPTY_STEP_ENTRIES: StepEntry[] = [];

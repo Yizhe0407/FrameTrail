@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import type { RecordingState } from '@/lib/runtime/messages';
+import { makeRecordingState } from '../setup/recording-state';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
@@ -11,25 +11,14 @@ import {
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
 
-const state: RecordingState = {
+const state = makeRecordingState({
   isRecording: true,
   operation: 'recording',
-  recapture: null,
-  recaptureResult: null,
   phase: 'recording',
   sessionId: 'session-1',
   tabId: 7,
-  error: null,
-  recoverableError: null,
-  mode: 'steps',
-  itemCount: 0,
-  numbered: true,
-  groupAnchorId: null,
   runId: 'run-1',
-  autoCreatedGuideId: null,
-  snapshotViewport: null,
-  snapshotDevicePixelRatio: null,
-};
+});
 
 const validGuard = {
   expectedControlVersion: 3,

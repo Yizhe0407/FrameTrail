@@ -1,4 +1,4 @@
-import type { RecoverableRecordingError, RecordingState } from '../runtime/messages';
+import type { RecoverableRecordingError, RecordingState } from '../storage/recording-state';
 
 export const RECORDED_TAB_CLOSED_ERROR: RecoverableRecordingError = {
   code: 'RECORDED_TAB_CLOSED',

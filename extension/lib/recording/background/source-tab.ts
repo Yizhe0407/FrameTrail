@@ -20,7 +20,7 @@ export function isEditorSenderForSession(sender: Browser.runtime.MessageSender, 
   return isTrustedEditorSenderForSession(sender, browser.runtime.getURL('/editor.html'), sessionId);
 }
 
-export function recapturePermissionPattern(url: string): string | null {
+function recapturePermissionPattern(url: string): string | null {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
@@ -55,7 +55,7 @@ export async function checkSourcePermission(
     : 'permission-required';
 }
 
-export async function findOrCreateSourceTab(
+async function findOrCreateSourceTab(
   sourceUrl: string,
   preferredTabId?: number,
 ): Promise<SourceTabAcquisition> {
@@ -92,7 +92,7 @@ export async function findOrCreateSourceTab(
  * sourceTabCreated must call this, or each failed attempt leaks a stray tab —
  * prefer withUncommittedSourceTab, which makes the obligation structural.
  */
-export async function discardUncommittedSourceTab(source: SourceTabAcquisition): Promise<void> {
+async function discardUncommittedSourceTab(source: SourceTabAcquisition): Promise<void> {
   if (source.reused || source.tab.id == null) return;
   await browser.tabs.remove(source.tab.id).catch((error) => {
     console.warn('[frametrail] failed to close an unused source tab', error);

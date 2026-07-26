@@ -4,25 +4,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StepRail from '@/components/editor/StepRail';
-import type { StepEntry } from '@/lib/storage/db';
-
-function makeEntry(id: string, order: number): StepEntry {
-  return {
-    kind: 'single',
-    step: {
-      id,
-      sessionId: 'session-1',
-      order,
-      screenshotBlob: new Blob(['image'], { type: 'image/png' }),
-      bounds: { x: 10, y: 10, width: 20, height: 20 },
-      devicePixelRatio: 1,
-      screenshotScale: 1,
-      description: `Step ${order + 1}`,
-      url: 'https://example.com/',
-      timestamp: order,
-    },
-  };
-}
+import { makeEntry } from '../setup/step-entries';
 
 const ENTRIES = [makeEntry('step-1', 0), makeEntry('step-2', 1), makeEntry('step-3', 2)];
 

@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { RecordingMode } from '@/lib/runtime/messages';
+import type { RecordingMode } from '@/lib/storage/recording-state';
 
 export interface OnboardingDialogProps {
   open: boolean;

@@ -16,9 +16,9 @@ import {
 import type {
   FrameTrailRecaptureTargetMessage,
   FrameTrailStopMessage,
-  StepRecaptureContext,
   StepRecaptureTargetResult,
 } from '../runtime/messages';
+import type { StepRecaptureContext } from '../storage/recording-state';
 import { CLEANUP_EVENT, STEP_FOLLOWUP_EVENTS } from './content-script-constants';
 
 function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remove(): void } {
