@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
+import { Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import { compositeStepEntry } from '@/lib/export/entry-render';
 import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/db';
+import { PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED } from '@/lib/editor/editor-messages';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { reportError } from '@/components/shared/report-error';
 
 interface Props {
   entry: StepEntry;
@@ -45,7 +48,7 @@ export default function StepActions({
 
   async function handleCopy() {
     if (copying || operationsDisabled || privacyReviewRequired) {
-      if (privacyReviewRequired) setActionError('此舊圖片的敏感資訊遮罩尚未確認，請先使用補拍取代圖片。');
+      if (privacyReviewRequired) setActionError(PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED);
       return;
     }
     setCopying(true);
@@ -60,8 +63,7 @@ export default function StepActions({
         copiedTimer.current = null;
       }, 2_000);
     } catch (err) {
-      console.error('複製圖片到剪貼簿失敗', err);
-      setActionError('複製失敗，請確認剪貼簿權限後再試一次。');
+      setActionError(reportError('複製圖片到剪貼簿失敗', err, '複製失敗，請確認剪貼簿權限後再試一次。'));
     } finally {
       setCopying(false);
     }
@@ -74,8 +76,7 @@ export default function StepActions({
     try {
       await onRecapture();
     } catch (err) {
-      console.error('啟動補拍失敗', err);
-      setActionError(err instanceof Error ? err.message : '無法啟動補拍，請再試一次。');
+      setActionError(reportError('啟動補拍失敗', err, '無法啟動補拍，請再試一次。'));
     } finally {
       setRecapturing(false);
     }
@@ -88,8 +89,7 @@ export default function StepActions({
     try {
       await onDelete();
     } catch (err) {
-      console.error('刪除步驟失敗', err);
-      setActionError('刪除失敗，請再試一次。');
+      setActionError(reportError('刪除步驟失敗', err, '刪除失敗，請再試一次。'));
     } finally {
       setDeleting(false);
     }
@@ -130,12 +130,7 @@ export default function StepActions({
           {deleting ? <Loader2 className="size-[17px] animate-spin" /> : <Trash2 className="size-[17px]" />}
         </button>
       </div>
-      {actionError && (
-        <div role="alert" className="flex items-center gap-1.5 text-xs text-destructive">
-          <AlertCircle className="size-3.5 shrink-0" />
-          <span>{actionError}</span>
-        </div>
-      )}
+      {actionError && <InlineAlert>{actionError}</InlineAlert>}
     </div>
   );
 }

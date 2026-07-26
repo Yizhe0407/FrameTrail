@@ -14,10 +14,10 @@ import {
   layoutAnnotations,
   type Annotation,
 } from '@/lib/media/annotate';
-import { cn } from '@/lib/shared/utils';
 import { useObjectUrl } from '@/lib/editor/useObjectUrl';
 import type { Redaction } from '@/lib/storage/db';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
+import ThumbnailSurface from './ThumbnailSurface';
 import {
   computeOverlayGeometry,
   isDrawableHighlightFrame,
@@ -218,28 +218,26 @@ export default function MultiHighlightThumbnail({
     });
   }, [imgRef, url]);
 
-  const defaultImgClass = fit === 'contain' ? 'max-h-full max-w-full w-auto h-auto' : 'w-full h-full';
-
   return (
-    <div className={cn('relative inline-block leading-none', !showPixels && 'bg-black', className)}>
-      {url && (
-        <img
-          ref={imgRef}
-          src={url}
-          loading={loading}
-          decoding={decoding}
-          alt={privacyReviewRequired ? '' : alt}
-          aria-hidden={privacyReviewRequired || undefined}
-          onLoad={onImageLoad}
-          className={cn('block', imgClassName ?? defaultImgClass)}
-          style={{
-            ...(imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : {}),
-            visibility: showPixels ? undefined : 'hidden',
-          }}
-        />
-      )}
-      {!privacyReviewRequired && (
-        <>
+    <ThumbnailSurface
+      url={url}
+      imgRef={imgRef}
+      showPixels={showPixels}
+      privacyReviewRequired={privacyReviewRequired}
+      alt={alt}
+      fit={fit}
+      loading={loading}
+      decoding={decoding}
+      className={className}
+      imgClassName={imgClassName}
+      // Records the natural size instead of remapping synchronously: the
+      // layout memo (which depends on imageSize) drives the remap here.
+      // Deliberate divergence from HighlightThumbnail's onLoad sync remap.
+      onImageLoad={onImageLoad}
+      contentFrame={contentFrame}
+      redactionBoxes={redactionBoxes}
+      overlay={overlay}
+    >
         <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
           {boxes.map(
             (box) =>
@@ -314,31 +312,6 @@ export default function MultiHighlightThumbnail({
             )}
           </div>
         ))}
-        {redactionBoxes.map((redaction) => (
-          <div
-            key={redaction.id}
-            data-frametrail-redaction={redaction.id}
-            className="pointer-events-none absolute z-10"
-            style={{
-              left: redaction.left,
-              top: redaction.top,
-              width: redaction.width,
-              height: redaction.height,
-              backgroundColor: '#000',
-            }}
-          />
-        ))}
-        </>
-      )}
-      {overlay && contentFrame && (
-        <div
-          data-frametrail-image-content-frame
-          className="pointer-events-none absolute z-20"
-          style={contentFrame}
-        >
-          <div className="relative h-full w-full">{overlay}</div>
-        </div>
-      )}
-    </div>
+    </ThumbnailSurface>
   );
 }

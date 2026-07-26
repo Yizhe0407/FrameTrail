@@ -1,4 +1,4 @@
-import { AlertCircle, ExternalLink, Loader2, X } from 'lucide-react';
+import { ExternalLink, Loader2, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import InlineAlert from '@/components/shared/InlineAlert';
 import type { RecapturePhase } from '@/lib/runtime/messages';
 
 interface Props {
@@ -57,12 +58,7 @@ export default function RecaptureProgressDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {error && (
-          <p role="alert" className="mt-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
-          </p>
-        )}
+        {error && <InlineAlert className="mt-4">{error}</InlineAlert>}
 
         <DialogFooter className="mt-6">
           <Button type="button" variant="ghost" onClick={onCancel}>

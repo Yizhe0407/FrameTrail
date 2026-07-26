@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { browser } from 'wxt/browser';
 import toast from 'react-hot-toast';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/useRecordingSession';
@@ -8,7 +7,6 @@ import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
 import {
   entryId,
   getGuideStructureSnapshot,
-  getGuide,
   updateGuide,
   type Guide,
   type StepEntry,
@@ -33,26 +31,27 @@ import { exportImagesAsZip } from '@/lib/export/export-images';
 import { throwIfAborted } from '@/lib/shared/abort';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 import { useEditorEntryWorkspace } from '@/lib/editor/use-editor-entry-workspace';
+import {
+  ackStepRecaptureResult,
+  cancelStepRecapture,
+  focusStepRecaptureSource,
+} from '@/lib/runtime/actions';
 import type {
   CancelStepRecaptureResult,
   FocusStepRecaptureSourceResult,
 } from '@/lib/runtime/messages';
-import {
-  isCancelStepRecaptureResult,
-  isFocusStepRecaptureSourceResult,
-  requireRuntimeMessageResult,
-} from '@/lib/runtime/runtime-message-result';
+import { reportError } from '@/components/shared/report-error';
 
 function EditorApp() {
   const viewedSessionId = useMemo(() => getEditorSessionIdFromUrl(window.location.href), []);
   const { sessionId, tabId, steps, error, dataError, refresh, recording } = useRecordingSession(viewedSessionId);
   const {
     guide,
-    setGuide,
     canonicalSnapshot,
-    setCanonicalSnapshot,
     guideLoadState,
-    setGuideLoadState,
+    reload,
+    adoptSnapshot,
+    adoptGuide,
   } = useEditorGuideData(sessionId, steps);
   const operationBelongsToViewedGuide = Boolean(sessionId && recording.sessionId === sessionId);
   const operationActive = operationBelongsToViewedGuide && recording.operation !== null;
@@ -103,16 +102,14 @@ function EditorApp() {
     setOperationError,
   });
 
+  const [publishOpen, setPublishOpen] = useState(false);
   const {
-    publishOpen,
     selectedEntry,
     selectedEntryId,
     selectedIndex,
-    setPublishOpen,
     setSelectedEntryId,
     setZoomOpen,
     selectEntry,
-    visibleEntries,
     zoomOpen,
   } = useEditorEntryWorkspace({
     entries,
@@ -160,7 +157,7 @@ function EditorApp() {
         console.error('顯示補拍結果失敗', presentError);
         setOperationError('補拍結果已儲存，但畫面更新失敗。請重新整理頁面查看最新內容。');
       } finally {
-        await browser.runtime.sendMessage({ type: 'ACK_STEP_RECAPTURE_RESULT', runId: result.runId, sessionId: result.sessionId }).catch((ackError) => {
+        await ackStepRecaptureResult(result.runId, result.sessionId).catch((ackError) => {
           console.warn('確認補拍結果失敗', ackError);
         });
       }
@@ -213,27 +210,11 @@ function EditorApp() {
     });
   }
 
+  // Load/fallback semantics live in useEditorGuideData; this only prepends the
+  // recording-session refresh so steps and structure move together.
   async function refreshEditorData(): Promise<Guide | null> {
     await refresh();
-    if (!sessionId) {
-      setGuide(null);
-      setCanonicalSnapshot(null);
-      setGuideLoadState('missing');
-      return null;
-    }
-    try {
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      setGuide(snapshot.guide);
-      setCanonicalSnapshot(snapshot);
-      setGuideLoadState('ready');
-      return snapshot.guide;
-    } catch (refreshError) {
-      const latestGuide = await getGuide(sessionId).catch(() => undefined);
-      setGuide(latestGuide ?? null);
-      setCanonicalSnapshot(null);
-      setGuideLoadState(latestGuide ? 'invalid' : 'missing');
-      throw refreshError;
-    }
+    return reload();
   }
 
   const {
@@ -255,7 +236,7 @@ function EditorApp() {
     setOptimisticEntries,
     flushDescriptions,
     refreshEditorData,
-    setGuide,
+    adoptGuide,
     requireSelectedEntry,
     setSelectedEntryId,
     setZoomOpen,
@@ -265,39 +246,28 @@ function EditorApp() {
     clearUndo,
   });
 
-  async function focusRecaptureSource() {
+  /** Shared shape of the two recapture controls: resolve the live run id,
+   * send the typed control message, and surface any failure in the dialog. */
+  async function runRecaptureControl(
+    label: string,
+    send: (runId: string) => Promise<FocusStepRecaptureSourceResult | CancelStepRecaptureResult>,
+    fallback: string,
+  ): Promise<void> {
     const runId = recording.recapture?.runId;
     if (!runId) return;
     try {
-      const result = requireRuntimeMessageResult<FocusStepRecaptureSourceResult>(
-        await browser.runtime.sendMessage({
-          type: 'FOCUS_STEP_RECAPTURE_SOURCE',
-          runId,
-        }),
-        isFocusStepRecaptureSourceResult,
-      );
-      if (!result.ok) setOperationError(result.error ?? '找不到補拍分頁。');
+      const result = await send(runId);
+      if (!result.ok) setOperationError(result.error ?? fallback);
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : '找不到補拍分頁。');
+      setOperationError(reportError(label, error, fallback));
     }
   }
 
-  async function cancelRecapture() {
-    const runId = recording.recapture?.runId;
-    if (!runId) return;
-    try {
-      const result = requireRuntimeMessageResult<CancelStepRecaptureResult>(
-        await browser.runtime.sendMessage({
-          type: 'CANCEL_STEP_RECAPTURE',
-          runId,
-        }),
-        isCancelStepRecaptureResult,
-      );
-      if (!result.ok) setOperationError(result.error ?? '無法取消補拍，請再試一次。');
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : '無法取消補拍，請再試一次。');
-    }
-  }
+  const focusRecaptureSource = () =>
+    runRecaptureControl('回到補拍分頁失敗', focusStepRecaptureSource, '找不到補拍分頁。');
+
+  const cancelRecapture = () =>
+    runRecaptureControl('取消補拍失敗', cancelStepRecapture, '無法取消補拍，請再試一次。');
 
   async function publicationEntries(signal: AbortSignal) {
     if (!sessionId) throw new Error('找不到要發佈的教學。');
@@ -309,8 +279,7 @@ function EditorApp() {
       throwIfAborted(signal);
       const snapshot = await getGuideStructureSnapshot(sessionId);
       throwIfAborted(signal);
-      setGuide(snapshot.guide);
-      setCanonicalSnapshot(snapshot);
+      adoptSnapshot(snapshot);
       return {
         entries: snapshot.entries,
         metadata: {
@@ -347,7 +316,7 @@ function EditorApp() {
       throw new Error('目前有其他操作進行中，請稍後再修改。');
     }
     const updated = await updateGuide(guide.id, changes);
-    setGuide(updated);
+    adoptGuide(updated);
   }
 
   return (
@@ -431,7 +400,7 @@ function EditorApp() {
         ) : (
           <>
             <StepRail
-              entries={visibleEntries}
+              entries={entries}
               selectedEntryId={selectedEntryId}
               sections={guide?.sections}
               onSelect={selectEntrySafely}
@@ -460,12 +429,12 @@ function EditorApp() {
                   onSetNumbered={setSelectedEntryNumbered}
                   editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
                 />
-                {visibleEntries.length > 1 && (
+                {entries.length > 1 && (
                   <StepStepper
                     current={selectedIndex + 1}
-                    total={visibleEntries.length}
-                    onPrev={() => selectEntrySafely(entryId(visibleEntries[selectedIndex - 1]))}
-                    onNext={() => selectEntrySafely(entryId(visibleEntries[selectedIndex + 1]))}
+                    total={entries.length}
+                    onPrev={() => selectEntrySafely(entryId(entries[selectedIndex - 1]))}
+                    onNext={() => selectEntrySafely(entryId(entries[selectedIndex + 1]))}
                   />
                 )}
               </div>
@@ -481,10 +450,10 @@ function EditorApp() {
         )}
       </div>
       <Lightbox
-        entries={visibleEntries}
+        entries={entries}
         index={zoomOpen ? selectedIndex : null}
         onClose={() => setZoomOpen(false)}
-        onNavigate={(i) => selectEntrySafely(entryId(visibleEntries[i]))}
+        onNavigate={(i) => selectEntrySafely(entryId(entries[i]))}
       />
       <PublishGuideDialog
         open={publishOpen}

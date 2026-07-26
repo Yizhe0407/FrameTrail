@@ -10,11 +10,9 @@ import {
 import {
   saveStepDescription,
   StepDescriptionConflictError,
-  StepNotFoundError,
   type Step,
 } from '../storage/db';
 import {
-  clearCommittedDescriptionDraft,
   clearMatchingCommittedDescriptionDrafts,
   discardDescriptionDraft,
   getDescriptionDraftWriterId,
@@ -165,11 +163,8 @@ export function useStepDescriptionAutosave(
     if (confirmed) confirmationRequired.current = false;
     if (activeSave.current) return activeSave.current;
     if (draft.current === persisted.current) {
-      clearCommittedDescriptionDraft(
-        { id: stepId.current, sessionId: sessionId.current },
-        writerId.current,
-        persisted.current,
-      );
+      // clearMatching covers every writer's record for this step — including
+      // this writer's own — so no targeted clear is needed alongside it.
       clearMatchingCommittedDescriptionDrafts(
         { id: stepId.current, sessionId: sessionId.current },
         persisted.current,
@@ -203,22 +198,17 @@ export function useStepDescriptionAutosave(
             confirmationRequired.current = true;
             refreshRecoveries();
             throw new DraftConfirmationRequiredError();
-          } else if (saveError instanceof StepNotFoundError) {
-            // The row is gone (deleted in another tab, or locally with an undo
-            // pending). Nothing was committed, so the journal record must
-            // survive as the only durable copy of the typed text — an undo
-            // that restores the step resurfaces it as a recoverable draft.
-            throw saveError;
           } else {
+            // StepNotFoundError: the row is gone (deleted in another tab, or
+            // locally with an undo pending). Nothing was committed, so the
+            // journal record must survive as the only durable copy of the
+            // typed text — an undo that restores the step resurfaces it as a
+            // recoverable draft. Every other failure propagates unchanged too.
             throw saveError;
           }
         }
         persisted.current = nextDescription;
-        clearCommittedDescriptionDraft(
-          { id: stepId.current, sessionId: sessionId.current },
-          writerId.current,
-          nextDescription,
-        );
+        // See above: clearMatching is a superset of the targeted clear.
         clearMatchingCommittedDescriptionDrafts(
           { id: stepId.current, sessionId: sessionId.current },
           nextDescription,
@@ -315,7 +305,7 @@ export function useStepDescriptionAutosave(
       draft.current = external.description;
       setDescriptionState(external.description);
       confirmationRequired.current = false;
-      clearCommittedDescriptionDraft(external, writerId.current, external.description);
+      // clearMatching covers this writer's record too; see performFlush.
       clearMatchingCommittedDescriptionDrafts(external, external.description);
     } else if (external.description !== previousExternalValue) {
       clearTimer();

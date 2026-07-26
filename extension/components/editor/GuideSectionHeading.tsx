@@ -16,8 +16,6 @@ export interface GuideSectionHeadingProps {
   section: GuideSectionHeadingSection;
   /** Disables controls when the parent cannot accept a section action. */
   disabled?: boolean;
-  /** Indicates that the parent is currently performing a section action. */
-  busy?: boolean;
   onRename: (sectionId: string, title: string) => MaybePromise;
   onDelete: (sectionId: string) => MaybePromise;
 }
@@ -35,7 +33,6 @@ function normalizeTitle(value: string): string {
 export function GuideSectionHeading({
   section,
   disabled = false,
-  busy = false,
   onRename,
   onDelete,
 }: GuideSectionHeadingProps) {
@@ -46,14 +43,14 @@ export function GuideSectionHeading({
   const actionInFlight = useRef(false);
   const inputId = useId();
   const errorId = useId();
-  const controlsDisabled = disabled || busy || submitting;
+  const controlsDisabled = disabled || submitting;
 
   useEffect(() => {
     if (!editing) setDraftTitle(section.title);
   }, [editing, section.title]);
 
   const runAction = useCallback(async (action: () => MaybePromise) => {
-    if (disabled || busy || actionInFlight.current) return false;
+    if (disabled || actionInFlight.current) return false;
 
     actionInFlight.current = true;
     setSubmitting(true);
@@ -67,7 +64,7 @@ export function GuideSectionHeading({
       actionInFlight.current = false;
       setSubmitting(false);
     }
-  }, [busy, disabled]);
+  }, [disabled]);
 
   const cancelRename = useCallback(() => {
     if (controlsDisabled) return;

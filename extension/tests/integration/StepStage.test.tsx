@@ -153,16 +153,26 @@ describe('StepStage numbered snapshots', () => {
     await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
   });
 
-  it('shows the existing failure message when the parent callback rejects', async () => {
+  it('surfaces the rejection message when the parent callback rejects with an Error', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const onSetNumbered = vi.fn().mockRejectedValue(new Error('write failed'));
     renderStage({ onSetNumbered });
 
     fireEvent.click(screen.getByRole('switch', { name: '顯示編號' }));
 
-    expect((await screen.findByRole('alert')).textContent).toContain('編號設定儲存失敗，請再試一次。');
+    expect((await screen.findByRole('alert')).textContent).toContain('write failed');
     expect(onSetNumbered).toHaveBeenCalledOnce();
     expect((screen.getByRole('switch', { name: '顯示編號' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('falls back to the generic failure message for a non-Error rejection', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const onSetNumbered = vi.fn().mockRejectedValue('write failed');
+    renderStage({ onSetNumbered });
+
+    fireEvent.click(screen.getByRole('switch', { name: '顯示編號' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('編號設定儲存失敗，請再試一次。');
   });
 
   it('does not submit when editing is disabled', () => {

@@ -7,9 +7,10 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
   storageGet: vi.fn(),
-  createAndSelectGuide: vi.fn(),
-  getSelectedGuide: vi.fn(),
-  discardUntouchedGuide: vi.fn(),
+  storageSet: vi.fn(),
+  createGuide: vi.fn(),
+  getGuide: vi.fn(),
+  discardPristineGuide: vi.fn(),
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -23,17 +24,20 @@ vi.mock('wxt/browser', () => ({
       contains: vi.fn().mockResolvedValue(true),
       request: vi.fn(),
     },
-    storage: { local: { get: mocks.storageGet, set: vi.fn(), remove: vi.fn() } },
+    storage: { local: { get: mocks.storageGet, set: mocks.storageSet, remove: vi.fn() } },
   },
 }));
-vi.mock('@/lib/guide/guide-actions', () => ({
-  createAndSelectGuide: mocks.createAndSelectGuide,
-  getSelectedGuide: mocks.getSelectedGuide,
-  discardUntouchedGuide: mocks.discardUntouchedGuide,
+// Only the storage primitives are mocked: the real guide-actions transaction
+// (create → send → verify → rollback with the live-run probe) runs under test.
+vi.mock('@/lib/storage/db', () => ({
+  createGuide: mocks.createGuide,
+  getGuide: mocks.getGuide,
+  discardPristineGuide: mocks.discardPristineGuide,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
 import { RECORDING_STATE_KEY, type RecordingState } from '@/lib/runtime/messages';
+import { ACTIVE_GUIDE_ID_KEY } from '@/lib/storage/storage';
 
 const IDLE_RECORDING: RecordingState = {
   operation: null,
@@ -64,12 +68,19 @@ const SELECTED_GUIDE_WITH_CONTENT = {
 
 const NEW_GUIDE_HINT = /每次錄製都會建立新教學/;
 
+/** Marks `guide` as the current UI selection (what getSelectedGuide reads). */
+function selectGuideInStorage(guide: { id: string } & Record<string, unknown>) {
+  mocks.storageGet.mockResolvedValue({ [ACTIVE_GUIDE_ID_KEY]: guide.id });
+  mocks.getGuide.mockImplementation(async (id: string) => (id === guide.id ? guide : undefined));
+}
+
 beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
   mocks.storageGet.mockResolvedValue({});
-  mocks.getSelectedGuide.mockResolvedValue(null);
-  mocks.createAndSelectGuide.mockResolvedValue({ id: 'guide-new' });
-  mocks.discardUntouchedGuide.mockResolvedValue(true);
+  mocks.storageSet.mockResolvedValue(undefined);
+  mocks.getGuide.mockResolvedValue(undefined);
+  mocks.createGuide.mockResolvedValue({ id: 'guide-new' });
+  mocks.discardPristineGuide.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-new', runId: 'run-1' });
 });
 
@@ -80,7 +91,7 @@ afterEach(() => {
 
 describe('popup start always records into a fresh guide', () => {
   it('creates a new guide even when a guide with content is already selected', async () => {
-    mocks.getSelectedGuide.mockResolvedValue(SELECTED_GUIDE_WITH_CONTENT);
+    selectGuideInStorage(SELECTED_GUIDE_WITH_CONTENT);
     const onStarted = vi.fn();
     render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
     await waitFor(() => expect(mocks.query).toHaveBeenCalled());
@@ -88,19 +99,20 @@ describe('popup start always records into a fresh guide', () => {
     fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     await waitFor(() => expect(onStarted).toHaveBeenCalledOnce());
-    expect(mocks.createAndSelectGuide).toHaveBeenCalledOnce();
+    expect(mocks.createGuide).toHaveBeenCalledOnce();
     expect(mocks.sendMessage).toHaveBeenCalledWith({
       type: 'START_RECORDING',
       sessionId: 'guide-new',
       mode: 'steps',
       autoCreatedGuide: true,
     });
-    expect(mocks.discardUntouchedGuide).not.toHaveBeenCalled();
+    expect(mocks.storageSet).toHaveBeenCalledWith({ [ACTIVE_GUIDE_ID_KEY]: 'guide-new' });
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
   it('rolls back the fresh guide and restores the previous selection when start fails', async () => {
     silenceIntentionalErrorLogs();
-    mocks.getSelectedGuide.mockResolvedValue(SELECTED_GUIDE_WITH_CONTENT);
+    selectGuideInStorage(SELECTED_GUIDE_WITH_CONTENT);
     mocks.sendMessage.mockResolvedValue({ ok: false, error: '此頁面不允許錄製。' });
     const onStarted = vi.fn();
     render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
@@ -109,7 +121,9 @@ describe('popup start always records into a fresh guide', () => {
     fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('此頁面不允許錄製');
-    expect(mocks.discardUntouchedGuide).toHaveBeenCalledExactlyOnceWith('guide-new', 'guide-old');
+    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-new');
+    // The pre-start selection is put back so the aborted attempt is invisible.
+    expect(mocks.storageSet).toHaveBeenLastCalledWith({ [ACTIVE_GUIDE_ID_KEY]: 'guide-old' });
     expect(onStarted).not.toHaveBeenCalled();
   });
 
@@ -135,20 +149,20 @@ describe('popup start always records into a fresh guide', () => {
     fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     await screen.findByRole('alert');
-    expect(mocks.discardUntouchedGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
   it('explains the new-guide model when the selected guide already has content', async () => {
-    mocks.getSelectedGuide.mockResolvedValue(SELECTED_GUIDE_WITH_CONTENT);
+    selectGuideInStorage(SELECTED_GUIDE_WITH_CONTENT);
     render(<RecordControls recording={IDLE_RECORDING} />);
 
     expect(await screen.findByText(NEW_GUIDE_HINT)).toBeTruthy();
   });
 
   it('stays quiet about the new-guide model when nothing with content is selected', async () => {
-    mocks.getSelectedGuide.mockResolvedValue({ id: 'guide-empty', entryCount: 0, stepCount: 0 });
+    selectGuideInStorage({ id: 'guide-empty', entryCount: 0, stepCount: 0 });
     render(<RecordControls recording={IDLE_RECORDING} />);
-    await waitFor(() => expect(mocks.getSelectedGuide).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.getGuide).toHaveBeenCalled());
 
     expect(screen.queryByText(NEW_GUIDE_HINT)).toBeNull();
   });

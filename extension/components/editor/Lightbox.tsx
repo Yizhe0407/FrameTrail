@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import HighlightThumbnail from './HighlightThumbnail';
-import MultiHighlightThumbnail from './MultiHighlightThumbnail';
-import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/storage/db';
+import EntryThumbnail from './EntryThumbnail';
+import { PRIVACY_REVIEW_REQUIRED_HIDDEN } from '@/lib/editor/editor-messages';
+import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/db';
 
 interface Props {
   entries: StepEntry[];
@@ -52,7 +52,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         <DialogTitle className="sr-only">步驟 {index + 1} 圖片大圖預覽</DialogTitle>
         <DialogDescription className="sr-only">
           {privacy.reviewRequired
-            ? '此圖片因敏感資訊遮罩尚未重新確認而被隱藏。請回到編輯畫面完成確認。'
+            ? PRIVACY_REVIEW_REQUIRED_HIDDEN
             : '使用左右方向鍵或畫面按鈕瀏覽其他步驟。'}
         </DialogDescription>
 
@@ -67,32 +67,13 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         </Button>
 
         <div className="relative flex items-center justify-center">
-          {entry.kind === 'single' ? (
-            <HighlightThumbnail
-              blob={entry.step.screenshotBlob}
-              bounds={getEffectiveBounds(entry.step)}
-              redactions={privacy.redactions}
-              privacyReviewRequired={privacy.reviewRequired}
-              screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
-              alt={`步驟 ${index + 1} 放大`}
-              fit="contain"
-              className="max-w-full border-none shadow-none"
-              imgClassName="max-h-[calc(100dvh-10rem)] max-w-[calc(100vw-7rem)] w-auto h-auto object-contain rounded-md border-none shadow-none sm:max-w-[calc(100vw-10rem)]"
-            />
-          ) : (
-            <MultiHighlightThumbnail
-              blob={entry.anchor.screenshotBlob}
-              annotations={getOrderedAnnotations(entry.annotations)}
-              redactions={privacy.redactions}
-              privacyReviewRequired={privacy.reviewRequired}
-              screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
-              numbered={entry.anchor.numbered ?? false}
-              alt={`步驟 ${index + 1} 放大`}
-              fit="contain"
-              className="max-w-full border-none shadow-none"
-              imgClassName="max-h-[calc(100dvh-10rem)] max-w-[calc(100vw-7rem)] w-auto h-auto object-contain rounded-md border-none shadow-none sm:max-w-[calc(100vw-10rem)]"
-            />
-          )}
+          <EntryThumbnail
+            entry={entry}
+            alt={`步驟 ${index + 1} 放大`}
+            fit="contain"
+            className="max-w-full border-none shadow-none"
+            imgClassName="max-h-[calc(100dvh-10rem)] max-w-[calc(100vw-7rem)] w-auto h-auto object-contain rounded-md border-none shadow-none sm:max-w-[calc(100vw-10rem)]"
+          />
         </div>
 
         {privacy.reviewRequired && (
@@ -100,7 +81,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
             role="alert"
             className="fixed top-1/2 left-1/2 z-50 max-w-[min(80vw,34rem)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-amber-300 bg-amber-50 px-5 py-3.5 text-center text-sm leading-6 text-amber-950 shadow-2xl dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
           >
-            此舊圖片的敏感資訊遮罩尚未確認，因此暫時隱藏。請使用補拍取代這張圖片。
+            {PRIVACY_REVIEW_REQUIRED_HIDDEN}
           </div>
         )}
 

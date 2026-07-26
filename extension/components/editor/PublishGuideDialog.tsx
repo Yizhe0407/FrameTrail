@@ -15,6 +15,8 @@ import {
 } from '@/lib/export/guide-export';
 import type { StepEntry } from '@/lib/storage/db';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
 import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
 
 export type GuideEntriesSnapshot = {
@@ -29,19 +31,11 @@ export type GuideEntriesProvider = (
   | GuideEntriesSnapshot
   | Promise<readonly StepEntry[] | GuideEntriesSnapshot>;
 
-type GuideEntriesSource =
-  | {
-      guideEntries: readonly StepEntry[];
-      getGuideEntries?: never;
-    }
-  | {
-      guideEntries?: never;
-      getGuideEntries: GuideEntriesProvider;
-    };
-
-export type PublishGuideDialogProps = GuideEntriesSource & {
+export type PublishGuideDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Resolves the entries (and optionally fresher metadata) to publish. */
+  getGuideEntries: GuideEntriesProvider;
   metadata?: GuideExportMetadata;
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 };
@@ -122,7 +116,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const activeController = useRef<AbortController | null>(null);
   const busy = pendingAction !== null;
-  const knownEmpty = props.guideEntries?.length === 0;
 
   useEffect(() => () => activeController.current?.abort(), []);
   useEffect(() => {
@@ -138,9 +131,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   }
 
   async function resolveGuideEntries(signal: AbortSignal): Promise<GuideEntriesSnapshot> {
-    const result = props.getGuideEntries
-      ? await props.getGuideEntries(signal)
-      : { entries: props.guideEntries, metadata };
+    const result = await props.getGuideEntries(signal);
     throwIfAborted(signal);
 
     const snapshot = isGuideEntriesSnapshot(result)
@@ -235,7 +226,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     );
   }
 
-  const titleText = metadata.title?.trim() || '未命名教學';
+  const titleText = metadata.title?.trim() || UNTITLED_GUIDE_TITLE;
   const publicationOptions: readonly PublicationOption[] = [
     {
       action: 'markdown',
@@ -243,7 +234,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       ariaLabel: '下載 Markdown',
       description: '純文字步驟與說明，適合貼進文件',
       icon: <MonoGlyph className="px-1 text-[10.5px]">M↓</MonoGlyph>,
-      disabled: busy || knownEmpty,
+      disabled: busy,
       onSelect: () => downloadGuide('markdown'),
     },
     {
@@ -252,7 +243,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       ariaLabel: '下載 PDF',
       description: '排版好的教學文件，可直接列印分享',
       icon: <MonoGlyph className="px-1.5 text-[11px]">P</MonoGlyph>,
-      disabled: busy || knownEmpty,
+      disabled: busy,
       onSelect: () => downloadGuide('pdf'),
     },
     {
@@ -261,7 +252,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       ariaLabel: '下載圖片',
       description: '每個步驟的截圖，打包成 ZIP 下載',
       icon: <ImageIcon className="size-5 text-foreground" />,
-      disabled: busy || knownEmpty || !onExportImages,
+      disabled: busy || !onExportImages,
       onSelect: exportImages,
     },
     {
@@ -270,7 +261,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       ariaLabel: '下載 HTML 網頁',
       description: '單一檔案內含所有截圖，最適合直接分享',
       icon: <MonoGlyph className="px-1 text-[10.5px]">&lt;/&gt;</MonoGlyph>,
-      disabled: busy || knownEmpty,
+      disabled: busy,
       onSelect: () => downloadGuide('html'),
     },
   ];
@@ -310,17 +301,9 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           ))}
         </div>
 
-        {knownEmpty && (
-          <p className="mt-4 text-center text-xs text-muted-foreground">目前沒有可供匯出的步驟。</p>
-        )}
-
         {/* Notices */}
         <div aria-live="polite" aria-atomic="true" className="mt-1">
-          {error && (
-            <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <InlineAlert>{error}</InlineAlert>}
           {!error && notice && (
             <p role="status" className="rounded-md border border-brand/30 bg-brand/10 px-4 py-2.5 text-xs text-foreground">
               {notice}

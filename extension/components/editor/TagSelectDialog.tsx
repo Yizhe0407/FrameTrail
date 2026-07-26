@@ -8,6 +8,8 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { reportError } from '@/components/shared/report-error';
 import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/guide/guide-tag-model';
 
 const PRESET_TAGS = ['入門', '團隊', '專案', '整合', '報表', '行動', '教學', '設定'];
@@ -35,10 +37,6 @@ export default function TagSelectDialog({
     setSaveError(null);
   }, [open]);
 
-  function handleOpenChange(nextOpen: boolean) {
-    onOpenChange(nextOpen);
-  }
-
   // `selectedTags` stays the only source of truth. The owner persists first and
   // re-renders with the stored value, so a refused or failed write can never
   // leave this dialog showing a tag that was not saved — which a local mirror
@@ -48,7 +46,7 @@ export default function TagSelectDialog({
     try {
       await onSave(tags);
     } catch (saveFailure) {
-      setSaveError(saveFailure instanceof Error ? saveFailure.message : '標籤儲存失敗，請再試一次。');
+      setSaveError(reportError('更新標籤失敗', saveFailure, '標籤儲存失敗，請再試一次。'));
     }
   }
 
@@ -73,14 +71,14 @@ export default function TagSelectDialog({
   const canAddCustom = Boolean(customTag) && !selectedTags.includes(customTag) && selectedTags.length < GUIDE_TAG_LIMITS.maxTags;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showClose={false} className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(360px,calc(100vw-32px))] overflow-y-auto rounded-md border-border/80 bg-card p-5 shadow-2xl dark:border-white/10">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <DialogTitle className="text-xs font-bold text-muted-foreground/70 dark:text-white/50">新增標籤</DialogTitle>
             <button
               type="button"
-              onClick={() => handleOpenChange(false)}
+              onClick={() => onOpenChange(false)}
               aria-label="關閉標籤設定"
               className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground dark:text-white/60 dark:hover:bg-white/10 dark:hover:text-white"
             >
@@ -89,11 +87,7 @@ export default function TagSelectDialog({
           </div>
           <DialogDescription className="sr-only">新增、移除或設定顯示於作品庫的標籤。</DialogDescription>
 
-          {saveError && (
-            <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {saveError}
-            </p>
-          )}
+          {saveError && <InlineAlert>{saveError}</InlineAlert>}
 
           {/* Add custom tag row */}
           <div className="flex items-center gap-2">

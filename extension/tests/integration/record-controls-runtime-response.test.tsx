@@ -6,9 +6,9 @@ import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  createAndSelectGuide: vi.fn(),
-  getSelectedGuide: vi.fn(),
-  discardUntouchedGuide: vi.fn(),
+  createGuide: vi.fn(),
+  getGuide: vi.fn(),
+  discardPristineGuide: vi.fn(),
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -25,10 +25,11 @@ vi.mock('wxt/browser', () => ({
     storage: { local: { get: vi.fn().mockResolvedValue({}), set: vi.fn(), remove: vi.fn() } },
   },
 }));
-vi.mock('@/lib/guide/guide-actions', () => ({
-  createAndSelectGuide: mocks.createAndSelectGuide,
-  getSelectedGuide: mocks.getSelectedGuide,
-  discardUntouchedGuide: mocks.discardUntouchedGuide,
+// Only the storage primitives are mocked; the real guide-actions flow runs.
+vi.mock('@/lib/storage/db', () => ({
+  createGuide: mocks.createGuide,
+  getGuide: mocks.getGuide,
+  discardPristineGuide: mocks.discardPristineGuide,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -56,9 +57,9 @@ const IDLE_RECORDING: RecordingState = {
 
 beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.createAndSelectGuide.mockResolvedValue({ id: 'guide-a' });
-  mocks.getSelectedGuide.mockResolvedValue(null);
-  mocks.discardUntouchedGuide.mockResolvedValue(true);
+  mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.getGuide.mockResolvedValue(undefined);
+  mocks.discardPristineGuide.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue(null);
 });
 

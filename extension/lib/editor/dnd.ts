@@ -4,6 +4,7 @@ import {
   useSensor,
   useSensors,
   type Announcements,
+  type DragEndEvent,
   type Modifier,
   type ScreenReaderInstructions,
   type UniqueIdentifier,
@@ -47,6 +48,37 @@ export function createSortableAccessibility(
       onDragCancel: ({ active }) => `已取消排序，${describe(active.id)} 回到原位。`,
     },
   };
+}
+
+/**
+ * The whole sortable-list scaffold the editor's reorderable lists share:
+ * sensors, localized accessibility announcements, the item-id list for
+ * SortableContext, and a drag-end handler that maps the drop back onto the
+ * caller's array and reports persistence failures under `logLabel`.
+ */
+export function useSortableReorder<T>(
+  items: T[],
+  getId: (item: T) => UniqueIdentifier,
+  onReorder: (reordered: T[]) => Promise<void>,
+  { disabled = false, itemNoun, logLabel }: { disabled?: boolean; itemNoun: string; logLabel: string },
+) {
+  const sensors = useSortableSensors();
+  const accessibility = createSortableAccessibility(
+    itemNoun,
+    (id) => items.findIndex((item) => getId(item) === id) + 1,
+  );
+
+  function handleDragEnd(event: DragEndEvent): void {
+    if (disabled) return;
+    const reordered = reorderById(items, event.active.id, event.over?.id, getId);
+    if (reordered) {
+      void onReorder(reordered).catch((error) => {
+        console.error(logLabel, error);
+      });
+    }
+  }
+
+  return { sensors, accessibility, handleDragEnd, itemIds: items.map(getId) };
 }
 
 export function reorderById<T>(

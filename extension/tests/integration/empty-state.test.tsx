@@ -34,9 +34,11 @@ afterEach(cleanup);
 describe('editor empty state', () => {
   it('returns to the most recently used web tab and opens recording setup', async () => {
     mocks.query.mockResolvedValue([
-      { id: 1, url: 'chrome-extension://frame/editor.html', lastAccessed: 30 },
-      { id: 2, url: 'https://example.com/older', lastAccessed: 10 },
-      { id: 3, url: 'https://example.com/recent', lastAccessed: 20 },
+      { id: 1, windowId: 7, url: 'chrome-extension://frame/editor.html', lastAccessed: 30 },
+      { id: 2, windowId: 7, url: 'https://example.com/older', lastAccessed: 10 },
+      { id: 3, windowId: 7, url: 'https://example.com/recent', lastAccessed: 20 },
+      // file: pages are deliberately no longer offered as recording targets.
+      { id: 4, windowId: 7, url: 'file:///tmp/local.html', lastAccessed: 40 },
     ]);
 
     render(<EmptyState />);
@@ -49,8 +51,8 @@ describe('editor empty state', () => {
 
   it('focuses the active recording tab without opening another setup popup', async () => {
     mocks.query.mockResolvedValue([
-      { id: 2, url: 'https://example.com', lastAccessed: 10 },
-      { id: 5, url: 'https://recording.example.com', lastAccessed: 1 },
+      { id: 2, windowId: 8, url: 'https://example.com', lastAccessed: 10 },
+      { id: 5, windowId: 8, url: 'https://recording.example.com', lastAccessed: 1 },
     ]);
     mocks.updateTab.mockResolvedValue({ id: 5, windowId: 8 });
 

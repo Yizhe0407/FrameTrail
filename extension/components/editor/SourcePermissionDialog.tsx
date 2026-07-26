@@ -1,4 +1,4 @@
-import { AlertCircle, ExternalLink, Loader2, ShieldCheck, Video, X } from 'lucide-react';
+import { ExternalLink, Loader2, ShieldCheck, Video, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import ContinuationTabPicker from '@/components/editor/ContinuationTabPicker';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
 import type { ContinuationTabOption } from '@/lib/editor/editor-app-model';
 
 interface Props {
@@ -89,7 +91,7 @@ export default function SourcePermissionDialog({
           </DialogTitle>
           <DialogDescription className="leading-6 text-muted-foreground">
             {pickerOpen
-              ? '錄製會從選取的分頁開始，之後會跟著你切換的分頁；新步驟會接在最後。'
+              ? `錄製會從選取的分頁開始，之後會跟著你切換的分頁；${NEW_STEPS_APPEND_NOTE}。`
               : sourceUnavailable
                 ? `${sourceUnavailableReason}你可以改在目前開啟的網頁分頁繼續錄製。`
                 : 'FrameTrail 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。'}
@@ -112,14 +114,11 @@ export default function SourcePermissionDialog({
         )}
 
         {!pickerOpen && onContinueElsewhere && (
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">新步驟會接在最後。</p>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">{NEW_STEPS_APPEND_NOTE}。</p>
         )}
 
         {continueElsewhereError && (
-          <p role="alert" className="mt-3 flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs leading-[18px] text-destructive">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span>{continueElsewhereError}</span>
-          </p>
+          <InlineAlert className="mt-3">{continueElsewhereError}</InlineAlert>
         )}
 
         <DialogFooter className="mt-6">

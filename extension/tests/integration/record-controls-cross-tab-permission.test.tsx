@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  createAndSelectGuide: vi.fn(),
-  getSelectedGuide: vi.fn(),
-  discardUntouchedGuide: vi.fn(),
+  createGuide: vi.fn(),
+  getGuide: vi.fn(),
+  discardPristineGuide: vi.fn(),
   permissionsContains: vi.fn(),
   permissionsRequest: vi.fn(),
   storageGet: vi.fn(),
@@ -26,10 +26,11 @@ vi.mock('wxt/browser', () => ({
     storage: { local: { get: mocks.storageGet, set: mocks.storageSet, remove: mocks.storageRemove } },
   },
 }));
-vi.mock('@/lib/guide/guide-actions', () => ({
-  createAndSelectGuide: mocks.createAndSelectGuide,
-  getSelectedGuide: mocks.getSelectedGuide,
-  discardUntouchedGuide: mocks.discardUntouchedGuide,
+// Only the storage primitives are mocked; the real guide-actions flow runs.
+vi.mock('@/lib/storage/db', () => ({
+  createGuide: mocks.createGuide,
+  getGuide: mocks.getGuide,
+  discardPristineGuide: mocks.discardPristineGuide,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -74,9 +75,9 @@ async function clickStartAndWaitForSend(times: number) {
 
 beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.createAndSelectGuide.mockResolvedValue({ id: 'guide-a' });
-  mocks.getSelectedGuide.mockResolvedValue(null);
-  mocks.discardUntouchedGuide.mockResolvedValue(true);
+  mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.getGuide.mockResolvedValue(undefined);
+  mocks.discardPristineGuide.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-a', runId: 'run-1' });
   mocks.permissionsContains.mockResolvedValue(false);
   mocks.permissionsRequest.mockResolvedValue(true);
@@ -114,7 +115,9 @@ describe('cross-tab permission ask at recording start', () => {
     await clickStartAndWaitForSend(1);
 
     expect(mocks.permissionsRequest).toHaveBeenCalledTimes(1);
-    expect(mocks.storageSet).toHaveBeenCalledExactlyOnceWith({
+    // The selection write for the fresh guide also goes through storage.set,
+    // so assert the decline record specifically rather than an only-call.
+    expect(mocks.storageSet).toHaveBeenCalledWith({
       [CROSS_TAB_DECLINE_STORAGE_KEY]: {
         version: 1,
         declined: true,

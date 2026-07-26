@@ -9,6 +9,7 @@ import {
   PencilLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePendingAction } from '@/components/shared/use-pending-action';
 import {
   Dialog,
   DialogContent,
@@ -80,23 +81,21 @@ export default function OnboardingDialog({
   onComplete,
   onStartPractice,
 }: OnboardingDialogProps) {
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const { pendingKey: pendingAction, runExclusive } = usePendingAction<Exclude<PendingAction, null>>();
   const [actionError, setActionError] = useState<string | null>(null);
   const pending = pendingAction !== null;
 
   async function runAction(action: Exclude<PendingAction, null>, callback?: () => void | Promise<void>) {
-    if (pending) return;
-    setPendingAction(action);
-    setActionError(null);
-    try {
-      await callback?.();
-      onOpenChange(false);
-    } catch (error) {
-      console.error('[frametrail] onboarding action failed', error);
-      setActionError('無法開始，請再試一次。');
-    } finally {
-      setPendingAction(null);
-    }
+    await runExclusive(action, async () => {
+      setActionError(null);
+      try {
+        await callback?.();
+        onOpenChange(false);
+      } catch (error) {
+        console.error('[frametrail] onboarding action failed', error);
+        setActionError('無法開始，請再試一次。');
+      }
+    });
   }
 
   return (

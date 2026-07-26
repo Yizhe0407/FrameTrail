@@ -3,10 +3,15 @@ import { createGuide, discardPristineGuide, getGuide, type Guide } from '../stor
 import {
   clearActiveGuideId,
   getActiveGuideId,
+  getRecordingState,
   setActiveGuideId,
 } from '../storage/storage';
-import type { OpenEditorResult } from '../runtime/messages';
-import { isOpenEditorResult, requireRuntimeMessageResult } from '../runtime/runtime-message-result';
+import type { OpenEditorResult, RecordingMode, StartRecordingResult } from '../runtime/messages';
+import {
+  isOpenEditorResult,
+  isStartRecordingResult,
+  requireRuntimeMessageResult,
+} from '../runtime/runtime-message-result';
 
 // Preserve invocation order across async IndexedDB lookups. Without this, a
 // slow earlier select could overwrite a newer selection after its lookup ends.
@@ -71,6 +76,47 @@ export function discardUntouchedGuide(
     }
     return true;
   });
+}
+
+/**
+ * The popup's start transaction. Industry convention (Scribe/Tango): every
+ * popup start records into a brand-new Guide — appending to an existing Guide
+ * is exclusively the editor's 接續錄製 flow. Creates and selects a fresh
+ * Guide, asks the background to start recording into it, and on failure rolls
+ * the world back to exactly how it was (the pre-start selection restored, the
+ * empty shell reclaimed). Returns the Guide the live run records into.
+ */
+export async function startRecordingIntoNewGuide(mode: RecordingMode): Promise<Guide> {
+  // The pre-start selection is remembered so a failed start is invisible.
+  const previousGuideId = (await getSelectedGuide())?.id ?? null;
+  const guide = await createAndSelectGuide();
+  try {
+    const result = requireRuntimeMessageResult<StartRecordingResult>(
+      await browser.runtime.sendMessage({
+        type: 'START_RECORDING',
+        sessionId: guide.id,
+        mode,
+        autoCreatedGuide: true,
+      }),
+      isStartRecordingResult,
+      '無法連接錄製服務，請重新整理頁面後再試一次。',
+    );
+    if (!result.ok) throw new Error(result.error);
+    return guide;
+  } catch (startError) {
+    // Best-effort rollback of the Guide created above. The recording-state
+    // probe covers the odd case where the run actually started but the
+    // response was lost — deleting a live run's Guide would strand it.
+    try {
+      const live = await getRecordingState();
+      if (!(live.isRecording && live.sessionId === guide.id)) {
+        await discardUntouchedGuide(guide.id, previousGuideId);
+      }
+    } catch (rollbackError) {
+      console.error('[frametrail] failed to roll back the auto-created guide', rollbackError);
+    }
+    throw startError;
+  }
 }
 
 /** Explicit UI-flow helper for editor navigation with no valid selection

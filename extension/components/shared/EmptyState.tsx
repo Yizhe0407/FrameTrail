@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { ExternalLink, Loader2, MousePointerClick } from 'lucide-react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
+import { reportError } from '@/components/shared/report-error';
+import { byMostRecentlyAccessed } from '@/lib/editor/continuation-tabs';
+import { focusTab } from '@/lib/runtime/navigation';
+import { isRecordableTab } from '@/lib/shared/restricted-urls';
 
 interface Props {
   isRecording?: boolean;
   recordingTabId?: number | null;
-}
-
-function isRecordableTabUrl(url: string | undefined): boolean {
-  return Boolean(url && /^(https?|file):/i.test(url));
 }
 
 export default function EmptyState({ isRecording = false, recordingTabId = null }: Props) {
@@ -22,15 +22,15 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
     setActionError(null);
     try {
       const tabs = await browser.tabs.query({ currentWindow: true });
+      // Prefer the tab the run records into; otherwise fall back to the most
+      // recently used recordable web tab (shared policy: http/https only, not
+      // restricted — file: pages cannot be recorded and are no longer offered).
       const target =
         tabs.find((tab) => tab.id === recordingTabId) ??
-        tabs
-          .filter((tab) => tab.id != null && isRecordableTabUrl(tab.url))
-          .sort((first, second) => (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0))[0];
+        tabs.filter(isRecordableTab).sort(byMostRecentlyAccessed)[0];
       if (target?.id == null) throw new Error('找不到可錄製的網頁分頁。');
 
-      const focusedTab = await browser.tabs.update(target.id, { active: true });
-      if (focusedTab?.windowId != null) await browser.windows.update(focusedTab.windowId, { focused: true });
+      await focusTab(target.id, target.windowId);
 
       if (!isRecording) {
         const browserApis = browser as typeof browser & {
@@ -40,8 +40,7 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
         await actionApi?.openPopup?.();
       }
     } catch (error) {
-      console.error('回到錄製頁面失敗', error);
-      setActionError(error instanceof Error ? error.message : '無法回到錄製頁面，請重試。');
+      setActionError(reportError('回到錄製頁面失敗', error, '無法回到錄製頁面，請重試。'));
     } finally {
       setPending(false);
     }

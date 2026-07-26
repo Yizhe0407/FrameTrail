@@ -465,7 +465,14 @@ export function writeDescriptionDraft(
   return true;
 }
 
-/** Returns all independently journaled versions for one step. */
+/**
+ * Returns all independently journaled versions for one step.
+ *
+ * Destructive side effects: this is also the journal's cleanup pass — it
+ * removes expired, corrupt, over-limit, and value-matching records (plus
+ * orphaned chunks) while scanning. Callers must therefore invoke it once per
+ * mounted field (e.g. a lazy useState initializer), never per render.
+ */
 export function readDescriptionDrafts(
   step: DraftStepIdentity,
   currentWriterId = getDescriptionDraftWriterId(),

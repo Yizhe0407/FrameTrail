@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import RecordingToolbar, { type RecordingToolbarState } from '@/components/recording/RecordingToolbar';
+import RecordingToolbar, { type RecordingToolbarState } from './RecordingToolbar';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
 type ToolbarAction = RecordingControlMessage['type'];

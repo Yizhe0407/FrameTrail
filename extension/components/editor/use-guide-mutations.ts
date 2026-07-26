@@ -34,7 +34,8 @@ interface UseGuideMutationsOptions {
   setOptimisticEntries: (entries: StepEntry[] | null) => void;
   flushDescriptions: () => Promise<void>;
   refreshEditorData: () => Promise<Guide | null>;
-  setGuide: (guide: Guide | null) => void;
+  /** Publishes the fresh Guide a successful compare-and-swap returned. */
+  adoptGuide: (guide: Guide | null) => void;
   requireSelectedEntry: (expectedEntryId?: string) => StepEntry;
   setSelectedEntryId: (id: string | null) => void;
   setZoomOpen: (open: boolean) => void;
@@ -61,7 +62,7 @@ export function useGuideMutations({
   setOptimisticEntries,
   flushDescriptions,
   refreshEditorData,
-  setGuide,
+  adoptGuide,
   requireSelectedEntry,
   setSelectedEntryId,
   setZoomOpen,
@@ -146,7 +147,7 @@ export function useGuideMutations({
           newEntries.map(entryId),
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         return {
           message: '已更新步驟順序',
           expectedRevision: result.guide.contentRevision,
@@ -171,7 +172,7 @@ export function useGuideMutations({
       entry.kind === 'group' && entry.anchor.id === anchorId ? { ...entry, annotations: reordered } : entry
     ));
     await runGuideMutation({
-      label: '正在儲存標注順序…',
+      label: '正在儲存標註順序…',
       errorLabel: '標註排序',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
@@ -195,7 +196,7 @@ export function useGuideMutations({
           reordered.map((annotation) => annotation.id),
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         return {
           message: '已更新標註順序',
           expectedRevision: result.guide.contentRevision,
@@ -226,7 +227,7 @@ export function useGuideMutations({
           [currentEntryId],
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         const nextIndex = Math.min(Math.max(deletingIndex, 0), result.entryIds.length - 1);
         setSelectedEntryId(nextIndex >= 0 ? result.entryIds[nextIndex] : null);
         setZoomOpen(false);
@@ -265,7 +266,7 @@ export function useGuideMutations({
       return [{ ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }];
     });
     await runGuideMutation({
-      label: '正在刪除標注…',
+      label: '正在刪除標註…',
       errorLabel: '標註刪除',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
@@ -276,7 +277,7 @@ export function useGuideMutations({
           step.id,
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         if (result.removedEntry) {
           const previousIndex = result.previousEntryIds.indexOf(groupId);
           const nextIndex = Math.min(Math.max(previousIndex, 0), result.entryIds.length - 1);
@@ -331,7 +332,7 @@ export function useGuideMutations({
           numbered,
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         // A mixed selection has no single value to restore, and a no-op change
         // has nothing to undo.
         const previousValue = previousValues.size === 1 ? [...previousValues][0] : undefined;
@@ -363,7 +364,7 @@ export function useGuideMutations({
           title,
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
       },
     });
   }
@@ -380,7 +381,7 @@ export function useGuideMutations({
           sectionId,
           snapshot.guide.contentRevision,
         );
-        setGuide(result.guide);
+        adoptGuide(result.guide);
         if (!deletedSection) return;
         // A section's display position derives from its start entry, so
         // re-creating it with the same start entry and title puts it back

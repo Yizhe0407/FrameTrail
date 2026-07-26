@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
 import type { StepEntry } from '@/lib/storage/db';
 
@@ -43,7 +44,7 @@ function renderDialog(overrides: {
     <PublishGuideDialog
       open
       onOpenChange={overrides.onOpenChange ?? vi.fn()}
-      guideEntries={overrides.guideEntries ?? guideEntries}
+      getGuideEntries={() => overrides.guideEntries ?? guideEntries}
       metadata={{ title: '核准教學' }}
       onExportImages={overrides.onExportImages}
     />,
@@ -139,18 +140,26 @@ describe('PublishGuideDialog', () => {
 
   it('falls back to the shared untitled-guide name when the title is empty', () => {
     render(
-      <PublishGuideDialog open onOpenChange={vi.fn()} guideEntries={guideEntries} metadata={{ title: '   ' }} />,
+      <PublishGuideDialog
+        open
+        onOpenChange={vi.fn()}
+        getGuideEntries={() => guideEntries}
+        metadata={{ title: '   ' }}
+      />,
     );
 
     expect(screen.getByText('「未命名教學」')).toBeTruthy();
     expect(screen.queryByText(/登入與初始設定/)).toBeNull();
   });
 
-  it('disables publication actions when the guide entry set is empty', () => {
+  it('reports a failed export when the provider resolves no entries', async () => {
+    silenceIntentionalErrorLogs();
     renderDialog({ guideEntries: [] });
 
-    expect(screen.getByText('目前沒有可供匯出的步驟。')).toBeTruthy();
-    expect((screen.getByRole('button', { name: /下載 Markdown/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: /下載 PDF/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /下載 Markdown/ }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('無法下載 Markdown');
+    expect(mocks.generateGuideMarkdownArchive).not.toHaveBeenCalled();
+    expect(mocks.downloadBlobViaBrowser).not.toHaveBeenCalled();
   });
 });

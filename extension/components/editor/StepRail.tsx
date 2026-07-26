@@ -1,27 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { GripVertical, Video } from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
-  type DragEndEvent,
-} from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import {
   SortableContext,
   horizontalListSortingStrategy,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/storage/db';
+import { entryId, type StepEntry } from '@/lib/storage/db';
 import type { GuideSection } from '@/lib/guide/guide-sections';
 import {
-  createSortableAccessibility,
-  reorderById,
   restrictToHorizontalAxis,
   restrictToVerticalAxis,
-  useSortableSensors,
+  useSortableReorder,
 } from '@/lib/editor/dnd';
+import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
 import { cn } from '@/lib/shared/utils';
-import HighlightThumbnail from './HighlightThumbnail';
-import MultiHighlightThumbnail from './MultiHighlightThumbnail';
+import EntryThumbnail from './EntryThumbnail';
 import SortableItem from './SortableItem';
 import GuideSectionHeading from './GuideSectionHeading';
 
@@ -84,7 +78,16 @@ export default function StepRail({
   onContinueRecording,
   reorderDisabled = false,
 }: Props) {
-  const sensors = useSortableSensors();
+  const { sensors, accessibility, handleDragEnd, itemIds } = useSortableReorder(
+    entries,
+    entryId,
+    onReorder,
+    {
+      disabled: reorderDisabled,
+      itemNoun: '步驟',
+      logLabel: '[frametrail] failed to reorder guide entries',
+    },
+  );
   const selectedItem = useRef<HTMLButtonElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
   const sectionByStartId = new Map(sections.map((section) => [section.startEntryId, section]));
@@ -104,21 +107,6 @@ export default function StepRail({
   useEffect(() => {
     selectedItem.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [entries.length, selectedEntryId]);
-
-  const accessibility = createSortableAccessibility(
-    '步驟',
-    (id) => entries.findIndex((entry) => entryId(entry) === id) + 1,
-  );
-
-  function handleDragEnd(event: DragEndEvent) {
-    if (reorderDisabled) return;
-    const reordered = reorderById(entries, event.active.id, event.over?.id, entryId);
-    if (reordered) {
-      void onReorder(reordered).catch((error) => {
-        console.error('[frametrail] failed to reorder guide entries', error);
-      });
-    }
-  }
 
   // The parent recreates `onSelect` inline on every render, so binding the
   // window listener to it directly would tear down and re-add it each time.
@@ -156,42 +144,6 @@ export default function StepRail({
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  function renderThumbnail(entry: StepEntry) {
-    const privacy = getEntryPrivacyState(entry);
-    if (entry.kind === 'single') {
-      return (
-        <HighlightThumbnail
-          blob={entry.step.screenshotBlob}
-          bounds={getEffectiveBounds(entry.step)}
-          redactions={privacy.redactions}
-          privacyReviewRequired={privacy.reviewRequired}
-          screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
-          alt=""
-          fit="contain"
-          loading="lazy"
-          decoding="async"
-          className="size-full"
-        />
-      );
-    }
-    const boxAnnotations = getOrderedAnnotations(entry.annotations);
-    return (
-      <MultiHighlightThumbnail
-        blob={entry.anchor.screenshotBlob}
-        annotations={boxAnnotations}
-        redactions={privacy.redactions}
-        privacyReviewRequired={privacy.reviewRequired}
-        screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
-        numbered={entry.anchor.numbered ?? false}
-        alt=""
-        fit="contain"
-        loading="lazy"
-        decoding="async"
-        className="size-full"
-      />
-    );
-  }
-
   return (
     <nav
       ref={railRef}
@@ -217,7 +169,7 @@ export default function StepRail({
         modifiers={[isDesktop ? restrictToVerticalAxis : restrictToHorizontalAxis]}
       >
         <SortableContext
-          items={entries.map(entryId)}
+          items={itemIds}
           strategy={isDesktop ? verticalListSortingStrategy : horizontalListSortingStrategy}
         >
           <ul
@@ -277,7 +229,14 @@ export default function StepRail({
                         )}
                         <div className="pointer-events-none relative z-[1] aspect-[16/9] w-full overflow-hidden rounded-md bg-secondary">
                           <LazyRailPreview eager={active}>
-                            {renderThumbnail(entry)}
+                            <EntryThumbnail
+                              entry={entry}
+                              alt=""
+                              fit="contain"
+                              loading="lazy"
+                              decoding="async"
+                              className="size-full"
+                            />
                           </LazyRailPreview>
                           <span className={cn(
                             'absolute left-2 top-2 z-30 flex size-6 items-center justify-center rounded-md text-xs font-bold tabular-nums shadow-md transition-all',
@@ -311,7 +270,7 @@ export default function StepRail({
           type="button"
           onClick={onContinueRecording}
           disabled={reorderDisabled}
-          title="回到來源頁面繼續錄製，新步驟會接在最後"
+          title={`回到來源頁面繼續錄製，${NEW_STEPS_APPEND_NOTE}`}
           className="mx-2.5 mt-1.5 mb-3 hidden h-[32px] shrink-0 items-center justify-center gap-[5px] rounded-md border border-dashed border-border/80 bg-card text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:border-brand/40 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
         >
           <Video className="size-3" />接續錄製

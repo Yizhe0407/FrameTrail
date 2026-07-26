@@ -1,11 +1,18 @@
 import { useCallback, useRef, useState } from 'react';
 import { browser, type Browser } from 'wxt/browser';
 import type { ContinuationTabOption, PreparedCapturePermission } from '@/lib/editor/editor-app-model';
-import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import {
+  defaultContinuationTab,
+  listRecordableTabs,
+  validatePreparedPermissionSource,
+} from '@/lib/editor/continuation-tabs';
+import { MULTI_ANNOTATION_RECAPTURE_BLOCKED } from '@/lib/editor/editor-messages';
+import { isRecordableTab } from '@/lib/shared/restricted-urls';
 import { entryId, type StepEntry } from '@/lib/storage/db';
 import type {
   PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
+  StartRecordingMessage,
   StartRecordingResult,
   StartStepRecaptureResult,
   StepRecaptureTarget,
@@ -18,64 +25,6 @@ import {
   requireRuntimeMessageResult,
 } from '@/lib/runtime/runtime-message-result';
 
-function validatePreparedPermissionSource(
-  sourceOrigin: string,
-  permissionPattern: string,
-): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(sourceOrigin);
-  } catch {
-    throw new Error('來源網站授權資料無效，已停止操作。');
-  }
-  if (
-    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-    parsed.origin !== sourceOrigin ||
-    permissionPattern !== `${parsed.origin}/*`
-  ) {
-    throw new Error('來源網站授權資料不符合安全規則，已停止操作。');
-  }
-}
-
-/** Same recordability rule the popup start path applies: a normal web page.
- * Tab URLs are only visible for origins the user already granted (or the
- * active tab), which is exactly the set the recorder can be injected into. */
-function isRecordableContinuationTab(tab: Browser.tabs.Tab): boolean {
-  return (
-    tab.id != null &&
-    tab.windowId != null &&
-    typeof tab.url === 'string' &&
-    (tab.url.startsWith('http://') || tab.url.startsWith('https://')) &&
-    !isRestrictedUrl(tab.url)
-  );
-}
-
-/** Every recordable open tab, most recently used first, so 「改在其他頁面接續」
- * can let the user pick explicitly instead of guessing a target for them. */
-async function listRecordableTabs(): Promise<ContinuationTabOption[]> {
-  const tabs = await browser.tabs.query({});
-  return tabs
-    .filter(isRecordableContinuationTab)
-    .sort((first, second) => (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0))
-    .map((tab) => ({
-      id: tab.id!,
-      windowId: tab.windowId!,
-      title: tab.title ?? '',
-      url: tab.url!,
-      ...(tab.favIconUrl ? { favIconUrl: tab.favIconUrl } : {}),
-    }));
-}
-
-/** The tab preselected in the picker: the most recent tab showing something
- * OTHER than the Guide's last-step URL. Auto-picking by recency alone kept
- * landing on the page the user had just finished recording. */
-function defaultContinuationTab(
-  tabs: ContinuationTabOption[],
-  lastStepUrl: string | null,
-): ContinuationTabOption | null {
-  return tabs.find((tab) => lastStepUrl === null || tab.url !== lastStepUrl) ?? tabs[0] ?? null;
-}
-
 interface UsePermissionFlowOptions {
   sessionId: string | null;
   operationActive: boolean;
@@ -86,13 +35,20 @@ interface UsePermissionFlowOptions {
   setOperationError: (message: string | null) => void;
 }
 
+/** Captured at the start of an asynchronous continuation; `isCurrent()` is
+ * re-checked after every await so a cancelled or superseded flow can never
+ * apply state or errors for an earlier attempt. */
+interface FlowToken {
+  isCurrent(): boolean;
+}
+
 /**
  * The source-permission state machine for recapture and continuation runs.
  *
  * Invariants preserved from the original inline implementation:
  * - `generation` increments on every begin/clear, and every asynchronous
- *   continuation re-checks it so a cancelled or superseded flow can never
- *   apply state or errors for an earlier attempt.
+ *   continuation re-checks it (through its FlowToken) so a cancelled or
+ *   superseded flow can never apply state or errors for an earlier attempt.
  * - `lock` is held from preflight until the flow is cleared, blocking
  *   structural data operations and re-entrant preflights.
  * - `flowEntryId`/`flowSessionId` bind a prepared grant to the entry and Guide
@@ -121,6 +77,15 @@ export function usePermissionFlow({
 
   const isPermissionFlowLocked = useCallback(() => lock.current, []);
 
+  function tokenFor(flowGeneration: number): FlowToken {
+    return { isCurrent: () => generation.current === flowGeneration };
+  }
+
+  /** A token for the flow that is current right now (no generation bump). */
+  function currentFlowToken(): FlowToken {
+    return tokenFor(generation.current);
+  }
+
   const clearPreparedPermission = useCallback(() => {
     generation.current += 1;
     lock.current = false;
@@ -144,13 +109,57 @@ export function usePermissionFlow({
     }
   }, [clearPreparedPermission]);
 
-  function beginPermissionPreflight(entryIdToPrepare: string | null): number | null {
+  /** Whether a new flow may begin: the editor must be viewing a Guide with no
+   * data operation, no live run, and no flow already holding the lock. */
+  function canBeginFlow(): boolean {
+    return Boolean(sessionId) && !isDataOperationLocked() && !lock.current && !operationActive;
+  }
+
+  /**
+   * Guards shared by every confirm step: a flow must be prepared, current, and
+   * not already mid-transition. `kind` additionally requires the shape the
+   * caller is about to act on ('origin' source vs continuation action).
+   */
+  function currentPreparedFlow(kind: 'origin' | 'continuation'): PreparedCapturePermission | null {
+    const prepared = preparedPermission;
     if (
+      !prepared ||
       !sessionId ||
-      isDataOperationLocked() ||
-      lock.current ||
-      operationActive
-    ) return null;
+      permissionPending ||
+      continueElsewherePending ||
+      !lock.current ||
+      flowSessionId.current !== sessionId
+    ) {
+      return null;
+    }
+    if (kind === 'origin' && prepared.source.kind !== 'origin') return null;
+    if (kind === 'continuation' && prepared.action.kind !== 'continuation') return null;
+    return prepared;
+  }
+
+  /** Flushes pending descriptions before starting a run. Returns false when
+   * the flush failed or the flow went stale while flushing. */
+  async function flushOrBail(flow: FlowToken): Promise<boolean> {
+    try {
+      await flushDescriptions();
+    } catch {
+      // flushDescriptions already surfaced its own localized message; a
+      // generic overwrite here would hide which descriptions failed to save.
+      return false;
+    }
+    return flow.isCurrent();
+  }
+
+  async function startRecordingOrThrow(message: StartRecordingMessage): Promise<void> {
+    const started = requireRuntimeMessageResult<StartRecordingResult>(
+      await browser.runtime.sendMessage(message),
+      isStartRecordingResult,
+    );
+    if (!started.ok) throw new Error(started.error);
+  }
+
+  function beginPermissionPreflight(entryIdToPrepare: string | null): FlowToken | null {
+    if (!canBeginFlow()) return null;
     const nextGeneration = generation.current + 1;
     generation.current = nextGeneration;
     lock.current = true;
@@ -159,11 +168,11 @@ export function usePermissionFlow({
     setPreparedPermission(null);
     setPermissionPending(true);
     setOperationError(null);
-    return nextGeneration;
+    return tokenFor(nextGeneration);
   }
 
-  function finishPermissionPreflight(flowGeneration: number, prepared: PreparedCapturePermission | null): void {
-    if (generation.current !== flowGeneration) return;
+  function finishPermissionPreflight(flow: FlowToken, prepared: PreparedCapturePermission | null): void {
+    if (!flow.isCurrent()) return;
     setPermissionPending(false);
     if (prepared) {
       setPreparedPermission(prepared);
@@ -175,20 +184,12 @@ export function usePermissionFlow({
   }
 
   async function confirmPreparedPermission(): Promise<void> {
-    const prepared = preparedPermission;
-    if (
-      !prepared ||
-      prepared.source.kind !== 'origin' ||
-      !sessionId ||
-      permissionPending ||
-      continueElsewherePending ||
-      !lock.current ||
-      flowSessionId.current !== sessionId
-    ) return;
+    const prepared = currentPreparedFlow('origin');
+    if (!prepared || prepared.source.kind !== 'origin' || !sessionId) return;
 
     if (prepared.entryId) requireSelectedEntry(prepared.entryId);
     validatePreparedPermissionSource(prepared.source.sourceOrigin, prepared.source.permissionPattern);
-    const flowGeneration = generation.current;
+    const flow = currentFlowToken();
     setPermissionPending(true);
     setOperationError(null);
 
@@ -196,28 +197,17 @@ export function usePermissionFlow({
       // This must remain the first asynchronous browser API in this explicit
       // confirmation click so Chromium preserves transient user activation.
       const granted = await browser.permissions.request({ origins: [prepared.source.permissionPattern] });
-      if (generation.current !== flowGeneration) return;
+      if (!flow.isCurrent()) return;
       if (!granted) throw new Error('需要允許存取來源網站，才能回到該頁面錄製。');
 
-      try {
-        await flushDescriptions();
-      } catch {
-        // flushDescriptions already surfaced its own localized message; a
-        // generic overwrite here would hide which descriptions failed to save.
-        return;
-      }
-      if (generation.current !== flowGeneration) return;
+      if (!(await flushOrBail(flow))) return;
       if (prepared.action.kind === 'continuation') {
-        const started = requireRuntimeMessageResult<StartRecordingResult>(
-          await browser.runtime.sendMessage({
-            type: 'START_RECORDING',
-            sessionId,
-            mode: 'steps',
-            continuation: {},
-          }),
-          isStartRecordingResult,
-        );
-        if (!started.ok) throw new Error(started.error);
+        await startRecordingOrThrow({
+          type: 'START_RECORDING',
+          sessionId,
+          mode: 'steps',
+          continuation: {},
+        });
         return;
       }
       const result = requireRuntimeMessageResult<StartStepRecaptureResult>(
@@ -231,7 +221,7 @@ export function usePermissionFlow({
       if (!result.ok) throw new Error(result.error);
     } catch (permissionError) {
       console.error('授權並啟動來源錄製失敗', permissionError);
-      if (generation.current === flowGeneration) {
+      if (flow.isCurrent()) {
         setOperationError(
           permissionError instanceof Error
             ? permissionError.message
@@ -239,26 +229,8 @@ export function usePermissionFlow({
         );
       }
     } finally {
-      if (generation.current === flowGeneration) clearPreparedPermission();
+      if (flow.isCurrent()) clearPreparedPermission();
     }
-  }
-
-  /** Guards shared by both elsewhere steps: a continuation flow must be
-   * prepared, current, and not already mid-transition. */
-  function currentContinuationFlow(): PreparedCapturePermission | null {
-    const prepared = preparedPermission;
-    if (
-      !prepared ||
-      prepared.action.kind !== 'continuation' ||
-      !sessionId ||
-      permissionPending ||
-      continueElsewherePending ||
-      !lock.current ||
-      flowSessionId.current !== sessionId
-    ) {
-      return null;
-    }
-    return prepared;
   }
 
   /**
@@ -268,16 +240,16 @@ export function usePermissionFlow({
    * differs from the Guide's last step is preselected instead.
    */
   async function openContinueElsewhere(): Promise<void> {
-    const prepared = currentContinuationFlow();
+    const prepared = currentPreparedFlow('continuation');
     if (!prepared) return;
-    const flowGeneration = generation.current;
+    const flow = currentFlowToken();
     setContinueElsewherePending(true);
     setContinueElsewhereError(null);
     setOperationError(null);
 
     try {
       const tabs = await listRecordableTabs();
-      if (generation.current !== flowGeneration) return;
+      if (!flow.isCurrent()) return;
       if (tabs.length === 0) {
         setContinuationTabs(null);
         setSelectedContinuationTabId(null);
@@ -289,11 +261,11 @@ export function usePermissionFlow({
       setSelectedContinuationTabId(defaultContinuationTab(tabs, lastStepUrl)?.id ?? null);
     } catch (listError) {
       console.error('列出可接續錄製的分頁失敗', listError);
-      if (generation.current === flowGeneration) {
+      if (flow.isCurrent()) {
         setContinueElsewhereError('無法讀取目前開啟的分頁，請再試一次。');
       }
     } finally {
-      if (generation.current === flowGeneration) setContinueElsewherePending(false);
+      if (flow.isCurrent()) setContinueElsewherePending(false);
     }
   }
 
@@ -306,10 +278,10 @@ export function usePermissionFlow({
    * can freely switch tabs once the run is live.
    */
   async function confirmContinueElsewhere(): Promise<void> {
-    if (!currentContinuationFlow()) return;
+    if (!currentPreparedFlow('continuation')) return;
     const target = continuationTabs?.find((tab) => tab.id === selectedContinuationTabId) ?? null;
     if (!target) return;
-    const flowGeneration = generation.current;
+    const flow = currentFlowToken();
     setContinueElsewherePending(true);
     setContinueElsewhereError(null);
     setOperationError(null);
@@ -318,14 +290,7 @@ export function usePermissionFlow({
     let keepDialogOpen = false;
 
     try {
-      try {
-        await flushDescriptions();
-      } catch {
-        // flushDescriptions already surfaced its own localized message; a
-        // generic overwrite here would hide which descriptions failed to save.
-        return;
-      }
-      if (generation.current !== flowGeneration) return;
+      if (!(await flushOrBail(flow))) return;
 
       // The background resolves a plain start against the active tab of the
       // last focused window, so focus the target window and tab first, then
@@ -339,30 +304,26 @@ export function usePermissionFlow({
         // The picked tab closed while the dialog was open. Refresh the list in
         // place instead of settling the flow on a stale choice.
         console.warn('切換到選取的接續分頁失敗', switchError);
-        if (generation.current === flowGeneration) {
+        if (flow.isCurrent()) {
           keepDialogOpen = true;
           setContinueElsewherePending(false);
           await openContinueElsewhere();
         }
         return;
       }
-      if (generation.current !== flowGeneration) return;
-      if (!confirmed.active || !isRecordableContinuationTab(confirmed)) {
+      if (!flow.isCurrent()) return;
+      if (!confirmed.active || !isRecordableTab(confirmed)) {
         throw new Error('無法切換到要錄製的分頁，請再試一次。');
       }
 
-      const started = requireRuntimeMessageResult<StartRecordingResult>(
-        await browser.runtime.sendMessage({
-          type: 'START_RECORDING',
-          sessionId,
-          mode: 'steps',
-        }),
-        isStartRecordingResult,
-      );
-      if (!started.ok) throw new Error(started.error);
+      await startRecordingOrThrow({
+        type: 'START_RECORDING',
+        sessionId: sessionId!,
+        mode: 'steps',
+      });
     } catch (continueError) {
       console.error('改在其他頁面接續錄製失敗', continueError);
-      if (generation.current === flowGeneration) {
+      if (flow.isCurrent()) {
         setOperationError(
           continueError instanceof Error
             ? continueError.message
@@ -370,12 +331,12 @@ export function usePermissionFlow({
         );
       }
     } finally {
-      if (generation.current === flowGeneration && !keepDialogOpen) clearPreparedPermission();
+      if (flow.isCurrent() && !keepDialogOpen) clearPreparedPermission();
     }
   }
 
   async function handleRecapture(): Promise<void> {
-    if (!sessionId || isDataOperationLocked() || lock.current || operationActive) return;
+    if (!canBeginFlow()) return;
     const currentEntry = requireSelectedEntry();
     const target: StepRecaptureTarget =
       currentEntry.kind === 'single'
@@ -387,11 +348,11 @@ export function usePermissionFlow({
               annotationId: currentEntry.annotations[0].id,
             }
           : (() => {
-              throw new Error('此快照包含多個標註；更換底圖會使其他框選失效，請重新製作整張快照。');
+              throw new Error(MULTI_ANNOTATION_RECAPTURE_BLOCKED);
             })();
     const targetEntryId = entryId(currentEntry);
-    const flowGeneration = beginPermissionPreflight(targetEntryId);
-    if (flowGeneration == null) return;
+    const flow = beginPermissionPreflight(targetEntryId);
+    if (flow == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
       const result = requireRuntimeMessageResult<PreflightStepRecaptureSourcePermissionResult>(
@@ -416,7 +377,7 @@ export function usePermissionFlow({
       };
     } catch (recaptureError) {
       console.error('檢查補拍來源失敗', recaptureError);
-      if (generation.current === flowGeneration) {
+      if (flow.isCurrent()) {
         setOperationError(
           recaptureError instanceof Error
             ? recaptureError.message
@@ -424,7 +385,7 @@ export function usePermissionFlow({
         );
       }
     } finally {
-      finishPermissionPreflight(flowGeneration, prepared);
+      finishPermissionPreflight(flow, prepared);
     }
   }
 
@@ -432,9 +393,9 @@ export function usePermissionFlow({
   // Guide's own source page and appends its captures, so the editor never has
   // to fabricate a step from an unrelated image.
   async function handleContinueRecording(): Promise<void> {
-    if (!sessionId || isDataOperationLocked() || lock.current || operationActive) return;
-    const flowGeneration = beginPermissionPreflight(null);
-    if (flowGeneration == null) return;
+    if (!canBeginFlow()) return;
+    const flow = beginPermissionPreflight(null);
+    if (flow == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
       const result = requireRuntimeMessageResult<PreflightGuideContinuationSourcePermissionResult>(
@@ -469,7 +430,7 @@ export function usePermissionFlow({
       }
     } catch (continuationError) {
       console.error('檢查接續錄製來源失敗', continuationError);
-      if (generation.current === flowGeneration) {
+      if (flow.isCurrent()) {
         setOperationError(
           continuationError instanceof Error
             ? continuationError.message
@@ -477,7 +438,7 @@ export function usePermissionFlow({
         );
       }
     } finally {
-      finishPermissionPreflight(flowGeneration, prepared);
+      finishPermissionPreflight(flow, prepared);
     }
   }
 

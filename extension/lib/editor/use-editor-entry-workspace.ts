@@ -18,35 +18,33 @@ export function useEditorEntryWorkspace({
   onSelectionInteraction,
   onSelectionSaved,
 }: UseEditorEntryWorkspaceOptions) {
-  const [publishOpen, setPublishOpen] = useState(false);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const requestedEntryId = useMemo(() => new URLSearchParams(window.location.search).get('entryId'), []);
   const appliedRequestedEntry = useRef(false);
   const [zoomOpen, setZoomOpen] = useState(false);
-  const visibleEntries = entries;
 
   useEffect(() => {
     setSelectedEntryId((current) => {
-      if (visibleEntries.length === 0) return null;
-      if (current && visibleEntries.some((entry) => entryId(entry) === current)) return current;
-      return entryId(visibleEntries[0]);
+      if (entries.length === 0) return null;
+      if (current && entries.some((entry) => entryId(entry) === current)) return current;
+      return entryId(entries[0]);
     });
-  }, [visibleEntries]);
+  }, [entries]);
 
   useEffect(() => {
     if (appliedRequestedEntry.current || !requestedEntryId) return;
-    if (!visibleEntries.some((entry) => entryId(entry) === requestedEntryId)) return;
+    if (!entries.some((entry) => entryId(entry) === requestedEntryId)) return;
     appliedRequestedEntry.current = true;
     setSelectedEntryId(requestedEntryId);
     requestAnimationFrame(() => document.querySelector<HTMLElement>('#frametrail-editor-title')?.focus());
-  }, [visibleEntries, requestedEntryId]);
+  }, [entries, requestedEntryId]);
 
-  const selectedIndex = visibleEntries.findIndex((entry) => entryId(entry) === selectedEntryId);
-  const selectedEntry = selectedIndex === -1 ? undefined : visibleEntries[selectedIndex];
+  const selectedIndex = entries.findIndex((entry) => entryId(entry) === selectedEntryId);
+  const selectedEntry = selectedIndex === -1 ? undefined : entries[selectedIndex];
 
   async function selectEntry(id: string): Promise<void> {
     if (isSelectionBlocked() || id === selectedEntryId) return;
-    if (!visibleEntries.some((entry) => entryId(entry) === id)) return;
+    if (!entries.some((entry) => entryId(entry) === id)) return;
     onSelectionInteraction();
     try {
       await flushDescriptions();
@@ -63,16 +61,12 @@ export function useEditorEntryWorkspace({
   }
 
   return {
-    entries,
-    publishOpen,
     selectedEntry,
     selectedEntryId,
     selectedIndex,
-    setPublishOpen,
     setSelectedEntryId,
     setZoomOpen,
     selectEntry,
-    visibleEntries,
     zoomOpen,
   };
 }

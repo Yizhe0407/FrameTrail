@@ -1,16 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
-  type DragEndEvent,
-} from '@dnd-kit/core';
+import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Step } from '@/lib/storage/db';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
-import { createSortableAccessibility, reorderById, restrictToVerticalAxis, useSortableSensors } from '@/lib/editor/dnd';
+import { restrictToVerticalAxis, useSortableReorder } from '@/lib/editor/dnd';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Switch } from '@/components/ui/switch';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { reportError } from '@/components/shared/report-error';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 import SortableItem from './SortableItem';
 
@@ -43,8 +41,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
     try {
       await onDelete(step);
     } catch (err) {
-      console.error('刪除標注失敗', err);
-      setActionError('標注刪除失敗，請再試一次。');
+      setActionError(reportError('刪除標註失敗', err, '標註刪除失敗，請再試一次。'));
     } finally {
       setDeleting(false);
     }
@@ -64,7 +61,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => void flush().catch(() => undefined)}
           disabled={deleteDisabled || deleting}
-          placeholder="輸入標注說明…"
+          placeholder="輸入標註說明…"
           className="min-w-0 flex-1 border-none bg-transparent px-1 py-0 text-[13.5px] font-normal text-foreground outline-none focus:ring-0 dark:text-white/90"
         />
         <div className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
@@ -73,8 +70,8 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
             onClick={handleDelete}
             onPointerDown={(event) => event.preventDefault()}
             disabled={deleteDisabled || deleting}
-            aria-label={`刪除標注 ${index + 1}`}
-            title={deleteDisabled ? '錄製或補拍期間無法刪除標注' : '刪除標注'}
+            aria-label={`刪除標註 ${index + 1}`}
+            title={deleteDisabled ? '錄製或補拍期間無法刪除標註' : '刪除標註'}
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-white/40 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
@@ -91,16 +88,16 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
         className="mt-2 ml-9"
       />
       {actionError && (
-        <div role="alert" className="ml-9 flex min-h-6 items-center gap-2 text-xs text-destructive">
-          <span>{actionError}</span>
+        <InlineAlert className="ml-9">
+          {actionError}
           <button
             type="button"
             onClick={() => void handleDelete()}
-            className="rounded-md px-1.5 py-1 font-medium text-focus outline-none hover:bg-focus/10 focus-visible:ring-2 focus-visible:ring-ring"
+            className="ml-2 rounded-md px-1.5 py-1 font-medium text-focus outline-none hover:bg-focus/10 focus-visible:ring-2 focus-visible:ring-ring"
           >
             重試刪除
           </button>
-        </div>
+        </InlineAlert>
       )}
     </div>
   );
@@ -127,31 +124,26 @@ export default function AnnotationList({
   onReorder,
   editingDisabled = false,
 }: Props) {
-  const sensors = useSortableSensors();
-  const accessibility = createSortableAccessibility(
-    '標註',
-    (id) => annotations.findIndex((step) => step.id === id) + 1,
+  const { sensors, accessibility, handleDragEnd, itemIds } = useSortableReorder(
+    annotations,
+    (step) => step.id,
+    onReorder,
+    {
+      disabled: editingDisabled,
+      itemNoun: '標註',
+      logLabel: '[frametrail] failed to reorder snapshot annotations',
+    },
   );
 
-  function handleDragEnd(event: DragEndEvent) {
-    if (editingDisabled) return;
-    const reordered = reorderById(annotations, event.active.id, event.over?.id, (step) => step.id);
-    if (reordered) {
-      void onReorder(reordered).catch((error) => {
-        console.error('[frametrail] failed to reorder snapshot annotations', error);
-      });
-    }
-  }
-
   if (annotations.length === 0) {
-    return <p className="text-sm text-muted-foreground p-4">此快照目前沒有標注。</p>;
+    return <p className="text-sm text-muted-foreground p-4">此快照目前沒有標註。</p>;
   }
 
   return (
     <div className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-md border border-border/80 bg-card shadow-sm dark:border-white/10">
       <div className="flex shrink-0 items-center justify-between border-b border-border/80 px-[18px] py-[14px] dark:border-white/10">
         <span className="text-xs font-semibold text-muted-foreground/75 dark:text-white/50">
-          標注 · {annotations.length}
+          標註 · {annotations.length}
         </span>
         <label className="flex items-center gap-2.5 text-xs font-medium text-muted-foreground/75 cursor-pointer select-none dark:text-white/60">
           順序編號
@@ -170,7 +162,7 @@ export default function AnnotationList({
           accessibility={accessibility}
           modifiers={[restrictToVerticalAxis]}
         >
-          <SortableContext items={annotations.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
             <ul className="flex flex-col gap-2.5">
               {annotations.map((step, index) => (
                 <SortableItem key={step.id} id={step.id} disabled={editingDisabled}>

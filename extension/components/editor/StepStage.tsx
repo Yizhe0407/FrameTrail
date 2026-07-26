@@ -1,14 +1,20 @@
 import { useState } from 'react';
-import { AlertCircle, Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
-import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type Step, type StepEntry } from '@/lib/storage/db';
+import { Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
+import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/db';
 import { Badge } from '@/components/ui/badge';
-import HighlightThumbnail from './HighlightThumbnail';
-import MultiHighlightThumbnail from './MultiHighlightThumbnail';
+import EntryThumbnail from './EntryThumbnail';
 import StepActions from './StepActions';
 import DescriptionField from './DescriptionField';
 import AnnotationList from './AnnotationList';
 import TagSelectDialog from './TagSelectDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
+import InlineAlert from '@/components/shared/InlineAlert';
+import { reportError } from '@/components/shared/report-error';
+import {
+  MULTI_ANNOTATION_RECAPTURE_BLOCKED,
+  PRIVACY_REVIEW_REQUIRED_NOTICE,
+  UNTITLED_GUIDE_TITLE,
+} from '@/lib/editor/editor-messages';
 
 interface Props {
   entry: StepEntry;
@@ -54,25 +60,20 @@ export default function StepStage({
   // data lock) or fail outright. Both used to be swallowed by a bare `void`,
   // leaving the field showing a value that was never stored.
   //
-  // Rethrows so each surface owns its own reporting: the tag dialog shows the
-  // failure inline while it is open (a stage banner would sit behind the
-  // modal), and the inline chip row routes it into `stageError` below.
+  // Rethrows so each surface owns its own reporting (and logging): the tag
+  // dialog shows the failure inline while it is open (a stage banner would sit
+  // behind the modal), and the inline chip row routes it into `stageError`.
   async function commitTags(tags: string[]): Promise<void> {
     if (!onTagsChange) return;
     setStageError(null);
-    try {
-      await onTagsChange(tags);
-    } catch (tagError) {
-      console.error('更新標籤失敗', tagError);
-      throw tagError;
-    }
+    await onTagsChange(tags);
   }
 
   async function commitTagsInline(tags: string[]): Promise<void> {
     try {
       await commitTags(tags);
     } catch (tagError) {
-      setStageError(tagError instanceof Error ? tagError.message : '標籤儲存失敗，請再試一次。');
+      setStageError(reportError('更新標籤失敗', tagError, '標籤儲存失敗，請再試一次。'));
     }
   }
 
@@ -82,13 +83,12 @@ export default function StepStage({
         <div className="flex min-w-0 w-full items-center gap-1.5 sm:max-w-[45%]">
           <EditableTitle
             value={guideTitle ?? ''}
-            fallback="未命名教學"
+            fallback={UNTITLED_GUIDE_TITLE}
             label="教學標題"
             disabled={editingDisabled || !onTitleChange}
             onCommit={(title) => onTitleChange?.(title)}
             onCommitError={(titleError) => {
-              console.error('重新命名教學失敗', titleError);
-              setStageError(titleError instanceof Error ? titleError.message : '標題儲存失敗，請再試一次。');
+              setStageError(reportError('重新命名教學失敗', titleError, '標題儲存失敗，請再試一次。'));
             }}
             className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-none px-2 py-1 text-[20px] font-bold leading-tight text-foreground transition-colors hover:bg-foreground/5 focus:bg-card focus:shadow-[0_0_0_1.5px_var(--focus)] [field-sizing:content]"
           />
@@ -139,8 +139,7 @@ export default function StepStage({
     try {
       await onSetNumbered(entryId(entry), next);
     } catch (err) {
-      console.error('更新標注編號設定失敗', err);
-      setStageError('編號設定儲存失敗，請再試一次。');
+      setStageError(reportError('更新標註編號設定失敗', err, '編號設定儲存失敗，請再試一次。'));
     } finally {
       setNumberingPending(false);
     }
@@ -163,7 +162,7 @@ export default function StepStage({
           operationsDisabled={editingDisabled}
           recaptureDisabledReason={
             entry.kind === 'group' && entry.annotations.length !== 1
-              ? '此快照有多個標註；為避免其他框選錯位，請重新製作整張快照。'
+              ? MULTI_ANNOTATION_RECAPTURE_BLOCKED
               : undefined
           }
         />
@@ -178,16 +177,11 @@ export default function StepStage({
     </span>
   );
 
-  const errorNotice = stageError && (
-    <div role="alert" className="flex items-center gap-1.5 text-xs text-destructive">
-      <AlertCircle className="size-3.5" />
-      {stageError}
-    </div>
-  );
+  const errorNotice = stageError && <InlineAlert>{stageError}</InlineAlert>;
 
   const privacyReviewNotice = privacy.reviewRequired && (
     <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-      此舊圖片的敏感資訊遮罩尚未確認，因此預覽會保持全黑，複製與匯出也會被阻擋。請使用補拍取代這張圖片。
+      {PRIVACY_REVIEW_REQUIRED_NOTICE}
     </div>
   );
 
@@ -206,12 +200,8 @@ export default function StepStage({
               aria-label="放大圖片"
               className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
             >
-              <HighlightThumbnail
-                blob={entry.step.screenshotBlob}
-                bounds={getEffectiveBounds(entry.step)}
-                redactions={privacy.redactions}
-                privacyReviewRequired={privacy.reviewRequired}
-                screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
+              <EntryThumbnail
+                entry={entry}
                 alt={`步驟 ${index + 1}`}
                 fit="contain"
                 className="max-w-full lg:h-full lg:max-h-full"
@@ -247,13 +237,8 @@ export default function StepStage({
             aria-label="放大圖片"
             className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
           >
-            <MultiHighlightThumbnail
-              blob={entry.anchor.screenshotBlob}
-              annotations={getOrderedAnnotations(entry.annotations)}
-              redactions={privacy.redactions}
-              privacyReviewRequired={privacy.reviewRequired}
-              screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
-              numbered={entry.anchor.numbered ?? false}
+            <EntryThumbnail
+              entry={entry}
               alt={`步驟 ${index + 1}（快照）`}
               fit="contain"
               className="max-w-full lg:h-full lg:max-h-full"

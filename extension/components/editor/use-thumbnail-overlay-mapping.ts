@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HIGHLIGHT_LINE_WIDTH, getExpandedRedactionBounds } from '@/lib/media/annotate';
+import { getExpandedRedactionBounds } from '@/lib/media/annotate';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import type { Redaction } from '@/lib/storage/db';
+
+// Re-exported for the thumbnails: the drawable-frame guard is the raster
+// compositor's contract, so the single definition lives with it.
+export { isDrawableHighlightFrame } from '@/lib/media/annotation-contract';
 
 export interface ImageContentFrame {
   left: number;
@@ -77,19 +81,6 @@ export function computeOverlayGeometry(
     mapX: (x: number) => offsetLeft + x * dpr * scale,
     mapY: (y: number) => offsetTop + y * dpr * scale,
   };
-}
-
-/**
- * Whether a highlight frame (screenshot CSS coordinates) is worth stroking.
- * Mirrors the raster path's `strokeBox` guard: `fitBoundsInViewport`
- * legitimately clamps out-of-viewport bounds to a zero or sliver-sized frame
- * at the screenshot edge, and drawing those leaves a stray border blob. Real
- * frames are always well above this after highlight padding inflation, so only
- * clamped-to-edge degenerates are skipped — keeping the live preview
- * consistent with the exported image.
- */
-export function isDrawableHighlightFrame(frame: { width: number; height: number }): boolean {
-  return frame.width >= HIGHLIGHT_LINE_WIDTH && frame.height >= HIGHLIGHT_LINE_WIDTH;
 }
 
 interface UseThumbnailOverlayMappingOptions {

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getActiveGuideId: vi.fn(),
   setActiveGuideId: vi.fn(),
   clearActiveGuideId: vi.fn(),
+  getRecordingState: vi.fn(),
   sendMessage: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock('@/lib/storage/storage', () => ({
   getActiveGuideId: mocks.getActiveGuideId,
   setActiveGuideId: mocks.setActiveGuideId,
   clearActiveGuideId: mocks.clearActiveGuideId,
+  getRecordingState: mocks.getRecordingState,
 }));
 
 import {
@@ -29,6 +31,7 @@ import {
   getSelectedGuide,
   openSelectedGuideInEditor,
   selectGuide,
+  startRecordingIntoNewGuide,
 } from '@/lib/guide/guide-actions';
 
 function guide(id: string) {
@@ -168,5 +171,47 @@ describe('auto-created Guide reclamation', () => {
     await expect(discardUntouchedGuide('guide-fresh', 'guide-fresh')).resolves.toBe(true);
 
     expect(mocks.setActiveGuideId).not.toHaveBeenCalled();
+  });
+});
+
+describe('popup start transaction (startRecordingIntoNewGuide)', () => {
+  beforeEach(() => {
+    mocks.getActiveGuideId.mockResolvedValue('guide-old');
+    mocks.getGuide.mockImplementation(async (id: string) => guide(id));
+    mocks.createGuide.mockResolvedValue(guide('guide-new'));
+    mocks.getRecordingState.mockResolvedValue({ isRecording: false, sessionId: null });
+  });
+
+  it('creates, selects, and starts recording into a fresh guide', async () => {
+    mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-new', runId: 'run-1' });
+
+    await expect(startRecordingIntoNewGuide('steps')).resolves.toMatchObject({ id: 'guide-new' });
+
+    expect(mocks.sendMessage).toHaveBeenCalledWith({
+      type: 'START_RECORDING',
+      sessionId: 'guide-new',
+      mode: 'steps',
+      autoCreatedGuide: true,
+    });
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the fresh guide and restores the previous selection on failure', async () => {
+    mocks.sendMessage.mockResolvedValue({ ok: false, error: '此頁面不允許錄製。' });
+    mocks.discardPristineGuide.mockResolvedValue(true);
+
+    await expect(startRecordingIntoNewGuide('steps')).rejects.toThrow('此頁面不允許錄製');
+
+    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-new');
+    expect(mocks.setActiveGuideId).toHaveBeenLastCalledWith('guide-old');
+  });
+
+  it('keeps the fresh guide when the run actually started but the response was lost', async () => {
+    mocks.sendMessage.mockResolvedValue(undefined);
+    mocks.getRecordingState.mockResolvedValue({ isRecording: true, sessionId: 'guide-new' });
+
+    await expect(startRecordingIntoNewGuide('steps')).rejects.toThrow('無法連接錄製服務');
+
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 });

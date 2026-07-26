@@ -44,6 +44,12 @@ vi.mock('@/lib/editor/dnd', () => ({
   restrictToHorizontalAxis: () => null,
   restrictToVerticalAxis: () => null,
   useSortableSensors: () => [],
+  useSortableReorder: (items: unknown[], getId: (item: unknown) => unknown) => ({
+    sensors: [],
+    accessibility: { announcements: {}, screenReaderInstructions: { draggable: '' } },
+    handleDragEnd: () => undefined,
+    itemIds: items.map(getId),
+  }),
 }));
 vi.mock('@/components/editor/SortableItem', () => ({
   default: ({ children }: { children: (handle: null, state: { isDragging: boolean }) => unknown }) =>

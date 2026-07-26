@@ -1,5 +1,6 @@
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import InlineAlert from '@/components/shared/InlineAlert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -54,12 +55,7 @@ export default function ConfirmationDialog({
             {description}
           </DialogDescription>
         </DialogHeader>
-        {error && (
-          <p role="alert" className="mt-4 flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs leading-[18px] text-destructive">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" />
-            <span>{error}</span>
-          </p>
-        )}
+        {error && <InlineAlert className="mt-4">{error}</InlineAlert>}
         <DialogFooter className="mt-6">
           <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
             取消

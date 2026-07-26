@@ -31,7 +31,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
+import { usePendingAction } from '@/components/shared/use-pending-action';
+import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
 import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive';
+import { guideExportFilename } from '@/lib/export/guide-export';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 
 function formatBytes(bytes: number): string {
@@ -45,11 +48,11 @@ function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp);
 }
 
+/** Derives the .frametrail archive name from the same stem the publication
+ * exporters use, so the library and editor name files identically. The stem
+ * helper itself is not exported, so strip the extension the facade appends. */
 function exportFilename(title: string): string {
-  const stem = title.normalize('NFKC').toLocaleLowerCase('zh-TW')
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'frametrail-guide';
+  const stem = guideExportFilename({ title }, 'html').replace(/\.html$/, '');
   return `${stem}.frametrail`;
 }
 
@@ -60,11 +63,10 @@ export default function App() {
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const { pendingKey: pendingId, runExclusive } = usePendingAction<string>();
   const [deleteTarget, setDeleteTarget] = useState<GuideSummary | null>(null);
   const [exportTarget, setExportTarget] = useState<GuideSummary | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const operationInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [operationLocked, setOperationLocked] = useState(false);
 
@@ -120,24 +122,22 @@ export default function App() {
   const storageBytes = useMemo(() => guides.reduce((sum, guide) => sum + guide.storageBytes, 0), [guides]);
 
   async function run(id: string, action: () => Promise<void>, options: { refreshAfter?: boolean } = {}) {
-    // State updates are asynchronous, so pendingId alone cannot prevent two
-    // actions fired in the same event turn from overlapping storage writes.
-    if (loading || operationInFlight.current || operationLocked) return false;
-    operationInFlight.current = true;
-    setPendingId(id);
-    setError(null);
-    try {
-      await action();
-      if (options.refreshAfter !== false) await refresh({ showLoading: false });
-      return true;
-    } catch (operationError) {
-      console.error('[frametrail] library operation failed', operationError);
-      setError(operationError instanceof Error ? operationError.message : '操作失敗，請再試一次。');
-      return false;
-    } finally {
-      operationInFlight.current = false;
-      setPendingId(null);
-    }
+    if (loading || operationLocked) return false;
+    // The shared gate answers synchronously, so two actions fired in the same
+    // event turn cannot overlap storage writes.
+    const outcome = await runExclusive(id, async () => {
+      setError(null);
+      try {
+        await action();
+        if (options.refreshAfter !== false) await refresh({ showLoading: false });
+        return true;
+      } catch (operationError) {
+        console.error('[frametrail] library operation failed', operationError);
+        setError(operationError instanceof Error ? operationError.message : '操作失敗，請再試一次。');
+        return false;
+      }
+    });
+    return outcome ?? false;
   }
 
   async function createNewGuide() {
@@ -383,7 +383,7 @@ export default function App() {
                     )}
                     <EditableTitle
                       value={guide.title}
-                      fallback="未命名教學"
+                      fallback={UNTITLED_GUIDE_TITLE}
                       label="教學名稱"
                       disabled={actionsLocked}
                       // `run` reports the reason through the page-level alert

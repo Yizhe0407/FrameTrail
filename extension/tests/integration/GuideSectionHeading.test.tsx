@@ -88,7 +88,7 @@ describe('GuideSectionHeading', () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith('section-1'));
   });
 
-  it('在外部 busy 與本地 async 操作期間停用控制項並避免重複送出', async () => {
+  it('在外部 disabled 與本地 async 操作期間停用控制項並避免重複送出', async () => {
     let resolveDelete: (() => void) | undefined;
     const deletePending = new Promise<void>((resolve) => {
       resolveDelete = resolve;
@@ -106,7 +106,7 @@ describe('GuideSectionHeading', () => {
     resolveDelete?.();
     await waitFor(() => expect(deleteButton.disabled).toBe(false));
 
-    rerender(<GuideSectionHeading {...createProps({ busy: true })} />);
+    rerender(<GuideSectionHeading {...createProps({ disabled: true })} />);
     expect(button('重新命名').disabled).toBe(true);
     expect(button('刪除').disabled).toBe(true);
   });

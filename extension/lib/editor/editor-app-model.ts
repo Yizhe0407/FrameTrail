@@ -1,5 +1,5 @@
 import type { StepRecaptureTarget } from '../runtime/messages';
-import type { Step, StepEntry } from '../storage/models';
+import type { StepEntry } from '../storage/db';
 
 export const EMPTY_STEP_ENTRIES: StepEntry[] = [];
 
@@ -46,10 +46,6 @@ export type PreparedCapturePermission = {
     | { kind: 'recapture'; target: StepRecaptureTarget }
     | { kind: 'continuation' };
 };
-
-export function entrySteps(entry: StepEntry): Step[] {
-  return entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations];
-}
 
 export function equalIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);

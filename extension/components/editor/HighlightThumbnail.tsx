@@ -7,8 +7,8 @@ import {
   fitHighlightFrame,
 } from '@/lib/media/annotate';
 import { useObjectUrl } from '@/lib/editor/useObjectUrl';
-import { cn } from '@/lib/shared/utils';
 import type { Bounds, Redaction } from '@/lib/storage/db';
+import ThumbnailSurface from './ThumbnailSurface';
 import {
   computeOverlayGeometry,
   isDrawableHighlightFrame,
@@ -113,27 +113,27 @@ export default function HighlightThumbnail({
     clearOverlays,
   });
 
-  const defaultImgClass = fit === 'contain' ? 'max-h-full max-w-full w-auto h-auto' : 'w-full h-full';
-
   return (
-    <div className={cn('relative inline-block leading-none', !showPixels && 'bg-black', className)}>
-      {url && (
-        <img
-          ref={imgRef}
-          src={url}
-          loading={loading}
-          decoding={decoding}
-          alt={privacyReviewRequired ? '' : alt}
-          aria-hidden={privacyReviewRequired || undefined}
-          onLoad={remap}
-          className={cn('block', imgClassName ?? defaultImgClass)}
-          style={{
-            ...(imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : {}),
-            visibility: showPixels ? undefined : 'hidden',
-          }}
-        />
-      )}
-      {!privacyReviewRequired && box && (
+    <ThumbnailSurface
+      url={url}
+      imgRef={imgRef}
+      showPixels={showPixels}
+      privacyReviewRequired={privacyReviewRequired}
+      alt={alt}
+      fit={fit}
+      loading={loading}
+      decoding={decoding}
+      className={className}
+      imgClassName={imgClassName}
+      // Single-image mode remaps synchronously on load; the multi variant
+      // instead records the natural size and lets its layout memo drive the
+      // remap. Deliberate divergence — see MultiHighlightThumbnail.
+      onImageLoad={remap}
+      contentFrame={contentFrame}
+      redactionBoxes={redactionBoxes}
+      overlay={overlay}
+    >
+      {box && (
         <div
           className="pointer-events-none absolute box-border"
           style={{
@@ -147,29 +147,6 @@ export default function HighlightThumbnail({
           }}
         />
       )}
-      {!privacyReviewRequired && redactionBoxes.map((redaction) => (
-        <div
-          key={redaction.id}
-          data-frametrail-redaction={redaction.id}
-          className="pointer-events-none absolute z-10"
-          style={{
-            left: redaction.left,
-            top: redaction.top,
-            width: redaction.width,
-            height: redaction.height,
-            backgroundColor: '#000',
-          }}
-        />
-      ))}
-      {overlay && contentFrame && (
-        <div
-          data-frametrail-image-content-frame
-          className="pointer-events-none absolute z-20"
-          style={contentFrame}
-        >
-          <div className="relative h-full w-full">{overlay}</div>
-        </div>
-      )}
-    </div>
+    </ThumbnailSurface>
   );
 }

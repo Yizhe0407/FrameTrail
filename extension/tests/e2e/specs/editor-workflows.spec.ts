@@ -152,10 +152,10 @@ test.describe('editor workflows', () => {
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
     await expect(editor.getByRole('main').getByText('快照模式 · 2 個標註', { exact: true })).toBeVisible();
-    const annotations = editor.getByPlaceholder('輸入標注說明…');
-    await annotations.nth(0).fill('更新後的快照標注');
+    const annotations = editor.getByPlaceholder('輸入標註說明…');
+    await annotations.nth(0).fill('更新後的快照標註');
     await expect.poll(async () => (await readSteps(popupPage)).some(
-      (step) => step.description === '更新後的快照標注',
+      (step) => step.description === '更新後的快照標註',
     )).toBe(true);
 
     const numbering = editor.getByRole('switch', { name: '順序編號' });
@@ -166,7 +166,7 @@ test.describe('editor workflows', () => {
       (step) => step.numbered === false,
     )).toBe(true);
 
-    await editor.getByRole('button', { name: '刪除標注 2' }).click();
+    await editor.getByRole('button', { name: '刪除標註 2' }).click();
     await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
     expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
@@ -188,7 +188,7 @@ test.describe('editor workflows', () => {
 
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
     await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
-    await editor.getByRole('button', { name: '刪除標注 1' }).click();
+    await editor.getByRole('button', { name: '刪除標註 1' }).click();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveCount(0);
@@ -297,7 +297,7 @@ test.describe('editor workflows', () => {
       { id: firstAnnotation.id, groupId: snapshotGroupId },
       { id: firstTimelineStep.id, groupId: undefined },
     ]);
-    await expect(annotationPanel.getByPlaceholder('輸入標注說明…')).toHaveCount(3);
+    await expect(annotationPanel.getByPlaceholder('輸入標註說明…')).toHaveCount(3);
   });
 
   test('navigates every timeline entry in the lightbox with buttons and arrow keys', async ({
