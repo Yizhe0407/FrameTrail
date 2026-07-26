@@ -48,6 +48,7 @@ vi.mock('@/lib/storage/storage', () => ({
 vi.mock('@/lib/recording/recording-guards', () => ({
   isInScrollbarGutter: () => false,
   isInScrollableElementGutter: () => false,
+  isPointInAnyScrollGutter: () => false,
 }));
 vi.mock('@/lib/capture/selector-utils', () => ({
   deepElementFromPoint: () => null,

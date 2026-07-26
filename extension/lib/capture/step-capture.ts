@@ -16,6 +16,8 @@ export interface StepCaptureDedup<K> {
   /** Returns false when the key repeats within the dedup window; a true result
    * records the key/time pair as the new dedup baseline. */
   shouldCapture(key: K, at?: number): boolean;
+  /** @internal Test-only: clears the dedup baseline between scenarios. No
+   * production caller exists; recorders create a fresh dedup per install. */
   reset(): void;
 }
 
@@ -82,6 +84,41 @@ export function createLateClickSuppressor<T>(windowMs: number, now: () => number
       target = null;
       return true;
     },
+  };
+}
+
+/** True when a trusted click landed on the armed element or inside it. The
+ * replayed activation targets the armed element, but its trailing trusted
+ * duplicate can surface on a descendant. */
+const isArmedElementOrDescendant = (armed: Element, eventTarget: unknown): boolean =>
+  armed === eventTarget || (eventTarget instanceof Node && armed.contains(eventTarget));
+
+/**
+ * Builds the capture-phase handler for the follow-up events of a swallowed
+ * step gesture (pointerup/click/etc.). Shared by the top-frame recorder and
+ * the child-frame relay: it eats the replayed gesture's trailing trusted
+ * click, and while a capture is in flight it swallows the raw pointer
+ * sequence — the canonical click is replayed once the screenshot lands.
+ * Replay timing is driven by the capture, not by pointerup, so only
+ * cancellation matters here.
+ */
+export function createStepFollowupHandler(
+  lateClicks: LateClickSuppressor<Element>,
+  gesture: { isActive: () => boolean; cancel: () => void },
+): (event: Event) => void {
+  return (event) => {
+    if (
+      event.type === 'click' &&
+      lateClicks.shouldSuppress(event.target, event.isTrusted, isArmedElementOrDescendant)
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (!gesture.isActive()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type === 'pointercancel') gesture.cancel();
   };
 }
 

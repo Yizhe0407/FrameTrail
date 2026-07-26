@@ -10,16 +10,15 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
+import { collectKeyboardCandidateAnchors } from '@/lib/recording/snapshot-targeting';
+import { SNAPSHOT_FREEZE_EVENTS } from '@/lib/recording/content-script-constants';
+import { describeElement, replayElementClick } from '@/lib/capture/element-description';
 import {
-  SNAPSHOT_FREEZE_EVENTS,
-  collectKeyboardCandidateAnchors,
-  describeElement,
   isOutOfViewport,
   readRegionScrollSnapshot,
   readScrollSnapshot,
-  replayElementClick,
-  snapshotRectKey,
-} from '@/lib/recording/snapshot-targeting';
+} from '@/lib/capture/scroll-snapshot';
+import { snapshotRectKey } from '@/lib/recording/snapshot-shield-protocol';
 
 /** jsdom performs no layout, so scroll geometry is stubbed per element. */
 function makeScrollable(

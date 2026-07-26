@@ -1,3 +1,5 @@
+import { browser } from 'wxt/browser';
+
 export const CONTENT_KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 export const CONTENT_KEEPALIVE_INTERVAL_MS = 20_000;
 export const STEP_FOLLOWUP_EVENTS = [
@@ -9,4 +11,23 @@ export const STEP_FOLLOWUP_EVENTS = [
   'dblclick',
   'auxclick',
   'contextmenu',
+] as const;
+
+/** Same-target debounce window shared by the top-frame step recorder and the
+ * child-frame relay so a rapid double gesture dedups identically everywhere. */
+export const STEP_DEDUP_MS = 400;
+/** Trailing-trusted-click suppression window, likewise shared by the top
+ * frame and every instrumented child frame. */
+export const STEP_LATE_CLICK_SUPPRESS_MS = 2_000;
+
+export const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
+
+/** Events a frozen snapshot page must consume before the input shield is
+ * ready (and, in child frames, for the whole snapshot). Kept aligned with the
+ * shield page's own freeze list so the pre-ready window has no gaps. */
+export const SNAPSHOT_FREEZE_EVENTS = [
+  'pointerdown', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'click',
+  'dblclick', 'auxclick', 'contextmenu', 'submit', 'keydown', 'keyup', 'keypress',
+  'beforeinput', 'input', 'wheel', 'touchstart', 'touchmove', 'touchend',
+  'dragstart', 'drop', 'selectstart',
 ] as const;

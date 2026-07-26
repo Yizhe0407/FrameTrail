@@ -412,6 +412,16 @@ export function selectVisualTargetCandidate(
   return { ...candidate, candidateOffset };
 }
 
+/** Hit-tests a viewport point and resolves the default (offset 0) visual
+ * capture target for it. Shared by the top-frame step recorder and the
+ * child-frame relay so both frames pick identical targets. */
+export function resolvePrimaryVisualTarget(clientX: number, clientY: number): Element | null {
+  const hit = deepElementFromPoint(clientX, clientY);
+  return hit
+    ? selectVisualTargetCandidate(findVisualTargetCandidates(hit, clientX, clientY), 0)?.element ?? null
+    : null;
+}
+
 /**
  * Returns the precise border-box fragment clicked by the user. A multiline
  * inline element has multiple client rects; getBoundingClientRect() is their

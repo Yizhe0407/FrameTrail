@@ -3,16 +3,16 @@ import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
   findVisualTargetCandidates,
-  getComposedParent,
   getVisibleHighlightBounds,
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
   selectVisualTargetCandidate,
 } from '../capture/selector-utils';
-import type { ScrollSnapshot } from '../capture/step-capture';
+import { describeElement } from '../capture/element-description';
 import {
   SNAPSHOT_KEYBOARD_LABEL_LIMIT,
+  SNAPSHOT_REGION_COORDINATE_LIMIT,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
@@ -22,24 +22,16 @@ import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
   childFrameProbeTimeout,
   classifyFrameProbeOutcome,
+  closePortQuietly,
   createFrameProbeRateLimiter,
   isExplicitFrameProbeFallback,
   resolveFrameProbeTargetOrigin,
 } from '../capture/frame-probe';
 import { createImageCoordinateMapper } from '../capture/image-geometry';
+import { isFiniteRect } from '../shared/validation';
+import { CLEANUP_EVENT } from './content-script-constants';
 import type { FrameTrailStopMessage } from '../runtime/messages';
 
-export const CLEANUP_EVENT = `frame_trail_cleanup_${browser.runtime.id}`;
-
-/** Events a frozen snapshot page must consume before the input shield is
- * ready (and, in child frames, for the whole snapshot). Kept aligned with the
- * shield page's own freeze list so the pre-ready window has no gaps. */
-export const SNAPSHOT_FREEZE_EVENTS = [
-  'pointerdown', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'click',
-  'dblclick', 'auxclick', 'contextmenu', 'submit', 'keydown', 'keyup', 'keypress',
-  'beforeinput', 'input', 'wheel', 'touchstart', 'touchmove', 'touchend',
-  'dragstart', 'drop', 'selectstart',
-] as const;
 const FRAME_PROBE_MESSAGE = `frame_trail_snapshot_probe_${browser.runtime.id}`;
 const FRAME_PROBE_TIMEOUT_MS = 120;
 const FRAME_PROBE_CHILD_BUDGET_MS = 20;
@@ -49,120 +41,8 @@ const FRAME_PROBE_MAX_REQUESTS_PER_WINDOW = 720;
 const FRAME_PROBE_RATE_WINDOW_MS = 10_000;
 const timedOutFrameProbes = new WeakMap<HTMLIFrameElement, { runId: string; retryAt: number }>();
 
-export function isOutOfViewport(rect: { x: number; y: number; width: number; height: number }): boolean {
-  const right = rect.x + rect.width;
-  const bottom = rect.y + rect.height;
-  return rect.y < 0 || rect.x < 0 || bottom > window.innerHeight || right > window.innerWidth;
-}
-
-function isScrollableElement(element: Element): element is HTMLElement {
-  if (!(element instanceof HTMLElement)) return false;
-  const style = getComputedStyle(element);
-  const overflowX = style.overflowX || style.overflow;
-  const overflowY = style.overflowY || style.overflow;
-  return (
-    (['auto', 'scroll', 'overlay'].includes(overflowX) && element.scrollWidth > element.clientWidth) ||
-    (['auto', 'scroll', 'overlay'].includes(overflowY) && element.scrollHeight > element.clientHeight)
-  );
-}
-
-function getScrollableAncestors(target: Element): Element[] {
-  const ancestors: Element[] = [];
-  let ancestor = getComposedParent(target);
-  while (ancestor) {
-    if (isScrollableElement(ancestor)) ancestors.push(ancestor);
-    ancestor = getComposedParent(ancestor);
-  }
-  return ancestors;
-}
-
-export function readScrollSnapshot(target: Element): ScrollSnapshot {
-  return {
-    x: window.scrollX,
-    y: window.scrollY,
-    containers: getScrollableAncestors(target).map((element) => ({
-      element,
-      x: element.scrollLeft,
-      y: element.scrollTop,
-    })),
-  };
-}
-
-/**
- * Pins every scrollable container that intersects a user-selected region so a
- * programmatic scroll in a nested scroller cannot shift pixels out from under
- * the region rect while its screenshot is in flight. Mirrors the element
- * capture path, which pins the target's scrollable ancestors.
- */
-export function readRegionScrollSnapshot(rect: SnapshotShieldRect): ScrollSnapshot {
-  const insetX = Math.min(4, rect.width / 4);
-  const insetY = Math.min(4, rect.height / 4);
-  const samplePoints: Array<[number, number]> = [
-    [rect.x + rect.width / 2, rect.y + rect.height / 2],
-    [rect.x + insetX, rect.y + insetY],
-    [rect.x + rect.width - insetX, rect.y + insetY],
-    [rect.x + insetX, rect.y + rect.height - insetY],
-    [rect.x + rect.width - insetX, rect.y + rect.height - insetY],
-  ];
-  const containers = new Map<Element, { x: number; y: number }>();
-  for (const [clientX, clientY] of samplePoints) {
-    const hit = deepElementFromPoint(clientX, clientY);
-    if (!hit) continue;
-    let node: Element | null = hit;
-    while (node) {
-      if (!containers.has(node) && isScrollableElement(node)) {
-        containers.set(node, { x: node.scrollLeft, y: node.scrollTop });
-      }
-      node = getComposedParent(node);
-    }
-  }
-  return {
-    x: window.scrollX,
-    y: window.scrollY,
-    containers: Array.from(containers, ([element, scroll]) => ({ element, x: scroll.x, y: scroll.y })),
-  };
-}
-
-export function snapshotRectKey(rect: SnapshotShieldRect): string {
-  return [rect.x, rect.y, rect.width, rect.height]
-    .map((value) => Math.round(value * 2))
-    .join(':');
-}
-
-function getSnapshotTargetBounds(
-  el: Element,
-  clientX: number,
-  clientY: number,
-): SnapshotShieldRect | null {
-  return getVisibleHighlightBounds(el, clientX, clientY);
-}
-
 export function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
-}
-
-function getVisibleText(el: Element): string {
-  const text = el instanceof HTMLElement ? el.innerText : el.textContent;
-  const lines = text?.split('\n') ?? [];
-  return (lines.find((line) => line.trim().length > 0)?.trim() ?? '').slice(0, 80);
-}
-
-function getFieldLabel(el: Element): string {
-  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
-    return '';
-  }
-  return el.labels?.[0]?.innerText?.trim() || el.getAttribute('placeholder')?.trim() || '';
-}
-
-export function describeElement(el: Element): string {
-  return (
-    el.getAttribute('aria-label')?.trim() ||
-    getFieldLabel(el) ||
-    getVisibleText(el) ||
-    el.getAttribute('title')?.trim() ||
-    el.getAttribute('alt')?.trim() ||
-    ''
-  ).slice(0, 200);
 }
 
 const KEYBOARD_CANDIDATE_SELECTOR = [
@@ -203,17 +83,6 @@ export function collectKeyboardCandidateAnchors(): SnapshotShieldKeyboardAnchor[
   return orderKeyboardCandidates(raw, window.innerWidth, window.innerHeight);
 }
 
-export function replayElementClick(el: Element): void {
-  const focus = (el as Element & { focus?: (options?: FocusOptions) => void }).focus;
-  focus?.call(el, { preventScroll: true });
-  const click = (el as Element & { click?: () => void }).click;
-  if (typeof click === 'function') {
-    click.call(el);
-    return;
-  }
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: window }));
-}
-
 interface SnapshotProbeResult {
   rect: SnapshotShieldRect;
   identity: string;
@@ -238,15 +107,8 @@ interface SnapshotProbeRequest {
 function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<SnapshotProbeResult>;
-  const rect = result.rect;
   return (
-    Boolean(rect) &&
-    Number.isFinite(rect!.x) &&
-    Number.isFinite(rect!.y) &&
-    Number.isFinite(rect!.width) &&
-    Number.isFinite(rect!.height) &&
-    rect!.width > 0 &&
-    rect!.height > 0 &&
+    isFiniteRect(result.rect, { maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT }) &&
     typeof result.identity === 'string' &&
     result.identity.length > 0 &&
     result.identity.length <= 4_096 &&
@@ -469,7 +331,7 @@ export async function resolveSnapshotTargetAtPoint(
   return selected
     ? resolvedElement(
         selected.element,
-        getSnapshotTargetBounds(selected.element, clientX, clientY),
+        getVisibleHighlightBounds(selected.element, clientX, clientY),
         selected.candidateOffset,
       )
     : null;
@@ -481,13 +343,6 @@ export function installSnapshotFrameProbe(runId: string): void {
     maxRequestsPerWindow: FRAME_PROBE_MAX_REQUESTS_PER_WINDOW,
     windowMs: FRAME_PROBE_RATE_WINDOW_MS,
   });
-  const closePort = (port: MessagePort | undefined) => {
-    try {
-      port?.close();
-    } catch {
-      // The sender can detach or close a transferred port before validation.
-    }
-  };
   const onMessage = (event: MessageEvent) => {
     const request = event.data as Partial<SnapshotProbeRequest> | null;
     const port = event.ports[0];
@@ -504,7 +359,7 @@ export function installSnapshotFrameProbe(runId: string): void {
       !Number.isSafeInteger(request.candidateOffset) ||
       Math.abs(request.candidateOffset!) > SNAPSHOT_TARGET_OFFSET_LIMIT
     ) {
-      closePort(port);
+      closePortQuietly(port);
       return;
     }
     const release = admission.tryAcquire();
@@ -516,7 +371,7 @@ export function installSnapshotFrameProbe(runId: string): void {
       } catch {
         // The sender may already have abandoned the request.
       } finally {
-        closePort(port);
+        closePortQuietly(port);
       }
       return;
     }
@@ -548,7 +403,7 @@ export function installSnapshotFrameProbe(runId: string): void {
         console.warn('[frametrail] child frame probe response channel closed', error);
       } finally {
         release();
-        closePort(port);
+        closePortQuietly(port);
       }
     })();
   };

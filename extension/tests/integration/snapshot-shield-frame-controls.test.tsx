@@ -23,6 +23,7 @@ vi.mock('react-dom/client', () => ({
 vi.mock('@/components/recording/RecordingToolbar', () => ({ default: () => null }));
 vi.mock('wxt/browser', () => ({
   browser: {
+    runtime: { id: 'test-extension' },
     storage: { local: { get: mocks.storageGet, remove: mocks.storageRemove } },
   },
 }));

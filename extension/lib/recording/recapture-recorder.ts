@@ -1,15 +1,10 @@
 import { browser } from 'wxt/browser';
-import {
-  CLEANUP_EVENT,
-  resolveSnapshotTargetAtPoint,
-} from './snapshot-targeting';
-import { startKeepAlive } from '../runtime/keep-alive';
-import { installBfcacheLifecycle } from './bfcache-lifecycle';
-import { deepElementFromPoint, getComposedParent } from '../capture/selector-utils';
+import { resolveSnapshotTargetAtPoint } from './snapshot-targeting';
+import { installRecorderLifecycle } from './recorder-lifecycle';
 import { createStepPreview } from '../capture/step-preview';
 import {
-  isInScrollableElementGutter,
   isInScrollbarGutter,
+  isPointInAnyScrollGutter,
 } from './recording-guards';
 import { getRecordingState, onRecordingStateChange } from '../storage/storage';
 import { createLatestAsyncRequestRunner } from '../capture/frame-probe';
@@ -24,11 +19,7 @@ import type {
   StepRecaptureContext,
   StepRecaptureTargetResult,
 } from '../runtime/messages';
-import {
-  CONTENT_KEEPALIVE_INTERVAL_MS,
-  CONTENT_KEEPALIVE_PORT_NAME,
-  STEP_FOLLOWUP_EVENTS,
-} from './content-script-constants';
+import { CLEANUP_EVENT, STEP_FOLLOWUP_EVENTS } from './content-script-constants';
 
 function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remove(): void } {
   const host = document.createElement('div');
@@ -89,25 +80,15 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
   let lastObservedPhase: string | null = null;
 
   const preview = createStepPreview();
-  const keepAlive = startKeepAlive(browser.runtime, {
-    name: CONTENT_KEEPALIVE_PORT_NAME,
-    intervalMs: CONTENT_KEEPALIVE_INTERVAL_MS,
-    // The background rejected this recorder (or is unreachable for good):
-    // tear down the injected UI instead of reconnecting forever.
-    onRejected: () => cleanup(),
-  });
   // A source page frozen into the back/forward cache must hand its port back
   // cleanly; on restore the recapture is already settled (any navigation fails
   // it), so a stale recorder tears down instead of selecting into a dead run.
-  const uninstallBfcacheLifecycle = installBfcacheLifecycle({
-    target: window,
-    suspend: () => keepAlive.suspend(),
-    resume: () => keepAlive.resume(),
+  const lifecycle = installRecorderLifecycle({
     isRunCurrent: async () => {
       const state = await getRecordingState();
       return state.operation === 'recapture' && state.recapture?.runId === runId;
     },
-    teardown: () => cleanup(),
+    cleanup: () => cleanup(),
   });
 
   const cancelWorkflow = () => {
@@ -145,12 +126,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
     if (event.button !== 0 || !event.isPrimary) return;
     if (event.composedPath().includes(toolbar.host)) return;
     if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
-    const hit = deepElementFromPoint(event.clientX, event.clientY);
-    let gutterAncestor = hit;
-    while (gutterAncestor) {
-      if (isInScrollableElementGutter(event.clientX, event.clientY, gutterAncestor)) return;
-      gutterAncestor = getComposedParent(gutterAncestor);
-    }
+    if (isPointInAnyScrollGutter(event.clientX, event.clientY)) return;
     if (!active || busy) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -236,8 +212,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);
     unsubscribe();
-    uninstallBfcacheLifecycle();
-    keepAlive.stop();
+    lifecycle.stop();
   }
   unsubscribe = onRecordingStateChange((state) => {
     if (state.operation !== 'recapture' || state.recapture?.runId !== runId) cleanup();

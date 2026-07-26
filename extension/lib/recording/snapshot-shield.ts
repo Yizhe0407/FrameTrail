@@ -17,24 +17,19 @@ import {
   SNAPSHOT_SHIELD_TOKEN_TTL_MS,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
-  type SnapshotShieldCaptureCompleteMessage,
-  type SnapshotShieldCandidatesMessage,
-  type SnapshotShieldCommitMessage,
   type SnapshotShieldControlMessage,
-  type SnapshotShieldControlResultMessage,
   type SnapshotShieldFrameMessage,
   type SnapshotShieldInitMessage,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
-  type SnapshotShieldPreviewMessage,
   type SnapshotShieldRegionCaptureMessage,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldSelection,
   type SnapshotShieldTokenRecord,
   type SnapshotShieldToolbarStateMessage,
-  type SnapshotShieldUndoMessage,
 } from './snapshot-shield-protocol';
+import { deepElementFromPoint } from '../capture/selector-utils';
 import type { RecordingControlResult } from '../runtime/messages';
 
 const SHIELD_PAGE = '/snapshot-shield.html';
@@ -71,6 +66,10 @@ type RegionHandler = (
 ) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
 type FailureHandler = (error: Error) => void | Promise<void>;
 
+/** Distributes over a message union, dropping the channel token that the
+ * shield-side `post` helper injects. */
+type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : never;
+
 function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');
 }
@@ -106,19 +105,6 @@ function getDeepActiveElement(): Element | null {
   let active: Element | null = document.activeElement;
   while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
   return active;
-}
-
-function getDeepElementFromPoint(clientX: number, clientY: number): Element | null {
-  if (typeof document.elementFromPoint !== 'function') return null;
-  let root: Document | ShadowRoot = document;
-  let target: Element | null = null;
-  while (true) {
-    const next: Element | null = root.elementFromPoint(clientX, clientY);
-    if (!next) return target;
-    target = next;
-    if (!next.shadowRoot) return target;
-    root = next.shadowRoot;
-  }
 }
 
 function installBackdropStyles(shadowRoot: ShadowRoot): void {
@@ -270,6 +256,15 @@ export function createSnapshotShield(
       reportFailure('snapshot input shield message channel failed', error);
     }
   };
+  /** Injects this shield's channel token so call sites only spell out the
+   * message-specific fields. */
+  const post = (message: WithoutToken<SnapshotShieldFrameMessage>): void => {
+    postToFrame({ ...message, token } as SnapshotShieldFrameMessage);
+  };
+  /** A channel interaction is stale once the shield was removed or a newer
+   * frame load re-keyed the port (generation bump); stale work must neither
+   * touch shield state nor post replies on the current channel. */
+  const isStale = (generation: number): boolean => removed || generation !== channelGeneration;
 
   const handleHover = async (message: SnapshotShieldPointerMoveMessage, generation: number): Promise<void> => {
     let preview: SnapshotShieldPreviewResult = {
@@ -281,15 +276,13 @@ export function createSnapshotShield(
     } catch (error) {
       console.error('[frametrail] failed to preview snapshot target', error);
     }
-    if (removed || generation !== channelGeneration) return;
-    const previewMessage: SnapshotShieldPreviewMessage = {
+    if (isStale(generation)) return;
+    post({
       type: SNAPSHOT_SHIELD_PREVIEW,
-      token,
       requestId: message.requestId,
       rect: preview.rect,
       candidateOffset: preview.candidateOffset,
-    };
-    postToFrame(previewMessage);
+    });
   };
 
   const completeSelection = (
@@ -304,21 +297,10 @@ export function createSnapshotShield(
       lastUndoneSelection = null;
     }
 
-    if (generation === channelGeneration) {
-      const completeMessage: SnapshotShieldCaptureCompleteMessage = {
-        type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
-        token,
-        captureId,
-        selection: committed,
-      };
-      postToFrame(completeMessage);
+    if (!isStale(generation)) {
+      post({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, captureId, selection: committed });
     } else if (committed) {
-      const commitMessage: SnapshotShieldCommitMessage = {
-        type: SNAPSHOT_SHIELD_COMMIT,
-        token,
-        selection: committed,
-      };
-      postToFrame(commitMessage);
+      post({ type: SNAPSHOT_SHIELD_COMMIT, selection: committed });
     }
   };
 
@@ -350,32 +332,27 @@ export function createSnapshotShield(
       console.error('[frametrail] failed to handle snapshot toolbar command', error);
       result = { ok: false, error: '動作失敗，請再試一次。' };
     }
-    if (removed || generation !== channelGeneration) return;
+    if (isStale(generation)) return;
 
+    // Undo/restore is DELIBERATELY tracked in three lockstep layers keyed by
+    // the same background result: the page recorder's selection set
+    // (content.ts onSnapshotControl), this channel's committedSelections
+    // (which replay committed annotations into a reloaded shield frame), and
+    // the shield page's overlay stack (snapshot-shield/overlay.ts). All three
+    // must pop and push together or dedup and drawn annotations drift.
     if (result.ok && message.action === 'UNDO_LAST_CAPTURE') {
       lastUndoneSelection = committedSelections.pop() ?? null;
       if (lastUndoneSelection) {
-        const undoMessage: SnapshotShieldUndoMessage = { type: SNAPSHOT_SHIELD_UNDO, token };
-        postToFrame(undoMessage);
+        post({ type: SNAPSHOT_SHIELD_UNDO });
       }
     } else if (result.ok && message.action === 'RESTORE_LAST_CAPTURE' && lastUndoneSelection) {
       committedSelections.push(lastUndoneSelection);
-      const commitMessage: SnapshotShieldCommitMessage = {
-        type: SNAPSHOT_SHIELD_COMMIT,
-        token,
-        selection: lastUndoneSelection,
-      };
+      const restoredSelection = lastUndoneSelection;
       lastUndoneSelection = null;
-      postToFrame(commitMessage);
+      post({ type: SNAPSHOT_SHIELD_COMMIT, selection: restoredSelection });
     }
 
-    const response: SnapshotShieldControlResultMessage = {
-      type: SNAPSHOT_SHIELD_CONTROL_RESULT,
-      token,
-      requestId: message.requestId,
-      result,
-    };
-    postToFrame(response);
+    post({ type: SNAPSHOT_SHIELD_CONTROL_RESULT, requestId: message.requestId, result });
   };
 
   const runWithoutShieldHitTesting = <T>(callback: () => T): T => {
@@ -401,7 +378,7 @@ export function createSnapshotShield(
         [Math.max(window.innerWidth - 1, 0), Math.max(window.innerHeight - 1, 0)],
       ] as const;
       for (const [clientX, clientY] of points) {
-        const modal = findModalAncestor(getDeepElementFromPoint(clientX, clientY));
+        const modal = findModalAncestor(deepElementFromPoint(clientX, clientY));
         if (modal) return modal;
       }
       return null;
@@ -535,7 +512,7 @@ export function createSnapshotShield(
       const channel = new MessageChannel();
       port = channel.port1;
       port.onmessage = (event) => {
-        if (removed || generation !== channelGeneration) return;
+        if (isStale(generation)) return;
         if (!isSnapshotShieldPortMessage(event.data, token)) return;
         if (event.data.type === SNAPSHOT_SHIELD_READY) {
           if (!ready) {
@@ -545,28 +522,13 @@ export function createSnapshotShield(
           }
           frame.focus({ preventScroll: true });
           for (const selection of committedSelections) {
-            const commitMessage: SnapshotShieldCommitMessage = {
-              type: SNAPSHOT_SHIELD_COMMIT,
-              token,
-              selection,
-            };
-            postToFrame(commitMessage);
+            post({ type: SNAPSHOT_SHIELD_COMMIT, selection });
           }
           if (toolbarState) {
-            const stateMessage: SnapshotShieldToolbarStateMessage = {
-              type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
-              token,
-              state: toolbarState,
-            };
-            postToFrame(stateMessage);
+            post({ type: SNAPSHOT_SHIELD_TOOLBAR_STATE, state: toolbarState });
           }
           if (keyboardAnchors) {
-            const candidatesMessage: SnapshotShieldCandidatesMessage = {
-              type: SNAPSHOT_SHIELD_CANDIDATES,
-              token,
-              anchors: keyboardAnchors,
-            };
-            postToFrame(candidatesMessage);
+            post({ type: SNAPSHOT_SHIELD_CANDIDATES, anchors: keyboardAnchors });
           }
           return;
         }
@@ -616,21 +578,11 @@ export function createSnapshotShield(
     runWithoutShield: runWithoutShieldHitTesting,
     updateToolbar(state) {
       toolbarState = state;
-      const message: SnapshotShieldToolbarStateMessage = {
-        type: SNAPSHOT_SHIELD_TOOLBAR_STATE,
-        token,
-        state,
-      };
-      postToFrame(message);
+      post({ type: SNAPSHOT_SHIELD_TOOLBAR_STATE, state });
     },
     sendKeyboardCandidates(anchors) {
       keyboardAnchors = anchors;
-      const message: SnapshotShieldCandidatesMessage = {
-        type: SNAPSHOT_SHIELD_CANDIDATES,
-        token,
-        anchors,
-      };
-      postToFrame(message);
+      post({ type: SNAPSHOT_SHIELD_CANDIDATES, anchors });
     },
     remove,
   };

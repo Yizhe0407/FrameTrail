@@ -1,33 +1,37 @@
 import { browser } from 'wxt/browser';
 import type { Bounds } from '../storage/db';
 import {
-  deepElementFromPoint,
-  findVisualTargetCandidates,
-  getComposedParent,
   getVisibleHighlightBounds,
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
-  selectVisualTargetCandidate,
+  resolvePrimaryVisualTarget,
 } from '../capture/selector-utils';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
-import { createFrameProbeRateLimiter, type FrameProbeRateLimiter } from '../capture/frame-probe';
+import {
+  closePortQuietly,
+  createFrameProbeRateLimiter,
+  type FrameProbeRateLimiter,
+} from '../capture/frame-probe';
 import {
   createLateClickSuppressor,
   createStepCaptureDedup,
+  createStepFollowupHandler,
 } from '../capture/step-capture';
+import { describeElement, replayClickWithSuppression } from '../capture/element-description';
 import {
-  isInScrollableElementGutter,
   isInScrollbarGutter,
+  isPointInAnyScrollGutter,
 } from './recording-guards';
+import { onRecordingStateChange } from '../storage/storage';
 import {
   CLEANUP_EVENT,
-  describeElement,
-  replayElementClick,
   SNAPSHOT_FREEZE_EVENTS,
-} from './snapshot-targeting';
-import { onRecordingStateChange } from '../storage/storage';
-import { STEP_FOLLOWUP_EVENTS } from './content-script-constants';
+  STEP_DEDUP_MS,
+  STEP_FOLLOWUP_EVENTS,
+  STEP_LATE_CLICK_SUPPRESS_MS,
+} from './content-script-constants';
+import { isFiniteRect } from '../shared/validation';
 import type { FrameTrailStopMessage } from '../runtime/messages';
 
 /**
@@ -46,8 +50,6 @@ import type { FrameTrailStopMessage } from '../runtime/messages';
 const STEP_FRAME_TEXT_LIMIT = 200;
 const STEP_FRAME_TAG_LIMIT = 100;
 const STEP_FRAME_COORDINATE_LIMIT = 1_000_000;
-const STEP_FRAME_DEDUP_MS = 400;
-const STEP_FRAME_LATE_CLICK_SUPPRESS_MS = 2_000;
 /** Slightly above the top frame's CAPTURE_FAILSAFE_MS (2s) so a healthy
  * capture always beats this local budget; when the relay chain is broken the
  * click is replayed anyway to keep the page usable. */
@@ -79,20 +81,7 @@ export interface StepFrameClickResponse {
 }
 
 function isRelayRect(value: unknown): value is Bounds {
-  if (!value || typeof value !== 'object') return false;
-  const rect = value as Partial<Bounds>;
-  return (
-    Number.isFinite(rect.x) &&
-    Number.isFinite(rect.y) &&
-    Number.isFinite(rect.width) &&
-    Number.isFinite(rect.height) &&
-    rect.width! > 0 &&
-    rect.height! > 0 &&
-    Math.abs(rect.x!) <= STEP_FRAME_COORDINATE_LIMIT &&
-    Math.abs(rect.y!) <= STEP_FRAME_COORDINATE_LIMIT &&
-    rect.width! <= STEP_FRAME_COORDINATE_LIMIT &&
-    rect.height! <= STEP_FRAME_COORDINATE_LIMIT
-  );
+  return isFiniteRect(value, { maxMagnitude: STEP_FRAME_COORDINATE_LIMIT });
 }
 
 export function isStepFrameClickPayload(value: unknown, messageType: string): value is StepFrameClickPayload {
@@ -118,21 +107,13 @@ export function isStepFrameClickResponse(value: unknown): value is StepFrameClic
   );
 }
 
-function closePort(port: MessagePort): void {
-  try {
-    port.close();
-  } catch {
-    // The sender can detach a transferred port before validation completes.
-  }
-}
-
 export function respondToStepFrameClick(port: MessagePort, replay: boolean): void {
   try {
     port.postMessage({ replay } satisfies StepFrameClickResponse);
   } catch {
     // The originating frame may already be gone; its local failsafe replays.
   }
-  closePort(port);
+  closePortQuietly(port);
 }
 
 function findIframeInNode(root: ParentNode, source: unknown, depth: number): HTMLIFrameElement | null {
@@ -198,7 +179,7 @@ export function resolveRelayedStepFrameClick(
   const port = event.ports[0];
   if (!port) return null;
   if (!isStepFrameClickPayload(event.data, messageType)) {
-    closePort(port);
+    closePortQuietly(port);
     return null;
   }
   const release = limiter.tryAcquire();
@@ -212,7 +193,7 @@ export function resolveRelayedStepFrameClick(
   release();
   const frame = findIframeForWindow(event.source);
   if (!frame) {
-    closePort(port);
+    closePortQuietly(port);
     return null;
   }
   return { payload: event.data, port, frame, rect: mapChildRectIntoFrameViewport(frame, event.data.rect) };
@@ -239,22 +220,11 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   let removed = false;
   let gestureActive = false;
   let gestureCancelled = false;
-  const dedup = createStepCaptureDedup<Element>(STEP_FRAME_DEDUP_MS);
-  const lateClicks = createLateClickSuppressor<Element>(STEP_FRAME_LATE_CLICK_SUPPRESS_MS);
+  const dedup = createStepCaptureDedup<Element>(STEP_DEDUP_MS);
+  const lateClicks = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
   const relayLimiter = createStepFrameRelayLimiter();
 
-  const resolveVisualTarget = (clientX: number, clientY: number): Element | null => {
-    const hit = deepElementFromPoint(clientX, clientY);
-    return hit
-      ? selectVisualTargetCandidate(findVisualTargetCandidates(hit, clientX, clientY), 0)?.element ?? null
-      : null;
-  };
-
-  const replayInto = (el: Element) => {
-    if (!el.isConnected) return;
-    lateClicks.arm(el);
-    replayElementClick(el);
-  };
+  const replayInto = (el: Element) => replayClickWithSuppression(el, lateClicks);
 
   const onPointerDown = (event: PointerEvent) => {
     if (event.button !== 0 || !event.isPrimary) return;
@@ -263,12 +233,8 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     if (event.isTrusted) lateClicks.onTrustedPointerDown();
     if (paused) return;
     if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
-    let gutterAncestor = deepElementFromPoint(event.clientX, event.clientY);
-    while (gutterAncestor) {
-      if (isInScrollableElementGutter(event.clientX, event.clientY, gutterAncestor)) return;
-      gutterAncestor = getComposedParent(gutterAncestor);
-    }
-    const el = resolveVisualTarget(event.clientX, event.clientY);
+    if (isPointInAnyScrollGutter(event.clientX, event.clientY)) return;
+    const el = resolvePrimaryVisualTarget(event.clientX, event.clientY);
     if (!el) return;
     if (gestureActive) {
       // A relayed capture is still in flight; swallow the gesture so it cannot
@@ -305,7 +271,7 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
       if (settled) return;
       settled = true;
       if (failsafe !== null) clearTimeout(failsafe);
-      closePort(channel.port1);
+      closePortQuietly(channel.port1);
       gestureActive = false;
       if (removed || gestureCancelled) return;
       if (replay) replayInto(el);
@@ -322,24 +288,12 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     }
   };
 
-  const onFollowup = (event: Event) => {
-    if (
-      event.type === 'click' &&
-      lateClicks.shouldSuppress(
-        event.target,
-        event.isTrusted,
-        (armed, target) => armed === target || (target instanceof Node && armed.contains(target)),
-      )
-    ) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      return;
-    }
-    if (!gestureActive) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (event.type === 'pointercancel') gestureCancelled = true;
-  };
+  const onFollowup = createStepFollowupHandler(lateClicks, {
+    isActive: () => gestureActive,
+    cancel: () => {
+      gestureCancelled = true;
+    },
+  });
 
   const onRelayMessage = (event: MessageEvent) => {
     const relayed = resolveRelayedStepFrameClick(event, clickType, relayLimiter);

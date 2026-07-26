@@ -52,7 +52,17 @@ export interface FrameProbeRateLimiter {
   /** Returns an idempotent release callback, or null when the request budget is
    * exhausted. A request consumes budget even when its later work fails. */
   tryAcquire(): (() => void) | null;
-  reset(): void;
+}
+
+/** Closing a transferred MessagePort can throw when the sender already
+ * detached or closed it before validation completed; that failure is benign
+ * for every relay/probe path. */
+export function closePortQuietly(port: MessagePort | undefined): void {
+  try {
+    port?.close();
+  } catch {
+    // The sender can detach a transferred port before validation completes.
+  }
 }
 
 /** Fixed-window admission control for one child-frame content-script instance.
@@ -100,11 +110,6 @@ export function createFrameProbeRateLimiter(options: FrameProbeRateLimiterOption
         activeRequests = Math.max(0, activeRequests - 1);
       };
     },
-    reset() {
-      windowStartedAt = now();
-      requestsInWindow = 0;
-      activeRequests = 0;
-    },
   };
 }
 
@@ -127,6 +132,8 @@ export interface LatestAsyncRequestRunner<T> {
    * high-frequency pointer input cannot create an unbounded async backlog. */
   submit(value: T): void;
   clearPending(): void;
+  /** @internal Test-only: observes the busy flag to assert coalescing. No
+   * production caller branches on it. */
   isRunning(): boolean;
 }
 

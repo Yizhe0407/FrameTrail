@@ -1,4 +1,5 @@
 import type { ClickCapture, RecordingMode, RecordingState } from '../runtime/messages';
+import { deepElementFromPoint, getComposedParent } from '../capture/selector-utils';
 
 export type CaptureGuardFailure = 'stale-run' | 'inactive-tab' | 'changed-url' | null;
 export type RecordingTabUpdateAction = 'ignore' | 'reinject' | 'stop-snapshot';
@@ -47,6 +48,18 @@ export function isInScrollableElementGutter(clientX: number, clientY: number, el
     (scrollsY && (clientX < contentLeft || clientX >= contentRight)) ||
     (scrollsX && (clientY < contentTop || clientY >= contentBottom))
   );
+}
+
+/** True when the point falls in the scrollbar gutter of the hit element or
+ * any of its composed ancestors. Recorders must leave such pointerdowns
+ * untouched so the drag scrolls and no bogus step is recorded. */
+export function isPointInAnyScrollGutter(clientX: number, clientY: number): boolean {
+  let ancestor = deepElementFromPoint(clientX, clientY);
+  while (ancestor) {
+    if (isInScrollableElementGutter(clientX, clientY, ancestor)) return true;
+    ancestor = getComposedParent(ancestor);
+  }
+  return false;
 }
 
 /** A null-relatedTarget pointerout can be synthesized when scrolling or DOM

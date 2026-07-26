@@ -5,6 +5,7 @@ import type {
   RecordingPhase,
 } from '../runtime/messages';
 import { REGION_CAPTURE_MIN_SIZE, isRegionRectLargeEnough } from '../capture/region-capture';
+import { isFiniteRect } from '../shared/validation';
 
 export const SNAPSHOT_SHIELD_INIT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_INIT';
 export const SNAPSHOT_SHIELD_READY = 'FRAME_TRAIL_SNAPSHOT_SHIELD_READY';
@@ -28,6 +29,18 @@ export interface SnapshotShieldRect {
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * Canonical dedup/identity key for a shield rect at half-pixel resolution.
+ * The page-side recorder and the shield page both key committed rects with
+ * this exact function — they MUST agree, or undo/duplicate detection drifts
+ * between the two sides of the channel.
+ */
+export function snapshotRectKey(rect: SnapshotShieldRect): string {
+  return [rect.x, rect.y, rect.width, rect.height]
+    .map((value) => Math.round(value * 2))
+    .join(':');
 }
 
 export interface SnapshotShieldSelection {
@@ -171,29 +184,25 @@ function isCandidateOffset(value: unknown): value is number {
 }
 
 function isRect(value: unknown): value is SnapshotShieldRect {
-  if (!value || typeof value !== 'object') return false;
-  const rect = value as Partial<SnapshotShieldRect>;
-  return (
-    Number.isFinite(rect.x) &&
-    Number.isFinite(rect.y) &&
-    Number.isFinite(rect.width) &&
-    Number.isFinite(rect.height) &&
-    rect.width! >= 0 &&
-    rect.height! >= 0
-  );
+  return isFiniteRect(value, { maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT });
 }
 
 export function isSnapshotShieldRegionRect(value: unknown): value is SnapshotShieldRect {
-  if (!value || typeof value !== 'object') return false;
-  const rect = value as Partial<SnapshotShieldRect>;
-  if (!isRegionRectLargeEnough(rect as SnapshotShieldRect, REGION_CAPTURE_MIN_SIZE)) return false;
+  if (
+    !isFiniteRect(value, {
+      maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT,
+      minSize: REGION_CAPTURE_MIN_SIZE,
+    })
+  ) {
+    return false;
+  }
+  // Region rects live in viewport coordinates: the origin must be
+  // non-negative, and the far edges (sum-check) stay bounded too so a rect
+  // cannot smuggle an overflowing extent past the per-field magnitude check.
+  if (!isRegionRectLargeEnough(value, REGION_CAPTURE_MIN_SIZE)) return false;
   return (
-    rect.x! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
-    rect.y! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
-    rect.width! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
-    rect.height! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
-    rect.x! + rect.width! <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
-    rect.y! + rect.height! <= SNAPSHOT_REGION_COORDINATE_LIMIT
+    value.x + value.width <= SNAPSHOT_REGION_COORDINATE_LIMIT &&
+    value.y + value.height <= SNAPSHOT_REGION_COORDINATE_LIMIT
   );
 }
 
