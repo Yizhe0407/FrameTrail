@@ -5,6 +5,13 @@ export const RASTER_IMAGE_LIMITS = Object.freeze({
 
 export type SupportedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
+/** PNG and WebP headers sit at fixed offsets well inside this many bytes. */
+const HEADER_PREFIX_BYTES = 64;
+/** JPEG SOF usually appears within the first tens of KB; EXIF-heavy files can
+ * push it further out, so the scan grows the prefix instead of failing. */
+const JPEG_SCAN_INITIAL_BYTES = 64 * 1024;
+const JPEG_SCAN_GROWTH_FACTOR = 4;
+
 export interface RasterImageDimensions {
   width: number;
   height: number;
@@ -55,8 +62,16 @@ function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
 
 const JPEG_SOF_MARKERS = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 
-function jpegDimensions(bytes: Uint8Array): { width: number; height: number } {
-  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) invalid('The data is not a valid JPEG image.');
+/** Scans JPEG segments for a SOF header. Returns `null` when the scan walked
+ * off the end of an incomplete prefix — the caller must retry with more bytes
+ * — so large-EXIF files are never mistaken for truncated ones. Truncation
+ * errors are only raised once `complete` says the whole blob was scanned. */
+function jpegDimensions(bytes: Uint8Array, complete = true): { width: number; height: number } | null {
+  if (bytes.length < 4) {
+    if (!complete) return null;
+    invalid('The data is not a valid JPEG image.');
+  }
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) invalid('The data is not a valid JPEG image.');
   let offset = 2;
   while (offset < bytes.length) {
     while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
@@ -65,24 +80,32 @@ function jpegDimensions(bytes: Uint8Array): { width: number; height: number } {
     if (marker === 0x00) continue;
     if (marker === 0xd9 || marker === 0xda) break;
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
-    if (offset + 2 > bytes.length) invalid('The JPEG image contains a truncated segment.');
+    if (offset + 2 > bytes.length) {
+      if (!complete) return null;
+      invalid('The JPEG image contains a truncated segment.');
+    }
     const segmentLength = uint16be(bytes, offset);
-    if (segmentLength < 2 || offset + segmentLength > bytes.length) invalid('The JPEG image contains an invalid segment.');
+    if (segmentLength < 2) invalid('The JPEG image contains an invalid segment.');
+    if (offset + segmentLength > bytes.length) {
+      if (!complete) return null;
+      invalid('The JPEG image contains an invalid segment.');
+    }
     if (JPEG_SOF_MARKERS.has(marker)) {
       if (segmentLength < 7) invalid('The JPEG frame header is truncated.');
       return { height: uint16be(bytes, offset + 3), width: uint16be(bytes, offset + 5) };
     }
     offset += segmentLength;
   }
+  if (!complete) return null;
   invalid('The JPEG image is missing a supported frame header.');
 }
 
-function webpDimensions(bytes: Uint8Array): { width: number; height: number } {
+function webpDimensions(bytes: Uint8Array, totalByteLength: number): { width: number; height: number } {
   if (bytes.length < 20 || ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WEBP') {
     invalid('The data is not a valid WebP image.');
   }
   const declaredLength = uint32le(bytes, 4) + 8;
-  if (declaredLength > bytes.length || declaredLength < 20) invalid('The WebP container length is invalid.');
+  if (declaredLength > totalByteLength || declaredLength < 20) invalid('The WebP container length is invalid.');
   const chunkType = ascii(bytes, 12, 4);
   const chunkLength = uint32le(bytes, 16);
   if (20 + chunkLength > declaredLength) invalid('The WebP image contains a truncated image chunk.');
@@ -120,18 +143,35 @@ function validateDimensions(width: number, height: number): void {
   }
 }
 
-/** Verifies MIME/magic-byte agreement and bounds raster allocation before decoding. */
+async function readPrefix(blob: Blob, byteLength: number): Promise<Uint8Array> {
+  return new Uint8Array(await blob.slice(0, byteLength).arrayBuffer());
+}
+
+/** Reads progressively larger prefixes until the SOF scan either finds the
+ * frame header or has seen the complete blob, so multi-MB screenshots are
+ * never buffered whole just to sniff their dimensions. */
+async function jpegBlobDimensions(blob: Blob): Promise<{ width: number; height: number }> {
+  let prefixLength = Math.min(JPEG_SCAN_INITIAL_BYTES, blob.size);
+  for (;;) {
+    const complete = prefixLength >= blob.size;
+    const dimensions = jpegDimensions(await readPrefix(blob, prefixLength), complete);
+    if (dimensions) return dimensions;
+    prefixLength = Math.min(prefixLength * JPEG_SCAN_GROWTH_FACTOR, blob.size);
+  }
+}
+
+/** Verifies MIME/magic-byte agreement and bounds raster allocation before
+ * decoding. Only bounded header prefixes are read into memory. */
 export async function validateRasterImageBlob(blob: Blob): Promise<RasterImageDimensions> {
   const mediaType = blob.type as SupportedRasterMediaType;
   if (mediaType !== 'image/png' && mediaType !== 'image/jpeg' && mediaType !== 'image/webp') {
     invalid(`Unsupported raster image media type ${JSON.stringify(blob.type)}.`);
   }
-  const bytes = new Uint8Array(await blob.arrayBuffer());
   const dimensions = mediaType === 'image/png'
-    ? pngDimensions(bytes)
-    : mediaType === 'image/jpeg'
-      ? jpegDimensions(bytes)
-      : webpDimensions(bytes);
+    ? pngDimensions(await readPrefix(blob, HEADER_PREFIX_BYTES))
+    : mediaType === 'image/webp'
+      ? webpDimensions(await readPrefix(blob, HEADER_PREFIX_BYTES), blob.size)
+      : await jpegBlobDimensions(blob);
   validateDimensions(dimensions.width, dimensions.height);
   return { ...dimensions, mediaType };
 }

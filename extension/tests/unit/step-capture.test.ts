@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { orchestrateStepCapture, type StepCaptureHandlers } from '@/lib/capture/step-capture';
+import {
+  createLateClickSuppressor,
+  createStepCaptureDedup,
+  orchestrateStepCapture,
+  type StepCaptureHandlers,
+} from '@/lib/capture/step-capture';
 
 /** Deferred promise plus a spy that records when it is invoked, so tests can
  *  assert both the ordering of effects and that the real capture wins the race. */
@@ -162,5 +167,89 @@ describe('orchestrateStepCapture', () => {
     expect(harness.log).toContain('restore:0,0');
     expect(harness.log).not.toContain('replay');
     expect(harness.log[harness.log.length - 1]).toBe('resume');
+  });
+});
+
+describe('createStepCaptureDedup', () => {
+  it('declines a repeated key inside the window and accepts it after', () => {
+    let clock = 1_000;
+    const dedup = createStepCaptureDedup<string>(400, () => clock);
+    expect(dedup.shouldCapture('a')).toBe(true);
+    clock += 100;
+    expect(dedup.shouldCapture('a')).toBe(false);
+    clock += 400;
+    expect(dedup.shouldCapture('a')).toBe(true);
+  });
+
+  it('treats a different key as a fresh capture and supports explicit timestamps', () => {
+    const dedup = createStepCaptureDedup<string>(400, () => 0);
+    expect(dedup.shouldCapture('a', 1_000)).toBe(true);
+    expect(dedup.shouldCapture('b', 1_100)).toBe(true);
+    expect(dedup.shouldCapture('b', 1_200)).toBe(false);
+    dedup.reset();
+    expect(dedup.shouldCapture('b', 1_250)).toBe(true);
+  });
+});
+
+describe('createLateClickSuppressor', () => {
+  const identity = (armed: string, target: unknown) => armed === target;
+
+  it('suppresses exactly one trusted trailing click inside the window', () => {
+    const clock = 0;
+    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
+    suppressor.arm('button');
+    expect(suppressor.shouldSuppress('button', false, identity)).toBe(false);
+    expect(suppressor.shouldSuppress('other', true, identity)).toBe(false);
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(true);
+    // Consuming disarms: the next trusted click goes through.
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
+  });
+
+  it('expires after the suppression window', () => {
+    let clock = 0;
+    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
+    suppressor.arm('button');
+    clock = 2_000;
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
+  });
+
+  it('disarms when a new trusted pointerdown starts a new gesture', () => {
+    const clock = 0;
+    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
+    suppressor.arm('button');
+    suppressor.onTrustedPointerDown();
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
+  });
+
+  it('delivers a rapid double-click even when the dedup window declines the capture', () => {
+    // Regression: first gesture captured and replayed; suppression armed. The
+    // second genuine click landed within DEDUP_MS, so no capture started —
+    // but its trusted click used to be eaten by the still-armed suppressor,
+    // losing the activation entirely.
+    let clock = 0;
+    const dedup = createStepCaptureDedup<string>(400, () => clock);
+    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
+
+    // First gesture: pointerdown captured, replay arms suppression.
+    expect(dedup.shouldCapture('button')).toBe(true);
+    suppressor.arm('button');
+
+    // Second gesture 150ms later on the same element.
+    clock = 150;
+    suppressor.onTrustedPointerDown();
+    expect(dedup.shouldCapture('button')).toBe(false); // no new capture (dedup)
+    // The second gesture's trusted click must be delivered, not suppressed.
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
+  });
+
+  it('still suppresses the first gesture trailing click that precedes the next pointerdown', () => {
+    const clock = 0;
+    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
+    suppressor.arm('button');
+    // Trailing click of the replayed gesture arrives first (trusted events are
+    // ordered), then a new press begins.
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(true);
+    suppressor.onTrustedPointerDown();
+    expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
   });
 });

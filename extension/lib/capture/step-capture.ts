@@ -12,6 +12,79 @@
 export type StepCaptureOutcome = 'captured' | 'failed' | 'cancelled' | 'timeout';
 const CANCEL_REQUEST_TIMEOUT_MS = 250;
 
+export interface StepCaptureDedup<K> {
+  /** Returns false when the key repeats within the dedup window; a true result
+   * records the key/time pair as the new dedup baseline. */
+  shouldCapture(key: K, at?: number): boolean;
+  reset(): void;
+}
+
+/** Same-target debounce for step gestures. Key equality is identity-based so
+ * callers can mix DOM elements and string identities (cross-frame targets). */
+export function createStepCaptureDedup<K>(dedupMs: number, now: () => number = Date.now): StepCaptureDedup<K> {
+  let lastKey: K | null = null;
+  let lastTime = 0;
+  return {
+    shouldCapture(key, at = now()) {
+      if (lastKey !== null && key === lastKey && at - lastTime < dedupMs) return false;
+      lastKey = key;
+      lastTime = at;
+      return true;
+    },
+    reset() {
+      lastKey = null;
+      lastTime = 0;
+    },
+  };
+}
+
+export interface LateClickSuppressor<T> {
+  /** Arms suppression for the replayed gesture's trailing trusted click. */
+  arm(target: T): void;
+  /** Disarms unconditionally (teardown, replaced gesture). */
+  clear(): void;
+  /**
+   * A new trusted pointerdown starts a new gesture. Trusted events are ordered,
+   * so the previous gesture's trailing click (if the browser emits one at all)
+   * has already been dispatched by now; any click that follows this pointerdown
+   * is a genuine new activation and must never be swallowed.
+   */
+  onTrustedPointerDown(): void;
+  /**
+   * Returns true when a trusted click is the replayed gesture's trailing
+   * duplicate and must be swallowed. Consuming a click disarms the suppressor,
+   * so at most one trusted click is ever eaten per replay.
+   */
+  shouldSuppress(eventTarget: unknown, isTrusted: boolean, matches: (armed: T, eventTarget: unknown) => boolean): boolean;
+}
+
+export function createLateClickSuppressor<T>(windowMs: number, now: () => number = Date.now): LateClickSuppressor<T> {
+  let target: T | null = null;
+  let until = 0;
+  return {
+    arm(next) {
+      target = next;
+      until = now() + windowMs;
+    },
+    clear() {
+      target = null;
+    },
+    onTrustedPointerDown() {
+      target = null;
+    },
+    shouldSuppress(eventTarget, isTrusted, matches) {
+      if (!isTrusted || target === null) return false;
+      if (now() >= until) {
+        target = null;
+        return false;
+      }
+      if (!matches(target, eventTarget)) return false;
+      target = null;
+      return true;
+    },
+  };
+}
+
 export interface ScrollSnapshot {
   x: number;
   y: number;

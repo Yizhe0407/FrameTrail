@@ -10,6 +10,7 @@ import {
   REDACTION_COLOR,
   REDACTION_EXPANSION,
   compositeHighlight,
+  compositeMultiHighlight,
   getBadgeFontSize,
   getExpandedRedactionBounds,
   layoutAnnotations,
@@ -533,6 +534,205 @@ describe('raster redactions', () => {
       expect(calls.findIndex(([name]) => name === 'fillRect')).toBeGreaterThan(calls.findIndex(([name]) => name === 'stroke'));
       expect(calls.at(-1)).toEqual(['convertToBlob']);
       expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('skips stroking a degenerate frame clamped to the viewport edge', async () => {
+    const calls: string[] = [];
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      drawImage: () => calls.push('drawImage'),
+      beginPath: () => calls.push('beginPath'),
+      roundRect: () => calls.push('roundRect'),
+      fill: () => calls.push('fill'),
+      stroke: () => calls.push('stroke'),
+      fillRect: () => calls.push('fillRect'),
+    };
+    class FakeOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+      getContext() {
+        return context;
+      }
+      convertToBlob() {
+        return Promise.resolve(new Blob(['rendered'], { type: 'image/png' }));
+      }
+    }
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 200, height: 100, close: vi.fn() })));
+
+    try {
+      // Screenshot viewport is 100x50 CSS px; bounds beyond the right edge
+      // clamp to a zero-width frame that must not paint an edge hairline.
+      await compositeHighlight(new Blob(['source']), { x: 150, y: 20, width: 30, height: 20 }, 2, 'image/png');
+
+      expect(calls).toEqual(['drawImage']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('compositeMultiHighlight', () => {
+  /** Records every context call by name so ordering invariants are checkable. */
+  function fakeCanvas() {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      shadowColor: '',
+      shadowBlur: 0,
+      shadowOffsetY: 0,
+      drawImage: record('drawImage'),
+      beginPath: record('beginPath'),
+      roundRect: record('roundRect'),
+      fill: record('fill'),
+      stroke: record('stroke'),
+      fillRect: record('fillRect'),
+      arc: record('arc'),
+      moveTo: record('moveTo'),
+      lineTo: record('lineTo'),
+      save: record('save'),
+      restore: record('restore'),
+      fillText: record('fillText'),
+      measureText: () => ({ width: 8, actualBoundingBoxAscent: 6, actualBoundingBoxDescent: 0 }),
+    };
+    class FakeOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+      getContext() {
+        return context;
+      }
+      convertToBlob() {
+        calls.push(['convertToBlob']);
+        return Promise.resolve(new Blob(['rendered'], { type: 'image/png' }));
+      }
+    }
+    return { calls, context, FakeOffscreenCanvas };
+  }
+
+  function stubBitmap(width: number, height: number, FakeOffscreenCanvas: unknown) {
+    const close = vi.fn();
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width, height, close })));
+    return close;
+  }
+
+  it('draws numbered frames and badges before privacy redactions', async () => {
+    const { calls, context, FakeOffscreenCanvas } = fakeCanvas();
+    // 400x200 bitmap at scale 2 -> 200x100 CSS viewport.
+    const close = stubBitmap(400, 200, FakeOffscreenCanvas);
+
+    try {
+      await compositeMultiHighlight(
+        new Blob(['source']),
+        [
+          { bounds: { x: 10, y: 10, width: 60, height: 20 }, order: 1 },
+          { bounds: { x: 120, y: 60, width: 60, height: 20 }, order: 2 },
+        ],
+        2,
+        true,
+        'image/png',
+        [{ id: 'mask', kind: 'solid', bounds: { x: 98, y: 48, width: 10, height: 10 } }],
+      );
+
+      // Two disjoint framed singles: strokeBox rounds twice per frame (fill + stroke).
+      expect(calls.filter(([name]) => name === 'roundRect')).toHaveLength(4);
+      // Numbered mode draws one badge circle and one digit per annotation.
+      expect(calls.filter(([name]) => name === 'arc')).toHaveLength(2);
+      const digits = calls.filter(([name]) => name === 'fillText').map(([, text]) => text);
+      expect(digits).toEqual(['1', '2']);
+
+      // Redactions must land after every annotation stroke, badge, and digit.
+      const redactionIndex = calls.findIndex(([name]) => name === 'fillRect');
+      expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('stroke'));
+      expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('arc'));
+      expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('fillText'));
+      // Expanded by 2 CSS px on every side, then scaled into bitmap coordinates.
+      expect(calls[redactionIndex]).toEqual(['fillRect', 192, 92, 28, 28]);
+      expect(context.fillStyle).toBe(REDACTION_COLOR);
+      expect(calls.at(-1)).toEqual(['convertToBlob']);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('omits badges when the guide is not numbered', async () => {
+    const { calls, FakeOffscreenCanvas } = fakeCanvas();
+    stubBitmap(400, 200, FakeOffscreenCanvas);
+
+    try {
+      await compositeMultiHighlight(
+        new Blob(['source']),
+        [{ bounds: { x: 10, y: 10, width: 60, height: 20 }, order: 1 }],
+        2,
+        false,
+        'image/png',
+      );
+
+      expect(calls.filter(([name]) => name === 'roundRect')).toHaveLength(2);
+      expect(calls.some(([name]) => name === 'arc')).toBe(false);
+      expect(calls.some(([name]) => name === 'fillText')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('renders coincident targets as markers with leaders and callout badges', async () => {
+    const { calls, FakeOffscreenCanvas } = fakeCanvas();
+    stubBitmap(1_280, 800, FakeOffscreenCanvas);
+
+    try {
+      await compositeMultiHighlight(
+        new Blob(['source']),
+        [
+          { bounds: { x: 100, y: 100, width: 80, height: 32 }, order: 1 },
+          { bounds: { x: 104, y: 102, width: 80, height: 32 }, order: 2 },
+        ],
+        1,
+        // numbered=false must not suppress callout badges: they are the only
+        // way to tell coincident markers apart.
+        false,
+      );
+
+      // Each marker paints three arcs (disc, ring, dot) and each callout one badge arc.
+      expect(calls.filter(([name]) => name === 'arc')).toHaveLength(2 * 3 + 2);
+      expect(calls.filter(([name]) => name === 'fillText').map(([, text]) => text)).toEqual(['1', '2']);
+      // At least one leader polyline connects a marker to its lane badge.
+      expect(calls.some(([name]) => name === 'moveTo')).toBe(true);
+      expect(calls.some(([name]) => name === 'lineTo')).toBe(true);
+      // Markers replace frames entirely for coincident targets.
+      expect(calls.some(([name]) => name === 'roundRect')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('skips stroking annotations whose frames degenerate outside the viewport', async () => {
+    const { calls, FakeOffscreenCanvas } = fakeCanvas();
+    // 100x50 CSS viewport; the annotation lies wholly beyond the right edge.
+    stubBitmap(200, 100, FakeOffscreenCanvas);
+
+    try {
+      await compositeMultiHighlight(
+        new Blob(['source']),
+        [{ bounds: { x: 150, y: 20, width: 30, height: 10 }, order: 1 }],
+        2,
+        false,
+        'image/png',
+      );
+
+      expect(calls.map(([name]) => name)).toEqual(['drawImage', 'convertToBlob']);
     } finally {
       vi.unstubAllGlobals();
     }

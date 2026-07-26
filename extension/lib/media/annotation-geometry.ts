@@ -1,6 +1,7 @@
 import type { Bounds } from '../storage/models';
 import {
   BADGE_FONT_RATIO,
+  BADGE_RADIUS,
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_PADDING,
   type AnnotationPoint,
@@ -15,7 +16,7 @@ export interface SidePadding {
   left: number;
 }
 
-export function getBadgeFontSize(order: number, diameter: number): number {
+export function getBadgeFontSize(order: number, diameter = BADGE_RADIUS * 2): number {
   const characters = String(Math.max(order, 1)).length;
   const base = diameter * BADGE_FONT_RATIO;
   const horizontalFit = (diameter - 4) / (characters * 0.62);
@@ -24,7 +25,7 @@ export function getBadgeFontSize(order: number, diameter: number): number {
 
 /** Scalar inflate, kept for callers that never collide — group-member frames
  * (rendered as marker dots) and {@link compositeHighlight}'s lone box. */
-export function inflateBounds(bounds: Bounds, padding: number): Bounds {
+function inflateBounds(bounds: Bounds, padding: number): Bounds {
   return {
     x: bounds.x - padding,
     y: bounds.y - padding,

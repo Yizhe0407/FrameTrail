@@ -1,8 +1,7 @@
 import type { Bounds } from '../storage/models';
-import { BADGE_RADIUS, type AnnotationPoint } from './annotation-contract';
+import { BADGE_RADIUS, CALLOUT_SPACING, type AnnotationPoint } from './annotation-contract';
 import { distanceToBounds, fitPointInViewport } from './annotation-geometry';
 
-const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
 const BADGE_CLEARANCE = 4;
 
 export function placeOrderedSlots(targets: number[], spacing: number, lo: number, hi: number): number[] {

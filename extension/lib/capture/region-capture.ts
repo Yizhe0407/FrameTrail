@@ -33,6 +33,8 @@ export interface RegionCapture {
   readonly host: HTMLElement;
   isActive(): boolean;
   isCapturing(): boolean;
+  /** No-op once capture starts: the session's single outcome is then owned by
+   * the settling onCapture (exactly one of onCapture-settled / onCancel). */
   cancel(reason?: RegionCaptureCancelReason): void;
   remove(): void;
 }
@@ -124,7 +126,7 @@ export async function waitForRegionCapturePaint(frames = 2): Promise<void> {
 }
 
 const REGION_CAPTURE_STYLES = `
-  :host { color-scheme: light dark; }
+  :host { color-scheme: dark; }
   * { box-sizing: border-box; }
   .ft-region-blocker {
     position: fixed; inset: 0; overflow: hidden; pointer-events: auto;
@@ -132,33 +134,28 @@ const REGION_CAPTURE_STYLES = `
     font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   }
   .ft-region-selection {
-    position: absolute; display: none; border: 2px solid #f43f5e; border-radius: 4px;
-    background: rgb(244 63 94 / .08); box-shadow: 0 0 0 99999px rgb(15 23 42 / .32);
+    position: absolute; display: none; border: 2px solid #ff4747; border-radius: 8px;
+    background: rgb(255 71 71 / .08); box-shadow: 0 0 0 99999px rgb(15 23 42 / .32);
     pointer-events: none;
   }
   .ft-region-selection[data-visible="true"] { display: block; }
   .ft-region-panel {
     position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px;
     max-width: calc(100vw - 32px); min-height: 44px; padding: 6px 8px 6px 14px;
-    transform: translateX(-50%); border: 1px solid #d6d3d1; border-radius: 999px;
-    background: #fff; color: #1c1917; box-shadow: 0 8px 24px rgb(28 25 23 / .22);
+    transform: translateX(-50%); border: 0; border-radius: 999px;
+    background: #1c1c1c; color: #fff; box-shadow: 0 8px 24px rgb(28 25 23 / .22);
     font-size: 13px; line-height: 1.4; cursor: default; pointer-events: auto;
   }
   .ft-region-status { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ft-region-cancel {
     min-width: 40px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 999px;
-    background: #f5f5f4; color: #44403c; font: inherit; font-weight: 600; cursor: pointer;
+    background: rgb(255 255 255 / .1); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
   }
-  .ft-region-cancel:hover { background: #e7e5e4; color: #1c1917; }
-  .ft-region-cancel:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  .ft-region-cancel:hover { background: rgb(255 255 255 / .18); }
+  .ft-region-cancel:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
   .ft-region-blocker[data-capturing="true"] { cursor: wait; }
   .ft-region-blocker[data-capturing="true"] .ft-region-selection,
   .ft-region-blocker[data-capturing="true"] .ft-region-panel { visibility: hidden; }
-  @media (prefers-color-scheme: dark) {
-    .ft-region-panel { border-color: #57534e; background: #1c1917; color: #fafaf9; }
-    .ft-region-cancel { background: #292524; color: #e7e5e4; }
-    .ft-region-cancel:hover { background: #44403c; color: #fff; }
-  }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 `;
 
@@ -252,7 +249,10 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   };
 
   const cancel = (reason: RegionCaptureCancelReason = 'user') => {
-    if (closed) return;
+    // Once onCapture is in flight it owns the session's outcome; cancelling
+    // now would fire onCancel AND a completed onCapture, and removing the
+    // host early would break the hit-test guarantee documented above.
+    if (closed || capturing) return;
     if (!cancelNotified) {
       cancelNotified = true;
       void options.onCancel?.(reason);
@@ -317,7 +317,15 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
       cancel('escape');
       return;
     }
-    if (event.key === 'Tab' && event.target === cancelButton) return;
+    if (event.key === 'Tab' && !capturing) {
+      // Shadow DOM retargets event.target to the host for this window-level
+      // listener, so resolve the real origin via composedPath. Trap focus in
+      // a two-stop cycle so keyboard users can reach the cancel button.
+      consume(event);
+      const origin = event.composedPath()[0];
+      (origin === cancelButton ? blocker : cancelButton).focus({ preventScroll: true });
+      return;
+    }
     consume(event);
   };
 

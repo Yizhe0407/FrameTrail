@@ -23,6 +23,11 @@ import {
 } from './annotation-layout';
 
 function strokeBox(ctx: OffscreenCanvasRenderingContext2D, bounds: Bounds, dpr: number) {
+  // fitBoundsInViewport legitimately clamps out-of-viewport bounds to a zero
+  // or sliver-sized frame at the screenshot edge. Stroking those paints a
+  // stray red hairline, and frames narrower than the stroke would give the
+  // inner roundRect negative dimensions — skip anything below drawable size.
+  if (bounds.width < HIGHLIGHT_LINE_WIDTH || bounds.height < HIGHLIGHT_LINE_WIDTH) return;
   const lineWidth = HIGHLIGHT_LINE_WIDTH * dpr;
   const outerX = bounds.x * dpr;
   const outerY = bounds.y * dpr;
@@ -162,27 +167,37 @@ async function compositeRaster(
 ): Promise<Blob> {
   await validateRasterImageBlob(screenshot);
   const bitmap = await createImageBitmap(screenshot);
+  let bitmapClosed = false;
+  const closeBitmap = () => {
+    if (bitmapClosed) return;
+    bitmapClosed = true;
+    bitmap.close();
+  };
   try {
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const { width, height } = bitmap;
+    const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Unable to create a 2D canvas context.');
     ctx.drawImage(bitmap, 0, 0);
+    // Release the decoded pixels before annotating and the (slow) encode; the
+    // finally below stays as the safety net for earlier throw paths.
+    closeBitmap();
 
     const dpr = getValidScreenshotScale(screenshotScale);
-    const viewportWidth = bitmap.width / dpr;
-    const viewportHeight = bitmap.height / dpr;
+    const viewportWidth = width / dpr;
+    const viewportHeight = height / dpr;
     drawAnnotations(ctx, dpr, viewportWidth, viewportHeight);
     // Must remain last: a redaction is privacy-critical and intentionally
     // covers highlight strokes, callouts, markers, and badges beneath it.
     drawRedactions(ctx, redactions, viewportWidth, viewportHeight, dpr);
     if (privacyBlockRequired) {
       ctx.fillStyle = REDACTION_COLOR;
-      ctx.fillRect(0, 0, bitmap.width, bitmap.height);
+      ctx.fillRect(0, 0, width, height);
     }
 
     return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
   } finally {
-    bitmap.close();
+    closeBitmap();
   }
 }
 

@@ -3,12 +3,15 @@ import type { Bounds } from '../storage/models';
 export const HIGHLIGHT_PADDING = 6;
 export const HIGHLIGHT_RADIUS = 6;
 export const HIGHLIGHT_LINE_WIDTH = 2;
-export const HIGHLIGHT_COLOR = '#f43f5e';
-export const HIGHLIGHT_FILL_COLOR = 'rgba(244, 63, 94, 0.055)';
-export const HIGHLIGHT_PREVIEW_FILL_COLOR = 'rgba(244, 63, 94, 0.09)';
+export const HIGHLIGHT_COLOR = '#ff4747';
+export const HIGHLIGHT_FILL_COLOR = 'rgba(255, 71, 71, 0.055)';
+export const HIGHLIGHT_PREVIEW_FILL_COLOR = 'rgba(255, 71, 71, 0.09)';
 export const REDACTION_EXPANSION = 2;
 export const REDACTION_COLOR = '#000000';
 export const BADGE_RADIUS = 11;
+/** Center-to-center distance between adjacent lane badges. Lane-capacity math
+ * and the callout candidate grid both assume this exact value. */
+export const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
 export const BADGE_FONT_RATIO = 0.55;
 export const BADGE_TEXT_COLOR = '#ffffff';
 export const BADGE_FONT_FAMILY =

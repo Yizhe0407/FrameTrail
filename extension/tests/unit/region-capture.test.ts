@@ -100,6 +100,60 @@ describe('createRegionCapture', () => {
     expect(controller.host.isConnected).toBe(false);
   });
 
+  it('cycles Tab focus onto the cancel button through shadow retargeting', async () => {
+    const controller = createRegionCapture({ onCapture: vi.fn(), viewport: () => viewport });
+    const root = controller.host.shadowRoot!;
+    const blocker = root.querySelector<HTMLElement>('.ft-region-blocker')!;
+    const cancelButton = root.querySelector<HTMLButtonElement>('.ft-region-cancel')!;
+    await flushMicrotasks(); // let the initial blocker focus land before spying
+    const blockerFocus = vi.spyOn(blocker, 'focus');
+    const cancelFocus = vi.spyOn(cancelButton, 'focus');
+    const tab = () => new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, composed: true, cancelable: true });
+
+    blocker.dispatchEvent(tab());
+    expect(cancelFocus).toHaveBeenCalledTimes(1);
+    expect(blockerFocus).not.toHaveBeenCalled();
+
+    cancelButton.dispatchEvent(tab());
+    expect(blockerFocus).toHaveBeenCalledTimes(1);
+    expect(controller.isActive()).toBe(true);
+  });
+
+  it('ignores Escape, resize, and cancel() while a capture is in flight', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }));
+    let finishCapture!: () => void;
+    const onCapture = vi.fn(() => new Promise<void>((resolve) => { finishCapture = resolve; }));
+    const onCancel = vi.fn();
+    const controller = createRegionCapture({ onCapture, onCancel, viewport: () => viewport });
+    const blocker = controller.host.shadowRoot!.querySelector<HTMLElement>('.ft-region-blocker')!;
+
+    blocker.dispatchEvent(pointerEvent('pointerdown', 10, 12));
+    blocker.dispatchEvent(pointerEvent('pointerup', 50, 52));
+    frames.shift()!(0);
+    await flushMicrotasks();
+    frames.shift()!(16);
+    await flushMicrotasks();
+    expect(onCapture).toHaveBeenCalledOnce();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    window.dispatchEvent(new Event('resize'));
+    controller.cancel('user');
+
+    // The in-flight capture owns the session outcome: no cancel, host intact.
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(controller.host.isConnected).toBe(true);
+
+    finishCapture();
+    await flushMicrotasks();
+    expect(controller.host.isConnected).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onCapture).toHaveBeenCalledOnce();
+  });
+
   it('supports Escape cancellation without capturing', () => {
     const onCancel = vi.fn();
     const onCapture = vi.fn();

@@ -1,6 +1,7 @@
 import type { Bounds } from '../storage/models';
 import {
   BADGE_RADIUS,
+  CALLOUT_SPACING,
   MARKER_RADIUS,
   type Annotation,
   type AnnotationLayout,
@@ -11,7 +12,6 @@ import {
   coincident,
   fitBoundsInViewport,
   fitHighlightFrame,
-  getBadgeFontSize as calculateBadgeFontSize,
   fitPointInViewport,
   forEachNearbyPair,
   inflateBoundsPerSide,
@@ -48,16 +48,11 @@ export {
   type AnnotationLayout,
   type AnnotationPoint,
 } from './annotation-contract';
-export { fitHighlightFrame } from './annotation-geometry';
+export { fitHighlightFrame, getBadgeFontSize } from './annotation-geometry';
 
 const CALLOUT_GAP = 14;
-const CALLOUT_SPACING = BADGE_RADIUS * 2 + 6;
 const ANCHOR_TIE_EPSILON = 8;
 const LANE_NUDGE_ATTEMPTS = 3;
-
-export function getBadgeFontSize(order: number, diameter = BADGE_RADIUS * 2): number {
-  return calculateBadgeFontSize(order, diameter);
-}
 
 /** Coordinates grouping, collision-safe frames and callout placement. Geometry
  * and spatial-index primitives live in dedicated modules so preview/export
@@ -118,15 +113,16 @@ export function layoutAnnotations(
   singles.sort((a, b) => a - b);
   groups.sort((a, b) => a[0] - b[0]);
 
-  const anchorOf = (index: number): AnnotationPoint => {
-    const { x, y, width, height } = annotations[index].bounds;
-    return fitPointInViewport(
-      { x: x + width / 2, y: y + height / 2 },
+  // Anchors are read O(n log n) times by the lane sorts and slot maps below;
+  // compute each once up front instead of re-deriving inside comparators.
+  const anchors: AnnotationPoint[] = annotations.map(({ bounds }) =>
+    fitPointInViewport(
+      { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
       MARKER_RADIUS,
       viewportWidth,
       viewportHeight,
-    );
-  };
+    ),
+  );
 
   // Geometry that will actually be drawn, known before any badge is placed so
   // every badge can be tested against all of it. Padding is adaptive per side
@@ -143,7 +139,7 @@ export function layoutAnnotations(
     ),
   );
   const groupMembers = groups.flat();
-  const markerRectOf = (index: number): Bounds => pointBounds(anchorOf(index), MARKER_RADIUS);
+  const markerRectOf = (index: number): Bounds => pointBounds(anchors[index], MARKER_RADIUS);
   const markerRects = new Map(groupMembers.map((index) => [index, markerRectOf(index)]));
   // A group's markers substantially overlap by definition. One union obstacle
   // prevents thousands of coincident marker rectangles from turning every
@@ -186,8 +182,8 @@ export function layoutAnnotations(
   groups.forEach((group, groupPosition) => {
     const ownMarkers = new Set([groupMarkerObstacles[groupPosition]]);
     const groupBounds = unionBounds(group.map((index) => annotations[index].bounds));
-    const anchorXs = group.map((index) => anchorOf(index).x);
-    const anchorYs = group.map((index) => anchorOf(index).y);
+    const anchorXs = group.map((index) => anchors[index].x);
+    const anchorYs = group.map((index) => anchors[index].y);
     const spreadX = Math.max(...anchorXs) - Math.min(...anchorXs);
     const spreadY = Math.max(...anchorYs) - Math.min(...anchorYs);
 
@@ -203,8 +199,8 @@ export function layoutAnnotations(
     let slots: AnnotationPoint[];
     let ordered: number[];
     if (group.length <= laneCapacity) {
-      ordered = sortAlongLane(group, (index) => (laneIsVertical ? anchorOf(index).y : anchorOf(index).x));
-      const alongLane = ordered.map((index) => (laneIsVertical ? anchorOf(index).y : anchorOf(index).x));
+      ordered = sortAlongLane(group, (index) => (laneIsVertical ? anchors[index].y : anchors[index].x));
+      const alongLane = ordered.map((index) => (laneIsVertical ? anchors[index].y : anchors[index].x));
       const slotCoordinates = placeOrderedSlots(alongLane, CALLOUT_SPACING, BADGE_RADIUS, laneExtent - BADGE_RADIUS);
 
       // The lane's cross-axis position: just outside the cluster on whichever
@@ -248,7 +244,7 @@ export function layoutAnnotations(
       // multi-column side grid. Order along each column still follows the
       // anchor sort, which keeps the common case of a huge duplicate stack
       // readable even though cross-column leaders may touch.
-      ordered = sortAlongLane(group, (index) => anchorOf(index).y);
+      ordered = sortAlongLane(group, (index) => anchors[index].y);
       const leftSpace = groupBounds.x;
       const rightSpace = viewportWidth - (groupBounds.x + groupBounds.width);
       const laneOnRight = rightSpace >= leftSpace;
@@ -273,7 +269,7 @@ export function layoutAnnotations(
     }
 
     ordered.forEach((index, position) => {
-      const anchor = anchorOf(index);
+      const anchor = anchors[index];
       const badge = slots[position];
       const dx = badge.x - anchor.x;
       const dy = badge.y - anchor.y;
@@ -299,7 +295,7 @@ export function layoutAnnotations(
     layouts.push({
       order: annotations[index].order,
       frame,
-      anchor: anchorOf(index),
+      anchor: anchors[index],
       markerOnly: false,
       badgeAnchor,
       callout: null,

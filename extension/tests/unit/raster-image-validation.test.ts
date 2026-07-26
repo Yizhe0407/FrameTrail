@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   RASTER_IMAGE_LIMITS,
   RasterImageValidationError,
@@ -26,6 +26,25 @@ function jpeg(width: number, height: number): Blob {
   ])], { type: 'image/jpeg' });
 }
 
+/** JPEG whose SOF sits behind `exifSegments` maximum-length APP1 segments, so
+ * it lands past the initial bounded sniffing prefix (2 segments ≈ 128 KiB). */
+function jpegWithLargeExif(width: number, height: number, exifSegments = 2): Blob {
+  const parts = [new Uint8Array([0xff, 0xd8])];
+  for (let segment = 0; segment < exifSegments; segment++) {
+    const app1 = new Uint8Array(2 + 0xffff);
+    app1.set([0xff, 0xe1, 0xff, 0xff], 0);
+    parts.push(app1);
+  }
+  parts.push(new Uint8Array([
+    0xff, 0xc0, 0x00, 0x11, 0x08,
+    (height >>> 8) & 0xff, height & 0xff,
+    (width >>> 8) & 0xff, width & 0xff,
+    0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+    0xff, 0xd9,
+  ]));
+  return new Blob(parts, { type: 'image/jpeg' });
+}
+
 function webpVp8x(width: number, height: number): Blob {
   const bytes = new Uint8Array(30);
   bytes.set(new TextEncoder().encode('RIFF'), 0);
@@ -44,6 +63,27 @@ describe('raster image validation', () => {
     await expect(validateRasterImageBlob(png(320, 200))).resolves.toEqual({ width: 320, height: 200, mediaType: 'image/png' });
     await expect(validateRasterImageBlob(jpeg(640, 480))).resolves.toEqual({ width: 640, height: 480, mediaType: 'image/jpeg' });
     await expect(validateRasterImageBlob(webpVp8x(1024, 768))).resolves.toEqual({ width: 1024, height: 768, mediaType: 'image/webp' });
+  });
+
+  it('sniffs only bounded prefixes instead of buffering the whole blob', async () => {
+    const blob = png(320, 200);
+    const fullRead = vi.spyOn(blob, 'arrayBuffer').mockRejectedValue(new Error('whole-blob read'));
+
+    await expect(validateRasterImageBlob(blob)).resolves.toEqual({ width: 320, height: 200, mediaType: 'image/png' });
+    expect(fullRead).not.toHaveBeenCalled();
+  });
+
+  it('grows the JPEG scan window past large EXIF segments instead of rejecting', async () => {
+    await expect(validateRasterImageBlob(jpegWithLargeExif(800, 600))).resolves.toEqual({
+      width: 800,
+      height: 600,
+      mediaType: 'image/jpeg',
+    });
+  });
+
+  it('still rejects a complete JPEG whose segment overruns the file', async () => {
+    const overrun = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff, 0x00])], { type: 'image/jpeg' });
+    await expect(validateRasterImageBlob(overrun)).rejects.toThrow(/invalid segment/);
   });
 
   it('rejects MIME spoofing and truncated headers', async () => {
