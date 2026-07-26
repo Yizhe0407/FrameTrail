@@ -1,3 +1,8 @@
+/* This document overlays the recorded page as a transparent iframe. Do NOT
+ * declare `color-scheme` on :root: when an embedded document's root color
+ * scheme differs from its embedder's, the browser paints the iframe backdrop
+ * opaque and the shield would white/black out the page. Themed UI inside
+ * (recording toolbar, skip link) scopes its own colors per element instead. */
 :root,
 body {
   width: 100%;

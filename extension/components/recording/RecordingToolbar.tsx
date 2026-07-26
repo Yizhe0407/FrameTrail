@@ -60,7 +60,14 @@ interface Props {
 }
 
 const styles = `
-  :host {
+  /* The toolbar mounts in two places: a closed shadow root on recorded pages
+   * (recording-toolbar-host.tsx) and directly in the snapshot-shield iframe
+   * document (entrypoints/snapshot-shield/main.tsx). ":host" only matches in
+   * the shadow-root case, so every theme variable is declared on ".ft-layer"
+   * as well — otherwise the iframe copy renders with unset variables
+   * (transparent surface, wrong text colors). */
+  :host, .ft-layer {
+    color-scheme: light;
     --ft-radius: 8px;
     --ft-surface: #ffffff;
     --ft-text: #1c1c1c;
@@ -77,10 +84,14 @@ const styles = `
     --ft-btn-hover-bg: rgba(28, 28, 28, .08);
     --ft-btn-danger-hover-bg: rgba(255, 71, 71, .14);
     --ft-btn-danger-hover-text: #e23b3b;
+    --ft-error-text: #c62828;
+    --ft-warning: #b45309;
+    --ft-link: #4f6fce;
     --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6);
   }
   @media (prefers-color-scheme: dark) {
-    :host {
+    :host, .ft-layer {
+      color-scheme: dark;
       --ft-surface: #1c1c1c;
       --ft-text: #ffffff;
       --ft-status-text: #ffffff;
@@ -96,6 +107,9 @@ const styles = `
       --ft-btn-hover-bg: rgba(255, 255, 255, .12);
       --ft-btn-danger-hover-bg: rgba(255, 71, 71, .2);
       --ft-btn-danger-hover-text: #ff8080;
+      --ft-error-text: #ff8a8a;
+      --ft-warning: #fbbf24;
+      --ft-link: #7094f4;
       --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
     }
   }
@@ -120,7 +134,7 @@ const styles = `
     padding: 8px; border-radius: var(--ft-radius);
   }
   .ft-invalidated-status { min-width: 0; flex: 1 1 240px; display: flex; align-items: center; gap: 8px; }
-  .ft-invalidated-status svg { width: 18px; height: 18px; flex: none; color: #fbbf24; }
+  .ft-invalidated-status svg { width: 18px; height: 18px; flex: none; color: var(--ft-warning); }
   .ft-invalidated-copy { min-width: 0; font-size: 12px; font-weight: 600; white-space: normal; }
   .ft-invalidated-actions { flex: none; display: flex; align-items: center; gap: 2px; }
   .ft-status {
@@ -131,7 +145,7 @@ const styles = `
   .ft-status:active, .ft-collapsed:active { cursor: grabbing; }
   .ft-dot { width: 9px; height: 9px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 4px rgba(255,71,71,.22); }
   .ft-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--ft-status-text); }
-  .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+  .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: var(--ft-primary-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
   .ft-divider { width: 1px; height: 26px; background: var(--ft-divider); flex: none; }
   .ft-actions-group { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
   .ft-button {
@@ -159,23 +173,23 @@ const styles = `
     padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ft-muted);
     font-weight: 600; cursor: pointer; white-space: nowrap;
   }
-  .ft-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, .1); color: var(--ft-text); }
+  .ft-secondary:hover:not(:disabled) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
   .ft-secondary:disabled { opacity: .5; cursor: wait; }
   .ft-collapsed {
     position: relative; height: 48px; padding: 0 8px 0 16px; display: flex; align-items: center; gap: 11px;
     border: 1px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface); color: var(--ft-text);
-    box-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06); cursor: pointer; touch-action: none;
+    box-shadow: var(--ft-shadow); cursor: pointer; touch-action: none;
   }
-  .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,.1); color: #fff; }
+  .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--ft-btn-hover-bg); color: var(--ft-text); }
   .ft-message, .ft-snackbar, .ft-menu, .ft-confirm {
     position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; max-width: min(320px, calc(100vw - 32px));
     padding: 10px 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
     color: var(--ft-text); box-shadow: 0 8px 24px rgba(28, 25, 23, .18); font-size: 12px;
   }
   .ft-message { display: flex; align-items: center; gap: 8px; }
-  .ft-message[data-kind="error"] { color: #ff8a8a; }
+  .ft-message[data-kind="error"] { color: var(--ft-error-text); }
   .ft-snackbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  .ft-snackbar button { border: 0; background: transparent; color: var(--ft-primary); font-weight: 700; cursor: pointer; }
+  .ft-snackbar button { border: 0; background: transparent; color: var(--ft-link); font-weight: 700; cursor: pointer; }
   .ft-position[data-vertical="top"] .ft-message,
   .ft-position[data-vertical="top"] .ft-snackbar,
   .ft-position[data-vertical="top"] .ft-menu,
@@ -189,8 +203,8 @@ const styles = `
     width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
     border: 0; border-radius: var(--ft-radius); background: transparent; color: var(--ft-text); text-align: left; cursor: pointer;
   }
-  .ft-menu button:hover:not(:disabled) { background: rgba(255, 255, 255, .1); }
-  .ft-menu button[data-danger="true"] { color: #ff8a8a; }
+  .ft-menu button:hover:not(:disabled) { background: var(--ft-btn-hover-bg); }
+  .ft-menu button[data-danger="true"] { color: var(--ft-error-text); }
   .ft-menu svg { width: 17px; height: 17px; flex: none; }
   .ft-confirm { width: min(300px, calc(100vw - 32px)); padding: 16px; }
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
@@ -202,7 +216,7 @@ const styles = `
   }
   .ft-confirm button[data-danger="true"] { border-color: var(--ft-recording); background: var(--ft-recording); color: #fff; }
   .ft-confirm button:disabled, .ft-menu button:disabled { opacity: .5; cursor: wait; }
-  .ft-success { width: 18px; height: 18px; color: var(--ft-primary); }
+  .ft-success { width: 18px; height: 18px; color: var(--ft-link); }
   .ft-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   @media (max-width: 520px) {
     .ft-position { max-width: calc(100vw - 16px); }
