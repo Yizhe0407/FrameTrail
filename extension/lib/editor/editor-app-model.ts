@@ -12,14 +12,20 @@ export interface UndoAction {
   restore: () => Promise<void>;
 }
 
+/** What a mutation describes about its own undo. The editor controller owns the
+ * sequence number and the guide it belongs to, so a mutation never supplies
+ * either. */
+export type PendingUndoAction = Omit<UndoAction, 'id' | 'guideId'>;
+
 export type PreparedCapturePermission = {
   sourceOrigin: string;
   permissionPattern: string;
-  entryId: string;
-  action: {
-    kind: 'recapture';
-    target: StepRecaptureTarget;
-  };
+  /** The entry the grant is bound to, so changing the selection cancels it.
+   * Continuation records into the Guide as a whole and has no such anchor. */
+  entryId: string | null;
+  action:
+    | { kind: 'recapture'; target: StepRecaptureTarget }
+    | { kind: 'continuation' };
 };
 
 export function entrySteps(entry: StepEntry): Step[] {
@@ -30,13 +36,3 @@ export function equalIds(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
-function visualValueEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-export function stepMatchesVisualBaseline(step: Step, changes: Partial<Step>): boolean {
-  return Object.entries(changes).every(([key, expected]) => (
-    visualValueEqual(step[key as keyof Step], expected)
-  ));
-}

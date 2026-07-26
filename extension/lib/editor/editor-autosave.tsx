@@ -7,7 +7,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { updateStep, type Step } from '../storage/db';
+import {
+  saveStepDescription,
+  StepDescriptionConflictError,
+  StepNotFoundError,
+  type Step,
+} from '../storage/db';
 import {
   clearCommittedDescriptionDraft,
   clearMatchingCommittedDescriptionDrafts,
@@ -65,28 +70,32 @@ export function useEditorSaveRegistry(): EditorSaveRegistry {
   return registry;
 }
 
-export type DescriptionSaveStatus = 'saved' | 'dirty' | 'saving' | 'error';
-
 export interface DescriptionAutosaveResult {
   description: string;
   setDescription: (description: string) => void;
-  status: DescriptionSaveStatus;
-  error: string | null;
   recoveries: RestoredDescriptionDraft[];
-  restoreRecovery: (writerId: string) => void;
+  /** Returns false when the journal rejected the copy (quota); the field then
+   * keeps its current text so the UI can surface the failure. */
+  restoreRecovery: (writerId: string) => boolean;
   discardRecovery: (writerId: string) => void;
   flush: () => Promise<void>;
-  retry: () => Promise<void>;
+  confirmOverwrite: () => Promise<void>;
 }
 
-const CONFLICT_ERROR = '偵測到較新的已儲存內容；已保留本機草稿，請確認後按重試以覆寫。';
-const RECOVERY_CONFIRM_ERROR = '已載入其他分頁的草稿；請確認內容後按重試才會覆寫已儲存內容。';
-
-class DraftConfirmationRequiredError extends Error {
+/** Thrown by flush() while an explicit user confirmation is outstanding. The
+ * message is user-facing zh-Hant because it can surface in UI error paths. */
+export class DraftConfirmationRequiredError extends Error {
   constructor() {
-    super('Draft confirmation is required before overwriting the persisted description.');
+    super('覆寫已儲存的說明前，需要先確認要保留哪一份草稿。');
     this.name = 'DraftConfirmationRequiredError';
   }
+}
+
+function logAutosaveFailure(message: string): (error: unknown) => void {
+  return (error) => {
+    // Confirmation is surfaced through the recovery UI, not the console.
+    if (!(error instanceof DraftConfirmationRequiredError)) console.error(message, error);
+  };
 }
 
 /** Keeps the draft editable while writes are pending and serializes updates so
@@ -101,20 +110,22 @@ export function useStepDescriptionAutosave(
 ): DescriptionAutosaveResult {
   const { register } = useEditorSaveRegistry();
   const writerId = useRef(getDescriptionDraftWriterId());
-  const initialCandidates = useRef(readDescriptionDrafts(step, writerId.current));
-  const restored = useRef(initialCandidates.current.find((candidate) => candidate.belongsToCurrentWriter) ?? null);
-  const initialDescription = restored.current?.description ?? step.description;
-  const [description, setDescriptionState] = useState(initialDescription);
-  const [status, setStatus] = useState<DescriptionSaveStatus>(
-    restored.current?.conflictsWithPersistedValue ? 'error' : initialDescription === step.description ? 'saved' : 'dirty',
-  );
-  const [error, setError] = useState<string | null>(
-    restored.current?.conflictsWithPersistedValue ? CONFLICT_ERROR : null,
-  );
-  const [recoveries, setRecoveries] = useState<RestoredDescriptionDraft[]>(
-    initialCandidates.current.filter((candidate) => !candidate.belongsToCurrentWriter),
-  );
-  const draft = useRef(initialDescription);
+  // Reading the journal scans all of localStorage and performs destructive
+  // cleanup, so it must run once per mounted field, never per render. A plain
+  // `useRef(readDescriptionDrafts(...))` re-evaluates its argument on every
+  // render; the lazy useState initializer below runs only on the initial one.
+  const [initial] = useState(() => {
+    const candidates = readDescriptionDrafts(step, writerId.current);
+    const restored = candidates.find((candidate) => candidate.belongsToCurrentWriter) ?? null;
+    return {
+      description: restored?.description ?? step.description,
+      recoveries: candidates.filter((candidate) => !candidate.belongsToCurrentWriter),
+      confirmationRequired: Boolean(restored?.conflictsWithPersistedValue),
+    };
+  });
+  const [description, setDescriptionState] = useState(initial.description);
+  const [recoveries, setRecoveries] = useState<RestoredDescriptionDraft[]>(initial.recoveries);
+  const draft = useRef(initial.description);
   const persisted = useRef(step.description);
   const lastExternalValue = useRef(step.description);
   const stepId = useRef(step.id);
@@ -123,9 +134,15 @@ export function useStepDescriptionAutosave(
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSave = useRef<Promise<void> | null>(null);
   const mounted = useRef(true);
-  const confirmationRequired = useRef(Boolean(restored.current?.conflictsWithPersistedValue));
+  const confirmationRequired = useRef(initial.confirmationRequired);
 
-  onChangeRef.current = onChange;
+  // Writing a ref during render breaks under concurrent rendering, where a
+  // render can be discarded. Committing it in an effect keeps the latest
+  // callback available to the save loop, which only ever runs from a timer,
+  // a blur, or an explicit flush — always after the commit.
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
   const clearTimer = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -143,7 +160,6 @@ export function useStepDescriptionAutosave(
   const performFlush = useCallback(async (confirmed: boolean) => {
     clearTimer();
     if (confirmationRequired.current && !confirmed) {
-      if (mounted.current) setStatus('error');
       throw new DraftConfirmationRequiredError();
     }
     if (confirmed) confirmationRequired.current = false;
@@ -159,51 +175,62 @@ export function useStepDescriptionAutosave(
         persisted.current,
       );
       refreshRecoveries();
-      if (mounted.current) {
-        setStatus('saved');
-        setError(null);
-      }
       return;
     }
 
     const operation = (async () => {
-      try {
-        while (draft.current !== persisted.current) {
-          const nextDescription = draft.current;
-          if (mounted.current) {
-            setStatus('saving');
-            setError(null);
+      while (draft.current !== persisted.current) {
+        const nextDescription = draft.current;
+        try {
+          await saveStepDescription(stepId.current, nextDescription, persisted.current);
+        } catch (saveError) {
+          if (
+            saveError instanceof StepDescriptionConflictError &&
+            saveError.actualDescription === nextDescription
+          ) {
+            // Another tab already committed exactly this text; adopt it as saved.
+          } else if (saveError instanceof StepDescriptionConflictError) {
+            // Another tab committed a different description while this one was
+            // typing. Rebase on the committed value, keep this tab's text
+            // journaled against the new baseline, and demand an explicit
+            // overwrite instead of silent last-write-wins.
+            persisted.current = saveError.actualDescription;
+            writeDescriptionDraft(
+              { id: stepId.current, sessionId: sessionId.current, description: saveError.actualDescription },
+              draft.current,
+              writerId.current,
+            );
+            confirmationRequired.current = true;
+            refreshRecoveries();
+            throw new DraftConfirmationRequiredError();
+          } else if (saveError instanceof StepNotFoundError) {
+            // The row is gone (deleted in another tab, or locally with an undo
+            // pending). Nothing was committed, so the journal record must
+            // survive as the only durable copy of the typed text — an undo
+            // that restores the step resurfaces it as a recoverable draft.
+            throw saveError;
+          } else {
+            throw saveError;
           }
-          await updateStep(stepId.current, { description: nextDescription });
-          persisted.current = nextDescription;
-          clearCommittedDescriptionDraft(
-            { id: stepId.current, sessionId: sessionId.current },
-            writerId.current,
-            nextDescription,
-          );
-          clearMatchingCommittedDescriptionDrafts(
-            { id: stepId.current, sessionId: sessionId.current },
-            nextDescription,
-          );
-          refreshRecoveries();
-          try {
-            await onChangeRef.current();
-          } catch (refreshError) {
-            // The IndexedDB commit is authoritative. A failed UI refresh must not
-            // misreport a successfully persisted draft as data loss.
-            console.warn('說明已儲存，但重新整理編輯器資料失敗', refreshError);
-          }
         }
-        if (mounted.current) {
-          setStatus('saved');
-          setError(null);
+        persisted.current = nextDescription;
+        clearCommittedDescriptionDraft(
+          { id: stepId.current, sessionId: sessionId.current },
+          writerId.current,
+          nextDescription,
+        );
+        clearMatchingCommittedDescriptionDrafts(
+          { id: stepId.current, sessionId: sessionId.current },
+          nextDescription,
+        );
+        refreshRecoveries();
+        try {
+          await onChangeRef.current();
+        } catch (refreshError) {
+          // The IndexedDB commit is authoritative. A failed UI refresh must not
+          // misreport a successfully persisted draft as data loss.
+          console.warn('說明已儲存，但重新整理編輯器資料失敗', refreshError);
         }
-      } catch (saveError) {
-        if (mounted.current) {
-          setStatus('error');
-          setError('無法儲存，草稿已保留；請重試。');
-        }
-        throw saveError;
       }
     })();
 
@@ -216,11 +243,10 @@ export function useStepDescriptionAutosave(
   }, [clearTimer, refreshRecoveries]);
 
   const flush = useCallback(() => performFlush(false), [performFlush]);
-  const retry = useCallback(() => performFlush(true), [performFlush]);
+  const confirmOverwrite = useCallback(() => performFlush(true), [performFlush]);
 
   const setDescription = useCallback(
     (nextDescription: string) => {
-      const needsConfirmation = confirmationRequired.current;
       const journaled = writeDescriptionDraft(
         {
           id: stepId.current,
@@ -232,46 +258,39 @@ export function useStepDescriptionAutosave(
       );
       draft.current = nextDescription;
       setDescriptionState(nextDescription);
-      setStatus(
-        journaled && !needsConfirmation
-          ? (nextDescription === persisted.current ? 'saved' : 'dirty')
-          : 'error',
-      );
-      setError((current) =>
-        journaled
-          ? (needsConfirmation ? current ?? CONFLICT_ERROR : null)
-          : '無法建立緊急草稿備份；請保持頁面開啟並立即重試儲存。',
-      );
       clearTimer();
-      if (journaled && !needsConfirmation && nextDescription !== persisted.current) {
-        timer.current = setTimeout(() => {
-          void flush().catch((saveError) => console.error('自動儲存說明失敗', saveError));
-        }, delay);
-      }
+      if (confirmationRequired.current || nextDescription === persisted.current) return;
+      // The debounce only trades latency for fewer IndexedDB writes while the
+      // synchronous journal already guarantees durability. When the journal
+      // write failed (record cap, size cap, quota), IndexedDB is the only
+      // remaining destination, so flush immediately instead of gating the
+      // timer on journal success — otherwise typed text would only persist on
+      // blur or unmount.
+      timer.current = setTimeout(() => {
+        void flush().catch(logAutosaveFailure('自動儲存說明失敗'));
+      }, journaled ? delay : 0);
     },
     [clearTimer, delay, flush],
   );
 
-  const restoreRecovery = useCallback((recoveryWriterId: string) => {
+  const restoreRecovery = useCallback((recoveryWriterId: string): boolean => {
     const recovery = recoveries.find((candidate) => candidate.writerId === recoveryWriterId);
-    if (!recovery) return;
+    if (!recovery) return false;
     clearTimer();
     const journaled = writeDescriptionDraft(
       { id: stepId.current, sessionId: sessionId.current, description: persisted.current },
       recovery.description,
       writerId.current,
     );
-    if (!journaled) {
-      setStatus('error');
-      setError('無法安全載入草稿：緊急備份空間不足或儲存服務不可用。');
-      return;
-    }
+    // The journal write's integrity pass may have cleaned records that are
+    // still on screen; re-read so the visible list matches storage.
+    refreshRecoveries();
+    if (!journaled) return false;
     draft.current = recovery.description;
     setDescriptionState(recovery.description);
     confirmationRequired.current = true;
-    setStatus('error');
-    setError(RECOVERY_CONFIRM_ERROR);
-  }, [clearTimer, recoveries]);
+    return true;
+  }, [clearTimer, recoveries, refreshRecoveries]);
 
   const discardRecovery = useCallback((recoveryWriterId: string) => {
     discardDescriptionDraft(
@@ -282,26 +301,26 @@ export function useStepDescriptionAutosave(
   }, [refreshRecoveries]);
 
   useEffect(() => {
+    // Only these three fields identify the draft, so the effect reads them
+    // through a narrowed identity object instead of depending on the `step`
+    // object, whose reference changes on unrelated edits.
+    const external = { id: step.id, sessionId: step.sessionId, description: step.description };
     const previousExternalValue = lastExternalValue.current;
-    lastExternalValue.current = step.description;
-    stepId.current = step.id;
-    sessionId.current = step.sessionId;
-    persisted.current = step.description;
+    lastExternalValue.current = external.description;
+    stepId.current = external.id;
+    sessionId.current = external.sessionId;
+    persisted.current = external.description;
 
-    if (draft.current === previousExternalValue || draft.current === step.description) {
-      draft.current = step.description;
-      setDescriptionState(step.description);
-      setStatus('saved');
-      setError(null);
+    if (draft.current === previousExternalValue || draft.current === external.description) {
+      draft.current = external.description;
+      setDescriptionState(external.description);
       confirmationRequired.current = false;
-      clearCommittedDescriptionDraft(step, writerId.current, step.description);
-      clearMatchingCommittedDescriptionDrafts(step, step.description);
-    } else if (step.description !== previousExternalValue) {
+      clearCommittedDescriptionDraft(external, writerId.current, external.description);
+      clearMatchingCommittedDescriptionDrafts(external, external.description);
+    } else if (external.description !== previousExternalValue) {
       clearTimer();
-      writeDescriptionDraft(step, draft.current, writerId.current);
+      writeDescriptionDraft(external, draft.current, writerId.current);
       confirmationRequired.current = true;
-      setStatus('error');
-      setError(CONFLICT_ERROR);
     }
     refreshRecoveries();
   }, [clearTimer, refreshRecoveries, step.description, step.id, step.sessionId]);
@@ -322,14 +341,14 @@ export function useStepDescriptionAutosave(
     mounted.current = true;
     if (draft.current !== persisted.current && !confirmationRequired.current) {
       timer.current = setTimeout(() => {
-        void flush().catch((saveError) => console.error('恢復關閉前草稿後儲存失敗', saveError));
+        void flush().catch(logAutosaveFailure('恢復關閉前草稿後儲存失敗'));
       }, delay);
     }
     return () => {
       mounted.current = false;
       clearTimer();
       if (!confirmationRequired.current) {
-        void flush().catch((saveError) => console.error('卸載說明欄位前儲存失敗', saveError));
+        void flush().catch(logAutosaveFailure('卸載說明欄位前儲存失敗'));
       }
     };
   }, [clearTimer, delay, flush]);
@@ -337,12 +356,10 @@ export function useStepDescriptionAutosave(
   return {
     description,
     setDescription,
-    status,
-    error,
     recoveries,
     restoreRecovery,
     discardRecovery,
     flush,
-    retry,
+    confirmOverwrite,
   };
 }

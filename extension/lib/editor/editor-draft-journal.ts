@@ -244,12 +244,29 @@ function isExpired(updatedAt: number, now: number): boolean {
   return now - updatedAt > DRAFT_MAX_AGE_MS || updatedAt > now + FUTURE_CLOCK_SKEW_MS;
 }
 
-function scanUsage(storage: Storage, now: number): { count: number; codeUnits: number; referencedChunks: Set<string> } | null {
+interface JournalRecordUsage {
+  key: string;
+  writerId: string;
+  updatedAt: number;
+  codeUnits: number;
+  /** Present for v2 records so eviction can release their chunks; null for v1. */
+  metadata: PersistedDescriptionDraftMetadata | null;
+}
+
+interface JournalUsage {
+  count: number;
+  codeUnits: number;
+  referencedChunks: Set<string>;
+  records: JournalRecordUsage[];
+}
+
+function scanUsage(storage: Storage, now: number): JournalUsage | null {
   const keys = storageKeys(storage);
   if (!keys) return null;
   let count = 0;
   let codeUnits = 0;
   const referencedChunks = new Set<string>();
+  const records: JournalRecordUsage[] = [];
   try {
     for (const key of keys) {
       if (key.startsWith(METADATA_PREFIX)) {
@@ -262,8 +279,10 @@ function scanUsage(storage: Storage, now: number): { count: number; codeUnits: n
           removeMetadataRecord(storage, key, metadata);
           continue;
         }
+        const recordCodeUnits = metadata.baseLength + metadata.descriptionLength;
         count += 1;
-        codeUnits += metadata.baseLength + metadata.descriptionLength;
+        codeUnits += recordCodeUnits;
+        records.push({ key, writerId: metadata.writerId, updatedAt: metadata.updatedAt, codeUnits: recordCodeUnits, metadata });
         for (const chunkKey of [...metadata.baseChunks, ...metadata.descriptionChunks]) referencedChunks.add(chunkKey);
       } else if (key.startsWith(LEGACY_PREFIX)) {
         const legacy = parseLegacy(storage.getItem(key));
@@ -271,11 +290,13 @@ function scanUsage(storage: Storage, now: number): { count: number; codeUnits: n
           removeSafely(storage, key);
           continue;
         }
+        const recordCodeUnits = legacy.baseDescription.length + legacy.description.length;
         count += 1;
-        codeUnits += legacy.baseDescription.length + legacy.description.length;
+        codeUnits += recordCodeUnits;
+        records.push({ key, writerId: LEGACY_WRITER_ID, updatedAt: legacy.updatedAt, codeUnits: recordCodeUnits, metadata: null });
       }
     }
-    return { count, codeUnits, referencedChunks };
+    return { count, codeUnits, referencedChunks, records };
   } catch {
     return null;
   }
@@ -373,10 +394,27 @@ export function writeDescriptionDraft(
     return false;
   }
 
-  const nextCount = usage.count + (previous ? 0 : 1);
   const previousCodeUnits = previous ? previous.baseLength + previous.descriptionLength : 0;
-  const nextCodeUnits = usage.codeUnits - previousCodeUnits + step.description.length + description.length;
-  if (nextCount > MAX_DRAFT_RECORDS || nextCodeUnits > MAX_TOTAL_DRAFT_CODE_UNITS) return false;
+  let nextCount = usage.count + (previous ? 0 : 1);
+  let nextCodeUnits = usage.codeUnits - previousCodeUnits + step.description.length + description.length;
+  if (nextCount > MAX_DRAFT_RECORDS || nextCodeUnits > MAX_TOTAL_DRAFT_CODE_UNITS) {
+    // The bounds protect localStorage, not abandoned drafts: refusing the
+    // write here would silently stop journaling live typing once dead tabs
+    // accumulate 32 records. Evict other writers' records oldest-first
+    // instead. This tab's own drafts for other steps are never evicted —
+    // they may be the only copy of text this same user just typed.
+    const evictable = usage.records
+      .filter((record) => record.writerId !== writerId)
+      .sort((left, right) => left.updatedAt - right.updatedAt);
+    for (const record of evictable) {
+      if (nextCount <= MAX_DRAFT_RECORDS && nextCodeUnits <= MAX_TOTAL_DRAFT_CODE_UNITS) break;
+      if (record.metadata) removeMetadataRecord(storage, record.key, record.metadata);
+      else removeSafely(storage, record.key);
+      nextCount -= 1;
+      nextCodeUnits -= record.codeUnits;
+    }
+    if (nextCount > MAX_DRAFT_RECORDS || nextCodeUnits > MAX_TOTAL_DRAFT_CODE_UNITS) return false;
+  }
 
   const id = recordId(step, writerId);
   const revision = `${now}-${newUniqueId('revision')}`;
@@ -421,7 +459,9 @@ export function writeDescriptionDraft(
       if (oldKey.startsWith(owner) && !retained.has(oldKey)) removeSafely(storage, oldKey);
     }
   }
-  pruneOldOrphanChunks(storage, usage.referencedChunks, now);
+  // The pre-allocation prune above already ran with these exact inputs; the
+  // only chunks added since are this write's own, which stay referenced. A
+  // second full-storage scan per keystroke would buy nothing.
   return true;
 }
 
@@ -485,15 +525,6 @@ export function readDescriptionDrafts(
 
   pruneOldOrphanChunks(storage, usage.referencedChunks, now);
   return candidates.sort((left, right) => right.updatedAt - left.updatedAt || left.writerId.localeCompare(right.writerId));
-}
-
-/** Compatibility helper returning the newest candidate. */
-export function readDescriptionDraft(
-  step: DraftStepIdentity,
-  storageOverride?: Storage,
-  now = Date.now(),
-): RestoredDescriptionDraft | null {
-  return readDescriptionDrafts(step, getDescriptionDraftWriterId(), storageOverride, now)[0] ?? null;
 }
 
 export function discardDescriptionDraft(

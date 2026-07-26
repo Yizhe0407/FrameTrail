@@ -41,7 +41,6 @@ import {
   ACTIVE_GUIDE_ID_KEY,
   clearActiveGuideId,
   getActiveGuideId,
-  onActiveGuideIdChange,
   setActiveGuideId,
 } from '@/lib/storage/storage';
 import { RECORDING_STATE_KEY } from '@/lib/runtime/messages';
@@ -96,20 +95,5 @@ describe('active Guide storage', () => {
     expect(mocks.local.remove.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.local.set.mock.invocationCallOrder[0],
     );
-  });
-
-  it('subscribes only to local active-selection changes and normalizes removal', () => {
-    const callback = vi.fn();
-    const unsubscribe = onActiveGuideIdChange(callback);
-    const [listener] = mocks.listeners;
-
-    listener?.({ [ACTIVE_GUIDE_ID_KEY]: { newValue: 'guide-a' } }, 'sync');
-    listener?.({ [RECORDING_STATE_KEY]: { newValue: {} } }, 'local');
-    listener?.({ [ACTIVE_GUIDE_ID_KEY]: { newValue: 'guide-a' } }, 'local');
-    listener?.({ [ACTIVE_GUIDE_ID_KEY]: { newValue: undefined } }, 'local');
-
-    expect(callback.mock.calls).toEqual([['guide-a'], [null]]);
-    unsubscribe();
-    expect(mocks.removeListener).toHaveBeenCalledOnce();
   });
 });

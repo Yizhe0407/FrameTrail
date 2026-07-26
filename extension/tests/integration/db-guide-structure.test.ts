@@ -11,7 +11,6 @@ import {
   deleteGuidePermanently,
   deleteGuideSectionAtomically,
   duplicateGuide,
-  duplicateGuideEntryAtomically,
   getGuideStructureSnapshot,
   getGuideSummaries,
   getSteps,
@@ -121,23 +120,6 @@ describe('Guide entry-safe atomic structure', () => {
     expect(rows).toHaveLength(3);
     expect(rows.every((step) => step.numbered === true)).toBe(true);
     expect(result.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
-  });
-
-  it('duplicates a complete snapshot with fresh ids without copying its heading', async () => {
-    const { guide, snapshot } = await createTrackedGuide(makeMixedSteps());
-    const sectioned = await addGuideSectionAtomically(guide.id, snapshot.entryIds[1], '快照章節', snapshot.guide.contentRevision);
-    const duplicated = await duplicateGuideEntryAtomically(guide.id, snapshot.entryIds[1], sectioned.guide.contentRevision);
-    const after = await getGuideStructureSnapshot(guide.id);
-    expect(after.entryIds).toEqual([snapshot.entryIds[0], snapshot.entryIds[1], duplicated.createdEntryId, snapshot.entryIds[2]]);
-    const copy = after.entries.find((entry) => entry.kind === 'group' && entry.anchor.id === duplicated.createdEntryId);
-    expect(copy?.kind).toBe('group');
-    if (copy?.kind === 'group') {
-      expect(copy.anchor.groupId).toBe(copy.anchor.id);
-      expect(copy.annotations.every((step) => step.groupId === copy.anchor.id && step.screenshotBlob === undefined)).toBe(true);
-      expect(new Set(copy.annotations.map((step) => step.id)).size).toBe(2);
-    }
-    expect(after.guide.sections).toHaveLength(1);
-    expect(after.guide.sections[0].startEntryId).toBe(snapshot.entryIds[1]);
   });
 
   it('remaps section boundaries for import-style clone and duplicate Guide', async () => {
@@ -505,5 +487,77 @@ describe('strict annotation and visual CAS mutations', () => {
     expect(result.previousEntryIds).toEqual(before.entryIds);
     expect(result.previousSections).toEqual(before.guide.sections);
     expect(result.guide.contentRevision).toBe(before.guide.contentRevision + 1);
+  });
+});
+
+/** Writes rows exactly as legacy code left them, bypassing sanitization —
+ * the v4 migration deliberately never rewrote step rows. */
+async function rawPutSteps(rows: readonly Step[]): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('scribe', 4);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('steps', 'readwrite');
+      for (const row of rows) tx.objectStore('steps').put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('raw step write failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('raw step write aborted'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+describe('legacy topology load-time repair', () => {
+  it('repairs legacy rows the lenient reader tolerates instead of failing closed forever', async () => {
+    const { guide, snapshot } = await createTrackedGuide(makeSingleSteps(1));
+    const keptEntryId = snapshot.entryIds[0];
+    const emptyAnchorId = crypto.randomUUID();
+    const orphanMemberId = crypto.randomUUID();
+    await rawPutSteps([
+      // Empty snapshot group: an anchor without any surviving annotation.
+      makeStep({ id: emptyAnchorId, sessionId: guide.id, groupId: emptyAnchorId, bounds: null, order: 1 }),
+      // Anchor-less legacy member carrying its own screenshot.
+      makeStep({ id: orphanMemberId, sessionId: guide.id, groupId: crypto.randomUUID(), order: 2, description: '被搶救的舊資料' }),
+    ]);
+
+    const repaired = await getGuideStructureSnapshot(guide.id);
+
+    expect(repaired.entryIds).toEqual([keptEntryId, orphanMemberId]);
+    expect(repaired.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
+    const rows = await getSteps(guide.id);
+    expect(rows.map((row) => ({ id: row.id, order: row.order }))).toEqual([
+      { id: keptEntryId, order: 0 },
+      { id: orphanMemberId, order: 1 },
+    ]);
+    expect(rows[1].groupId).toBeUndefined();
+    expect(rows[1].description).toBe('被搶救的舊資料');
+
+    // The repair persisted a strict-parser-valid layout: reloading is
+    // read-only again and does not advance the revision.
+    const reloaded = await getGuideStructureSnapshot(guide.id);
+    expect(reloaded.entryIds).toEqual(repaired.entryIds);
+    expect(reloaded.guide.contentRevision).toBe(repaired.guide.contentRevision);
+  });
+
+  it('invalidates concurrent CAS mutations taken against the pre-repair revision', async () => {
+    const { guide, snapshot } = await createTrackedGuide(makeSingleSteps(2));
+    const emptyAnchorId = crypto.randomUUID();
+    await rawPutSteps([
+      makeStep({ id: emptyAnchorId, sessionId: guide.id, groupId: emptyAnchorId, bounds: null, order: 2 }),
+    ]);
+
+    const repaired = await getGuideStructureSnapshot(guide.id);
+    expect(repaired.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
+
+    await expect(
+      deleteGuideEntriesAtomically(guide.id, [snapshot.entryIds[0]], snapshot.guide.contentRevision),
+    ).rejects.toBeInstanceOf(GuideContentConflictError);
+    await expect(
+      deleteGuideEntriesAtomically(guide.id, [snapshot.entryIds[0]], repaired.guide.contentRevision),
+    ).resolves.toBeTruthy();
   });
 });

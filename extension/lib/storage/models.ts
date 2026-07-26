@@ -3,6 +3,7 @@ import {
   sanitizeGuideSectionTitle,
   type GuideSection,
 } from '../guide/guide-section-model';
+import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '../guide/guide-tag-model';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 export type { GuideSection } from '../guide/guide-section-model';
 
@@ -97,9 +98,10 @@ export interface Guide {
   title: string;
   description: string;
   sections: GuideSection[];
+  /** Free-form labels for search/filter in the Library. Order is insertion order. */
+  tags: string[];
   createdAt: number;
   updatedAt: number;
-  archivedAt: number | null;
   /** Monotonic guide-content generation. Metadata-only edits do not change it. */
   contentRevision: number;
   /** Denormalized summary fields kept transactionally in sync with `steps`. */
@@ -109,7 +111,7 @@ export interface Guide {
 }
 
 /** Kept as a named API type for compatibility; summaries are now guide rows. */
-export interface GuideSummary extends Guide {}
+export type GuideSummary = Guide;
 
 export const GUIDE_TITLE_MAX_LENGTH = 120;
 export const GUIDE_DESCRIPTION_MAX_LENGTH = 2_000;
@@ -239,6 +241,20 @@ function sanitizeGuideSectionsShape(value: unknown): GuideSection[] {
   return sections;
 }
 
+function sanitizeGuideTagsShape(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (tags.length >= GUIDE_TAG_LIMITS.maxTags) break;
+    const tag = sanitizeGuideTag(raw);
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
 export function sanitizeGuide(guide: Guide): Guide {
   const createdAt = Number.isFinite(guide.createdAt) ? guide.createdAt : Date.now();
   const updatedAt = Number.isFinite(guide.updatedAt) ? Math.max(guide.updatedAt, createdAt) : createdAt;
@@ -248,9 +264,9 @@ export function sanitizeGuide(guide: Guide): Guide {
     title,
     description: sanitizeGuideText(guide.description, GUIDE_DESCRIPTION_MAX_LENGTH),
     sections: sanitizeGuideSectionsShape((guide as Guide & { sections?: unknown }).sections),
+    tags: sanitizeGuideTagsShape((guide as Guide & { tags?: unknown }).tags),
     createdAt,
     updatedAt,
-    archivedAt: Number.isFinite(guide.archivedAt) ? guide.archivedAt : null,
     contentRevision: nonNegativeInteger(guide.contentRevision),
     stepCount: nonNegativeInteger(guide.stepCount),
     entryCount: nonNegativeInteger(guide.entryCount),
@@ -296,6 +312,12 @@ export interface EntryPrivacyState {
   reviewRequired: boolean;
 }
 
+/** Shared so the overwhelmingly common "no masks" answer keeps one identity.
+ * A fresh `[]` per call made every thumbnail's overlay-mapping callback change
+ * identity on every editor render, tearing down and rebuilding its
+ * ResizeObserver each time. */
+const NO_REDACTIONS: Redaction[] = [];
+
 /** Validates privacy metadata without silently treating corrupt masks as absent.
  * Any malformed record blocks ordinary rendering until the visual editor saves
  * a repaired, explicitly reviewed set. */
@@ -303,9 +325,9 @@ export function getEntryPrivacyState(entry: StepEntry): EntryPrivacyState {
   const owner = getEntryImageOwner(entry);
   const raw: unknown = owner.redactions;
   if (raw === undefined) {
-    return { redactions: [], reviewRequired: owner.redactionReviewRequired === true };
+    return { redactions: NO_REDACTIONS, reviewRequired: owner.redactionReviewRequired === true };
   }
-  if (!Array.isArray(raw)) return { redactions: [], reviewRequired: true };
+  if (!Array.isArray(raw)) return { redactions: NO_REDACTIONS, reviewRequired: true };
   const rawItems = raw as unknown[];
   const redactions = rawItems.filter(isValidRedaction);
   if (redactions.length === rawItems.length) {

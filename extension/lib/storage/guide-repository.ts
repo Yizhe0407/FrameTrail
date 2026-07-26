@@ -10,97 +10,96 @@ import {
   type Step,
 } from './models';
 import {
-  abortTransaction,
   assertGuideStorageLimits,
-  getDatabase,
   newGuide,
   requireWritableGuide,
+  runGuideStepsWrite,
+  runWithDatabase,
   summarizeSteps,
   type GuideStepsTransaction,
 } from './database';
 
-export async function createGuide(initial?: Partial<Pick<Guide, 'title' | 'description'>>): Promise<Guide> {
-  const db = await getDatabase();
+export async function createGuide(initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>): Promise<Guide> {
   const guide = newGuide(crypto.randomUUID(), Date.now(), initial);
-  await db.add('guides', guide);
+  await runWithDatabase((db) => db.add('guides', guide));
   return guide;
 }
 
 /** Explicit legacy/bootstrap primitive. Ordinary step mutations never call it. */
 export async function ensureGuide(id: string, createdAt = Date.now()): Promise<Guide> {
   if (!id) throw new Error('Guide id is required.');
-  const db = await getDatabase();
-  const tx = db.transaction('guides', 'readwrite');
-  const existing = await tx.store.get(id);
-  if (existing) {
-    await tx.done;
-    return sanitizeGuide(existing);
-  }
-  const guide = newGuide(id, createdAt);
-  try {
-    await tx.store.add(guide);
-    await tx.done;
-    return guide;
-  } catch (error) {
-    await tx.done.catch(() => undefined);
-    // A concurrent explicit bootstrap may have won the add race.
-    const winner = await db.get('guides', id);
-    if (winner) return sanitizeGuide(winner);
-    throw error;
-  }
+  return runWithDatabase(async (db) => {
+    const tx = db.transaction('guides', 'readwrite');
+    const existing = await tx.store.get(id);
+    if (existing) {
+      await tx.done;
+      return sanitizeGuide(existing);
+    }
+    const guide = newGuide(id, createdAt);
+    try {
+      await tx.store.add(guide);
+      await tx.done;
+      return guide;
+    } catch (error) {
+      await tx.done.catch(() => undefined);
+      // A concurrent explicit bootstrap may have won the add race.
+      const winner = await db.get('guides', id);
+      if (winner) return sanitizeGuide(winner);
+      throw error;
+    }
+  });
 }
 
 export async function getGuide(id: string): Promise<Guide | undefined> {
-  const db = await getDatabase();
-  const guide = await db.get('guides', id);
+  const guide = await runWithDatabase((db) => db.get('guides', id));
   return guide ? sanitizeGuide(guide) : undefined;
 }
 
 export async function updateGuide(
   id: string,
-  changes: Partial<Pick<Guide, 'title' | 'description' | 'archivedAt'>>,
+  changes: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
 ): Promise<Guide> {
-  const db = await getDatabase();
-  const tx = db.transaction('guides', 'readwrite');
-  const existing = await tx.store.get(id);
-  if (!existing) {
-    tx.abort();
-    await tx.done.catch(() => undefined);
-    throw new Error('Guide not found.');
-  }
-  const patch: Partial<Guide> = {};
-  if (changes.title !== undefined) patch.title = changes.title;
-  if (changes.description !== undefined) patch.description = changes.description;
-  if (changes.archivedAt !== undefined) patch.archivedAt = changes.archivedAt;
-  const updated = sanitizeGuide({ ...existing, ...patch, updatedAt: Math.max(existing.updatedAt, Date.now()) });
-  await tx.store.put(updated);
-  await tx.done;
-  return updated;
+  return runWithDatabase(async (db) => {
+    const tx = db.transaction('guides', 'readwrite');
+    const existing = await tx.store.get(id);
+    if (!existing) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw new Error('Guide not found.');
+    }
+    const patch: Partial<Guide> = {};
+    if (changes.title !== undefined) patch.title = changes.title;
+    if (changes.description !== undefined) patch.description = changes.description;
+    if (changes.tags !== undefined) patch.tags = changes.tags;
+    const updated = sanitizeGuide({ ...existing, ...patch, updatedAt: Math.max(existing.updatedAt, Date.now()) });
+    await tx.store.put(updated);
+    await tx.done;
+    return updated;
+  });
 }
 
 /** Metadata-only touch. Missing guides are never recreated. */
 export async function touchGuide(id: string, timestamp = Date.now()): Promise<void> {
-  const db = await getDatabase();
-  const tx = db.transaction('guides', 'readwrite');
-  const existing = await tx.store.get(id);
-  if (!existing) {
-    tx.abort();
-    await tx.done.catch(() => undefined);
-    throw new Error('Guide not found.');
-  }
-  await tx.store.put(sanitizeGuide({
-    ...existing,
-    updatedAt: Math.max(existing.updatedAt, timestamp),
-  }));
-  await tx.done;
+  await runWithDatabase(async (db) => {
+    const tx = db.transaction('guides', 'readwrite');
+    const existing = await tx.store.get(id);
+    if (!existing) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw new Error('Guide not found.');
+    }
+    await tx.store.put(sanitizeGuide({
+      ...existing,
+      updatedAt: Math.max(existing.updatedAt, timestamp),
+    }));
+    await tx.done;
+  });
 }
 
 /** Reads only denormalized guide rows; no step cursor or screenshot Blob is opened. */
-export async function getGuideSummaries(includeArchived = false): Promise<GuideSummary[]> {
-  const db = await getDatabase();
-  const guides = (await db.getAllFromIndex('guides', 'by-updated-at'))
-    .map(sanitizeGuide)
-    .filter((guide) => includeArchived || guide.archivedAt === null);
+export async function getGuideSummaries(): Promise<GuideSummary[]> {
+  const guides = (await runWithDatabase((db) => db.getAllFromIndex('guides', 'by-updated-at')))
+    .map(sanitizeGuide);
   return guides.sort((first, second) => second.updatedAt - first.updatedAt);
 }
 
@@ -115,7 +114,7 @@ export interface CreateGuideFromStepsOptions {
 
 function prepareGuideClone(
   sourceSteps: readonly Step[],
-  initial?: Partial<Pick<Guide, 'title' | 'description'>>,
+  initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
   options: CreateGuideFromStepsOptions = {},
 ): PreparedGuideClone {
   if (sourceSteps.length > STEP_STORAGE_LIMITS.maxStepsPerGuide) {
@@ -164,26 +163,19 @@ async function storePreparedGuide(tx: GuideStepsTransaction, prepared: PreparedG
 
 export async function createGuideFromSteps(
   sourceSteps: readonly Step[],
-  initial?: Partial<Pick<Guide, 'title' | 'description'>>,
+  initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
   options: CreateGuideFromStepsOptions = {},
 ): Promise<Guide> {
   const prepared = prepareGuideClone(sourceSteps, initial, options);
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  try {
+  return runGuideStepsWrite(async (tx) => {
     await storePreparedGuide(tx, prepared);
-    await tx.done;
     return prepared.guide;
-  } catch (error) {
-    return abortTransaction(tx, error);
-  }
+  });
 }
 
 /** Reads the source snapshot and writes its clone in one serializable transaction. */
 export async function duplicateGuide(sourceId: string, title?: string): Promise<Guide> {
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  try {
+  return runGuideStepsWrite(async (tx) => {
     const source = await tx.objectStore('guides').get(sourceId);
     if (!source) throw new Error('Guide not found.');
     const sourceSteps = await tx.objectStore('steps').index('by-session').getAll(sourceId);
@@ -191,32 +183,27 @@ export async function duplicateGuide(sourceId: string, title?: string): Promise<
     const prepared = prepareGuideClone(sourceSteps, {
       title: title ?? `${sanitizedSource.title}（副本）`,
       description: sanitizedSource.description,
+      tags: sanitizedSource.tags,
     }, { sections: sanitizedSource.sections });
     await storePreparedGuide(tx, prepared);
-    await tx.done;
     return prepared.guide;
-  } catch (error) {
-    return abortTransaction(tx, error);
-  }
+  });
 }
 
 export async function deleteGuidePermanently(id: string): Promise<void> {
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  let cursor = await tx.objectStore('steps').index('by-session').openCursor(id);
-  while (cursor) {
-    await cursor.delete();
-    cursor = await cursor.continue();
-  }
-  await tx.objectStore('guides').delete(id);
-  await tx.done;
+  await runGuideStepsWrite(async (tx) => {
+    let cursor = await tx.objectStore('steps').index('by-session').openCursor(id);
+    while (cursor) {
+      await cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.objectStore('guides').delete(id);
+  });
 }
 
 /** Atomically clears guide content while preserving identity and metadata. */
 export async function resetGuide(id: string): Promise<Guide> {
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  try {
+  return runGuideStepsWrite(async (tx) => {
     const guide = await requireWritableGuide(tx, id);
     let cursor = await tx.objectStore('steps').index('by-session').openCursor(id);
     while (cursor) {
@@ -233,9 +220,6 @@ export async function resetGuide(id: string): Promise<Guide> {
       storageBytes: 0,
     });
     await tx.objectStore('guides').put(reset);
-    await tx.done;
     return reset;
-  } catch (error) {
-    return abortTransaction(tx, error);
-  }
+  });
 }

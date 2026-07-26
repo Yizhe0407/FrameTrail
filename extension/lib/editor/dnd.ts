@@ -3,7 +3,9 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type Announcements,
   type Modifier,
+  type ScreenReaderInstructions,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -13,6 +15,38 @@ export function useSortableSensors() {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+}
+
+/**
+ * dnd-kit's built-in announcements are English and describe raw ids. A sortable
+ * list is only usable without sight if the announcement says which item moved
+ * and where it landed, so callers supply a 1-based position lookup.
+ *
+ * @param itemNoun what one row is called, e.g. 步驟
+ * @param positionOf 1-based display position of an id, or 0 when it is unknown
+ */
+export function createSortableAccessibility(
+  itemNoun: string,
+  positionOf: (id: UniqueIdentifier) => number,
+): { announcements: Announcements; screenReaderInstructions: ScreenReaderInstructions } {
+  const describe = (id: UniqueIdentifier) => `${itemNoun} ${positionOf(id)}`;
+  return {
+    screenReaderInstructions: {
+      draggable: `按 Enter 或空白鍵開始排序。開始後用方向鍵移動${itemNoun}，再按一次 Enter 或空白鍵放下，按 Esc 取消。`,
+    },
+    announcements: {
+      onDragStart: ({ active }) => `已提起 ${describe(active.id)}。`,
+      onDragOver: ({ active, over }) => (
+        over ? `${describe(active.id)} 移到 第 ${positionOf(over.id)} 個位置。` : undefined
+      ),
+      onDragEnd: ({ active, over }) => (
+        over
+          ? `${describe(active.id)} 已放在 第 ${positionOf(over.id)} 個位置。`
+          : `${describe(active.id)} 已放回原位。`
+      ),
+      onDragCancel: ({ active }) => `已取消排序，${describe(active.id)} 回到原位。`,
+    },
+  };
 }
 
 export function reorderById<T>(

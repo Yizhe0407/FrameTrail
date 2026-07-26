@@ -7,6 +7,7 @@ import {
 import {
   assertExactEntryIds,
   buildCompleteStepEntries,
+  buildStepEntries,
   entryId,
   GuideStructureIntegrityError,
   flattenEntrySteps,
@@ -14,14 +15,13 @@ import {
   sanitizeGuide,
   sanitizeStepForStorage,
   type Guide,
-  type ScreenshotStep,
   type Step,
   type StepEntry,
 } from './models';
 import {
-  abortTransaction,
-  getDatabase,
   requireWritableGuide,
+  runGuideStepsWrite,
+  runWithDatabase,
   summarizeSteps,
   type GuideStepsTransaction,
   type ReadonlyGuideStepsTransaction,
@@ -71,10 +71,6 @@ export interface DeleteGuideAnnotationResult extends GuideStructureMutationResul
 
 export interface ReorderGuideAnnotationsResult extends GuideStructureMutationResult {
   previousAnnotationIds: string[];
-}
-
-export interface DuplicateGuideEntryResult extends GuideStructureMutationResult {
-  createdEntryId: string;
 }
 
 interface WritableGuideStructure extends GuideStructureSnapshot {
@@ -155,7 +151,7 @@ function assertExactRestoredAnnotationIds(
   }
 }
 
-export async function requireWritableGuideStructure(
+async function requireWritableGuideStructure(
   tx: GuideStepsTransaction,
   sessionId: string,
   expectedContentRevision: number,
@@ -171,7 +167,7 @@ export async function requireWritableGuideStructure(
   return { ...structureSnapshot(guide, steps), steps: orderedSessionSteps(steps) };
 }
 
-export async function commitGuideStructure(
+async function commitGuideStructure(
   tx: GuideStepsTransaction,
   structure: WritableGuideStructure,
   nextEntries: readonly StepEntry[],
@@ -214,16 +210,10 @@ async function runGuideStructureMutation<T extends GuideStructureMutationResult>
   expectedContentRevision: number,
   mutate: (tx: GuideStepsTransaction, structure: WritableGuideStructure) => Promise<T>,
 ): Promise<T> {
-  const db = await getDatabase();
-  const tx = db.transaction(['guides', 'steps'], 'readwrite');
-  try {
+  return runGuideStepsWrite(async (tx) => {
     const structure = await requireWritableGuideStructure(tx, sessionId, expectedContentRevision);
-    const result = await mutate(tx, structure);
-    await tx.done;
-    return result;
-  } catch (error) {
-    return abortTransaction(tx, error);
-  }
+    return mutate(tx, structure);
+  });
 }
 
 function requireEntrySelection(
@@ -262,19 +252,99 @@ function rebaseSectionsAfterDelete(
   return rebased;
 }
 
-export async function getGuideStructureSnapshot(sessionId: string): Promise<GuideStructureSnapshot> {
-  const db = await getDatabase();
-  const tx: ReadonlyGuideStepsTransaction = db.transaction(['guides', 'steps'], 'readonly');
-  const rawGuide = await tx.objectStore('guides').get(sessionId);
-  if (!rawGuide) {
-    await tx.done;
-    throw new Error('Guide not found.');
+/** Rebuilds strict-parser-valid rows from the lenient UI grouping. Legacy rows
+ * (pre-v4 recordings the migration deliberately never rewrote) can violate the
+ * strict topology: empty snapshot groups, anchor-less members with their own
+ * screenshots, boundless annotations, inconsistent group numbering, and order
+ * ties that split a group. buildStepEntries() already defines the salvage
+ * policy for all of these, so the repair persists exactly what the UI would
+ * have shown: anchor-less image members become ordinary entries, unrenderable
+ * rows are dropped, and orders are renumbered densely with each group's anchor
+ * leading its annotations. */
+function repairLegacyStepRows(steps: readonly Step[]): Step[] {
+  const repaired: Step[] = [];
+  for (const entry of buildStepEntries(orderedSessionSteps(steps))) {
+    if (entry.kind === 'single') {
+      const { groupId: _salvagedFromGroup, ...rest } = entry.step;
+      repaired.push(rest);
+      continue;
+    }
+    repaired.push({ ...entry.anchor, groupId: entry.anchor.id });
+    for (const annotation of entry.annotations) {
+      repaired.push({ ...annotation, groupId: entry.anchor.id, numbered: entry.anchor.numbered });
+    }
   }
-  const guide = sanitizeGuide(rawGuide);
-  const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-  const snapshot = structureSnapshot(guide, steps);
-  await tx.done;
-  return snapshot;
+  return repaired.map((step, order) => ({ ...step, order }));
+}
+
+/** One-time load-time repair for guides whose persisted rows predate the strict
+ * topology invariant. Re-validates inside the readwrite transaction (another
+ * tab may have repaired first), commits the lenient parse, and bumps
+ * contentRevision so concurrent CAS mutations against the broken layout fail
+ * cleanly. Rows the lenient reader cannot salvage either keep the guide
+ * fail-closed (original error is rethrown) or are dropped as unrenderable. */
+async function repairGuideStructure(
+  sessionId: string,
+  cause: GuideStructureIntegrityError,
+): Promise<GuideStructureSnapshot> {
+  return runGuideStepsWrite(async (tx) => {
+    const guide = await requireWritableGuide(tx, sessionId);
+    const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
+    try {
+      return structureSnapshot(guide, steps);
+    } catch {
+      // Still broken in this transaction; fall through to the actual repair.
+    }
+    const repairedSteps = repairLegacyStepRows(steps);
+    let entries: StepEntry[];
+    try {
+      entries = buildCompleteStepEntries(repairedSteps, sessionId);
+    } catch {
+      throw cause;
+    }
+    const repairedIds = new Set(repairedSteps.map((step) => step.id));
+    for (const step of steps) {
+      if (!repairedIds.has(step.id)) await tx.objectStore('steps').delete(step.id);
+    }
+    for (const step of repairedSteps) {
+      await tx.objectStore('steps').put(sanitizeStepForStorage(step));
+    }
+    const repairedGuide = sanitizeGuide({
+      ...guide,
+      ...summarizeSteps(repairedSteps),
+      sections: repairGuideSections(guide.sections, entries),
+      updatedAt: Math.max(guide.updatedAt, Date.now()),
+      contentRevision: guide.contentRevision + 1,
+    });
+    await tx.objectStore('guides').put(repairedGuide);
+    return { guide: repairedGuide, entries, entryIds: entries.map(entryId) };
+  });
+}
+
+export async function getGuideStructureSnapshot(sessionId: string): Promise<GuideStructureSnapshot> {
+  const loaded = await runWithDatabase<
+    { snapshot: GuideStructureSnapshot } | { repairCause: GuideStructureIntegrityError }
+  >(async (db) => {
+    const tx: ReadonlyGuideStepsTransaction = db.transaction(['guides', 'steps'], 'readonly');
+    const rawGuide = await tx.objectStore('guides').get(sessionId);
+    if (!rawGuide) {
+      await tx.done;
+      throw new Error('Guide not found.');
+    }
+    const guide = sanitizeGuide(rawGuide);
+    const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
+    try {
+      const snapshot = structureSnapshot(guide, steps);
+      await tx.done;
+      return { snapshot };
+    } catch (error) {
+      await tx.done;
+      if (!(error instanceof GuideStructureIntegrityError)) throw error;
+      return { repairCause: error };
+    }
+  });
+  if ('snapshot' in loaded) return loaded.snapshot;
+  return repairGuideStructure(sessionId, loaded.repairCause);
 }
 
 export async function reorderGuideEntriesAtomically(
@@ -519,64 +589,6 @@ export async function setGuideEntriesNumberedAtomically(
   });
 }
 
-export async function duplicateGuideEntryAtomically(
-  sessionId: string,
-  sourceEntryId: string,
-  expectedContentRevision: number,
-): Promise<DuplicateGuideEntryResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
-    const { byId } = requireEntrySelection(structure.entries, [sourceEntryId]);
-    const source = byId.get(sourceEntryId)!;
-    let duplicate: StepEntry;
-    if (source.kind === 'single') {
-      const id = crypto.randomUUID();
-      duplicate = {
-        kind: 'single',
-        step: sanitizeStepForStorage({
-          ...source.step,
-          id,
-          sessionId,
-          runId: undefined,
-          order: source.step.order + 1,
-          captureRevision: 0,
-          lastCaptureRunId: undefined,
-        }) as ScreenshotStep,
-      };
-    } else {
-      const anchorId = crypto.randomUUID();
-      const anchor = sanitizeStepForStorage({
-        ...source.anchor,
-        id: anchorId,
-        sessionId,
-        runId: undefined,
-        groupId: anchorId,
-        captureRevision: 0,
-        lastCaptureRunId: undefined,
-      }) as ScreenshotStep;
-      const annotations = source.annotations.map((annotation) => sanitizeStepForStorage({
-        ...annotation,
-        id: crypto.randomUUID(),
-        sessionId,
-        runId: undefined,
-        groupId: anchorId,
-        captureRevision: 0,
-        lastCaptureRunId: undefined,
-      }));
-      duplicate = { kind: 'group', anchor, annotations };
-    }
-    const sourceIndex = structure.entries.findIndex((entry) => entryId(entry) === sourceEntryId);
-    const nextEntries = [...structure.entries];
-    nextEntries.splice(sourceIndex + 1, 0, duplicate);
-    const result = await commitGuideStructure(
-      tx,
-      structure,
-      nextEntries,
-      structure.guide.sections,
-      [entryId(duplicate)],
-    );
-    return { ...result, createdEntryId: entryId(duplicate) };
-  });
-}
 
 export async function addGuideSectionAtomically(
   sessionId: string,

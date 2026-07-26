@@ -106,7 +106,7 @@ export function assertGuideStorageLimits(
 export function newGuide(
   id: string,
   now: number,
-  initial?: Partial<Pick<Guide, 'title' | 'description'>>,
+  initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
   summary: Pick<Guide, 'stepCount' | 'entryCount' | 'storageBytes'> = {
     stepCount: 0,
     entryCount: 0,
@@ -119,9 +119,9 @@ export function newGuide(
     title: initial?.title ?? '',
     description: initial?.description ?? '',
     sections: [],
+    tags: initial?.tags ? [...initial.tags] : [],
     createdAt: now,
     updatedAt: now,
-    archivedAt: null,
     contentRevision,
     ...summary,
   });
@@ -130,9 +130,7 @@ export function newGuide(
 export async function requireWritableGuide(tx: GuideStepsTransaction, id: string): Promise<Guide> {
   const guide = await tx.objectStore('guides').get(id);
   if (!guide) throw new Error('Guide not found.');
-  const sanitized = sanitizeGuide(guide);
-  if (sanitized.archivedAt !== null) throw new Error('Archived guides cannot be modified.');
-  return sanitized;
+  return sanitizeGuide(guide);
 }
 
 export async function refreshGuideSummary(
@@ -217,9 +215,9 @@ export function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
             title: defaultGuideTitle(state.createdAt),
             description: '',
             sections: [],
+            tags: [],
             createdAt: state.createdAt,
             updatedAt: state.updatedAt,
-            archivedAt: null,
             contentRevision: 0,
             ...finishSummary(state.summary),
           }));
@@ -251,6 +249,49 @@ export function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
   return databasePromise;
 }
 
+function isClosedConnectionError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'InvalidStateError';
+}
+
+/** Runs one repository operation against the shared connection. The `blocking`
+ * handler above (and browser `terminated`) may close that connection while a
+ * caller still holds the awaited db, making its next transaction()/request
+ * throw InvalidStateError before any work commits. Because nothing was
+ * committed, retrying once against a freshly opened connection is safe and
+ * transparently recovers autosaves and other in-flight callers. */
+export async function runWithDatabase<T>(
+  operation: (db: IDBPDatabase<FrameTrailDB>) => Promise<T>,
+): Promise<T> {
+  const db = await getDatabase();
+  try {
+    return await operation(db);
+  } catch (error) {
+    if (!isClosedConnectionError(error)) throw error;
+    const reopened = await getDatabase();
+    // Same connection means it was never closed; the error has another cause.
+    if (reopened === db) throw error;
+    return operation(reopened);
+  }
+}
+
+/** Standard guides+steps readwrite transaction: closed-connection retry, one
+ * commit, and rollback through abortTransaction so a failing body can never
+ * leak an unhandled tx.done rejection. */
+export async function runGuideStepsWrite<T>(
+  operation: (tx: GuideStepsTransaction) => Promise<T>,
+): Promise<T> {
+  return runWithDatabase(async (db) => {
+    const tx = db.transaction(['guides', 'steps'], 'readwrite');
+    try {
+      const result = await operation(tx);
+      await tx.done;
+      return result;
+    } catch (error) {
+      return abortTransaction(tx, error);
+    }
+  });
+}
+
 /** Closes the shared connection. Primarily useful for tests and graceful teardown. */
 export async function closeDatabase(): Promise<void> {
   const pending = databasePromise;
@@ -261,7 +302,7 @@ export async function closeDatabase(): Promise<void> {
 }
 
 
-export function sortSessionSteps(sessionSteps: Step[], orderedIds: string[]): Step[] {
+function sortSessionSteps(sessionSteps: Step[], orderedIds: string[]): Step[] {
   const byId = new Map(sessionSteps.map((step) => [step.id, step]));
   const seen = new Set<string>();
   const reordered: Step[] = [];

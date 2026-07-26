@@ -19,9 +19,10 @@ import {
   replaceStepCaptureAtomically,
   resetGuide,
   restoreStepsAndReorder,
+  saveStepDescription,
   STEP_STORAGE_LIMITS,
+  StepNotFoundError,
   StepStorageValidationError,
-  updateGuide,
   updateStep,
   updateStepsAtomically,
   type Step,
@@ -345,6 +346,29 @@ describe('step persistence', () => {
     ]);
   });
 
+  it('reports a missing row with a typed error instead of a silent no-op', async () => {
+    // An autosave that treats a resolved update as committed would otherwise
+    // clear its draft journal even though nothing was written.
+    await expect(updateStep(crypto.randomUUID(), { description: '孤兒寫入' }))
+      .rejects.toBeInstanceOf(StepNotFoundError);
+    await expect(saveStepDescription(crypto.randomUUID(), '孤兒寫入', ''))
+      .rejects.toBeInstanceOf(StepNotFoundError);
+  });
+
+  it('saves a description only while the persisted value matches the expected baseline', async () => {
+    const step = makeStep({ description: '原始' });
+    await addStep(step);
+
+    await saveStepDescription(step.id, '分頁 A 的版本', '原始');
+    await expect(saveStepDescription(step.id, '分頁 B 的版本', '原始')).rejects.toMatchObject({
+      name: 'StepDescriptionConflictError',
+      stepId: step.id,
+      actualDescription: '分頁 A 的版本',
+    });
+
+    expect((await getSteps(step.sessionId))[0].description).toBe('分頁 A 的版本');
+  });
+
   it('sanitizes malformed manual bounds and redaction records before storage', async () => {
     const step = makeStep({
       manualBounds: { x: 1, y: 2, width: Number.NaN, height: 4 },
@@ -531,13 +555,12 @@ describe('atomic visual edits and recapture', () => {
 
 
 describe('guide transaction safety', () => {
-  it('rejects capture writes to an archived parent guide', async () => {
+  it('allows capture writes to an existing guide', async () => {
     const step = makeStep();
     await ensureGuide(step.sessionId, step.timestamp);
-    await updateGuide(step.sessionId, { archivedAt: Date.now() });
 
-    await expect(addStepToDatabase(step)).rejects.toThrow('Archived guides cannot be modified.');
-    expect(await getSteps(step.sessionId)).toEqual([]);
+    await expect(addStepToDatabase(step)).resolves.toBeUndefined();
+    expect(await getSteps(step.sessionId)).toHaveLength(1);
   });
 
   it('does not resurrect a permanently deleted guide from a stale capture write', async () => {

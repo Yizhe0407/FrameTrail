@@ -300,17 +300,6 @@ export function clearActiveGuideId(expectedGuideId: string): Promise<boolean> {
   });
 }
 
-/** Subscribes to UI Guide-selection changes; returns an unsubscribe function. */
-export function onActiveGuideIdChange(callback: (guideId: string | null) => void): () => void {
-  const listener = (changes: Record<string, Browser.storage.StorageChange>, areaName: string) => {
-    if (areaName !== 'local') return;
-    const change = changes[ACTIVE_GUIDE_ID_KEY];
-    if (change) callback(normalizeActiveGuideId(change.newValue));
-  };
-  browser.storage.onChanged.addListener(listener);
-  return () => browser.storage.onChanged.removeListener(listener);
-}
-
 export async function getRecordingState(): Promise<RecordingState> {
   const result = await browser.storage.local.get(RECORDING_STATE_KEY);
   return normalizeRecordingState(result[RECORDING_STATE_KEY] as Partial<RecordingState> | undefined);
