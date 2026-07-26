@@ -39,6 +39,18 @@ export interface KeepAliveOptions {
 
 export interface KeepAliveHandle {
   stop(): void;
+  /**
+   * Closes the port cleanly without counting toward the give-up cap. Used on
+   * pagehide: a page that enters the back/forward cache with a live extension
+   * port makes the browser kill the channel and surface an "Unchecked
+   * runtime.lastError" in the service worker, so the client hands the port
+   * back before the document is frozen.
+   */
+  suspend(): void;
+  /** Re-establishes the port after a suspend (pageshow). No-op unless
+   * suspended; backoff state restarts from zero because a restore from the
+   * cache says nothing about background health. */
+  resume(): void;
 }
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 10;
@@ -64,6 +76,7 @@ export function startKeepAlive(
   const maxConsecutiveFailures = Math.max(1, options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES);
 
   let stopped = false;
+  let suspended = false;
   let port: KeepAlivePortLike | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,7 +107,7 @@ export function startKeepAlive(
   };
 
   const scheduleReconnect = () => {
-    if (stopped || reconnectTimer !== null) return;
+    if (stopped || suspended || reconnectTimer !== null) return;
     if (reconnectAttempt >= maxConsecutiveFailures) {
       console.warn('[frametrail] keep-alive gave up after repeated failed reconnects');
       giveUp();
@@ -119,7 +132,7 @@ export function startKeepAlive(
   };
 
   const connect = () => {
-    if (stopped || port !== null) return;
+    if (stopped || suspended || port !== null) return;
     let nextPort: KeepAlivePortLike;
     try {
       nextPort = runtime.connect({ name: options.name });
@@ -154,11 +167,7 @@ export function startKeepAlive(
     heartbeatTimer = setInterval(heartbeat, intervalMs);
   };
 
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    clearHeartbeat();
-    clearReconnect();
+  const closeCurrentPort = () => {
     const current = port;
     port = null;
     if (current) {
@@ -170,6 +179,31 @@ export function startKeepAlive(
     }
   };
 
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearHeartbeat();
+    clearReconnect();
+    closeCurrentPort();
+  };
+
+  const suspend = () => {
+    if (stopped || suspended) return;
+    suspended = true;
+    clearHeartbeat();
+    clearReconnect();
+    // A clean hand-back is not a failure; the next resume starts fresh.
+    reconnectAttempt = 0;
+    closeCurrentPort();
+  };
+
+  const resume = () => {
+    if (stopped || !suspended) return;
+    suspended = false;
+    reconnectAttempt = 0;
+    connect();
+  };
+
   connect();
-  return { stop };
+  return { stop, suspend, resume };
 }

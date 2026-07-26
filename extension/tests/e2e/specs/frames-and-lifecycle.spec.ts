@@ -1,6 +1,8 @@
 import { test, expect } from '../support/fixture';
 import {
   clickSnapshotTarget,
+  clickTarget,
+  expectSteady,
   getSnapshotFrame,
   readRecordingState,
   readSteps,
@@ -122,6 +124,59 @@ test.describe('frames and recording lifecycle', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     expect((await readSteps(popupPage))[0]?.description).toBe('標記頁面區域');
     await stopRecording(popupPage);
+  });
+
+  test('captures a real link click, lets it navigate, and keeps recording on the new page', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+
+    // A genuine <a href> click: the step must commit (screenshot of the OLD
+    // page) before the replayed click is allowed to navigate.
+    await clickTarget(appPage, '#nav-link');
+    await appPage.waitForURL('**/navigated.html');
+
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    const [linkStep] = await readSteps(popupPage);
+    expect(linkStep.description).toBe('開啟連結');
+    expect(linkStep.hasScreenshot).toBe(true);
+
+    // The run survives the navigation and the re-injected recorder captures
+    // the next step on the new document.
+    await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(true);
+    await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+    const heading = appPage.getByRole('heading', { name: '已導覽到新文件' });
+    const box = await heading.boundingBox();
+    if (!box) throw new Error('Navigated heading has no box');
+    await appPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await stopRecording(popupPage);
+  });
+
+  test('going back after the run ended does not resurrect a recorder on the restored page', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    await clickTarget(appPage, '#nav-link');
+    await appPage.waitForURL('**/navigated.html');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await stopRecording(popupPage);
+
+    // The original document went into the back/forward cache with its recorder
+    // installed while the run was still live; the stop message never reached
+    // it. On restore it must tear itself down: no preview overlay, real clicks
+    // reach the page handler, and no step is captured into the dead run.
+    await appPage.goBack();
+    await appPage.waitForURL((url) => !url.href.includes('navigated'));
+    await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(0);
+    await expect.poll(() => appPage.locator('[data-frametrail-recording-toolbar]').count()).toBe(0);
+    await clickTarget(appPage, '#action-button span');
+    await expect.poll(() => appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(1);
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
   });
 
   test('removes an empty snapshot anchor on stop', async ({

@@ -25,6 +25,7 @@ import {
   stepFrameClickMessageType,
 } from '@/lib/recording/frame-relay';
 import { startKeepAlive } from '@/lib/runtime/keep-alive';
+import { installBfcacheLifecycle } from '@/lib/recording/bfcache-lifecycle';
 import {
   deepElementFromPoint,
   findVisualTargetCandidates,
@@ -991,6 +992,22 @@ export default defineContentScript({
       onRejected: () => cleanup(),
     });
 
+    // Navigating away freezes this document in the back/forward cache with all
+    // recorder listeners intact. Hand the keep-alive port back before the
+    // freeze, and on restore only resume when this run is still the live one;
+    // otherwise the restored recorder would swallow real clicks and send
+    // captures into a run that already ended ("step was not captured").
+    const uninstallBfcacheLifecycle = installBfcacheLifecycle({
+      target: window,
+      suspend: () => keepAlive.suspend(),
+      resume: () => keepAlive.resume(),
+      isRunCurrent: async () => {
+        const state = await getRecordingState();
+        return state.operation === 'recording' && state.isRecording && state.runId === runId;
+      },
+      teardown: () => cleanup(),
+    });
+
     const onRecorderMessage = (message: FrameTrailStopMessage | FrameTrailSnapshotActiveMessage) => {
       if (message?.type === 'FRAME_TRAIL_STOP') {
         cleanup();
@@ -1052,6 +1069,7 @@ export default defineContentScript({
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onRecorderMessage);
       unsubscribeRecordingState();
+      uninstallBfcacheLifecycle();
       keepAlive.stop();
     };
     document.addEventListener(CLEANUP_EVENT, cleanup);

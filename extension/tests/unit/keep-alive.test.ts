@@ -196,4 +196,67 @@ describe('startKeepAlive', () => {
     vi.advanceTimersByTime(60_000);
     expect(connect).toHaveBeenCalledTimes(3);
   });
+
+  it('suspend closes the port cleanly and neither heartbeats nor reconnects while suspended', () => {
+    vi.useFakeTimers();
+    const first = port();
+    const connect = vi.fn().mockReturnValue(first);
+    const handle = startKeepAlive(
+      { connect },
+      { name: 'test', intervalMs: 100, initialReconnectDelayMs: 10 },
+    );
+
+    handle.suspend();
+    expect(first.disconnect).toHaveBeenCalledOnce();
+    // The browser-side disconnect of the handed-back port must not be read as
+    // a failure that schedules a reconnect into a frozen document.
+    first.emitDisconnect();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledOnce();
+    expect(first.postMessage).not.toHaveBeenCalled();
+    handle.stop();
+  });
+
+  it('resume reconnects immediately with fresh backoff and heartbeats again', () => {
+    vi.useFakeTimers();
+    const first = port();
+    const second = port();
+    const connect = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const handle = startKeepAlive(
+      { connect },
+      { name: 'test', intervalMs: 100, initialReconnectDelayMs: 10, maxConsecutiveFailures: 2 },
+    );
+
+    // Rack up a failed cycle so a suspend/resume can prove the counter reset.
+    first.emitDisconnect();
+    handle.suspend();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledOnce();
+
+    handle.resume();
+    expect(connect).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(100);
+    expect(second.postMessage).toHaveBeenCalledWith({ type: 'heartbeat' });
+    // Resuming twice must not open a second port.
+    handle.resume();
+    expect(connect).toHaveBeenCalledTimes(2);
+    handle.stop();
+  });
+
+  it('suspend and resume are no-ops after stop', () => {
+    vi.useFakeTimers();
+    const first = port();
+    const connect = vi.fn().mockReturnValue(first);
+    const handle = startKeepAlive(
+      { connect },
+      { name: 'test', intervalMs: 100, initialReconnectDelayMs: 10 },
+    );
+
+    handle.stop();
+    expect(first.disconnect).toHaveBeenCalledOnce();
+    handle.suspend();
+    handle.resume();
+    vi.advanceTimersByTime(60_000);
+    expect(connect).toHaveBeenCalledOnce();
+  });
 });

@@ -154,6 +154,26 @@ describe('orchestrateStepCapture', () => {
     }
   });
 
+  it('keeps a committed capture intact when the response channel dies: failed outcome never invalidates background work', async () => {
+    // A link-click capture commits in the background before the response is
+    // sent; if that response is lost (page already navigating into bfcache),
+    // the content side sees a failure. It must NOT send a cancellation — the
+    // committed step has to survive — and it must still replay so the page
+    // stays usable.
+    const cancelCapture = vi.fn(async () => {});
+    const harness = createHarness({
+      capture: () => Promise.reject(new Error('message channel closed')),
+      cancelCapture,
+    });
+    const outcome = await orchestrateStepCapture(harness.handlers);
+
+    expect(outcome).toBe('failed');
+    expect(cancelCapture).not.toHaveBeenCalled();
+    expect(harness.log).toContain('endGesture');
+    expect(harness.log).toContain('replay');
+    expect(harness.log[harness.log.length - 1]).toBe('resume');
+  });
+
   it('does not replay a cancelled gesture but still restores state', async () => {
     const harness = createHarness();
     const run = orchestrateStepCapture(harness.handlers);

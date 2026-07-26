@@ -2653,6 +2653,17 @@ async function withMessageFailureFallback<T>(
 }
 
 export default defineBackground(() => {
+  // A worker woken by a capture message from a page whose persisted run is
+  // stale (e.g. a bfcache-restored recorder) must not race startup recovery:
+  // clicks queue behind this settle so a dead run is retired silently by
+  // recovery instead of loudly by the click's own error paths.
+  const startupRecovery = (async () => {
+    await recoverInterruptedRecapture();
+    await recoverInterruptedRecording();
+  })().catch((error) => {
+    console.error('[frametrail] failed to recover an interrupted operation', error);
+  });
+
   browser.runtime.onMessage.addListener((message: unknown, sender) => {
     if (!isBackgroundMessage(message)) return undefined;
     if (
@@ -2768,14 +2779,23 @@ export default defineBackground(() => {
         }
         {
           const expectedControlVersion = controlVersion;
-          return queueClick(() => handleRecaptureTarget(message, sender, expectedControlVersion));
+          return queueClick(async () => {
+            await startupRecovery;
+            return handleRecaptureTarget(message, sender, expectedControlVersion);
+          });
         }
       case 'FRAME_TRAIL_CLICK':
         if (!acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {
           const expectedControlVersion = controlVersion;
           return withMessageFailureFallback(
-            queueClick(() => handleClick(message, sender, expectedControlVersion)),
+            queueClick(async () => {
+              // The version was read before recovery: if this very message woke
+              // the worker over a stale persisted run, recovery settles the run
+              // and the bumped version rejects the click silently.
+              await startupRecovery;
+              return handleClick(message, sender, expectedControlVersion);
+            }),
             'capture request failed',
             { ok: false } satisfies ClickCaptureResult,
           );
@@ -2843,6 +2863,11 @@ export default defineBackground(() => {
     };
     port.onDisconnect.addListener(() => {
       disconnected = true;
+      // A recorded page that navigates hands its port to the back/forward
+      // cache, which closes the channel with a runtime.lastError. Reading it
+      // here acknowledges the expected disconnect so Chrome stops logging
+      // "Unchecked runtime.lastError" for every recorded-page navigation.
+      void browser.runtime.lastError;
     });
     port.onMessage.addListener((message) => {
       if (message?.type !== 'heartbeat') {
@@ -3005,12 +3030,6 @@ export default defineBackground(() => {
     });
   });
 
-  void (async () => {
-    await recoverInterruptedRecapture();
-    await recoverInterruptedRecording();
-  })().catch((error) => {
-    console.error('[frametrail] failed to recover an interrupted operation', error);
-  });
   // Through the click queue so rehydration is ordered before any queued
   // restore/undo message this startup is already receiving.
   void queueClick(recoverPendingUndo).catch((error) => {

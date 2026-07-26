@@ -4,6 +4,7 @@ import {
   resolveSnapshotTargetAtPoint,
 } from './snapshot-targeting';
 import { startKeepAlive } from '../runtime/keep-alive';
+import { installBfcacheLifecycle } from './bfcache-lifecycle';
 import { deepElementFromPoint, getComposedParent } from '../capture/selector-utils';
 import { createStepPreview } from '../capture/step-preview';
 import {
@@ -94,6 +95,19 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
     // The background rejected this recorder (or is unreachable for good):
     // tear down the injected UI instead of reconnecting forever.
     onRejected: () => cleanup(),
+  });
+  // A source page frozen into the back/forward cache must hand its port back
+  // cleanly; on restore the recapture is already settled (any navigation fails
+  // it), so a stale recorder tears down instead of selecting into a dead run.
+  const uninstallBfcacheLifecycle = installBfcacheLifecycle({
+    target: window,
+    suspend: () => keepAlive.suspend(),
+    resume: () => keepAlive.resume(),
+    isRunCurrent: async () => {
+      const state = await getRecordingState();
+      return state.operation === 'recapture' && state.recapture?.runId === runId;
+    },
+    teardown: () => cleanup(),
   });
 
   const cancelWorkflow = () => {
@@ -222,6 +236,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);
     unsubscribe();
+    uninstallBfcacheLifecycle();
     keepAlive.stop();
   }
   unsubscribe = onRecordingStateChange((state) => {

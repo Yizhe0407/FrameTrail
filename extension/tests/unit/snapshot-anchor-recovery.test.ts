@@ -285,6 +285,43 @@ describe('startup recovery validates the snapshot anchor', () => {
   });
 });
 
+describe('a click that wakes the worker over a stale persisted run', () => {
+  it('queues behind startup recovery, which settles the run silently instead of the in-click anchor settle', async () => {
+    // The user's bfcache-restored recorder fires a click that wakes the
+    // service worker. Startup recovery must win: the run is settled once by
+    // recovery and the click is rejected quietly — never the louder
+    // "snapshot anchor is gone; settling the run" in-click path.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let releaseTabGet!: (tab: { id: number; windowId: number; url: string }) => void;
+    mocks.tabsGet.mockImplementation(() => new Promise((resolve) => {
+      releaseTabGet = resolve;
+    }));
+    mocks.getRecordingState.mockResolvedValue(snapshotState());
+    mocks.getStep.mockResolvedValue(undefined);
+    mocks.getSteps.mockResolvedValue([]);
+
+    await importBackground();
+    // Recovery is still blocked on tabs.get when the click arrives.
+    const pendingClick = mocks.messageListener?.(clickMessage(), recordedPageSender) as Promise<unknown>;
+    releaseTabGet({ id: 4, windowId: 6, url: PAGE_URL });
+
+    expect(await pendingClick).toMatchObject({ ok: false });
+    expect(mocks.setRecordingState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isRecording: false,
+        phase: 'error',
+        recoverableError: expect.objectContaining({ code: 'SNAPSHOT_ANCHOR_MISSING' }),
+      }),
+    );
+    expect(mocks.setRecordingState).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('snapshot anchor is gone'),
+      expect.anything(),
+    );
+    errorSpy.mockRestore();
+  });
+});
+
 describe('annotation clicks against a run whose anchor disappeared mid-run', () => {
   it('settles the run once with a recoverable error instead of a per-click error', async () => {
     // Recovery sees a healthy anchor at startup; the row disappears afterwards
