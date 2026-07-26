@@ -91,23 +91,22 @@ function renderGuideMarkdown<T extends RenderedEntryContent>(
     if (section) {
       lines.push('', `## ${escapeGuideMarkdown(section.title)}`);
     }
+    // Text-first reading order matches the HTML and PDF publications: the step
+    // description leads, its screenshot follows, then any group annotations.
+    const description = textValue(entry.description);
+    if (description || entry.annotations.length === 0) {
+      lines.push('', escapeGuideMarkdown(textOrDefault(description, DEFAULT_DESCRIPTION)));
+    }
     const alt = textOrDefault(entry.description, DEFAULT_IMAGE_ALT);
     lines.push('', `![${escapeGuideMarkdown(alt)}](${imageReference(entry)})`);
-    appendMarkdownEntryText(lines, entry);
+    if (entry.annotations.length > 0) {
+      lines.push('');
+      for (const [index, annotation] of entry.annotations.entries()) {
+        lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}`);
+      }
+    }
   }
 
   return `${lines.join('\n')}\n`;
-}
-
-function appendMarkdownEntryText(lines: string[], entry: RenderedEntryContent): void {
-  if (entry.annotations.length === 0) {
-    lines.push('', escapeGuideMarkdown(textOrDefault(entry.description, DEFAULT_DESCRIPTION)));
-  } else {
-    const description = textValue(entry.description);
-    if (description) lines.push('', escapeGuideMarkdown(description));
-    for (const [index, annotation] of entry.annotations.entries()) {
-      lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}`);
-    }
-  }
 }
 

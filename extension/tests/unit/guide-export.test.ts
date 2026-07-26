@@ -28,6 +28,7 @@ import {
   generateGuidePdf,
   guideExportFilename,
 } from '@/lib/export/guide-export';
+import { renderEntryImages } from '@/lib/export/guide-export-render';
 
 function entry(overrides: Record<string, unknown> = {}): StepEntry {
   return {
@@ -91,15 +92,23 @@ function groupEntry(): StepEntry {
 
 /**
  * Stubs OffscreenCanvas with a 14px-per-code-point measurer (content width
- * 1072px, so 76 code points fit per line) and returns the fillText spy.
+ * 1072px, so 76 code points fit per line; step headings are indented by the
+ * number badge) and returns the fillText spy.
  */
 function stubPdfCanvas() {
   const fillText = vi.fn();
   const context = {
     fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
     font: '',
+    textAlign: 'left',
     textBaseline: 'top',
     fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
     fillText,
     drawImage: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
@@ -113,9 +122,10 @@ function stubPdfCanvas() {
       return new Blob(['jpeg-page'], { type: 'image/jpeg' });
     }
   }
+  const close = vi.fn();
   vi.stubGlobal('OffscreenCanvas', OffscreenCanvasMock);
-  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close: vi.fn() }));
-  return fillText;
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close }));
+  return Object.assign(fillText, { bitmapClose: close });
 }
 
 afterEach(() => {
@@ -156,28 +166,7 @@ describe('guide export', () => {
   });
 
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
-    const fillText = vi.fn();
-    const context = {
-      fillStyle: '',
-      font: '',
-      textBaseline: 'top',
-      fillRect: vi.fn(),
-      fillText,
-      drawImage: vi.fn(),
-      measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
-    };
-    class OffscreenCanvasMock {
-      constructor(readonly width: number, readonly height: number) {}
-      getContext() {
-        return context;
-      }
-      async convertToBlob() {
-        return new Blob(['jpeg-page'], { type: 'image/jpeg' });
-      }
-    }
-    const close = vi.fn();
-    vi.stubGlobal('OffscreenCanvas', OffscreenCanvasMock);
-    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close }));
+    const fillText = stubPdfCanvas();
 
     const pdf = await generateGuidePdf([groupEntry()], { title: 'PDF guide' });
     const drawnText = fillText.mock.calls.map(([text]) => String(text));
@@ -192,11 +181,15 @@ describe('guide export', () => {
     expect(drawnText).toContain('Shared page');
     expect(drawnText).toContain('1. ');
     expect(drawnText).toContain('First annotation');
+    // Metadata line and running footer.
+    expect(drawnText).toContain('共 1 個步驟');
+    expect(drawnText).toContain('第 1 頁');
+    // The step badge draws only the numeral, never a "Step" label.
+    expect(drawnText).toContain('1');
     expect(drawnText).not.toContain('Source');
     expect(drawnText).not.toContain('Step');
     expect(drawnText).not.toContain('Annotations');
-    expect(close).toHaveBeenCalledOnce();
-
+    expect(fillText.bitmapClose).toHaveBeenCalledOnce();
   });
 
   it('wraps PDF text at word boundaries instead of splitting English mid-word', async () => {
@@ -267,6 +260,9 @@ describe('guide export', () => {
     expect(strFromU8(files['images/02.jpg'])).toBe('second-image');
     expect(markdown).toContain('![Open settings](images/01.jpg)');
     expect(markdown).toContain('![Shared page](images/02.jpg)');
+    // Text-first reading order: the description paragraph precedes its image.
+    expect(markdown.indexOf('Open settings')).toBeLessThan(markdown.indexOf('![Open settings](images/01.jpg)'));
+    expect(markdown.indexOf('Shared page')).toBeLessThan(markdown.indexOf('![Shared page](images/02.jpg)'));
     expect(markdown).not.toContain('Step 1');
     expect(markdown).not.toContain('Step 2');
     expect(markdown).not.toContain('Source:');
@@ -389,6 +385,29 @@ describe('guide export', () => {
     expect(html).not.toContain('Step 1');
   });
 
+  it('renders a numbered badge and description heading above each HTML screenshot', async () => {
+    const html = await generateGuideHtml([entry(), groupEntry()], { title: 'Guide' });
+
+    const firstBadge = html.indexOf('<span class="step-number" aria-hidden="true">1</span>');
+    const firstTitle = html.indexOf('<h3 class="step-title">Open settings</h3>');
+    const firstImage = html.indexOf('<figure>');
+    expect(firstBadge).toBeGreaterThan(-1);
+    expect(firstBadge).toBeLessThan(firstTitle);
+    expect(firstTitle).toBeLessThan(firstImage);
+    expect(html).toContain('<span class="step-number" aria-hidden="true">2</span>');
+    expect(html).toContain('<h3 class="step-title">Shared page</h3>');
+  });
+
+  it('renders a title-block metadata line with the step count and optional creation date', async () => {
+    const html = await generateGuideHtml([entry()], { title: 'Guide', createdAt: Date.UTC(2026, 6, 26, 12) });
+    expect(html).toContain('共 1 個步驟');
+    expect(html).toContain('建立於');
+
+    const withoutDate = await generateGuideHtml([entry()], { title: 'Guide' });
+    expect(withoutDate).toContain('共 1 個步驟');
+    expect(withoutDate).not.toContain('建立於');
+  });
+
   it('propagates shared compositing failures so redaction review remains fail-closed', async () => {
     const privacyError = new Error('Sensitive-information masks must be reviewed before export.');
     mocks.composite.mockRejectedValueOnce(privacyError);
@@ -442,6 +461,37 @@ describe('guide export', () => {
     await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
     expect(mocks.composite).toHaveBeenCalledTimes(5);
     expect(arrayBuffer).toHaveBeenCalledTimes(4);
+  });
+
+  it('starts the lookahead composite before the consumer drains the current image', async () => {
+    const iterator = renderEntryImages([entry(), entry({ id: 'step-2', order: 2 })]);
+    const first = await iterator.next();
+
+    // Pipelining contract: while the consumer still holds image 1, image 2 is
+    // already compositing — but never more than one ahead (bounded memory).
+    expect(first.done).toBe(false);
+    expect(mocks.composite).toHaveBeenCalledTimes(2);
+
+    const second = await iterator.next();
+    expect(second.done).toBe(false);
+    const end = await iterator.next();
+    expect(end.done).toBe(true);
+    expect(mocks.composite).toHaveBeenCalledTimes(2);
+  });
+
+  it('observes a failing lookahead composite when the generator is abandoned early', async () => {
+    mocks.composite
+      .mockResolvedValueOnce(new Blob(['first'], { type: 'image/jpeg' }))
+      .mockRejectedValueOnce(new Error('late compositing failure'));
+
+    const iterator = renderEntryImages([entry(), entry({ id: 'step-2', order: 2 })]);
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    await iterator.return(undefined);
+
+    // An unobserved lookahead rejection would surface as an unhandled
+    // rejection once the microtask/macrotask queues drain and fail the run.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
 });

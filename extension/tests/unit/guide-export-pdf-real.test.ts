@@ -34,12 +34,19 @@ const TINY_JPEG = Uint8Array.from(
  * point (content width 1072px -> 76 code points per line) and rasterizes each
  * finished page to the tiny real JPEG above so pdf-lib embeds genuine bytes.
  */
-function stubPdfCanvas(): void {
+function stubPdfCanvas() {
   const context = {
     fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
     font: '',
+    textAlign: 'left',
     textBaseline: 'top',
     fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
     fillText: vi.fn(),
     drawImage: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
@@ -61,6 +68,7 @@ function stubPdfCanvas(): void {
     'createImageBitmap',
     vi.fn(async () => ({ width: 1_200, height: 700, close: vi.fn() })),
   );
+  return context;
 }
 
 function entry(id: string, order: number, description: string): StepEntry {
@@ -80,8 +88,10 @@ function entry(id: string, order: number, description: string): StepEntry {
   } as StepEntry;
 }
 
+let canvasContext: ReturnType<typeof stubPdfCanvas>;
+
 beforeEach(() => {
-  stubPdfCanvas();
+  canvasContext = stubPdfCanvas();
   mocks.composite.mockReset().mockResolvedValue(new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }));
 });
 
@@ -118,6 +128,19 @@ describe('generateGuidePdf with the real pdf-lib', () => {
       expect(height).toBeCloseTo(841.89, 2);
     }
     expect(mocks.composite).toHaveBeenCalledTimes(entries.length);
+
+    // Layout invariants: every page carries a running footer with the guide
+    // title and a zh-Hant page number, each step draws its numbered badge, and
+    // each screenshot is framed with a border.
+    const drawnText = canvasContext.fillText.mock.calls.map(([text]) => String(text));
+    expect(drawnText).toContain('第 1 頁');
+    expect(drawnText).toContain('第 2 頁');
+    expect(drawnText).toContain('第 3 頁');
+    expect(drawnText).not.toContain('第 4 頁');
+    expect(drawnText.filter((text) => text.includes('安裝指南 Setup Guide 🚀')).length)
+      .toBeGreaterThanOrEqual(entries.length);
+    expect(canvasContext.arc).toHaveBeenCalledTimes(entries.length);
+    expect(canvasContext.strokeRect).toHaveBeenCalledTimes(entries.length);
   });
 
   it('emits a single-page PDF for a lone entry and keeps the title page merged with it', async () => {

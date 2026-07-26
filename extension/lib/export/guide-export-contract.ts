@@ -11,6 +11,11 @@ export interface GuideExportMetadata {
   filename?: string;
   /** Optional chapter headings anchored to complete timeline entry ids. */
   sections?: readonly GuideSection[];
+  /**
+   * Optional creation time (epoch milliseconds) rendered in the title block of
+   * styled exports. Display-only: it never affects filenames or determinism.
+   */
+  createdAt?: number;
 }
 
 export interface GuideExportOptions {
@@ -28,8 +33,8 @@ export interface GuideMarkdownArchive {
 }
 
 export const DEFAULT_TITLE = 'FrameTrail Guide';
-export const DEFAULT_DESCRIPTION = 'No description provided.';
-export const DEFAULT_IMAGE_ALT = 'Screenshot';
+export const DEFAULT_DESCRIPTION = '（未填寫說明）';
+export const DEFAULT_IMAGE_ALT = '步驟截圖';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
@@ -108,6 +113,22 @@ function filenameStem(metadata: GuideExportMetadata): string {
   // Bound by code points so truncation can never leave a lone surrogate.
   const bounded = [...stem].slice(0, 96).join('').replace(/-+$/, '');
   return bounded || DEFAULT_FILENAME;
+}
+
+/**
+ * Formats an optional creation timestamp for display in exported documents.
+ * Returns an empty string for absent or invalid values so callers can simply
+ * skip the metadata line.
+ */
+export function formatGuideCreatedAt(timestamp: unknown): string {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat('zh-Hant', { dateStyle: 'long' }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 export function getSignal(control: GuideExportControl): AbortSignal | undefined {
