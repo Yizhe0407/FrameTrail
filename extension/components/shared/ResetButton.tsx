@@ -10,6 +10,7 @@ interface Props {
   sessionId: string | null;
   className?: string;
   variant?: ComponentProps<typeof Button>['variant'];
+  compact?: boolean;
   disabled?: boolean;
   onReset?: () => void | Promise<void>;
 }
@@ -19,6 +20,7 @@ export default function ResetButton({
   sessionId,
   className,
   variant = 'ghost',
+  compact = false,
   disabled = false,
   onReset,
 }: Props) {
@@ -36,7 +38,10 @@ export default function ResetButton({
       setConfirmationOpen(false);
     } catch (err) {
       console.error('重置錄製失敗', err);
-      setResetError('重置失敗，請再試一次。');
+      // The background reports actionable reasons (for example a reset refused
+      // mid-recording); surface them instead of flattening to a generic retry.
+      const reason = err instanceof Error && err.message ? err.message : null;
+      setResetError(reason ? `重置失敗：${reason}` : '重置失敗，請再試一次。');
     } finally {
       setResetting(false);
     }
@@ -47,19 +52,23 @@ export default function ResetButton({
       <div className="flex flex-col items-end gap-1">
         <Button
           variant={variant}
-          onClick={() => setConfirmationOpen(true)}
+          size={compact ? 'icon' : undefined}
+          onClick={() => {
+            setResetError(null);
+            setConfirmationOpen(true);
+          }}
           disabled={!hasSteps || !sessionId || disabled || resetting}
+          aria-label={resetting ? '正在重置' : '重置目前錄製'}
           title={disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}
           className={cn(
-            'text-stone-500 hover:bg-red-50 hover:text-red-700 dark:text-stone-400 dark:hover:bg-red-950/40 dark:hover:text-red-400',
-            variant === 'outline' && 'border-stone-200 hover:border-red-200 dark:border-stone-700',
+            'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
+            variant === 'outline' && 'hover:border-destructive/40',
             className,
           )}
         >
           {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-          {resetting ? '重置中' : '重置'}
+          <span className={compact ? 'sr-only' : undefined}>{resetting ? '重置中' : '重置'}</span>
         </Button>
-        {resetError && <span role="alert" className="text-xs text-red-600 dark:text-red-400">{resetError}</span>}
       </div>
       <ConfirmationDialog
         open={confirmationOpen}
@@ -67,7 +76,13 @@ export default function ResetButton({
         description="所有步驟與標注都會永久刪除，這項操作無法復原。"
         confirmLabel="重置"
         pending={resetting}
-        onOpenChange={setConfirmationOpen}
+        // Failure keeps the dialog open for a retry, so the message must live
+        // inside the modal; anything rendered behind it is aria-hidden.
+        error={resetError}
+        onOpenChange={(open) => {
+          setConfirmationOpen(open);
+          if (!open) setResetError(null);
+        }}
         onConfirm={handleReset}
       />
     </>

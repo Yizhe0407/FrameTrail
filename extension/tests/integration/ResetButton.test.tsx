@@ -17,7 +17,7 @@ afterEach(cleanup);
 
 describe('ResetButton', () => {
   async function confirmReset() {
-    fireEvent.click(screen.getByRole('button', { name: '重置' }));
+    fireEvent.click(screen.getByRole('button', { name: '重置目前錄製' }));
     const dialog = await screen.findByRole('dialog', { name: '重置目前錄製？' });
     const confirmButton = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === '重置');
     if (!confirmButton) throw new Error('找不到確認重置按鈕');

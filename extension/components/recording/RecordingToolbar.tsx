@@ -60,15 +60,50 @@ interface Props {
 }
 
 const styles = `
-  :host { color-scheme: light dark; }
+  :host {
+    --ft-radius: 8px;
+    --ft-surface: #ffffff;
+    --ft-text: #1c1c1c;
+    --ft-status-text: #1c1c1c;
+    --ft-muted: rgba(28, 28, 28, .6);
+    --ft-border: rgba(28, 28, 28, .12);
+    --ft-primary: #7094f4;
+    --ft-primary-text: #ffffff;
+    --ft-recording: #ff4747;
+    --ft-focus: #7094f4;
+    --ft-divider: rgba(28, 28, 28, .12);
+    --ft-actions-bg: rgba(28, 28, 28, .05);
+    --ft-btn-text: rgba(28, 28, 28, .72);
+    --ft-btn-hover-bg: rgba(28, 28, 28, .08);
+    --ft-btn-danger-hover-bg: rgba(255, 71, 71, .14);
+    --ft-btn-danger-hover-text: #e23b3b;
+    --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  @media (prefers-color-scheme: dark) {
+    :host {
+      --ft-surface: #1c1c1c;
+      --ft-text: #ffffff;
+      --ft-status-text: #ffffff;
+      --ft-muted: rgba(255, 255, 255, .65);
+      --ft-border: rgba(255, 255, 255, .14);
+      --ft-primary: #7094f4;
+      --ft-primary-text: #ffffff;
+      --ft-recording: #ff4747;
+      --ft-focus: #60a5fa;
+      --ft-divider: rgba(255, 255, 255, .14);
+      --ft-actions-bg: rgba(255, 255, 255, .06);
+      --ft-btn-text: rgba(255, 255, 255, .85);
+      --ft-btn-hover-bg: rgba(255, 255, 255, .12);
+      --ft-btn-danger-hover-bg: rgba(255, 71, 71, .2);
+      --ft-btn-danger-hover-text: #ff8080;
+      --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+    }
+  }
   * { box-sizing: border-box; letter-spacing: 0; }
   button { font: inherit; }
   .ft-layer {
-    --ft-surface: #fff; --ft-text: #1c1917; --ft-muted: #57534e;
-    --ft-border: #d6d3d1; --ft-primary: #4d7c0f; --ft-primary-text: #fff;
-    --ft-recording: #be123c; --ft-focus: #2563eb;
     position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", sans-serif;
     font-size: 14px; line-height: 1.4;
   }
   .ft-position {
@@ -76,65 +111,69 @@ const styles = `
   }
   .ft-modal-backdrop { position: absolute; inset: 0; z-index: 1; pointer-events: auto; background: transparent; }
   .ft-toolbar {
-    height: 44px; max-width: min(360px, calc(100vw - 32px)); display: flex; align-items: center; gap: 2px;
-    padding: 0 4px 0 12px; border: 1px solid var(--ft-border); border-radius: 999px;
-    background: var(--ft-surface); color: var(--ft-text); box-shadow: 0 8px 24px rgb(28 25 23 / .2);
+    height: 58px; max-width: min(520px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px;
+    padding: 0 8px 0 18px; border: 1px solid var(--ft-border); border-radius: 999px;
+    background: var(--ft-surface); color: var(--ft-text); box-shadow: var(--ft-shadow);
   }
   .ft-toolbar--invalidated {
     width: min(520px, calc(100vw - 32px)); height: auto; max-width: calc(100vw - 32px); gap: 10px;
-    padding: 8px; border-radius: 8px;
+    padding: 8px; border-radius: var(--ft-radius);
   }
   .ft-invalidated-status { min-width: 0; flex: 1 1 240px; display: flex; align-items: center; gap: 8px; }
-  .ft-invalidated-status svg { width: 18px; height: 18px; flex: none; color: #b45309; }
+  .ft-invalidated-status svg { width: 18px; height: 18px; flex: none; color: #fbbf24; }
   .ft-invalidated-copy { min-width: 0; font-size: 12px; font-weight: 600; white-space: normal; }
   .ft-invalidated-actions { flex: none; display: flex; align-items: center; gap: 2px; }
   .ft-status {
-    min-width: 0; height: 40px; display: flex; align-items: center; gap: 8px; margin-right: 4px;
+    min-width: 0; height: 42px; display: flex; align-items: center; gap: 9px;
     padding: 0; border: 0; background: transparent; color: inherit; white-space: nowrap; cursor: grab;
     touch-action: none;
   }
   .ft-status:active, .ft-collapsed:active { cursor: grabbing; }
-  .ft-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--ft-recording); }
-  .ft-status-text { overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ft-dot { width: 9px; height: 9px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 4px rgba(255,71,71,.22); }
+  .ft-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--ft-status-text); }
+  .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+  .ft-divider { width: 1px; height: 26px; background: var(--ft-divider); flex: none; }
+  .ft-actions-group { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
   .ft-button {
-    width: 40px; height: 40px; flex: none; display: inline-flex; align-items: center; justify-content: center;
-    padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ft-muted); cursor: pointer;
+    width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; border: 0; border-radius: 99px; background: transparent; color: var(--ft-btn-text); cursor: pointer; transition: background .15s, color .15s;
   }
-  .ft-button:hover:not(:disabled) { background: #f5f5f4; color: var(--ft-text); }
+  .ft-button:hover:not(:disabled) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
+  .ft-button[data-danger="true"]:hover:not(:disabled) { background: var(--ft-btn-danger-hover-bg); color: var(--ft-btn-danger-hover-text); }
   .ft-button:disabled { opacity: .42; cursor: default; }
   .ft-button:focus-visible, .ft-status:focus-visible, .ft-collapsed:focus-visible, .ft-finish:focus-visible,
   .ft-secondary:focus-visible, .ft-menu button:focus-visible, .ft-confirm button:focus-visible,
   .ft-snackbar button:focus-visible {
     outline: 2px solid var(--ft-focus); outline-offset: 2px;
   }
-  .ft-button svg, .ft-finish svg { width: 17px; height: 17px; }
+  .ft-button svg { width: 17px; height: 17px; }
   .ft-finish {
-    height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    margin-left: 2px; padding: 0 13px; border: 0; border-radius: 999px; background: var(--ft-primary);
-    color: var(--ft-primary-text); font-weight: 600; cursor: pointer; white-space: nowrap;
+    height: 42px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 0 22px; border: 0; border-radius: 999px; background: var(--ft-primary);
+    color: var(--ft-primary-text); font-size: 15px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s;
   }
+  .ft-finish:hover:not(:disabled) { background: #5f83e8; }
   .ft-finish:disabled { opacity: .68; cursor: wait; }
   .ft-secondary {
     height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
     padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ft-muted);
     font-weight: 600; cursor: pointer; white-space: nowrap;
   }
-  .ft-secondary:hover:not(:disabled) { background: #f5f5f4; color: var(--ft-text); }
+  .ft-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, .1); color: var(--ft-text); }
   .ft-secondary:disabled { opacity: .5; cursor: wait; }
   .ft-collapsed {
-    position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
-    border: 1px solid var(--ft-border); border-radius: 50%; background: var(--ft-surface); color: var(--ft-text);
-    box-shadow: 0 8px 24px rgb(28 25 23 / .2); cursor: grab; touch-action: none;
+    position: relative; height: 48px; padding: 0 8px 0 16px; display: flex; align-items: center; gap: 11px;
+    border: 1px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface); color: var(--ft-text);
+    box-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06); cursor: pointer; touch-action: none;
   }
-  .ft-collapsed .ft-dot { position: absolute; left: 9px; top: 9px; }
-  .ft-count { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: rgba(255,255,255,.1); color: #fff; }
   .ft-message, .ft-snackbar, .ft-menu, .ft-confirm {
     position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; max-width: min(320px, calc(100vw - 32px));
-    padding: 10px 12px; border: 1px solid var(--ft-border); border-radius: 8px; background: var(--ft-surface);
-    color: var(--ft-text); box-shadow: 0 8px 24px rgb(28 25 23 / .18); font-size: 12px;
+    padding: 10px 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
+    color: var(--ft-text); box-shadow: 0 8px 24px rgba(28, 25, 23, .18); font-size: 12px;
   }
   .ft-message { display: flex; align-items: center; gap: 8px; }
-  .ft-message[data-kind="error"] { color: #9f1239; }
+  .ft-message[data-kind="error"] { color: #ff8a8a; }
   .ft-snackbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .ft-snackbar button { border: 0; background: transparent; color: var(--ft-primary); font-weight: 700; cursor: pointer; }
   .ft-position[data-vertical="top"] .ft-message,
@@ -148,34 +187,34 @@ const styles = `
   .ft-menu { min-width: 190px; padding: 4px; }
   .ft-menu button {
     width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-    border: 0; border-radius: 6px; background: transparent; color: var(--ft-text); text-align: left; cursor: pointer;
+    border: 0; border-radius: var(--ft-radius); background: transparent; color: var(--ft-text); text-align: left; cursor: pointer;
   }
-  .ft-menu button:hover:not(:disabled) { background: #f5f5f4; }
-  .ft-menu button[data-danger="true"] { color: #9f1239; }
+  .ft-menu button:hover:not(:disabled) { background: rgba(255, 255, 255, .1); }
+  .ft-menu button[data-danger="true"] { color: #ff8a8a; }
   .ft-menu svg { width: 17px; height: 17px; flex: none; }
   .ft-confirm { width: min(300px, calc(100vw - 32px)); padding: 16px; }
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
   .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; line-height: 1.5; }
   .ft-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .ft-confirm button {
-    min-height: 36px; padding: 0 12px; border: 1px solid var(--ft-border); border-radius: 6px;
+    min-height: 36px; padding: 0 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius);
     background: transparent; color: var(--ft-text); font-weight: 600; cursor: pointer;
   }
-  .ft-confirm button[data-danger="true"] { border-color: #be123c; background: #be123c; color: #fff; }
+  .ft-confirm button[data-danger="true"] { border-color: var(--ft-recording); background: var(--ft-recording); color: #fff; }
   .ft-confirm button:disabled, .ft-menu button:disabled { opacity: .5; cursor: wait; }
   .ft-success { width: 18px; height: 18px; color: var(--ft-primary); }
   .ft-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-  @media (prefers-color-scheme: dark) {
-    .ft-layer { --ft-surface: #292524; --ft-text: #fafaf9; --ft-muted: #d6d3d1; --ft-border: #57534e; --ft-primary: #a3e635; --ft-primary-text: #1c1917; --ft-recording: #fb7185; --ft-focus: #60a5fa; }
-    .ft-button:hover:not(:disabled) { background: #44403c; }
-    .ft-secondary:hover:not(:disabled) { background: #44403c; }
-    .ft-menu button:hover:not(:disabled) { background: #44403c; }
-    .ft-message[data-kind="error"] { color: #fda4af; }
-    .ft-menu button[data-danger="true"] { color: #fda4af; }
-    .ft-invalidated-status svg { color: #fbbf24; }
-  }
   @media (max-width: 520px) {
     .ft-position { max-width: calc(100vw - 16px); }
+    .ft-toolbar:not(.ft-toolbar--invalidated) {
+      width: calc(100vw - 16px); height: auto; min-height: 0; max-width: calc(100vw - 16px);
+      flex-wrap: wrap; gap: 6px; padding: 7px 8px; border-radius: var(--ft-radius);
+    }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-status { flex: 1 1 100%; height: 32px; padding: 0 4px; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-divider { display: none; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-actions-group { flex: 1 1 0; justify-content: space-around; gap: 0; padding: 3px; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-button { width: 32px; height: 32px; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-finish { height: 38px; padding: 0 14px; font-size: 14px; }
     .ft-toolbar--invalidated { width: calc(100vw - 16px); max-width: calc(100vw - 16px); flex-wrap: wrap; }
     .ft-invalidated-status { flex-basis: 100%; padding: 2px 4px; }
     .ft-invalidated-actions { width: 100%; }
@@ -245,7 +284,12 @@ export default function RecordingToolbar({
     let active = true;
     void browser.storage.local.get(RECORDING_TOOLBAR_CORNER_KEY).then((stored) => {
       const saved = stored[RECORDING_TOOLBAR_CORNER_KEY];
-      if (active && isRecordingToolbarCorner(saved)) moveToCorner(saved, false);
+      if (!active || !isRecordingToolbarCorner(saved)) return;
+      // Mount-time restore applies the saved corner without persisting it
+      // back; inlined instead of moveToCorner(saved, false) so this one-shot
+      // effect depends on nothing reactive.
+      setCorner(saved);
+      setPosition(positionForToolbarCorner(saved, floatingSize(), viewport(), margin()));
     }).catch((error) => {
       console.warn('[frametrail] failed to load recording toolbar position', error);
     });
@@ -543,8 +587,8 @@ export default function RecordingToolbar({
               ref={(element) => { floatingRef.current = element; }}
               type="button"
               className="ft-collapsed"
-              aria-label={`${modeLabel}錄製中，${state.itemCount} 筆；按一下展開，拖曳或使用方向鍵移動`}
-              title="展開或移動錄製控制"
+              aria-label={`${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆；展開錄製控制`}
+              title="展開控制器"
               onPointerDown={handlePositionPointerDown}
               onPointerMove={handlePositionPointerMove}
               onPointerUp={finishPositionDrag}
@@ -559,7 +603,10 @@ export default function RecordingToolbar({
               }}
             >
               <span className="ft-dot" aria-hidden="true" />
-              <span className="ft-count">{state.itemCount}</span>
+              <span className="ft-count-badge" style={{ minWidth: '22px', height: '22px', fontSize: '12px' }}>{state.itemCount}</span>
+              <span className="ft-collapsed-expand">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+              </span>
             </button>
           ) : (
             <div
@@ -624,83 +671,88 @@ export default function RecordingToolbar({
                     <span className="ft-status-text">
                       {regionCaptureActive
                         ? '區域擷取中'
-                        : preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : modeLabel} · ${state.itemCount}`}
+                        : preparingNext ? '下一張尚未建立' : '已擷取'}
                     </span>
+                    <span className="ft-count-badge">{state.itemCount}</span>
                   </button>
-                  {!preparingNext && onStartRegionCapture && (
+
+                  <span className="ft-divider" aria-hidden="true" />
+
+                  <div className="ft-actions-group">
+                    {!preparingNext && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        aria-label="復原上一個"
+                        title="復原上一步"
+                        disabled={busy || state.itemCount === 0}
+                        onClick={handleUndo}
+                      >
+                        {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 size={18} />}
+                      </button>
+                    )}
+                    {!preparingNext && onStartRegionCapture && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        aria-label={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
+                        title={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
+                        aria-pressed={regionCaptureActive}
+                        disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
+                        onClick={() => onStartRegionCapture()}
+                      >
+                        <Crop size={17} />
+                      </button>
+                    )}
+                    {state.mode === 'steps' && !preparingNext && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        aria-label={paused ? '繼續錄製' : '暫停錄製'}
+                        title={paused ? '繼續錄製' : '暫停錄製'}
+                        disabled={busy}
+                        onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
+                      >
+                        {pending === 'PAUSE_RECORDING' || pending === 'RESUME_RECORDING'
+                          ? <Loader2 />
+                          : paused ? <Play size={16} /> : <Pause size={16} />}
+                      </button>
+                    )}
+                    {state.mode === 'snapshot' && !preparingNext && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        aria-label="完成並新增快照"
+                        title="完成並新增快照"
+                        disabled={busy}
+                        onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
+                      >
+                        {pending === 'PREPARE_NEXT_SNAPSHOT' ? <Loader2 /> : <Plus size={17} />}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="ft-button"
-                      aria-label={regionCaptureActive ? '區域擷取進行中' : '擷取畫面區域'}
-                      title={regionCaptureActive ? '區域擷取進行中' : '拖曳擷取畫面區域'}
-                      aria-pressed={regionCaptureActive}
-                      disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
-                      onClick={() => onStartRegionCapture()}
-                    >
-                      <Crop />
-                    </button>
-                  )}
-                  {!preparingNext && (
-                    <button
-                      type="button"
-                      className="ft-button"
-                      aria-label="復原上一個"
-                      title="復原上一個"
-                      disabled={busy || state.itemCount === 0}
-                      onClick={handleUndo}
-                    >
-                      {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 />}
-                    </button>
-                  )}
-                  {state.mode === 'steps' && !preparingNext && (
-                    <button
-                      type="button"
-                      className="ft-button"
-                      aria-label={paused ? '繼續錄製' : '暫停錄製'}
-                      title={paused ? '繼續錄製' : '暫停錄製'}
+                      data-danger="true"
+                      aria-label="放棄這次錄製"
+                      title="放棄這次錄製"
                       disabled={busy}
-                      onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
+                      onClick={() => setConfirmDiscard(true)}
                     >
-                      {pending === 'PAUSE_RECORDING' || pending === 'RESUME_RECORDING'
-                        ? <Loader2 />
-                        : paused ? <Play /> : <Pause />}
+                      <Trash2 size={17} />
                     </button>
-                  )}
-                  {state.mode === 'snapshot' && !preparingNext && (
                     <button
                       type="button"
                       className="ft-button"
-                      aria-label="完成並新增快照"
-                      title="完成並新增快照"
+                      aria-label="收合控制器"
+                      title="收合控制器"
                       disabled={busy}
-                      onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
+                      onClick={() => setCollapsed(true)}
                     >
-                      {pending === 'PREPARE_NEXT_SNAPSHOT' ? <Loader2 /> : <Plus />}
+                      <Minimize2 size={17} />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="ft-button"
-                    aria-label="更多錄製動作"
-                    title="更多"
-                    aria-haspopup="menu"
-                    aria-expanded={menuOpen}
-                    aria-controls={menuOpen ? menuId : undefined}
-                    disabled={busy}
-                    onClick={() => setMenuOpen((open) => !open)}
-                  >
-                    <MoreHorizontal />
-                  </button>
-                  {preparingNext && (
-                    <button
-                      type="button"
-                      className="ft-secondary"
-                      disabled={busy}
-                      onClick={() => void run('FINISH_RECORDING')}
-                    >
-                      {pending === 'FINISH_RECORDING' ? '整理中' : '完成錄製'}
-                    </button>
-                  )}
+                  </div>
+
                   <button
                     type="button"
                     className="ft-finish"
@@ -709,10 +761,7 @@ export default function RecordingToolbar({
                   >
                     {pending === 'FINISH_RECORDING' || pending === 'CREATE_NEXT_SNAPSHOT' || state.phase === 'finishing'
                       ? <Loader2 />
-                      : preparingNext ? <Plus /> : <Check />}
-                    {preparingNext
-                      ? pending === 'CREATE_NEXT_SNAPSHOT' ? '建立中' : '建立新快照'
-                      : state.phase === 'finishing' ? '整理中' : state.mode === 'steps' ? '完成' : '完成快照'}
+                      : preparingNext ? '建立新快照' : '完成'}
                   </button>
                 </>
               )}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
@@ -62,12 +63,13 @@ describe('record controls runtime responses', () => {
     ['incomplete success', { ok: true, sessionId: 'guide-a' }],
     ['malformed failure', { ok: false, error: 503 }],
   ])('shows a transport error for a %s START_RECORDING response', async (_case, response) => {
+    silenceIntentionalErrorLogs();
     mocks.sendMessage.mockResolvedValue(response);
     const onStarted = vi.fn();
     render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
     await waitFor(() => expect(mocks.query).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    fireEvent.click(screen.getByRole('button', { name: /^開始/ }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('無法連接錄製服務');
     expect(onStarted).not.toHaveBeenCalled();

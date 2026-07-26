@@ -2,6 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const database = vi.hoisted(() => ({
   createGuideFromSteps: vi.fn(),
@@ -49,9 +50,9 @@ const guide = {
   title: '安全教學',
   description: '範例',
   sections: [{ id: 'section-1', title: '準備', startEntryId: 'step-1' }],
+  tags: [],
   createdAt: 1,
   updatedAt: 2,
-  archivedAt: null,
   contentRevision: 3,
   stepCount: 2,
   entryCount: 2,
@@ -88,6 +89,7 @@ describe('作品庫', () => {
   });
 
   it('刪除交易失敗時保留目前 selection', async () => {
+    silenceIntentionalErrorLogs();
     database.deleteGuidePermanently.mockRejectedValue(new Error('durable delete failed'));
     render(<LibraryApp />);
 
@@ -96,6 +98,9 @@ describe('作品庫', () => {
 
     expect(await screen.findByText('durable delete failed')).toBeTruthy();
     expect(guideActions.clearSelectedGuide).not.toHaveBeenCalled();
+    // Mirrors the export flow: the failure reports through the page-level
+    // alert, so the modal must close instead of aria-hiding that alert.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('初次確認錄製狀態前停用新增與匯入操作', async () => {
@@ -105,11 +110,11 @@ describe('作品庫', () => {
     }));
     render(<LibraryApp />);
 
-    expect((screen.getByRole('button', { name: '匯入檔案' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: '新增教學' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole('button', { name: '新增教學' })[0] as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => { resolveState({ operation: null, isRecording: false }); });
-    await waitFor(() => expect((screen.getByRole('button', { name: '新增教學' }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getAllByRole('button', { name: '新增教學' })[0] as HTMLButtonElement).disabled).toBe(false));
   });
 
   it('即時訂閱全域 operation lock，避免錄製中修改作品庫', async () => {
@@ -123,7 +128,7 @@ describe('作品庫', () => {
     expect(screen.getByText(/錄製或補拍進行中/)).toBeTruthy();
   });
 
-  it('資料異動後在背景更新清單，不以載入畫面取代現有卡片', async () => {
+  it('複製後在背景更新清單，不以載入畫面取代現有卡片', async () => {
     let resolveRefresh!: (guides: typeof guide[]) => void;
     const pendingRefresh = new Promise<typeof guide[]>((resolve) => {
       resolveRefresh = resolve;
@@ -133,7 +138,7 @@ describe('作品庫', () => {
       .mockReturnValueOnce(pendingRefresh);
     render(<LibraryApp />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '封存' }));
+    fireEvent.click(await screen.findByRole('button', { name: '複製' }));
 
     await waitFor(() => expect(database.getGuideSummaries).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue(guide.title)).toBeTruthy();
@@ -141,6 +146,62 @@ describe('作品庫', () => {
 
     await act(async () => { resolveRefresh([]); });
     await waitFor(() => expect(screen.queryByDisplayValue(guide.title)).toBeNull());
+  });
+
+  it('失焦時提交重新命名的標題', async () => {
+    database.updateGuide.mockResolvedValue(undefined);
+    render(<LibraryApp />);
+
+    const input = await screen.findByDisplayValue('安全教學');
+    input.focus();
+    fireEvent.change(input, { target: { value: '更新後的標題' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(database.updateGuide).toHaveBeenCalledWith('guide-1', { title: '更新後的標題' }));
+  });
+
+  // Regression: Escape blurs synchronously before React re-renders, so the
+  // blur-commit used to read the stale edited draft and save it anyway.
+  it('Escape 取消重新命名而不寫入', async () => {
+    render(<LibraryApp />);
+
+    const input = await screen.findByDisplayValue('安全教學') as HTMLInputElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: '不想保留的標題' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    await waitFor(() => expect(input.value).toBe('安全教學'));
+    expect(database.updateGuide).not.toHaveBeenCalled();
+  });
+
+  it('視窗重新取得焦點時在背景重新整理作品庫', async () => {
+    render(<LibraryApp />);
+    await screen.findByDisplayValue('安全教學');
+    expect(database.getGuideSummaries).toHaveBeenCalledTimes(1);
+
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(database.getGuideSummaries).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('讀取作品庫…')).toBeNull();
+  });
+
+  it('可依多個標籤交集篩選並清除篩選', async () => {
+    const taggedGuide = { ...guide, id: 'guide-2', title: '團隊入門', tags: ['入門', '團隊'] };
+    const otherGuide = { ...guide, id: 'guide-3', title: '個人入門', tags: ['入門'] };
+    database.getGuideSummaries.mockResolvedValue([taggedGuide, otherGuide]);
+    render(<LibraryApp />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '篩選' }));
+    fireEvent.click(screen.getByRole('button', { name: '入門' }));
+    expect(await screen.findByDisplayValue('團隊入門')).toBeTruthy();
+    expect(screen.getByDisplayValue('個人入門')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '團隊' }));
+    await waitFor(() => expect(screen.queryByDisplayValue('個人入門')).toBeNull());
+    expect(screen.getByDisplayValue('團隊入門')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+    expect(await screen.findByDisplayValue('個人入門')).toBeTruthy();
   });
 
   it('匯出可編輯檔案時包含完整 metadata、使用安全檔名且不重新載入作品庫', async () => {
@@ -160,13 +221,13 @@ describe('作品庫', () => {
         title: guide.title,
         description: guide.description,
         sections: guide.sections,
+        tags: guide.tags,
       },
     }));
     expect(downloads.download).toHaveBeenCalledWith({
       url: 'blob:archive',
       filename: '安全教學.frametrail',
       saveAs: true,
-      conflictAction: 'uniquify',
     });
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:archive');
     expect(await screen.findByText('「安全教學」的可編輯檔案已開始下載。')).toBeTruthy();
@@ -174,6 +235,7 @@ describe('作品庫', () => {
   });
 
   it('匯出失敗時保留作品卡片、顯示錯誤並允許重試', async () => {
+    silenceIntentionalErrorLogs();
     database.getSteps.mockResolvedValue([{ id: 'step-1' }]);
     archive.exportProjectArchive.mockRejectedValueOnce(new Error('匯出空間不足'));
     render(<LibraryApp />);
@@ -189,11 +251,12 @@ describe('作品庫', () => {
   });
 
   it('匯入失敗時保留作品卡片並以 alert 公告錯誤', async () => {
+    silenceIntentionalErrorLogs();
     archive.importProjectArchive.mockRejectedValue(new Error('檔案內容損毀'));
     render(<LibraryApp />);
 
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
-    await waitFor(() => expect((screen.getByRole('button', { name: '匯入檔案' }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(input!, {
       target: { files: [new File(['broken'], 'broken.frametrail')] },
     });
@@ -226,6 +289,7 @@ describe('作品庫', () => {
       metadata: {
         title: '匯入標題',
         description: '匯入說明',
+        tags: ['匯入'],
         sections: [{ id: 'new-section', title: '第一章', startEntryId: 'new-step' }],
       },
     };
@@ -235,14 +299,14 @@ describe('作品庫', () => {
 
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).toBeTruthy();
-    await waitFor(() => expect((screen.getByRole('button', { name: '匯入檔案' }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(false));
     const file = new File(['archive'], 'fallback.frametrail', { type: 'application/vnd.frametrail.project+json' });
     fireEvent.change(input!, { target: { files: [file] } });
 
     await waitFor(() => expect(archive.importProjectArchive).toHaveBeenCalledWith(file, { includeMetadata: true }));
     expect(database.createGuideFromSteps).toHaveBeenCalledWith(
       imported.steps,
-      { title: '匯入標題', description: '匯入說明' },
+      { title: '匯入標題', description: '匯入說明', tags: ['匯入'] },
       { sections: imported.metadata.sections },
     );
     expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('imported-guide');

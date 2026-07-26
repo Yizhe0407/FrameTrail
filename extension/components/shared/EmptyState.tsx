@@ -49,20 +49,16 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-      <span className="flex size-14 items-center justify-center rounded-full border border-stone-200 bg-stone-100 dark:border-stone-700 dark:bg-stone-800">
-        <MousePointerClick className="size-[22px] text-stone-400 dark:text-stone-500" />
+      <span className="flex size-14 items-center justify-center rounded-full border border-border bg-secondary">
+        <MousePointerClick className="size-[22px] text-muted-foreground" />
       </span>
       <div className="flex max-w-[380px] flex-col items-center gap-4">
-        <h2 className="text-base font-semibold text-stone-800 dark:text-stone-100">尚未建立內容</h2>
-        <Button
-          onClick={returnToRecordingPage}
-          disabled={pending}
-          className="h-10 bg-lime-700 text-white hover:bg-lime-800 dark:bg-lime-400 dark:text-stone-900 dark:hover:bg-lime-300"
-        >
+        <h2 className="text-base font-semibold text-foreground">尚未建立內容</h2>
+        <Button onClick={returnToRecordingPage} disabled={pending} className="h-10">
           {pending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
           {pending ? '正在開啟' : isRecording ? '回到錄製分頁' : '回到網頁開始錄製'}
         </Button>
-        {actionError && <p role="alert" className="text-xs text-red-700 dark:text-red-300">{actionError}</p>}
+        {actionError && <p role="alert" className="text-xs text-destructive">{actionError}</p>}
       </div>
     </main>
   );

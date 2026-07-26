@@ -50,7 +50,7 @@ const WORKFLOW = [
   {
     number: '03',
     title: '匯出',
-    description: '確認內容後，從「發佈教學」下載 HTML、PDF、Markdown ZIP 或標註圖片。',
+    description: '確認內容後，匯出 PDF、Markdown ZIP 或標註圖片。',
     Icon: Download,
   },
 ];
@@ -105,12 +105,12 @@ export default function OnboardingDialog({
         aria-busy={pending || undefined}
         onEscapeKeyDown={(event) => pending && event.preventDefault()}
         onPointerDownOutside={(event) => pending && event.preventDefault()}
-        className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(720px,calc(100vw-32px))] overflow-y-auto border border-stone-200 bg-white p-0 text-stone-900 shadow-xl dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
+        className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(720px,calc(100vw-32px))] overflow-y-auto rounded-md border border-border bg-card p-0 text-foreground shadow-[var(--shadow-dialog)]"
       >
-        <DialogHeader className="border-b border-stone-200 px-6 pt-7 pb-6 pr-14 dark:border-stone-700 sm:px-8">
-          <p className="text-xs font-medium text-lime-700 dark:text-lime-300">FrameTrail · 開始導覽</p>
+        <DialogHeader className="border-b border-border px-6 pt-7 pb-6 pr-14 sm:px-8 sm:pr-16">
+          <p className="text-xs font-semibold text-brand">FrameTrail · 開始導覽</p>
           <DialogTitle className="mt-2 text-2xl font-semibold">歡迎使用 FrameTrail</DialogTitle>
-          <DialogDescription className="mt-2 max-w-2xl text-sm leading-6 text-stone-600 dark:text-stone-300">
+          <DialogDescription className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
             把網頁操作整理成教學：錄製、編輯，再匯出。每一步都可回來調整。
           </DialogDescription>
         </DialogHeader>
@@ -121,41 +121,41 @@ export default function OnboardingDialog({
               <h2 id="onboarding-workflow-title" className="text-sm font-semibold">
                 三步完成一份教學
               </h2>
-              <span className="text-xs text-stone-500 dark:text-stone-400">錄製 → 編輯 → 匯出</span>
+              <span className="text-xs text-muted-foreground">錄製 → 編輯 → 匯出</span>
             </div>
-            <ol className="mt-4 grid border-y border-stone-200 dark:border-stone-700 sm:grid-cols-3">
+            <ol className="mt-4 grid border-y border-border sm:grid-cols-3">
               {WORKFLOW.map(({ number, title, description, Icon }) => (
-                <li key={number} className="min-w-0 border-stone-200 py-4 sm:border-r sm:px-4 sm:first:pl-0 sm:last:border-r-0 sm:last:pr-0 dark:border-stone-700">
-                  <div className="flex items-center gap-2 text-stone-500 dark:text-stone-400">
+                <li key={number} className="min-w-0 border-border py-4 sm:border-r sm:px-4 sm:first:pl-0 sm:last:border-r-0 sm:last:pr-0">
+                  <div className="flex items-center gap-2 text-muted-foreground">
                     <Icon aria-hidden="true" className="size-4" />
                     <span className="font-mono text-[11px]">{number}</span>
                   </div>
                   <h3 className="mt-3 text-sm font-semibold">{title}</h3>
-                  <p className="mt-1 text-xs leading-5 text-stone-600 dark:text-stone-300">{description}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
                 </li>
               ))}
             </ol>
           </section>
 
           <section aria-labelledby="onboarding-modes-title">
-            <div className="border-l-2 border-lime-600 pl-3 dark:border-lime-400">
+            <div className="border-l-2 border-brand pl-3">
               <h2 id="onboarding-modes-title" className="text-sm font-semibold">先選錄製方式</h2>
-              <p className="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-300">
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 兩種方式的差別，在於要不要跟著操作順序走。
               </p>
             </div>
 
-            <div className="mt-4 divide-y divide-stone-200 border-y border-stone-200 dark:divide-stone-700 dark:border-stone-700">
+            <div className="mt-4 divide-y divide-border border-y border-border">
               {MODES.map(({ mode, title, description, useCase, practiceLabel, Icon }) => (
                 <div key={mode} className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-8">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <Icon aria-hidden="true" className="size-4 text-lime-700 dark:text-lime-300" />
+                      <Icon aria-hidden="true" className="size-4 text-brand" />
                       <h3 className="text-sm font-semibold">{title}</h3>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-stone-700 dark:text-stone-200">{description}</p>
-                    <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">
-                      <span className="font-medium text-stone-700 dark:text-stone-200">適合：</span>{useCase}
+                    <p className="mt-2 text-sm leading-6 text-foreground">{description}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      <span className="font-medium text-foreground">適合：</span>{useCase}
                     </p>
                   </div>
                   {onStartPractice && (
@@ -163,7 +163,7 @@ export default function OnboardingDialog({
                       type="button"
                       variant="outline"
                       aria-label={practiceLabel}
-                      className="w-full border-stone-300 bg-transparent text-stone-800 hover:border-lime-700 hover:bg-lime-50 sm:w-auto dark:border-stone-600 dark:text-stone-100 dark:hover:border-lime-400 dark:hover:bg-lime-950/30"
+                      className="w-full bg-transparent hover:border-brand hover:bg-brand/10 sm:w-auto"
                       disabled={pending}
                       onClick={() => void runAction(mode, async () => {
                         await onComplete?.();
@@ -180,16 +180,16 @@ export default function OnboardingDialog({
           </section>
 
           {actionError && (
-            <p role="alert" className="border-l-2 border-rose-600 pl-3 text-sm text-rose-700 dark:border-rose-400 dark:text-rose-300">
+            <p role="alert" className="border-l-2 border-destructive pl-3 text-sm text-destructive">
               {actionError}
             </p>
           )}
         </div>
 
-        <DialogFooter className="border-t border-stone-200 px-6 py-4 dark:border-stone-700 sm:px-8">
+        <DialogFooter className="border-t border-border px-6 py-4 sm:px-8">
           <Button
             type="button"
-            className="h-10 bg-lime-700 text-white hover:bg-lime-800 dark:bg-lime-400 dark:text-stone-950 dark:hover:bg-lime-300"
+            className="h-10"
             disabled={pending}
             onClick={() => void runAction('complete', onComplete)}
           >

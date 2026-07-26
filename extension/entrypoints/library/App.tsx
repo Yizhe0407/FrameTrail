@@ -1,15 +1,13 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { browser } from 'wxt/browser';
+import toast from 'react-hot-toast';
 import {
-  Archive,
-  ArchiveRestore,
-  CheckCircle2,
   Copy,
   Download,
-  FilePlus2,
-  HardDrive,
+  Filter,
   Loader2,
   PencilLine,
+  Plus,
+  RotateCcw,
   Search,
   Trash2,
   Upload,
@@ -25,10 +23,16 @@ import {
 } from '@/lib/storage/db';
 import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide/guide-actions';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
+import { cn } from '@/lib/shared/utils';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+import EditableTitle from '@/components/shared/EditableTitle';
 import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive';
+import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -53,7 +57,8 @@ export default function App() {
   const [guides, setGuides] = useState<GuideSummary[]>([]);
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
-  const [showArchived, setShowArchived] = useState(false);
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GuideSummary | null>(null);
@@ -61,14 +66,13 @@ export default function App() {
   const importInput = useRef<HTMLInputElement>(null);
   const operationInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [operationLocked, setOperationLocked] = useState(false);
 
   async function refresh(options: { showLoading?: boolean } = {}) {
     const showLoading = options.showLoading ?? true;
     if (showLoading) setLoading(true);
     try {
-      const [nextGuides, state] = await Promise.all([getGuideSummaries(true), getRecordingState()]);
+      const [nextGuides, state] = await Promise.all([getGuideSummaries(), getRecordingState()]);
       setGuides(nextGuides);
       setOperationLocked(state.operation !== null || state.isRecording);
     } catch (refreshError) {
@@ -81,19 +85,37 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    return onRecordingStateChange((state) => {
+    // Guides change from other surfaces (editor edits, popup resets, another
+    // library tab); storage exposes no guides-changed signal, so returning to
+    // the tab is the refresh trigger. This also shrinks the window in which a
+    // stale card title could seed an EditableTitle rename.
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') void refresh({ showLoading: false });
+    };
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    const unsubscribe = onRecordingStateChange((state) => {
       setOperationLocked(state.operation !== null || state.isRecording);
     });
+    return () => {
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+      unsubscribe();
+    };
   }, []);
+
+  const allTags = useMemo(
+    () => [...new Set(guides.flatMap((guide) => guide.tags))].sort((a, b) => a.localeCompare(b, 'zh-TW')),
+    [guides],
+  );
 
   const visibleGuides = useMemo(() => {
     const normalized = deferredQuery.trim().toLocaleLowerCase('zh-TW');
     return guides.filter((guide) => {
-      if (!showArchived && guide.archivedAt !== null) return false;
-      if (showArchived && guide.archivedAt === null) return false;
+      if (filterTags.length > 0 && !filterTags.every((tag) => guide.tags.includes(tag))) return false;
       return !normalized || `${guide.title}\n${guide.description}`.toLocaleLowerCase('zh-TW').includes(normalized);
     });
-  }, [deferredQuery, guides, showArchived]);
+  }, [deferredQuery, filterTags, guides]);
 
   const storageBytes = useMemo(() => guides.reduce((sum, guide) => sum + guide.storageBytes, 0), [guides]);
 
@@ -104,7 +126,6 @@ export default function App() {
     operationInFlight.current = true;
     setPendingId(id);
     setError(null);
-    setNotice(null);
     try {
       await action();
       if (options.refreshAfter !== false) await refresh({ showLoading: false });
@@ -133,29 +154,36 @@ export default function App() {
           title: guide.title,
           description: guide.description,
           sections: guide.sections,
+          tags: guide.tags,
         },
       });
-      const url = URL.createObjectURL(blob);
-      try {
-        await browser.downloads.download({
-          url,
-          filename: exportFilename(guide.title),
-          saveAs: true,
-          conflictAction: 'uniquify',
-        });
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-      setNotice(`「${guide.title}」的可編輯檔案已開始下載。`);
+      // Queues through the downloads API and keeps the object URL alive until
+      // the transfer settles; a download that never starts rejects into the
+      // page-level alert below.
+      await downloadBlobViaBrowser(blob, exportFilename(guide.title));
+      toast.success(`「${guide.title}」的可編輯檔案已開始下載。`);
     }, { refreshAfter: false });
     // A failed export reports through the page-level live alert. Close the
     // modal so it does not aria-hide that alert from assistive technology.
     setExportTarget(null);
   }
 
+  async function deleteGuide(target: GuideSummary) {
+    await run(target.id, async () => {
+      // Delete atomically first. Only clear the UI selection after the
+      // durable delete succeeds, and compare-and-clear so a newer
+      // selection cannot be erased by this older action.
+      await deleteGuidePermanently(target.id);
+      await clearSelectedGuide(target.id);
+    });
+    // Mirrors the export flow: a failed delete reports through the page-level
+    // live alert, so close the modal rather than leave the message rendered
+    // (and aria-hidden) behind its overlay.
+    setDeleteTarget(null);
+  }
+
   async function importGuideFile(file: File) {
     if (file.size > PROJECT_ARCHIVE_LIMITS.maxArchiveBytes) {
-      setNotice(null);
       setError('匯入檔案超過 128 MB 安全上限。');
       return;
     }
@@ -167,6 +195,7 @@ export default function App() {
         {
           title: imported.metadata.title || fallbackTitle,
           description: imported.metadata.description,
+          tags: imported.metadata.tags,
         },
         { sections: imported.metadata.sections },
       );
@@ -175,149 +204,278 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-100 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
-      <header className="border-b border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-stone-900">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-5 py-5 sm:px-8">
-          <div className="mr-auto">
-            <h1 className="text-lg font-semibold">FrameTrail 作品庫</h1>
-            <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">所有內容只保存在這個瀏覽器設定檔中，可匯出 .frametrail 檔案保存或移轉。</p>
+    <div className="min-h-screen bg-[var(--canvas)] text-foreground">
+      <AppToaster />
+      <header className="border-b border-border/80 bg-card">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-start justify-between gap-4 px-6 pt-[30px] pb-[22px] sm:px-10">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-[11px]">
+              <span className="text-[15px] font-bold">FrameTrail</span>
+              <span className="size-[5px] rounded-full bg-brand" aria-hidden="true" />
+              <h1 className="text-[22px] font-bold text-foreground">作品庫</h1>
+            </div>
+            <p className="text-[13px] text-muted-foreground/90">
+              所有內容只保存在這個瀏覽器設定檔中。
+            </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
-            <HardDrive className="size-4" />
-            {guides.length} 份教學 · {formatBytes(storageBytes)}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="mr-0.5 max-w-full text-[12.5px] font-medium text-muted-foreground/80 sm:whitespace-nowrap">
+              {guides.length} 份教學 · {formatBytes(storageBytes)}
+            </span>
+            <input
+              ref={importInput}
+              type="file"
+              className="sr-only"
+              accept=".frametrail,application/vnd.frametrail.project+json"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = '';
+                if (file) void importGuideFile(file);
+              }}
+            />
+            <Button
+              variant="outline"
+              className="h-[40px] gap-[7px] rounded-md px-3.5 text-[13px] font-medium"
+              onClick={() => importInput.current?.click()}
+              disabled={loading || operationLocked || pendingId !== null}
+            >
+              {pendingId === 'import' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}匯入
+            </Button>
+            <Button
+              variant="default"
+              className="h-[40px] gap-[7px] rounded-md px-[17px] text-[13px] font-medium"
+              onClick={() => void createNewGuide()}
+              disabled={loading || operationLocked || pendingId !== null}
+            >
+              {pendingId === 'new' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}新增教學
+            </Button>
           </div>
-          <input
-            ref={importInput}
-            type="file"
-            className="sr-only"
-            accept=".frametrail,application/vnd.frametrail.project+json"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.currentTarget.value = '';
-              if (file) void importGuideFile(file);
-            }}
-          />
-          <Button variant="outline" onClick={() => importInput.current?.click()} disabled={loading || operationLocked || pendingId !== null}>
-            {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}匯入檔案
-          </Button>
-          <Button onClick={() => void createNewGuide()} disabled={loading || operationLocked || pendingId !== null}>
-            {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <FilePlus2 />}
-            新增教學
-          </Button>
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-6 sm:px-8">
+      <main className="mx-auto flex max-w-7xl flex-col px-6 pt-[24px] pb-[40px] sm:px-10">
         {operationLocked && (
-          <Alert>
+          <Alert className="mb-4">
             <AlertDescription>錄製或補拍進行中；為避免資料寫入錯誤，目前只能瀏覽作品庫。</AlertDescription>
           </Alert>
         )}
-        {notice && (
-          <Alert className="border-lime-300 bg-lime-50 text-lime-900 dark:border-lime-900 dark:bg-lime-950/40 dark:text-lime-100">
-            <CheckCircle2 />
-            <AlertDescription>{notice}</AlertDescription>
-          </Alert>
-        )}
         {error && (
-          <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+          <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>
         )}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="relative min-w-64 flex-1">
-            <span className="sr-only">搜尋教學</span>
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-stone-400" />
+        <div className="mb-[22px] flex flex-wrap items-center gap-[14px]">
+          <div className="flex h-[44px] min-w-0 flex-1 items-center gap-2.5 rounded-md border border-border/80 bg-card px-[15px]">
+            <Search className="size-[17px] shrink-0 text-muted-foreground/70" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜尋標題或說明"
+              placeholder="搜尋標題或說明…"
               maxLength={120}
-              className="h-10 w-full rounded-md border border-stone-300 bg-white pr-3 pl-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:border-stone-700 dark:bg-stone-900"
+              className="min-w-0 w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground/70"
             />
-          </label>
-          <Button variant="outline" onClick={() => setShowArchived((value) => !value)}>
-            {showArchived ? <ArchiveRestore /> : <Archive />}
-            {showArchived ? '返回使用中' : '查看封存'}
-          </Button>
+          </div>
+          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  'h-[44px] gap-[7px] rounded-md px-[15px] text-[13px] font-medium',
+                  filterTags.length > 0 && 'border-brand bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand',
+                )}
+              >
+                <Filter className="size-4" />
+                篩選
+                {filterTags.length > 0 && (
+                  <Badge className="h-5 min-w-5 bg-brand px-1 text-[11px] font-semibold">
+                    {filterTags.length}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              aria-labelledby="guide-tag-filter-label"
+              className="app-scrollbar max-h-[min(360px,calc(100vh-140px))] w-[min(280px,calc(100vw-32px))] overflow-y-auto"
+            >
+              <div className="mb-2.5 flex items-center justify-between gap-3">
+                <span id="guide-tag-filter-label" className="text-[10.5px] font-semibold text-muted-foreground">
+                  依標籤篩選
+                </span>
+                {filterTags.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterTags([])}
+                    className="shrink-0 text-xs font-semibold text-brand outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+              {allTags.length === 0 ? (
+                <p className="py-1 text-xs text-muted-foreground">尚無任何標籤</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {allTags.map((tag) => {
+                    const active = filterTags.includes(tag);
+                    return (
+                      <Badge
+                        key={tag}
+                        asChild
+                        variant={active ? 'tagFilterActive' : 'tagFilter'}
+                        className="max-w-full truncate"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setFilterTags((current) => (
+                            active ? current.filter((value) => value !== tag) : [...current, tag]
+                          ))}
+                          title={tag}
+                        >
+                          {tag}
+                        </button>
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
         </div>
 
         {loading ? (
-          <div role="status" className="flex min-h-64 items-center justify-center text-sm text-stone-500">
+          <div role="status" className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 size-5 animate-spin" />讀取作品庫…
           </div>
         ) : visibleGuides.length === 0 ? (
-          <div className="flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 px-6 text-center dark:border-stone-700 dark:bg-stone-900">
-            <PencilLine className="mb-4 size-8 text-lime-700 dark:text-lime-400" />
-            <h2 className="font-medium">{query ? '找不到符合的教學' : showArchived ? '沒有封存的教學' : '建立第一份教學'}</h2>
-            {!query && !showArchived && <Button className="mt-4" onClick={() => void createNewGuide()}>新增教學</Button>}
+          <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-border bg-card px-6 text-center">
+            <PencilLine className="mb-4 size-8 text-brand" />
+            <h2 className="font-medium">{query || filterTags.length > 0 ? '找不到符合的教學' : '建立第一份教學'}</h2>
+            {!query && filterTags.length === 0 && <Button className="mt-4" onClick={() => void createNewGuide()}>新增教學</Button>}
           </div>
         ) : (
-          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visibleGuides.map((guide) => {
               const pending = pendingId === guide.id;
+              // While any operation is in flight, `run` rejects further actions;
+              // disabling the other cards makes that lock visible instead of
+              // letting their buttons silently no-op.
+              const actionsLocked = operationLocked || pendingId !== null;
+              const otherActionPending = pendingId !== null && !pending;
+              const lockedTitle = (title: string) => (otherActionPending ? '另一項操作進行中' : title);
+              const visibleTags = guide.tags.slice(0, 3);
+              const hiddenTagCount = guide.tags.length - visibleTags.length;
               return (
-                <li key={guide.id} className="flex min-h-56 flex-col rounded-lg border border-stone-200 bg-stone-50 p-5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-                  <input
-                    aria-label="教學名稱"
-                    defaultValue={guide.title}
-                    maxLength={120}
-                    disabled={operationLocked || pending}
-                    onBlur={(event) => {
-                      const title = event.currentTarget.value.trim();
-                      if (title && title !== guide.title) {
-                        void run(guide.id, async () => { await updateGuide(guide.id, { title }); });
-                      } else {
-                        event.currentTarget.value = guide.title;
-                      }
-                    }}
-                    className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-base font-semibold outline-none hover:border-stone-300 focus:border-stone-300 focus:bg-white focus:ring-2 focus:ring-blue-600 disabled:opacity-70 dark:hover:border-stone-700 dark:focus:border-stone-700 dark:focus:bg-stone-950"
-                  />
-                  <p className="mt-3 line-clamp-2 min-h-10 text-sm text-stone-500 dark:text-stone-400">
-                    {guide.description || '尚未加入教學說明'}
-                  </p>
-                  <dl className="mt-4 grid grid-cols-2 gap-2 text-xs text-stone-500 dark:text-stone-400">
-                    <div><dt className="sr-only">內容數</dt><dd>{guide.entryCount} 個畫面／{guide.stepCount} 個標註</dd></div>
-                    <div className="text-right"><dt className="sr-only">容量</dt><dd>{formatBytes(guide.storageBytes)}</dd></div>
-                    <div className="col-span-2"><dt className="sr-only">更新時間</dt><dd>更新於 {formatDate(guide.updatedAt)}</dd></div>
-                  </dl>
-                  <div className="mt-auto flex flex-wrap gap-2 pt-5">
-                    <Button size="sm" onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))} disabled={operationLocked || pending}>
-                      {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}開啟
-                    </Button>
-                    {!showArchived && (
-                      <Button size="sm" variant="outline" onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })} disabled={operationLocked || pending}>
-                        <Copy />複製
-                      </Button>
+                <li
+                  key={guide.id}
+                  className="group flex flex-col overflow-hidden rounded-md border border-border bg-card shadow-[0_1px_3px_rgba(28,28,28,0.04)] transition-all duration-200 hover:border-foreground/15 hover:shadow-[0_12px_32px_-14px_rgba(28,28,28,0.24)] dark:hover:shadow-[0_12px_32px_-14px_rgba(0,0,0,0.6)]"
+                >
+                  <div className="flex flex-1 flex-col gap-2.5 p-[15px_16px]">
+                    {visibleTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {visibleTags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="max-w-full truncate">
+                            ＃{tag}
+                          </Badge>
+                        ))}
+                        {hiddenTagCount > 0 && <Badge variant="secondary">+{hiddenTagCount}</Badge>}
+                      </div>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-label={`匯出 ${guide.title}`}
-                      title="匯出可編輯 .frametrail 檔案"
-                      onClick={() => setExportTarget(guide)}
-                      disabled={operationLocked || pending}
+                    <EditableTitle
+                      value={guide.title}
+                      fallback="未命名教學"
+                      label="教學名稱"
+                      disabled={actionsLocked}
+                      // `run` reports the reason through the page-level alert
+                      // and answers false when the write was refused or failed;
+                      // rejecting rolls the field back to the stored title.
+                      onCommit={async (title) => {
+                        const saved = await run(guide.id, async () => { await updateGuide(guide.id, { title }); });
+                        if (!saved) throw new Error('Guide rename was not applied.');
+                      }}
+                      className="w-full rounded-md border border-transparent px-1 py-0.5 -ml-1 text-[15px] font-semibold leading-[1.35] text-foreground hover:border-border focus:border-border focus:bg-background focus:ring-2 focus:ring-ring disabled:opacity-70"
+                    />
+                    <p className="line-clamp-2 min-h-10 text-[12.5px] leading-[1.55] text-muted-foreground">
+                      {guide.description || '尚未加入教學說明'}
+                    </p>
+                    <div
+                      className="mt-0.5 flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground"
+                      title={`${guide.entryCount} 個畫面／${guide.stepCount} 個標註 · ${formatBytes(guide.storageBytes)}`}
                     >
-                      <Download />匯出
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void run(guide.id, async () => {
-                        await updateGuide(guide.id, { archivedAt: guide.archivedAt === null ? Date.now() : null });
-                        if (guide.archivedAt === null) await clearSelectedGuide(guide.id);
-                      })}
-                      disabled={operationLocked || pending}
-                    >
-                      {guide.archivedAt === null ? <Archive /> : <ArchiveRestore />}
-                      {guide.archivedAt === null ? '封存' : '還原'}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="text-red-700 dark:text-red-400" onClick={() => setDeleteTarget(guide)} disabled={operationLocked || pending}>
-                      <Trash2 />刪除
-                    </Button>
+                      <span>{guide.entryCount} 個畫面</span>
+                      <span className="size-[3px] rounded-full bg-current opacity-40" />
+                      <span>{guide.stepCount} 標註</span>
+                      <span className="size-[3px] rounded-full bg-current opacity-40" />
+                      <span>{formatBytes(guide.storageBytes)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70">
+                      <span className="size-3 opacity-60"><RotateCcw className="size-3" /></span>
+                      更新於 {formatDate(guide.updatedAt)}
+                    </div>
+                    <div className="flex-1" />
+                    <div className="mt-1.5 flex items-center gap-[5px] border-t border-border/70 pt-[12px]">
+                      <Button
+                        size="sm"
+                        className="h-8 min-w-0 flex-1 gap-1.5 rounded-md px-2.5 text-[12.5px] font-semibold"
+                        title={lockedTitle('開啟')}
+                        onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
+                        disabled={actionsLocked}
+                      >
+                        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <PencilLine className="size-[14px]" />}開啟
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                        title={lockedTitle('複製')}
+                        aria-label="複製"
+                        onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
+                        disabled={actionsLocked}
+                      >
+                        <Copy className="size-[15px]" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                        title={lockedTitle('匯出可編輯 .frametrail 檔案')}
+                        aria-label={`匯出 ${guide.title}`}
+                        onClick={() => setExportTarget(guide)}
+                        disabled={actionsLocked}
+                      >
+                        <Download className="size-[15px]" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-danger-soft hover:text-danger dark:text-white/55"
+                        title={lockedTitle('刪除')}
+                        aria-label="刪除"
+                        onClick={() => setDeleteTarget(guide)}
+                        disabled={actionsLocked}
+                      >
+                        <Trash2 className="size-[15px]" />
+                      </Button>
+                    </div>
                   </div>
                 </li>
               );
             })}
+            {filterTags.length === 0 && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => void createNewGuide()}
+                  disabled={loading || operationLocked || pendingId !== null}
+                  className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3 rounded-md border-[1.5px] border-dashed border-border/80 bg-transparent text-muted-foreground transition-all duration-200 hover:border-brand hover:bg-brand-bg-soft hover:text-brand-text"
+                >
+                  <span className="flex size-11 items-center justify-center rounded-full bg-foreground/5">
+                    <Plus className="size-5" />
+                  </span>
+                  <span className="text-xs font-semibold">新增教學</span>
+                </button>
+              </li>
+            )}
           </ul>
         )}
       </main>
@@ -343,18 +501,7 @@ export default function App() {
         confirmLabel="永久刪除"
         pending={deleteTarget ? pendingId === deleteTarget.id : false}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
-        onConfirm={() => {
-          if (!deleteTarget) return;
-          const target = deleteTarget;
-          void run(target.id, async () => {
-            // Delete atomically first. Only clear the UI selection after the
-            // durable delete succeeds, and compare-and-clear so a newer
-            // selection cannot be erased by this older action.
-            await deleteGuidePermanently(target.id);
-            await clearSelectedGuide(target.id);
-            setDeleteTarget(null);
-          });
-        }}
+        onConfirm={() => { if (deleteTarget) void deleteGuide(deleteTarget); }}
       />
     </div>
   );

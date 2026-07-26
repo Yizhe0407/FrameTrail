@@ -3,6 +3,9 @@ import { createDefaultRecordingState, getRecordingState, onRecordingStateChange 
 import { getSteps, type Step } from '../storage/db';
 
 
+/** Exported so tests assert the reconciliation contract, not a magic number. */
+export const RECORDING_RECONCILE_INTERVAL_MS = 5_000;
+
 function boundsMatch(
   first: Step['bounds'] | Step['manualBounds'],
   second: Step['bounds'] | Step['manualBounds'],
@@ -66,11 +69,25 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
     : reconciled;
 }
 
+export interface UseRecordingSessionOptions {
+  /**
+   * `false` keeps this hook to lightweight RecordingState reads: step rows —
+   * and their screenshot Blobs — are never fetched, and the periodic
+   * reconciliation timer never runs. State-only consumers (the popup) must
+   * not pay for a full IndexedDB read on every state change. Defaults to
+   * `true`; not designed to toggle across renders.
+   */
+  withSteps?: boolean;
+}
+
 /** Shared popup/editor state: current recording status, steps, and any error.
  * Omitting explicitSessionId follows the active recording (popup behavior).
  * Passing a string pins the data source to that Guide; passing null explicitly
  * means the editor URL has no Guide and must not fall back to unrelated global state. */
-export function useRecordingSession(explicitSessionId?: string | null) {
+export function useRecordingSession(
+  explicitSessionId?: string | null,
+  { withSteps = true }: UseRecordingSessionOptions = {},
+) {
   const [recordingState, setRecordingState] = useState(createDefaultRecordingState);
   const [steps, setSteps] = useState<Step[]>([]);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -84,15 +101,34 @@ export function useRecordingSession(explicitSessionId?: string | null) {
       : null;
   const explicitSessionIdRef = useRef(explicitGuideSessionId);
   const hasExplicitSessionRef = useRef(hasExplicitSession);
-  explicitSessionIdRef.current = explicitGuideSessionId;
-  hasExplicitSessionRef.current = hasExplicitSession;
   const sessionId = hasExplicitSession ? explicitGuideSessionId : recordingState.sessionId;
   const effectiveSessionIdRef = useRef(sessionId);
-  effectiveSessionIdRef.current = sessionId;
+
+  // These mirrors exist so the long-lived storage subscription below can read
+  // the current data source without resubscribing. They are committed in an
+  // effect rather than during render: a discarded concurrent render must not
+  // leave the subscription pointing at a session that was never displayed.
+  // Storage callbacks are delivered as tasks, so they always observe the
+  // committed value.
+  useEffect(() => {
+    explicitSessionIdRef.current = explicitGuideSessionId;
+    hasExplicitSessionRef.current = hasExplicitSession;
+    effectiveSessionIdRef.current = sessionId;
+  });
+
+  /** Invalidates every in-flight steps read so its late result is discarded. */
+  const invalidatePendingStepsReads = useCallback(() => {
+    latestStepsRequest.current++;
+  }, []);
 
   const refreshSteps = useCallback((sid: string | null): Promise<void> => {
+    if (!withSteps) return Promise.resolve();
     const request = ++latestStepsRequest.current;
+    // Not `const`: when `sid` is null the async body reaches its `finally`
+    // synchronously, before the initializer returns, so a const binding would
+    // still be in its temporal dead zone there.
     let operation!: Promise<void>;
+    // eslint-disable-next-line prefer-const
     operation = (async () => {
       try {
         const nextSteps = sid ? await getSteps(sid) : [];
@@ -111,7 +147,7 @@ export function useRecordingSession(explicitSessionId?: string | null) {
     })();
     stepsRefreshInFlight.current = operation;
     return operation;
-  }, []);
+  }, [withSteps]);
 
   const refreshStepsSafely = useCallback(async (sid: string | null) => {
     try {
@@ -166,10 +202,10 @@ export function useRecordingSession(explicitSessionId?: string | null) {
     return () => {
       disposed = true;
       mounted.current = false;
-      latestStepsRequest.current++;
+      invalidatePendingStepsReads();
       unsubscribe();
     };
-  }, [refreshStepsSafely]);
+  }, [invalidatePendingStepsReads, refreshStepsSafely]);
 
   // The editor may supply its URL session as the authoritative data source.
   // Keeping this separate from RecordingState lets an editor continue showing
@@ -178,17 +214,23 @@ export function useRecordingSession(explicitSessionId?: string | null) {
     void refreshStepsSafely(sessionId);
   }, [refreshStepsSafely, sessionId]);
 
-  // Background writes new steps to IndexedDB independently of the UI;
-  // poll while recording so the list updates without a custom pub/sub channel.
+  // Live updates during a recording are event-driven: the background commits
+  // the step to IndexedDB and only then bumps the run's itemCount, so the
+  // storage-change subscription above always fires *after* the write is
+  // durable and refreshes this session. This timer is a slow reconciliation
+  // net for any capture path that mutates steps without touching recording
+  // state — it is not the primary update mechanism, so it must stay
+  // infrequent: every tick re-reads every step, screenshot blobs included.
   useEffect(() => {
     if (
+      !withSteps ||
       !recordingState.isRecording ||
       !sessionId ||
       recordingState.sessionId !== sessionId
     ) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async () => {
+    const reconcile = async () => {
       const activeRefresh = stepsRefreshInFlight.current;
       if (activeRefresh) {
         try {
@@ -199,14 +241,14 @@ export function useRecordingSession(explicitSessionId?: string | null) {
       } else {
         await refreshStepsSafely(sessionId);
       }
-      if (!disposed) timer = setTimeout(() => void poll(), 1000);
+      if (!disposed) timer = setTimeout(() => void reconcile(), RECORDING_RECONCILE_INTERVAL_MS);
     };
-    timer = setTimeout(() => void poll(), 1000);
+    timer = setTimeout(() => void reconcile(), RECORDING_RECONCILE_INTERVAL_MS);
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
     };
-  }, [recordingState.isRecording, recordingState.sessionId, refreshStepsSafely, sessionId]);
+  }, [recordingState.isRecording, recordingState.sessionId, refreshStepsSafely, sessionId, withSteps]);
 
   return {
     ...recordingState,

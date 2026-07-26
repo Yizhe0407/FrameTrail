@@ -2,12 +2,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), permissionsContains: vi.fn() }));
 
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { getURL: (path: string) => `chrome-extension://frame${path}` },
     tabs: { query: mocks.query },
+    permissions: { contains: mocks.permissionsContains, request: vi.fn() },
   },
 }));
 
@@ -38,6 +39,8 @@ function recoveryState(recoverableError: RecoverableRecordingError): RecordingSt
 beforeEach(() => {
   mocks.query.mockReset();
   mocks.query.mockResolvedValue([{ id: 1, url: 'https://example.com' }]);
+  mocks.permissionsContains.mockReset();
+  mocks.permissionsContains.mockResolvedValue(false);
 });
 
 afterEach(cleanup);
@@ -54,7 +57,7 @@ describe('record controls recovery', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '完成並開啟編輯器' }));
     expect(onOpenEditor).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('button', { name: '開始' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^開始/ })).toBeNull();
   });
 
   it('offers a retry and stable pending state after automatic navigation fails', () => {
@@ -67,6 +70,40 @@ describe('record controls recovery', () => {
     );
 
     expect(screen.getByRole('button', { name: '正在開啟編輯器' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.queryByRole('button', { name: '開始' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^開始/ })).toBeNull();
+  });
+
+  // Regression: the starting phase used to fall through to the idle form,
+  // pairing a 「準備中」 header with an enabled start button whose second
+  // click sent a duplicate START_RECORDING.
+  it('shows a dedicated disabled state while START_RECORDING is in flight', () => {
+    const starting: RecordingState = {
+      ...recoveryState({ code: 'unused', message: 'unused' }),
+      isRecording: true,
+      phase: 'starting',
+      runId: 'run-1',
+      error: null,
+      recoverableError: null,
+    };
+    render(<RecordControls recording={starting} />);
+
+    expect(screen.queryByRole('button', { name: '開始錄製' })).toBeNull();
+    expect(screen.getByRole('button', { name: '正在連接頁面' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('names the snapshot preparation while a snapshot run is starting', () => {
+    const starting: RecordingState = {
+      ...recoveryState({ code: 'unused', message: 'unused' }),
+      isRecording: true,
+      phase: 'starting',
+      mode: 'snapshot',
+      runId: 'run-1',
+      error: null,
+      recoverableError: null,
+    };
+    render(<RecordControls recording={starting} />);
+
+    expect(screen.queryByRole('button', { name: '開始錄製' })).toBeNull();
+    expect(screen.getByRole('button', { name: '正在建立乾淨底圖' }).hasAttribute('disabled')).toBe(true);
   });
 });

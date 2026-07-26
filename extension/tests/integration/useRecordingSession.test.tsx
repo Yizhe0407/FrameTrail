@@ -44,7 +44,11 @@ vi.mock('@/lib/storage/storage', () => ({
 }));
 vi.mock('@/lib/storage/db', () => ({ getSteps: mocks.getSteps }));
 
-import { reconcileSteps, useRecordingSession } from '@/lib/recording/useRecordingSession';
+import {
+  RECORDING_RECONCILE_INTERVAL_MS,
+  reconcileSteps,
+  useRecordingSession,
+} from '@/lib/recording/useRecordingSession';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -253,7 +257,35 @@ describe('useRecordingSession', () => {
     expect(result.current.dataError).toBeNull();
   });
 
-  it('does not overlap periodic IndexedDB polls', async () => {
+  it('withSteps:false 只讀取錄製狀態，不讀步驟也不啟動 reconcile timer', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getRecordingState.mockResolvedValue(state('session'));
+      mocks.getSteps.mockResolvedValue([{ id: 'ignored-step' }]);
+      const { result } = renderHook(() => useRecordingSession(undefined, { withSteps: false }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(result.current.recording.sessionId).toBe('session');
+
+      // Same-session state events and the reconciliation interval both stay
+      // free of IndexedDB step reads (and their screenshot Blobs).
+      act(() => mocks.emit(state('session')));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RECORDING_RECONCILE_INTERVAL_MS * 3);
+      });
+
+      expect(mocks.getSteps).not.toHaveBeenCalled();
+      expect(result.current.steps).toEqual([]);
+      expect(result.current.dataError).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not overlap periodic IndexedDB reconciliation reads', async () => {
     vi.useFakeTimers();
     try {
       const pendingPoll = deferred<any[]>();
@@ -271,12 +303,13 @@ describe('useRecordingSession', () => {
       mocks.getSteps.mockReturnValue(pendingPoll.promise);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(RECORDING_RECONCILE_INTERVAL_MS);
       });
       expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
 
+      // A read still in flight must never be joined by a second one.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(RECORDING_RECONCILE_INTERVAL_MS * 5);
       });
       expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
 
@@ -285,7 +318,7 @@ describe('useRecordingSession', () => {
         await pendingPoll.promise;
       });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(999);
+        await vi.advanceTimersByTimeAsync(RECORDING_RECONCILE_INTERVAL_MS - 1);
       });
       expect(mocks.getSteps.mock.calls.length).toBe(callsBeforePolling + 1);
       await act(async () => {

@@ -18,7 +18,7 @@ describe('OnboardingDialog', () => {
     expect(screen.getByRole('heading', { name: '編輯' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '匯出' })).toBeTruthy();
     expect(screen.getByText(/完成錄製後開啟編輯器/)).toBeTruthy();
-    expect(screen.getByText(/下載 HTML、PDF、Markdown ZIP 或標註圖片/)).toBeTruthy();
+    expect(screen.getByText(/匯出 PDF、Markdown ZIP 或標註圖片/)).toBeTruthy();
     expect(screen.getByRole('heading', { name: '先選錄製方式' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '操作流程' })).toBeTruthy();
     expect(screen.getByText(/依實際點選順序建立多張步驟圖/)).toBeTruthy();

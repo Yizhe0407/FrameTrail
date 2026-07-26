@@ -49,8 +49,7 @@ describe('recording toolbar', () => {
     const onCommand = vi.fn().mockResolvedValue({ ok: true });
     render(<RecordingToolbar state={state} onCommand={onCommand} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '更多錄製動作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '放棄這次錄製' }));
+    fireEvent.click(screen.getByRole('button', { name: '放棄這次錄製' }));
     expect(screen.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeTruthy();
     expect(onCommand).not.toHaveBeenCalled();
 
@@ -58,8 +57,7 @@ describe('recording toolbar', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(onCommand).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: '更多錄製動作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '放棄這次錄製' }));
+    fireEvent.click(screen.getByRole('button', { name: '放棄這次錄製' }));
     fireEvent.click(screen.getByRole('button', { name: '放棄錄製' }));
 
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('DISCARD_CURRENT_RECORDING', undefined));
@@ -76,7 +74,7 @@ describe('recording toolbar', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '擷取畫面區域' }));
+    fireEvent.click(screen.getByRole('button', { name: '裁切擷取區域' }));
     expect(onStartRegionCapture).toHaveBeenCalledOnce();
 
     rerender(
@@ -94,11 +92,10 @@ describe('recording toolbar', () => {
     expect(screen.getByText('區域擷取已啟動，請在畫面上拖曳選取範圍')).toBeTruthy();
   });
 
-  it('moves collapse into the overflow menu and preserves a meaningful compact status', () => {
+  it('keeps collapse directly available and preserves a meaningful compact status', () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '更多錄製動作' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '收合控制器' }));
+    fireEvent.click(screen.getByRole('button', { name: '收合控制器' }));
 
-    expect(screen.getByRole('button', { name: /操作流程錄製中，2 筆/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /錄製中，操作流程，2 筆；展開錄製控制/ })).toBeTruthy();
   });
 });
