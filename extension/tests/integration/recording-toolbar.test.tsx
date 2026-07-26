@@ -9,11 +9,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wxt/browser', () => ({
   browser: {
+    runtime: { id: 'test-extension' },
     storage: { local: { get: mocks.get, set: mocks.set } },
   },
 }));
 
-import RecordingToolbar, { type RecordingToolbarState } from '@/components/recording/RecordingToolbar';
+import RecordingToolbar, { type RecordingToolbarState } from '@/lib/recording/recording-toolbar';
 import { RECORDING_TOOLBAR_CORNER_KEY } from '@/lib/recording/recording-toolbar-position';
 
 const state: RecordingToolbarState = {

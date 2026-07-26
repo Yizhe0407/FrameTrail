@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 import { createRegionCapture, type RegionCapture } from '@/lib/capture/region-capture';
-import RecordingToolbar from '@/components/recording/RecordingToolbar';
+import RecordingToolbar from '@/lib/recording/recording-toolbar';
 import {
   buildShieldTokenStorageKey,
   isSnapshotShieldTokenRecord,
@@ -23,8 +23,13 @@ import {
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
   type SnapshotShieldPortMessage,
+  type WithoutToken,
 } from '@/lib/recording/snapshot-shield-protocol';
-import { SNAPSHOT_FREEZE_EVENTS } from '@/lib/recording/content-script-constants';
+import {
+  RECORDING_CHANNEL_LOST_MESSAGE,
+  RECORDING_CONTROL_TIMEOUT_MS,
+  SNAPSHOT_FREEZE_EVENTS,
+} from '@/lib/recording/content-script-constants';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
@@ -33,10 +38,9 @@ import { createHoverScheduler } from './hover-scheduler';
 
 const SHIELD_HOVER_TIMEOUT_MS = 4_000;
 const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
-const SHIELD_CONTROL_TIMEOUT_MS = 15_000;
 const SHIELD_CHANNEL_FAILURE: RecordingControlResult = {
   ok: false,
-  error: '錄製服務已中斷，請重新整理頁面後再試一次。',
+  error: RECORDING_CHANNEL_LOST_MESSAGE,
 };
 
 // The shield document consumes the same freeze list as the frozen page,
@@ -46,10 +50,6 @@ const SHIELD_CHANNEL_FAILURE: RecordingControlResult = {
 const FREEZE_EVENTS = SNAPSHOT_FREEZE_EVENTS.filter(
   (type) => type !== 'pointerdown' && type !== 'submit',
 );
-
-/** Distributes over the port-message union, dropping the channel token that
- * the shield page's `post` helper injects. */
-type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : never;
 
 // The frame URL only carries a public frame key. The secret init token is
 // fetched from extension storage, which the host page cannot read (frame URLs
@@ -109,7 +109,7 @@ function tryInitialize(event: MessageEvent): void {
   let pendingRegionCompletion: (() => void) | null = null;
   let lastCommitWasRegion = false;
   let captureTimeout: ReturnType<typeof setTimeout> | null = null;
-  let toolbarState: import('@/components/recording/RecordingToolbar').RecordingToolbarState | null = null;
+  let toolbarState: import('@/lib/recording/recording-toolbar').RecordingToolbarState | null = null;
 
   const safePostToParent = (message: SnapshotShieldPortMessage): boolean => {
     if (channelFailed) return false;
@@ -266,7 +266,7 @@ function tryInitialize(event: MessageEvent): void {
     return new Promise<RecordingControlResult>((resolve) => {
       const timeout = setTimeout(
         () => settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE),
-        SHIELD_CONTROL_TIMEOUT_MS,
+        RECORDING_CONTROL_TIMEOUT_MS,
       );
       pendingControls.set(requestId, { resolve, timeout });
       const posted = post({

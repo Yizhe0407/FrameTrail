@@ -32,6 +32,8 @@
 
   --primary-raw: #1c1c1c;
   --primary-text-raw: #ffffff;
+  /* --brand / --recording mirror BRAND_ACCENT / BRAND_DANGER in
+   * lib/capture/brand-colors.ts (CSS cannot import TS); change together. */
   --brand: #7094f4;
   --brand-text: #4f6fce;
   --brand-bg-soft: #e5ecf6;

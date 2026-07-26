@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-state';
+import { RECORDING_CHANNEL_LOST_MESSAGE } from './content-script-constants';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
@@ -120,7 +121,7 @@ export default function RecordingToolbar({
       const result = requireRuntimeMessageResult<RecordingControlResult>(
         await onCommand(action, token),
         isRecordingControlResult,
-        '錄製服務已中斷，請重新整理頁面後再試一次。',
+        RECORDING_CHANNEL_LOST_MESSAGE,
       );
       if (!result.ok) setMessage(result.error);
       return result;

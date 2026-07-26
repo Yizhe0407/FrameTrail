@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSnapshotTargetIdentity,
-  findInteractiveTargetAtPoint,
   findVisualTargetCandidates,
   getVisibleHighlightBounds,
   isInteractiveElement,
@@ -39,110 +38,6 @@ function makeVisible(element: Element, rect = { x: 20, y: 20, width: 120, height
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
-});
-
-describe('findInteractiveTargetAtPoint', () => {
-  it('selects the perceived control instead of its nested label', () => {
-    const button = document.createElement('button');
-    const label = document.createElement('span');
-    button.append(label);
-    document.body.append(button);
-    makeVisible(button);
-    makeVisible(label, { x: 30, y: 25, width: 40, height: 20 });
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => label) });
-
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(button);
-  });
-
-  it('looks through an open shadow root before choosing the target', () => {
-    const host = document.createElement('div');
-    const shadowRoot = host.attachShadow({ mode: 'open' });
-    const button = document.createElement('button');
-    shadowRoot.append(button);
-    document.body.append(host);
-    makeVisible(host);
-    makeVisible(button);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => host) });
-    Object.defineProperty(shadowRoot, 'elementFromPoint', { configurable: true, value: vi.fn(() => button) });
-
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(button);
-  });
-
-  it('excludes disabled and inert controls', () => {
-    const container = document.createElement('div');
-    const button = document.createElement('button');
-    container.append(button);
-    document.body.append(container);
-    makeVisible(container);
-    makeVisible(button);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => button) });
-
-    button.disabled = true;
-    expect(findInteractiveTargetAtPoint(35, 30)).toBeNull();
-
-    button.disabled = false;
-    container.setAttribute('inert', '');
-    expect(findInteractiveTargetAtPoint(35, 30)).toBeNull();
-  });
-
-  it('keeps semantically interactive SVG controls', () => {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('role', 'button');
-    document.body.append(svg);
-    makeVisible(svg);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => svg) });
-
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(svg);
-  });
-
-  it('recognizes fallback ARIA role tokens and ignores inert links without href', () => {
-    const control = document.createElement('div');
-    control.setAttribute('role', 'unknown button');
-    document.body.append(control);
-    makeVisible(control);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => control) });
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(control);
-
-    const link = document.createElement('a');
-    control.replaceWith(link);
-    makeVisible(link);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => link) });
-    expect(findInteractiveTargetAtPoint(35, 30)).toBeNull();
-    link.setAttribute('onclick', 'void 0');
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(link);
-
-    const heading = document.createElement('div');
-    heading.setAttribute('role', 'heading button');
-    link.replaceWith(heading);
-    makeVisible(heading);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => heading) });
-    expect(findInteractiveTargetAtPoint(35, 30)).toBeNull();
-  });
-
-  it('treats ARIA disabled values case-insensitively', () => {
-    const button = document.createElement('button');
-    button.setAttribute('aria-disabled', ' TRUE ');
-    document.body.append(button);
-    makeVisible(button);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => button) });
-
-    expect(findInteractiveTargetAtPoint(35, 30)).toBeNull();
-  });
-
-  it('recognizes assigned click handlers and all editable true states', () => {
-    const target = document.createElement('div');
-    document.body.append(target);
-    makeVisible(target);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => target) });
-
-    target.onclick = () => {};
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(target);
-    target.onclick = null;
-    target.setAttribute('contenteditable', '');
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(target);
-    target.setAttribute('contenteditable', 'plaintext-only');
-    expect(findInteractiveTargetAtPoint(35, 30)).toBe(target);
-  });
 });
 
 describe('findVisualTargetCandidates', () => {

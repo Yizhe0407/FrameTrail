@@ -107,6 +107,7 @@ interface SnapshotProbeRequest {
 function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<SnapshotProbeResult>;
+  const candidateOffset = result.candidateOffset;
   return (
     isFiniteRect(result.rect, { maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT }) &&
     typeof result.identity === 'string' &&
@@ -117,8 +118,9 @@ function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
     typeof result.tagName === 'string' &&
     result.tagName.length > 0 &&
     result.tagName.length <= 100 &&
-    Number.isSafeInteger(result.candidateOffset) &&
-    Math.abs(result.candidateOffset!) <= SNAPSHOT_TARGET_OFFSET_LIMIT
+    candidateOffset !== undefined &&
+    Number.isSafeInteger(candidateOffset) &&
+    Math.abs(candidateOffset) <= SNAPSHOT_TARGET_OFFSET_LIMIT
   );
 }
 
@@ -346,18 +348,23 @@ export function installSnapshotFrameProbe(runId: string): void {
   const onMessage = (event: MessageEvent) => {
     const request = event.data as Partial<SnapshotProbeRequest> | null;
     const port = event.ports[0];
+    const { timeoutMs, clientX, clientY, candidateOffset } = request ?? {};
     if (
       event.source !== parent ||
       !port ||
       request?.type !== FRAME_PROBE_MESSAGE ||
       request.runId !== runId ||
-      !Number.isFinite(request.timeoutMs) ||
-      request.timeoutMs! < 0 ||
-      request.timeoutMs! > FRAME_PROBE_TIMEOUT_MS ||
-      !Number.isFinite(request.clientX) ||
-      !Number.isFinite(request.clientY) ||
-      !Number.isSafeInteger(request.candidateOffset) ||
-      Math.abs(request.candidateOffset!) > SNAPSHOT_TARGET_OFFSET_LIMIT
+      timeoutMs === undefined ||
+      !Number.isFinite(timeoutMs) ||
+      timeoutMs < 0 ||
+      timeoutMs > FRAME_PROBE_TIMEOUT_MS ||
+      clientX === undefined ||
+      !Number.isFinite(clientX) ||
+      clientY === undefined ||
+      !Number.isFinite(clientY) ||
+      candidateOffset === undefined ||
+      !Number.isSafeInteger(candidateOffset) ||
+      Math.abs(candidateOffset) > SNAPSHOT_TARGET_OFFSET_LIMIT
     ) {
       closePortQuietly(port);
       return;
@@ -380,10 +387,10 @@ export function installSnapshotFrameProbe(runId: string): void {
       try {
         const target = await resolveSnapshotTargetAtPoint(
           runId,
-          request.clientX!,
-          request.clientY!,
-          request.candidateOffset!,
-          request.timeoutMs!,
+          clientX,
+          clientY,
+          candidateOffset,
+          timeoutMs,
         );
         response = target
           ? {

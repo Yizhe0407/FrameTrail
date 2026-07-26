@@ -1,3 +1,5 @@
+import { BRAND_DANGER } from './brand-colors';
+
 export const REGION_CAPTURE_MIN_SIZE = 8;
 
 export interface RegionPoint {
@@ -134,7 +136,7 @@ const REGION_CAPTURE_STYLES = `
     font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
   }
   .ft-region-selection {
-    position: absolute; display: none; border: 2px solid #ff4747; border-radius: 8px;
+    position: absolute; display: none; border: 2px solid ${BRAND_DANGER}; border-radius: 8px;
     background: rgb(255 71 71 / .08); box-shadow: 0 0 0 99999px rgb(15 23 42 / .32);
     pointer-events: none;
   }

@@ -72,6 +72,8 @@ import {
 import { installRecaptureRecorder } from '@/lib/recording/recapture-recorder';
 import {
   CLEANUP_EVENT,
+  RECORDING_CHANNEL_LOST_MESSAGE,
+  RECORDING_CONTROL_TIMEOUT_MS,
   SNAPSHOT_FREEZE_EVENTS,
   STEP_DEDUP_MS,
   STEP_FOLLOWUP_EVENTS,
@@ -93,7 +95,6 @@ const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 // Only a genuinely hung capture should hit this; normal-latency captures (even
 // throttled) settle well under it, so they never lose the race to the replay.
 const CAPTURE_FAILSAFE_MS = 2_000;
-const TOOLBAR_COMMAND_TIMEOUT_MS = 15_000;
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
@@ -146,13 +147,6 @@ export default defineContentScript({
     };
     const snapshotDevicePixelRatioContract = recordingState.snapshotDevicePixelRatio ?? window.devicePixelRatio;
 
-    let stepGesture: {
-      target: Element;
-      captureId: string;
-      isCancelled: () => boolean;
-      cancel: () => void;
-      cancelled: Promise<void>;
-    } | null = null;
     let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
     let manualRegionCapture: RegionCapture | null = null;
@@ -379,19 +373,20 @@ export default defineContentScript({
             ...(undoToken ? { undoToken } : {}),
           } satisfies RecordingControlMessage),
           isRecordingControlResult,
-          '錄製服務已中斷，請重新整理頁面後再試一次。',
+          RECORDING_CHANNEL_LOST_MESSAGE,
         ))();
       // A hung background must not wedge the in-page toolbar forever: surface
-      // the channel-failure error after the same budget the shield toolbar
-      // uses, so controls re-enable and the user sees what went wrong.
+      // the channel-failure error after the shared control budget (the same
+      // one the shield toolbar uses), so controls re-enable and the user sees
+      // what went wrong.
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         return await Promise.race([
           command,
           new Promise<RecordingControlResult>((resolve) => {
             timeout = setTimeout(
-              () => resolve({ ok: false, error: '錄製服務已中斷，請重新整理頁面後再試一次。' }),
-              TOOLBAR_COMMAND_TIMEOUT_MS,
+              () => resolve({ ok: false, error: RECORDING_CHANNEL_LOST_MESSAGE }),
+              RECORDING_CONTROL_TIMEOUT_MS,
             );
           }),
         ]);
@@ -405,6 +400,13 @@ export default defineContentScript({
     /** Installs the whole step-mode recorder (hover preview, gesture capture,
      * child-frame relay endpoint, toolbar) and returns its uninstaller. */
     const installStepRecorder = (): (() => void) => {
+      let stepGesture: {
+        target: Element;
+        captureId: string;
+        isCancelled: () => boolean;
+        cancel: () => void;
+        cancelled: Promise<void>;
+      } | null = null;
       const stepDedup = createStepCaptureDedup<Element | string>(STEP_DEDUP_MS);
       const lateClickSuppressor = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
       // While a capture is in flight the stored rect is pinned to this scroll
@@ -731,6 +733,9 @@ export default defineContentScript({
         onStartRegionCapture: startStepRegionCapture,
       });
 
+      // The toolbar and hover preview mounted above are shared, module-level
+      // resources: cleanup() owns their removal (recordingToolbar?.remove(),
+      // hoverPreview?.destroy()); this uninstaller only detaches listeners.
       return () => {
         document.removeEventListener('pointerdown', onPointerDown, { capture: true });
         window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
@@ -765,6 +770,7 @@ export default defineContentScript({
         recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
           onCommand: sendToolbarCommand,
         });
+        // cleanup() owns the toolbar's removal (recordingToolbar?.remove()).
         return () => {};
       }
 

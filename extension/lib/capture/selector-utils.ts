@@ -273,14 +273,6 @@ function findInteractiveTargetFromEntries(entries: AnalyzedElement[]): Element |
   return best?.entry.element ?? null;
 }
 
-function findInteractiveTargetFromNodes(nodes: Iterable<unknown>): Element | null {
-  return findInteractiveTargetFromEntries(analyzeElements(nodes));
-}
-
-export function findInteractiveTarget(event: Event): Element | null {
-  return findInteractiveTargetFromNodes(event.composedPath());
-}
-
 export function deepElementFromPoint(clientX: number, clientY: number): Element | null {
   let root: Document | ShadowRoot = document;
   let target: Element | null = null;
@@ -306,13 +298,6 @@ function elementAndComposedAncestors(target: Element): Element[] {
     current = getComposedParent(current);
   }
   return nodes;
-}
-
-/** Finds the control under viewport coordinates while an input shield is
- * temporarily click-blind. Open shadow roots are traversed when possible. */
-export function findInteractiveTargetAtPoint(clientX: number, clientY: number): Element | null {
-  const target = deepElementFromPoint(clientX, clientY);
-  return target ? findInteractiveTargetFromNodes(elementAndComposedAncestors(target)) : null;
 }
 
 export interface VisualTargetCandidate {

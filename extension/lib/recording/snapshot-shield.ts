@@ -28,6 +28,7 @@ import {
   type SnapshotShieldSelection,
   type SnapshotShieldTokenRecord,
   type SnapshotShieldToolbarStateMessage,
+  type WithoutToken,
 } from './snapshot-shield-protocol';
 import { deepElementFromPoint } from '../capture/selector-utils';
 import type { RecordingControlResult } from '../runtime/messages';
@@ -65,10 +66,6 @@ type RegionHandler = (
   message: SnapshotShieldRegionCaptureMessage,
 ) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
 type FailureHandler = (error: Error) => void | Promise<void>;
-
-/** Distributes over a message union, dropping the channel token that the
- * shield-side `post` helper injects. */
-type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : never;
 
 function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');

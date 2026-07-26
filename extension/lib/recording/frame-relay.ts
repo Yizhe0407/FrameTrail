@@ -141,7 +141,7 @@ export function findIframeForWindow(source: unknown): HTMLIFrameElement | null {
 /** Maps a rect from a child frame's viewport into this frame's viewport and
  * clips it to the visible portion of the iframe. Returns null when nothing
  * remains visible (hidden, collapsed, or fully clipped frames). */
-export function mapChildRectIntoFrameViewport(frame: HTMLIFrameElement, rect: Bounds): Bounds | null {
+function mapChildRectIntoFrameViewport(frame: HTMLIFrameElement, rect: Bounds): Bounds | null {
   if (isElementVisuallyUnavailable(frame)) return null;
   const mapper = createFrameCoordinateMapper(frame);
   if (!mapper) return null;

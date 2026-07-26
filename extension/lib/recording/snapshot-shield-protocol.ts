@@ -44,6 +44,10 @@ export interface SnapshotShieldSelection {
   label: number | null;
 }
 
+/** Distributes over a shield message union, dropping the channel token that
+ * each side's `post` helper injects. */
+export type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : never;
+
 export interface SnapshotShieldPreviewResult {
   rect: SnapshotShieldRect | null;
   candidateOffset: number;
@@ -205,10 +209,11 @@ export function isSnapshotShieldRegionRect(value: unknown): value is SnapshotShi
 function isSelection(value: unknown): value is SnapshotShieldSelection & { id: number } {
   if (!value || typeof value !== 'object') return false;
   const selection = value as Partial<SnapshotShieldSelection & { id: number }>;
+  const label = selection.label;
   return (
     isRequestId(selection.id) &&
     isRect(selection.rect) &&
-    (selection.label === null || (Number.isSafeInteger(selection.label) && selection.label! > 0))
+    (label === null || (label !== undefined && Number.isSafeInteger(label) && label > 0))
   );
 }
 
@@ -287,11 +292,14 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
       (message.undoToken === undefined || typeof message.undoToken === 'string')
     );
   }
+  const { clientX, clientY } = message;
   const hasPoint =
-    Number.isFinite(message.clientX) &&
-    Number.isFinite(message.clientY) &&
-    message.clientX! >= 0 &&
-    message.clientY! >= 0;
+    clientX !== undefined &&
+    clientY !== undefined &&
+    Number.isFinite(clientX) &&
+    Number.isFinite(clientY) &&
+    clientX >= 0 &&
+    clientY >= 0;
   if (message.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
     return hasPoint && isRequestId(message.captureId) && isCandidateOffset(message.candidateOffset);
   }
@@ -344,20 +352,18 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
   if (message.type === SNAPSHOT_SHIELD_COMMIT) return isSelection(message.selection);
   if (message.type === SNAPSHOT_SHIELD_UNDO) return true;
   if (message.type === SNAPSHOT_SHIELD_TOOLBAR_STATE) {
+    const state = message.state;
+    if (!state) return false;
     return (
-      Boolean(message.state) &&
-      typeof message.state!.runId === 'string' &&
-      message.state!.mode === 'snapshot' &&
-      typeof message.state!.phase === 'string' &&
-      Number.isSafeInteger(message.state!.itemCount) &&
-      message.state!.itemCount >= 0 &&
-      (message.state!.error === null || typeof message.state!.error === 'string')
+      typeof state.runId === 'string' &&
+      state.mode === 'snapshot' &&
+      typeof state.phase === 'string' &&
+      Number.isSafeInteger(state.itemCount) &&
+      state.itemCount >= 0 &&
+      (state.error === null || typeof state.error === 'string')
     );
   }
-  return (
-    message.type === SNAPSHOT_SHIELD_CONTROL_RESULT &&
-    isRequestId(message.requestId) &&
-    Boolean(message.result) &&
-    typeof message.result!.ok === 'boolean'
-  );
+  if (message.type !== SNAPSHOT_SHIELD_CONTROL_RESULT) return false;
+  const result = message.result;
+  return isRequestId(message.requestId) && result != null && typeof result.ok === 'boolean';
 }

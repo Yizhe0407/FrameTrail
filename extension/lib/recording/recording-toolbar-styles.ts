@@ -1,3 +1,5 @@
+import { BRAND_ACCENT, BRAND_DANGER } from '../capture/brand-colors';
+
 /**
  * The recording toolbar's stylesheet, injected as a <style> tag inside its
  * mount target rather than relying on any page CSS.
@@ -17,10 +19,10 @@ export const recordingToolbarStyles = `
     --ft-status-text: #1c1c1c;
     --ft-muted: rgba(28, 28, 28, .6);
     --ft-border: rgba(28, 28, 28, .12);
-    --ft-primary: #7094f4;
+    --ft-primary: ${BRAND_ACCENT};
     --ft-primary-text: #ffffff;
-    --ft-recording: #ff4747;
-    --ft-focus: #7094f4;
+    --ft-recording: ${BRAND_DANGER};
+    --ft-focus: ${BRAND_ACCENT};
     --ft-divider: rgba(28, 28, 28, .12);
     --ft-actions-bg: rgba(28, 28, 28, .05);
     --ft-btn-text: rgba(28, 28, 28, .72);
@@ -40,9 +42,9 @@ export const recordingToolbarStyles = `
       --ft-status-text: #ffffff;
       --ft-muted: rgba(255, 255, 255, .65);
       --ft-border: rgba(255, 255, 255, .14);
-      --ft-primary: #7094f4;
+      --ft-primary: ${BRAND_ACCENT};
       --ft-primary-text: #ffffff;
-      --ft-recording: #ff4747;
+      --ft-recording: ${BRAND_DANGER};
       --ft-focus: #60a5fa;
       --ft-divider: rgba(255, 255, 255, .14);
       --ft-actions-bg: rgba(255, 255, 255, .06);
@@ -52,7 +54,7 @@ export const recordingToolbarStyles = `
       --ft-btn-danger-hover-text: #ff8080;
       --ft-error-text: #ff8a8a;
       --ft-warning: #fbbf24;
-      --ft-link: #7094f4;
+      --ft-link: ${BRAND_ACCENT};
       --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
     }
   }
