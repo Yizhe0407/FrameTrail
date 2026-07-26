@@ -4,15 +4,15 @@ import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 cursor-pointer",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer",
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0_/_0.10)] hover:bg-primary/90',
+        default: 'bg-primary text-primary-foreground hover:bg-primary/90 font-medium',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        outline: 'border bg-background hover:bg-accent hover:text-accent-foreground',
+        outline: 'border border-border bg-card text-foreground/70 hover:text-foreground hover:border-foreground/25 dark:bg-transparent dark:text-white/70 dark:hover:text-white dark:hover:border-white/25',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        ghost: 'text-foreground/60 hover:bg-foreground/6 hover:text-foreground dark:text-white/60 dark:hover:bg-white/8 dark:hover:text-white',
         link: 'text-primary underline-offset-4 hover:underline',
         success: 'bg-green-600 text-white hover:bg-green-600/90',
       },
@@ -20,7 +20,7 @@ const buttonVariants = cva(
         default: 'h-9 px-4 py-2 has-[>svg]:px-3',
         sm: 'h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5',
         lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
-        icon: 'size-10',
+        icon: 'size-[34px] rounded-md p-0 text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white',
       },
     },
     defaultVariants: {

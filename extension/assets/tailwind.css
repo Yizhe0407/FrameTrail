@@ -3,34 +3,57 @@
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
 /*
- * Japanese-modern token system (UX_PLAN §12). Values are the plan's verified
- * hex, not converted to oklch, so the documented contrast ratios stay exact.
- * shadcn semantic names are preserved and remapped, so existing utilities
- * (bg-primary, text-muted-foreground, …) inherit the new palette unchanged.
+ * Token system replaced 2026-07-24 to match the "FrameTrail Prototype.dc.html"
+ * Claude Design import (near-black/white primary, blue/lavender brand accent,
+ * 16px card radius, pill controls). This supersedes the previous "Japanese-
+ * modern" moss/stone system documented in UX_PLAN.md §12 (see that file for
+ * a pointer to this change). shadcn semantic names are preserved and
+ * remapped, so existing utilities (bg-primary, text-muted-foreground, …)
+ * inherit the new palette unchanged. Focus (--focus) keeps its previous value
+ * on purpose — the new design shows no focus state to derive a replacement
+ * from, and focus staying visually distinct from primary is an accessibility
+ * invariant, not a style choice. The matching --warning token was dropped: it
+ * had no design to back it and every warning surface hard-codes amber.
  */
 :root {
-  /* Panels/cards 6-8px; only the recording pill uses a full radius. */
+  /* One corner radius for every interface surface. Full-radius pills, badges,
+   * and circular icon controls stay round via `rounded-full`, which Tailwind
+   * emits as a fixed value and never reads from this token. */
   --radius: 0.5rem;
 
-  --canvas: #fafaf9;
+  --canvas: #f7f9fb;
   --surface: #ffffff;
-  --surface-muted: #f5f5f4;
-  --text: #1c1917;
-  --text-muted: #57534e;
-  --line: #d6d3d1;
-  --moss: #4d7c0f;
-  --moss-text: #ffffff;
-  --recording: #be123c;
+  --surface-muted: #f0f2f6;
+  /* A panel that sits on top of --surface (annotation rows, export cards). */
+  --surface-raised: #f4f6f9;
+  --text: #1c1c1c;
+  --text-muted: rgb(28 28 28 / 0.45);
+  --line: rgb(28 28 28 / 0.08);
+
+  --primary-raw: #1c1c1c;
+  --primary-text-raw: #ffffff;
+  --brand: #7094f4;
+  --brand-text: #4f6fce;
+  --brand-bg-soft: #e5ecf6;
+  --recording: #ff4747;
   --recording-text: #ffffff;
-  --warning: #a16207;
-  --focus: #2563eb;
+  --focus: #7094f4;
+  /* Destructive *hover* affordances. --recording/--destructive is the solid
+   * red for recording state and confirm buttons; these two are the softer
+   * text/background pair used when hovering a delete or reset control. */
+  --danger-text: #e23b3b;
+  --danger-soft: #fff0f0;
+
+  --shadow-card: 0 1px 3px rgb(28 28 28 / 0.04);
+  --shadow-menu: 0 14px 40px -14px rgb(28 28 28 / 0.28);
+  --shadow-dialog: 0 18px 50px -16px rgb(28 28 28 / 0.3), 0 2px 6px rgb(28 28 28 / 0.06);
 
   --background: var(--canvas);
   --foreground: var(--text);
   --card: var(--surface);
   --card-foreground: var(--text);
-  --primary: var(--moss);
-  --primary-foreground: var(--moss-text);
+  --primary: var(--primary-raw);
+  --primary-foreground: var(--primary-text-raw);
   --secondary: var(--surface-muted);
   --secondary-foreground: var(--text);
   --muted: var(--surface-muted);
@@ -41,40 +64,37 @@
   --destructive-foreground: var(--recording-text);
   --border: var(--line);
   --input: var(--line);
-  /* Focus is deliberately separate from primary (blue, not moss). */
   --ring: var(--focus);
 }
-
-:root.dark,
-.dark {
-  --canvas: #1c1917;
-  --surface: #292524;
-  --surface-muted: #292524;
-  --text: #fafaf9;
-  --text-muted: #d6d3d1;
-  --line: #57534e;
-  --moss: #a3e635;
-  --moss-text: #1c1917;
-  --recording: #fb7185;
-  --recording-text: #1c1917;
-  --warning: #facc15;
-  --focus: #60a5fa;
-}
-
+/*
+ * Dark mode follows the OS only — there is no in-app theme switch. This media
+ * query is therefore the single source of dark truth, and it must stay in sync
+ * with the `dark` custom variant declared above: a `.dark` class hook would
+ * repaint these tokens while every `dark:` utility kept listening to the media
+ * query, so the two halves of the theme would disagree. Add a class hook here
+ * only together with `@custom-variant dark (&:where(.dark, .dark *))`.
+ */
 @media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    --canvas: #1c1917;
-    --surface: #292524;
-    --surface-muted: #292524;
-    --text: #fafaf9;
-    --text-muted: #d6d3d1;
-    --line: #57534e;
-    --moss: #a3e635;
-    --moss-text: #1c1917;
-    --recording: #fb7185;
-    --recording-text: #1c1917;
-    --warning: #facc15;
-    --focus: #60a5fa;
+  :root {
+    --canvas: #161616;
+    --surface: #242424;
+    --surface-muted: rgb(255 255 255 / 0.08);
+    --text: #ffffff;
+    --text-muted: rgb(255 255 255 / 0.45);
+    --line: rgb(255 255 255 / 0.08);
+    --primary-raw: #c6c7f8;
+    --primary-text-raw: #1c1c1c;
+    --brand: #c6c7f8;
+    --brand-text: #c6c7f8;
+    --brand-bg-soft: rgb(198 199 248 / 0.16);
+    --recording: #ff4747;
+    --recording-text: #ffffff;
+    --focus: #c6c7f8;
+    --danger-text: #ff6b6b;
+    --danger-soft: rgb(255 71 71 / 0.16);
+    --surface-raised: #282828;
+
+    --shadow-menu: 0 14px 40px -14px rgb(0 0 0 / 0.6);
   }
 }
 
@@ -96,37 +116,49 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-text: var(--brand-text);
+  --color-brand-bg-soft: var(--brand-bg-soft);
   --color-recording: var(--recording);
   --color-recording-foreground: var(--recording-text);
-  --color-warning: var(--warning);
   --color-focus: var(--focus);
-  --radius-sm: calc(var(--radius) - 2px);
+  --color-surface-raised: var(--surface-raised);
+  --color-danger: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+  /* Every named step of Tailwind's radius scale resolves to the same token, so
+   * a `rounded-*` utility can never introduce a second corner radius. */
+  --radius-xs: var(--radius);
+  --radius-sm: var(--radius);
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
 
-  /* Traditional-Chinese-first stack; Noto Sans JP is avoided so TW glyph
-   * forms are not replaced by JP variants (UX_PLAN §12.3). */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
+    'Inter', -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
     'Microsoft JhengHei', sans-serif;
 }
 
-* {
-  border-color: var(--border);
-}
-
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
-  /* No CJK tracking — pulled-apart spacing is not "Japanese feel" (§12.1). */
-  letter-spacing: 0;
-}
-
-/* Native controls outside the shadcn Button component keep semantic cursor
- * feedback. :where() keeps specificity at zero so zoom/grab utilities can
- * override this baseline without !important. */
+/* Layered on purpose: unlayered rules outrank every `@layer utilities` rule
+ * regardless of specificity, so declaring these outside a layer would silence
+ * every `border-*` colour utility in the app. */
 @layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    letter-spacing: 0;
+  }
+
+  /* Native controls outside the shadcn Button component keep semantic cursor
+   * feedback. :where() keeps specificity at zero so zoom/grab utilities can
+   * override this baseline without !important. */
   :where(button:not(:disabled), a[href], summary, [role='button']:not([aria-disabled='true'])) {
     cursor: pointer;
   }
@@ -136,7 +168,16 @@ body {
   }
 }
 
-/* Reduced-motion: strip the recording dot's continuous ping (§12.4). */
+@layer components {
+  /* Kept above media previews so active state stays legible while sharing the
+   * light/dark brand color token with the rest of the editor. */
+  .frametrail-selected-step-outline {
+    border-color: var(--brand);
+    box-shadow: inset 0 0 0 1px var(--brand);
+  }
+}
+
+/* Reduced-motion: strip the recording dot's continuous ping. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -148,13 +189,13 @@ body {
 }
 
 .app-scrollbar {
-  scrollbar-color: rgb(168 162 158 / 0.7) transparent;
+  scrollbar-color: rgb(28 28 28 / 0.16) transparent;
   scrollbar-width: thin;
 }
 
 .app-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .app-scrollbar::-webkit-scrollbar-track {
@@ -163,26 +204,26 @@ body {
 
 .app-scrollbar::-webkit-scrollbar-thumb {
   min-height: 36px;
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: rgb(168 162 158 / 0.7);
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background: rgb(28 28 28 / 0.16);
   background-clip: padding-box;
 }
 
 .app-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(120 113 108 / 0.85);
+  background-color: rgb(28 28 28 / 0.3);
 }
 
 @media (prefers-color-scheme: dark) {
   .app-scrollbar {
-    scrollbar-color: rgb(87 83 78 / 0.9) transparent;
+    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgb(87 83 78 / 0.9);
+    background-color: rgb(255 255 255 / 0.18);
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(120 113 108 / 0.95);
+    background-color: rgb(255 255 255 / 0.35);
   }
 }

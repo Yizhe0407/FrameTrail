@@ -48,7 +48,7 @@ body.has-preview-target {
   padding: 8px 16px;
   border: 0;
   border-radius: 8px;
-  background: #4d7c0f;
+  background: #1c1c1c;
   color: #ffffff;
   font: 500 14px/22px ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
@@ -64,8 +64,8 @@ body.has-preview-target {
 
 @media (prefers-color-scheme: dark) {
   .snapshot-skip-link {
-    background: #a3e635;
-    color: #1c1917;
+    background: #c6c7f8;
+    color: #1c1c1c;
   }
 
   .snapshot-skip-link:focus-visible,
@@ -77,7 +77,7 @@ body.has-preview-target {
 .snapshot-box {
   position: absolute;
   box-sizing: border-box;
-  border-radius: 6px;
+  border-radius: 8px;
   pointer-events: none;
 }
 
@@ -86,29 +86,29 @@ body.has-preview-target {
 }
 
 .snapshot-box--preview {
-  border: 2px solid rgb(244 63 94 / 0.96);
-  background: rgb(244 63 94 / 0.09);
+  border: 2px solid rgb(255 71 71 / 0.96);
+  background: rgb(255 71 71 / 0.09);
   box-shadow: none;
 }
 
 .snapshot-annotation__leader {
   fill: none;
-  stroke: #f43f5e;
+  stroke: #ff4747;
 }
 
 .snapshot-annotation__frame {
-  fill: rgb(244 63 94 / 0.055);
-  stroke: #f43f5e;
+  fill: rgb(255 71 71 / 0.055);
+  stroke: #ff4747;
 }
 
 .snapshot-annotation__marker {
   fill: #fff;
-  stroke: #f43f5e;
+  stroke: #ff4747;
 }
 
 .snapshot-annotation__marker-inner,
 .snapshot-annotation__badge {
-  fill: #f43f5e;
+  fill: #ff4747;
 }
 
 .snapshot-annotation__badge {
