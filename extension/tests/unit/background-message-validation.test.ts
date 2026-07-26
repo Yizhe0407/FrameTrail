@@ -47,6 +47,8 @@ describe('background runtime message validation', () => {
     },
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: {} },
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: 4 } },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', autoCreatedGuide: true },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'snapshot', autoCreatedGuide: false },
     { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: 'guide-1' },
   ])('accepts a structurally valid message %#', (message) => {
     expect(isBackgroundMessage(message)).toBe(true);
@@ -83,6 +85,7 @@ describe('background runtime message validation', () => {
     },
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: -1 } },
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: null },
+    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', autoCreatedGuide: 'yes' },
     // A caller-supplied source URL must never reach the permission prompt.
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { sourceUrl: 'https://attacker.example/' } },
     { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: '' },

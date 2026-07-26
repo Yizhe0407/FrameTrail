@@ -122,6 +122,28 @@ describe('recording state normalization', () => {
     expect(normalized.snapshotDevicePixelRatio).toBe(ratio === 1 ? 1 : null);
   });
 
+  it('keeps autoCreatedGuideId only while its run is alive', () => {
+    const liveRun = {
+      operation: 'recording',
+      isRecording: true,
+      phase: 'recording',
+      sessionId: 'session-1',
+      tabId: 2,
+      runId: 'run-1',
+      autoCreatedGuideId: 'session-1',
+    } as const;
+
+    expect(normalizeRecordingState(liveRun).autoCreatedGuideId).toBe('session-1');
+    // Once the run has ended (including error stops, whose recovery flow must
+    // keep the guide), the reclaim window is over.
+    expect(
+      normalizeRecordingState({ ...liveRun, operation: null, isRecording: false }).autoCreatedGuideId,
+    ).toBeNull();
+    expect(
+      normalizeRecordingState({ ...liveRun, autoCreatedGuideId: {} as never }).autoCreatedGuideId,
+    ).toBeNull();
+  });
+
   it('clears stale snapshot-only fields when the persisted mode is steps', () => {
     const normalized = normalizeRecordingState({
       operation: 'recording',

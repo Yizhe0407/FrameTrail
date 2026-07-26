@@ -47,6 +47,14 @@ export interface StartRecordingMessage {
   sessionId: string;
   mode: RecordingMode;
   /**
+   * True when the caller created sessionId's Guide solely for this run (the
+   * popup's 開始錄製 always records into a fresh Guide). Lets background
+   * reclaim the empty shell if the run ends with nothing captured; guides the
+   * user created explicitly (作品庫 新增教學) or continued from the editor
+   * never carry this flag and are never auto-deleted.
+   */
+  autoCreatedGuide?: boolean;
+  /**
    * Editor-initiated continuation of an existing Guide. The editor tab itself
    * cannot be recorded, so background resolves the Guide's own persisted source
    * page instead of using whichever tab happens to be active. The source URL is
@@ -355,6 +363,10 @@ export interface RecordingState {
   /** Changes on every START and is cleared by STOP, invalidating messages and
    * async work left behind by an older content-script instance. */
   runId: string | null;
+  /** Set when this run's Guide was auto-created just for it (popup start).
+   * Read by the stop/discard paths to reclaim a still-untouched empty shell;
+   * null for library-created guides and editor continuations. */
+  autoCreatedGuideId: string | null;
   /** Viewport used by the current snapshot anchor. Later annotations must
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: ClickCapture['viewport'] | null;

@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  ensureSelectedGuide: vi.fn(),
+  createAndSelectGuide: vi.fn(),
+  getSelectedGuide: vi.fn(),
+  discardUntouchedGuide: vi.fn(),
   permissionsContains: vi.fn(),
   permissionsRequest: vi.fn(),
   storageGet: vi.fn(),
@@ -24,7 +26,11 @@ vi.mock('wxt/browser', () => ({
     storage: { local: { get: mocks.storageGet, set: mocks.storageSet, remove: mocks.storageRemove } },
   },
 }));
-vi.mock('@/lib/guide/guide-actions', () => ({ ensureSelectedGuide: mocks.ensureSelectedGuide }));
+vi.mock('@/lib/guide/guide-actions', () => ({
+  createAndSelectGuide: mocks.createAndSelectGuide,
+  getSelectedGuide: mocks.getSelectedGuide,
+  discardUntouchedGuide: mocks.discardUntouchedGuide,
+}));
 
 import RecordControls from '@/components/popup/RecordControls';
 import { CROSS_TAB_DECLINE_STORAGE_KEY } from '@/lib/runtime/cross-tab-recording';
@@ -47,6 +53,7 @@ const IDLE_RECORDING: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: null,
+  autoCreatedGuideId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,
@@ -67,7 +74,9 @@ async function clickStartAndWaitForSend(times: number) {
 
 beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.ensureSelectedGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.createAndSelectGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.getSelectedGuide.mockResolvedValue(null);
+  mocks.discardUntouchedGuide.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-a', runId: 'run-1' });
   mocks.permissionsContains.mockResolvedValue(false);
   mocks.permissionsRequest.mockResolvedValue(true);

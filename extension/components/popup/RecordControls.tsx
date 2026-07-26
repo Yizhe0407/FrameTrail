@@ -4,7 +4,7 @@ import { AlertCircle, ExternalLink, Loader2, PencilLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/shared/utils';
 import type { RecordingMode, RecordingState, StartRecordingResult } from '@/lib/runtime/messages';
-import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
+import { createAndSelectGuide, discardUntouchedGuide, getSelectedGuide } from '@/lib/guide/guide-actions';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import { isStartRecordingResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
@@ -13,6 +13,7 @@ import {
   hasDeclinedCrossTabRecording,
   markCrossTabRecordingDeclined,
 } from '@/lib/runtime/cross-tab-recording';
+import { getRecordingState } from '@/lib/storage/storage';
 
 interface Props {
   recording: RecordingState;
@@ -52,6 +53,28 @@ export default function RecordControls({
   const [crossTabGranted, setCrossTabGranted] = useState<boolean | null>(null);
   const [crossTabDeclined, setCrossTabDeclined] = useState(false);
   const [restrictedPage, setRestrictedPage] = useState(false);
+  // Shown only in the situation where the new-guide-per-recording model
+  // actually differs from what returning users may expect: a guide with
+  // content is currently selected, which starting used to append to.
+  const [selectedGuideHasContent, setSelectedGuideHasContent] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    void getSelectedGuide()
+      .then((guide) => {
+        if (!disposed && guide) {
+          setSelectedGuideHasContent(guide.entryCount > 0 || guide.stepCount > 0);
+        }
+      })
+      .catch((error) => {
+        // Hint-only read: failing to show an informational note must never
+        // block recording, so this stays silent beyond the log.
+        console.warn('[frametrail] failed to read the selected guide summary', error);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -138,17 +161,38 @@ export default function RecordControls({
         setRestrictedPage(true);
         throw new Error('此頁面不允許錄製，請切換到要示範的一般網站分頁後再試一次。');
       }
-      const guide = await ensureSelectedGuide();
-      const result = requireRuntimeMessageResult<StartRecordingResult>(
-        await browser.runtime.sendMessage({
-          type: 'START_RECORDING',
-          sessionId: guide.id,
-          mode,
-        }),
-        isStartRecordingResult,
-        '無法連接錄製服務，請重新整理頁面後再試一次。',
-      );
-      if (!result.ok) throw new Error(result.error);
+      // Industry convention (Scribe/Tango): every popup start records into a
+      // brand-new Guide. Appending to an existing Guide is exclusively the
+      // editor's 接續錄製 flow. The pre-start selection is remembered so a
+      // failed start can roll the world back to exactly how it was.
+      const previousGuideId = (await getSelectedGuide())?.id ?? null;
+      const guide = await createAndSelectGuide();
+      try {
+        const result = requireRuntimeMessageResult<StartRecordingResult>(
+          await browser.runtime.sendMessage({
+            type: 'START_RECORDING',
+            sessionId: guide.id,
+            mode,
+            autoCreatedGuide: true,
+          }),
+          isStartRecordingResult,
+          '無法連接錄製服務，請重新整理頁面後再試一次。',
+        );
+        if (!result.ok) throw new Error(result.error);
+      } catch (startError) {
+        // Best-effort rollback of the Guide created above. The recording-state
+        // probe covers the odd case where the run actually started but the
+        // response was lost — deleting a live run's Guide would strand it.
+        try {
+          const live = await getRecordingState();
+          if (!(live.isRecording && live.sessionId === guide.id)) {
+            await discardUntouchedGuide(guide.id, previousGuideId);
+          }
+        } catch (rollbackError) {
+          console.error('[frametrail] failed to roll back the auto-created guide', rollbackError);
+        }
+        throw startError;
+      }
       onStarted?.();
     } catch (error) {
       console.error('開始錄製失敗', error);
@@ -327,6 +371,14 @@ export default function RecordControls({
         )}
         {pending ? (mode === 'snapshot' ? '正在建立乾淨底圖' : '正在連接頁面') : '開始錄製'}
       </button>
+
+      {/* Only when a guide with content is selected — the one case where the
+          new-guide-per-recording model differs from the old append behavior. */}
+      {selectedGuideHasContent && (
+        <p className="mt-[-6px] mx-[2px] mb-0 text-[11px] leading-[1.7] text-muted-foreground/60 dark:text-white/35">
+          每次錄製都會建立新教學；要接續現有教學，請從作品庫開啟教學後使用「接續錄製」。
+        </p>
+      )}
     </div>
   );
 }

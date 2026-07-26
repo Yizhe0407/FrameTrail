@@ -100,6 +100,7 @@ const idleState: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: null,
+  autoCreatedGuideId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,

@@ -9,6 +9,7 @@ export {
   STEP_STORAGE_LIMITS,
   StepStorageValidationError,
   buildStepEntries,
+  defaultGuideTitle,
   entryId,
   flattenEntries,
   getEffectiveBounds,

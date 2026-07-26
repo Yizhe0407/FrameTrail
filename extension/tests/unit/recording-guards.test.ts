@@ -26,6 +26,7 @@ const state: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: 'run-1',
+  autoCreatedGuideId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
 };

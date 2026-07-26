@@ -45,6 +45,7 @@ import {
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
 import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
+import { discardUntouchedGuide } from '@/lib/guide/guide-actions';
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
 import {
@@ -290,6 +291,9 @@ async function handleStopRunWithError(
       recoverableError: recoverableError ?? { code: 'RECORDING_STOPPED', message: error },
       groupAnchorId: null,
       runId: null,
+      // Error stops never reclaim the auto-created Guide: the recovery flow
+      // (完成並開啟編輯器) still targets sessionId and must find it.
+      autoCreatedGuideId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
     });
@@ -1473,6 +1477,9 @@ async function handleStartRecording(
     numbered: RUN_STARTS_NUMBERED,
     groupAnchorId: null,
     runId,
+    // Durable (not module state): a MV3 service-worker restart mid-run must
+    // not forget that this run's Guide is reclaimable when it ends empty.
+    autoCreatedGuideId: message.autoCreatedGuide === true ? message.sessionId : null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
     recapture: null,
@@ -1684,6 +1691,7 @@ async function handleStopRecording(version: number): Promise<void> {
     itemCount: 0,
     groupAnchorId: null,
     runId: null,
+    autoCreatedGuideId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
   }));
@@ -1696,6 +1704,35 @@ async function handleStopRecording(version: number): Promise<void> {
     console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
   }
   await stopRecordingSource(current);
+  // After the anchor cleanup so a zero-annotation snapshot run counts as empty.
+  await reclaimAbandonedAutoCreatedGuide(current);
+}
+
+/**
+ * The popup's 開始錄製 auto-creates a fresh Guide per run (autoCreatedGuideId).
+ * When such a run ends with nothing captured, delete that empty shell and clear
+ * the selection so aborted runs cannot pile unnamed empty guides up in 作品庫.
+ *
+ * Deliberately conservative: only guides that are still completely untouched
+ * are deleted (discardUntouchedGuide re-verifies zero steps and empty
+ * metadata at delete time), and only runs started with the popup's
+ * autoCreatedGuide flag qualify — 作品庫 新增教學 and the editor's 接續錄製
+ * never set it, so user-created guides are never touched. Two run endings
+ * intentionally keep the guide: FINISH_RECORDING (the editor is about to open
+ * it, so deleting would strand that navigation) and error stops (the recovery
+ * flow still targets the run's sessionId).
+ */
+async function reclaimAbandonedAutoCreatedGuide(state: RecordingState): Promise<void> {
+  if (!state.autoCreatedGuideId || state.autoCreatedGuideId !== state.sessionId) return;
+  try {
+    await discardUntouchedGuide(state.autoCreatedGuideId);
+  } catch (error) {
+    console.error(
+      '[frametrail] failed to reclaim the abandoned auto-created guide:',
+      describeBrowserError(error),
+      error,
+    );
+  }
 }
 
 async function deleteEmptySnapshotAnchor(state: RecordingState): Promise<string | null> {
@@ -2212,6 +2249,9 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
     recoverableError: null,
     groupAnchorId: null,
     runId: null,
+    // No reclaim on FINISH even at zero items: openOrFocusEditor below opens
+    // this very Guide, and the user reaches it visibly in the editor.
+    autoCreatedGuideId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
   }));
@@ -2278,11 +2318,15 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
       recoverableError: null,
       groupAnchorId: null,
       runId: null,
+      autoCreatedGuideId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
     }));
     if (!stopped) return controlFailure('無法放棄錄製，請再試一次。');
     await stopRecordingSource(state);
+    // The run's steps are already deleted, so a popup-created Guide is back to
+    // an empty shell here — the exact case the reclaim exists for.
+    await reclaimAbandonedAutoCreatedGuide(state);
     return { ok: true };
   } catch (error) {
     console.error('[frametrail] failed to discard current recording', error);

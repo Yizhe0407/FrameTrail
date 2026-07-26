@@ -119,6 +119,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return (
         isString(value.sessionId) &&
         (value.mode === 'steps' || value.mode === 'snapshot') &&
+        (value.autoCreatedGuide === undefined || typeof value.autoCreatedGuide === 'boolean') &&
         isContinuation(value.continuation)
       );
     case 'STOP_RECORDING':

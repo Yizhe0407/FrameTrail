@@ -6,7 +6,9 @@ import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  ensureSelectedGuide: vi.fn(),
+  createAndSelectGuide: vi.fn(),
+  getSelectedGuide: vi.fn(),
+  discardUntouchedGuide: vi.fn(),
 }));
 
 vi.mock('wxt/browser', () => ({
@@ -23,7 +25,11 @@ vi.mock('wxt/browser', () => ({
     storage: { local: { get: vi.fn().mockResolvedValue({}), set: vi.fn(), remove: vi.fn() } },
   },
 }));
-vi.mock('@/lib/guide/guide-actions', () => ({ ensureSelectedGuide: mocks.ensureSelectedGuide }));
+vi.mock('@/lib/guide/guide-actions', () => ({
+  createAndSelectGuide: mocks.createAndSelectGuide,
+  getSelectedGuide: mocks.getSelectedGuide,
+  discardUntouchedGuide: mocks.discardUntouchedGuide,
+}));
 
 import RecordControls from '@/components/popup/RecordControls';
 import type { RecordingState } from '@/lib/runtime/messages';
@@ -41,6 +47,7 @@ const IDLE_RECORDING: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: null,
+  autoCreatedGuideId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,
@@ -49,7 +56,9 @@ const IDLE_RECORDING: RecordingState = {
 
 beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.ensureSelectedGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.createAndSelectGuide.mockResolvedValue({ id: 'guide-a' });
+  mocks.getSelectedGuide.mockResolvedValue(null);
+  mocks.discardUntouchedGuide.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue(null);
 });
 

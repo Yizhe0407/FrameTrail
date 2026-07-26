@@ -8,6 +8,43 @@ import {
   stopRecording,
 } from '../support/harness';
 
+// Runs inside extension pages via page.evaluate; typed locally like the harness.
+declare const chrome: {
+  storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
+};
+
+async function readActiveGuideId(page: import('@playwright/test').Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    const stored = await chrome.storage.local.get('frametrail:activeGuideId');
+    const value = stored['frametrail:activeGuideId'];
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  });
+}
+
+async function readGuideIds(page: import('@playwright/test').Page): Promise<string[]> {
+  return page.evaluate(async () => new Promise<string[]>((resolve, reject) => {
+    const request = indexedDB.open('scribe', 4);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      try {
+        const keysRequest = db.transaction('guides', 'readonly').objectStore('guides').getAllKeys();
+        keysRequest.onsuccess = () => {
+          db.close();
+          resolve((keysRequest.result as string[]).sort());
+        };
+        keysRequest.onerror = () => {
+          db.close();
+          reject(keysRequest.error);
+        };
+      } catch (error) {
+        db.close();
+        reject(error);
+      }
+    };
+  }));
+}
+
 async function clickPopupCommandWithoutActivatingTab(
   popupPage: import('@playwright/test').Page,
   label: string,
@@ -57,6 +94,8 @@ test.describe('popup workflows', () => {
     });
     await popupPage.getByRole('radio', { name: '快照' }).click();
     await expect(popupPage.getByRole('radio', { name: '快照' })).toHaveAttribute('aria-checked', 'true');
+    const seededGuideId = await readActiveGuideId(statePage);
+    expect(seededGuideId).toBeTruthy();
     await clickPopupCommandWithoutActivatingTab(popupPage, '開始錄製');
 
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(true);
@@ -65,12 +104,23 @@ test.describe('popup workflows', () => {
     await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(true);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(1);
 
+    // Popup start always records into a brand-new Guide (Scribe/Tango
+    // convention); the previously selected Guide is never appended to.
+    const runSessionId = (await readRecordingState(statePage)).sessionId;
+    expect(runSessionId).toBeTruthy();
+    expect(runSessionId).not.toBe(seededGuideId);
+
     await expect(popupPage.getByText('快照 · 0 個標註')).toBeVisible();
     await expect(popupPage.getByRole('button', { name: '回到錄製分頁' })).toBeEnabled();
     await expect(popupPage.getByRole('button', { name: '停止錄製' })).toHaveCount(0);
     await stopRecording(statePage);
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
+
+    // The run captured nothing, so the auto-created Guide is reclaimed: only
+    // the seeded Guide survives and the dangling selection is cleared.
+    await expect.poll(() => readGuideIds(statePage)).toEqual([seededGuideId]);
+    await expect.poll(() => readActiveGuideId(statePage)).toBeNull();
   });
 
   test('opens the editor and keeps data actions disabled for an empty session', async ({

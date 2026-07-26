@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { createGuide, getGuide, type Guide } from '../storage/db';
+import { createGuide, defaultGuideTitle, deleteGuidePermanently, getGuide, type Guide } from '../storage/db';
 import {
   clearActiveGuideId,
   getActiveGuideId,
@@ -39,9 +39,67 @@ export function createAndSelectGuide(title?: string): Promise<Guide> {
   });
 }
 
-/** Explicit UI-flow helper (for example, pressing Start with no selection).
- * Passive startup/recovery code must use getActiveGuideId instead. A stale id
- * is cleared and replaced with a fresh Guide; it is never recreated via
+/** Reads the currently selected Guide, or null when nothing valid is
+ * selected. Read-only; a stale selection is reported as null, not cleared. */
+export async function getSelectedGuide(): Promise<Guide | null> {
+  const selectedId = await getActiveGuideId();
+  if (!selectedId) return null;
+  return (await getGuide(selectedId)) ?? null;
+}
+
+/** True while the Guide is still exactly the empty shell createGuide
+ * produces: nothing recorded and no user-entered metadata. The moment a user
+ * names, tags, or records into it, it stops being reclaimable. sanitizeGuide
+ * substitutes the timestamped 未命名教學 placeholder for an empty title, so
+ * "unnamed" means either an empty title or the exact placeholder derived from
+ * createdAt — any user-typed title differs from both. contentRevision is
+ * deliberately not consulted: transient rows such as a snapshot run's deleted
+ * empty anchor bump it without leaving any user content behind. */
+function isUntouchedGuide(guide: Guide): boolean {
+  const title = guide.title.trim();
+  return (
+    guide.stepCount === 0 &&
+    guide.entryCount === 0 &&
+    (title === '' || title === defaultGuideTitle(guide.createdAt)) &&
+    guide.description.trim() === '' &&
+    guide.tags.length === 0 &&
+    guide.sections.length === 0
+  );
+}
+
+/**
+ * Reclaims a Guide that was auto-created for a recording run which never
+ * produced anything: deletes it and clears the matching selection, but only
+ * while it is still an untouched empty shell (see isUntouchedGuide), so a
+ * guide the user has meanwhile named or filled is never destroyed. Callers
+ * must only pass ids they themselves auto-created — an explicitly created
+ * 作品庫 guide shares the same empty shape and must never reach this.
+ * restorePreviousGuideId re-selects the pre-start selection after a failed
+ * start, making the aborted attempt invisible. Returns whether it deleted.
+ */
+export function discardUntouchedGuide(
+  guideId: string,
+  restorePreviousGuideId: string | null = null,
+): Promise<boolean> {
+  return queueSelectionAction(async () => {
+    const guide = await getGuide(guideId);
+    if (!guide || !isUntouchedGuide(guide)) return false;
+    await deleteGuidePermanently(guideId);
+    await clearActiveGuideId(guideId);
+    if (restorePreviousGuideId && restorePreviousGuideId !== guideId) {
+      const previous = await getGuide(restorePreviousGuideId);
+      if (previous) await setActiveGuideId(previous.id);
+    }
+    return true;
+  });
+}
+
+/** Explicit UI-flow helper for editor navigation with no valid selection
+ * (popup 開啟編輯器). Recording starts never use this — the popup's 開始錄製
+ * always records into a fresh Guide via createAndSelectGuide, and appending
+ * to an existing Guide is exclusively the editor's 接續錄製 flow. Passive
+ * startup/recovery code must use getActiveGuideId instead. A stale id is
+ * cleared and replaced with a fresh Guide; it is never recreated via
  * ensureGuide, which could resurrect a permanently deleted Guide. */
 export function ensureSelectedGuide(): Promise<Guide> {
   return queueSelectionAction(async () => {

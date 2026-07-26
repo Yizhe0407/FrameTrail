@@ -32,6 +32,7 @@ function recoveryState(recoverableError: RecoverableRecordingError): RecordingSt
     numbered: true,
     groupAnchorId: null,
     runId: null,
+    autoCreatedGuideId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
   };

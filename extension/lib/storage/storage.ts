@@ -22,6 +22,7 @@ const DEFAULT_STATE: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: null,
+  autoCreatedGuideId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,
@@ -248,6 +249,13 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
         ? normalizeNullableString(raw.groupAnchorId, MAX_STATE_ID_LENGTH)
         : null,
     runId: operation === 'recording' ? runId : null,
+    // Meaningful only while its run is alive: once the run ends (including
+    // error stops, whose recovery flow must keep the guide), the reclaim
+    // window is over and the flag must not leak into a later run.
+    autoCreatedGuideId:
+      operation === 'recording'
+        ? normalizeNullableString(raw.autoCreatedGuideId, MAX_STATE_ID_LENGTH)
+        : null,
     snapshotViewport: operation === 'recording' && mode === 'snapshot' ? snapshotViewport : null,
     snapshotDevicePixelRatio: operation === 'recording' && mode === 'snapshot' ? snapshotDevicePixelRatio : null,
     recapture: operation === 'recapture' ? recapture : null,
