@@ -107,6 +107,17 @@ const RECORDER_READY_TIMEOUT_MS = 5_000;
  * the first capture made the user decide blind. Captures still stamp the run's
  * value onto each step, so turning it off later never rewrites older images. */
 const RUN_STARTS_NUMBERED = true;
+/** A snapshot run whose anchor row (or its base image) is gone can never accept
+ * another annotation. Settling the whole run once — instead of failing every
+ * click — is what makes the state recoverable from the popup. */
+const SNAPSHOT_ANCHOR_MISSING_ERROR: RecoverableRecordingError = {
+  code: 'SNAPSHOT_ANCHOR_MISSING',
+  message: '快照底圖已遺失，這次快照錄製已停止。先前完成的內容仍保留，請重新開始快照錄製。',
+};
+
+/** Raised when an annotation arrives for a run whose anchor no longer holds a
+ * base image. Typed so handleClick settles the run instead of retrying forever. */
+class SnapshotAnchorMissingError extends Error {}
 const recorderRuntime = createRecorderRuntime({
   captureVisibleTab: (windowId) => browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 }),
   executeRecorderScript: (target) => browser.scripting.executeScript({
@@ -269,7 +280,6 @@ async function handleStopRunWithError(
   const stoppedState = await queueStateMutation(async () => {
     const state = await getRecordingState();
     if (version !== controlVersion || !state.isRecording || state.runId !== runId) return null;
-    await deleteEmptySnapshotAnchor(state);
     await setRecordingState({
       ...state,
       operation: null,
@@ -286,6 +296,13 @@ async function handleStopRunWithError(
     return state;
   });
   if (!stoppedState) return;
+  // Only after the run stopped referencing it: an interruption here leaks an
+  // orphan row at worst, never a live run pointing at a deleted anchor.
+  try {
+    await deleteEmptySnapshotAnchor(stoppedState);
+  } catch (cleanupError) {
+    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
+  }
   await stopRecordingSource(stoppedState);
 }
 
@@ -361,6 +378,7 @@ async function createAndActivateSnapshotAnchor(
   const { sessionId, runId } = state;
   const captureId = crypto.randomUUID();
   let anchorId: string | null = null;
+  let anchorPublished = false;
 
   try {
     const captured = await captureScreenshot(
@@ -400,6 +418,7 @@ async function createAndActivateSnapshotAnchor(
       version,
     );
     if (!updated) throw new StaleCaptureError('Recording changed while saving the snapshot.');
+    anchorPublished = true;
 
     acceptingClicks = true;
     const activateMessage: FrameTrailSnapshotActiveMessage = {
@@ -414,14 +433,27 @@ async function createAndActivateSnapshotAnchor(
   } catch (error) {
     acceptingClicks = false;
     if (anchorId) {
-      try {
-        await deleteStep(anchorId);
-      } catch (cleanupError) {
-        console.error(
-          '[frametrail] failed to remove incomplete snapshot:',
-          describeBrowserError(cleanupError),
-          cleanupError,
-        );
+      // A published anchor id must be withdrawn from the run state before its
+      // row disappears; if withdrawal fails, keep the row (an orphan at worst)
+      // so the state never dangles into a deleted anchor.
+      const removedAnchorId = anchorId;
+      const safeToDelete = !anchorPublished || await updateRunState(
+        runId,
+        (current) => current.groupAnchorId === removedAnchorId
+          ? { ...current, groupAnchorId: null, snapshotViewport: null, snapshotDevicePixelRatio: null }
+          : current,
+        version,
+      ).catch(() => false);
+      if (safeToDelete) {
+        try {
+          await deleteStep(anchorId);
+        } catch (cleanupError) {
+          console.error(
+            '[frametrail] failed to remove incomplete snapshot:',
+            describeBrowserError(cleanupError),
+            cleanupError,
+          );
+        }
       }
     }
     throw error;
@@ -775,36 +807,51 @@ async function recoverInterruptedRecording(): Promise<void> {
   const state = await getRecordingState();
   if (state.operation !== 'recording' || !state.isRecording || !state.runId) return;
   const expectedControlVersion = controlVersion;
-  if (await isRecordedTabIntact(state)) return;
+  const assessment = await assessInterruptedRecording(state);
+  if (assessment === 'intact') return;
+  const recoverableError = assessment === 'anchor-missing'
+    ? SNAPSHOT_ANCHOR_MISSING_ERROR
+    : RECORDED_TAB_CLOSED_ERROR;
   await stopRunWithError(
     state.runId,
-    RECORDED_TAB_CLOSED_ERROR.message,
+    recoverableError.message,
     expectedControlVersion,
-    RECORDED_TAB_CLOSED_ERROR,
+    recoverableError,
   );
 }
 
-async function isRecordedTabIntact(state: RecordingState): Promise<boolean> {
-  if (state.tabId == null) return false;
+type InterruptedRecordingAssessment = 'intact' | 'tab-gone' | 'anchor-missing';
+
+async function assessInterruptedRecording(state: RecordingState): Promise<InterruptedRecordingAssessment> {
+  if (state.tabId == null) return 'tab-gone';
   let tab: Browser.tabs.Tab;
   try {
     tab = await browser.tabs.get(state.tabId);
   } catch {
-    return false;
+    return 'tab-gone';
   }
   // A live run can read its tab's URL through the activeTab/host grant that
   // started it. After a browser restart those grants are gone or the reissued
   // id shows a browser page, so an unreadable or restricted URL means this
   // run can never capture again. A readable ordinary URL is kept — steps mode
   // legitimately navigates, so a stricter match would kill healthy runs.
-  if (isRestrictedUrl(tab.url)) return false;
-  if (state.mode === 'snapshot' && state.groupAnchorId) {
-    // Snapshot coordinates belong to one immutable document; a restart that
-    // left the tab on any other URL invalidates every further annotation.
-    const anchor = await getStep(state.groupAnchorId);
-    if (anchor && tab.url !== anchor.url) return false;
+  if (isRestrictedUrl(tab.url)) return 'tab-gone';
+  if (state.mode === 'snapshot') {
+    // A snapshot run only accepts annotations while a valid anchor with a base
+    // image exists, so startup validates the anchor exactly like the tab: a
+    // run resumed into a click-accepting phase without one would fail every
+    // future annotation with a per-click error instead of settling.
+    const acceptsAnnotations = state.phase === 'recording' || state.phase === 'finishing';
+    if (acceptsAnnotations && !state.groupAnchorId) return 'anchor-missing';
+    if (state.groupAnchorId) {
+      const anchor = await getStep(state.groupAnchorId);
+      if (acceptsAnnotations && !anchor?.screenshotBlob) return 'anchor-missing';
+      // Snapshot coordinates belong to one immutable document; a restart that
+      // left the tab on any other URL invalidates every further annotation.
+      if (anchor && tab.url !== anchor.url) return 'tab-gone';
+    }
   }
-  return true;
+  return 'intact';
 }
 
 /**
@@ -1355,14 +1402,27 @@ async function handleStartRecording(
   } catch (err) {
     console.error('[frametrail] failed to inject recorder:', describeBrowserError(err), err);
     if (startupAnchorId) {
-      try {
-        await deleteStep(startupAnchorId);
-      } catch (cleanupError) {
-        console.error(
-          '[frametrail] failed to remove incomplete snapshot:',
-          describeBrowserError(cleanupError),
-          cleanupError,
-        );
+      // The anchor was already published to the run state; withdraw it first
+      // so no state ever points at a deleted row, and keep the row (an orphan
+      // at worst) when the withdrawal cannot be applied.
+      const removedAnchorId = startupAnchorId;
+      const safeToDelete = await updateRunState(
+        runId,
+        (current) => current.groupAnchorId === removedAnchorId
+          ? { ...current, groupAnchorId: null, snapshotViewport: null, snapshotDevicePixelRatio: null }
+          : current,
+        version,
+      ).catch(() => false);
+      if (safeToDelete) {
+        try {
+          await deleteStep(startupAnchorId);
+        } catch (cleanupError) {
+          console.error(
+            '[frametrail] failed to remove incomplete snapshot:',
+            describeBrowserError(cleanupError),
+            cleanupError,
+          );
+        }
       }
     }
     if (version !== controlVersion) return;
@@ -1496,7 +1556,6 @@ async function handleStopRecording(version: number): Promise<void> {
   if (version !== controlVersion) return;
   const current = await getRecordingState();
   if (version !== controlVersion) return;
-  await deleteEmptySnapshotAnchor(current);
   const state = await writeStateForControl(version, (latest) => ({
     ...latest,
     operation: null,
@@ -1510,6 +1569,13 @@ async function handleStopRecording(version: number): Promise<void> {
     snapshotDevicePixelRatio: null,
   }));
   if (!state) return;
+  // Only after the stop won: deleting first left a live run pointing at a
+  // deleted anchor whenever the state write lost to a concurrent control.
+  try {
+    await deleteEmptySnapshotAnchor(current);
+  } catch (cleanupError) {
+    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
+  }
   await stopRecordingSource(current);
 }
 
@@ -2005,7 +2071,6 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   if (!state.isRecording || !state.sessionId || state.runId !== message.runId) {
     return controlFailure('這次錄製已經結束。');
   }
-  await deleteEmptySnapshotAnchor(state);
   const steps = await getSteps(state.sessionId);
   const runItems = steps.filter((step) => step.runId === message.runId && step.bounds !== null);
   const lastItem = runItems.at(-1) ?? null;
@@ -2033,6 +2098,14 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   }));
   if (!stopped) return controlFailure('無法完成錄製，請再試一次。');
 
+  // Only after the finish won the state write: a service-worker death or lost
+  // race between an earlier delete and the write used to leave a run in phase
+  // 'finishing' whose groupAnchorId pointed at a deleted anchor row.
+  try {
+    await deleteEmptySnapshotAnchor(state);
+  } catch (cleanupError) {
+    console.error('[frametrail] failed to remove the empty snapshot anchor:', describeBrowserError(cleanupError), cleanupError);
+  }
   await stopRecordingSource(state);
   try {
     await openOrFocusEditor(result);
@@ -2386,12 +2459,17 @@ async function handleSnapshotClick(
     );
   }
 
-  // These throw messages surface to the user through setRunError, so zh-Hant.
-  if (!anchorId) throw new Error('已略過此標註：快照底圖遺失。');
+  // A missing anchor (or one without its base image) can never accept another
+  // annotation; the typed error makes handleClick settle the whole run once
+  // instead of surfacing the same per-click error forever.
+  if (!anchorId) throw new SnapshotAnchorMissingError('Snapshot anchor id is missing from the run state.');
   let existingSteps = await getSteps(sessionId);
   const anchor = existingSteps.find((step) => step.id === anchorId);
 
-  if (!anchor?.screenshotBlob) throw new Error('已略過此標註：快照底圖遺失。');
+  if (!anchor?.screenshotBlob) {
+    throw new SnapshotAnchorMissingError('Snapshot anchor row or its base image no longer exists.');
+  }
+  // This throw message surfaces to the user through setRunError, so zh-Hant.
   if (anchor.url !== message.url) {
     throw new Error('已略過此標註：頁面在底圖拍攝後已變更。');
   }
@@ -2518,6 +2596,16 @@ async function handleClick(
           message.viewport,
           message.devicePixelRatio,
           expectedControlVersion,
+        );
+      } else if (err instanceof SnapshotAnchorMissingError) {
+        // The run can never accept another annotation; settle it once with a
+        // recoverable error instead of failing every subsequent click.
+        console.error('[frametrail] snapshot anchor is gone; settling the run:', err.message);
+        await stopRunWithError(
+          message.runId,
+          SNAPSHOT_ANCHOR_MISSING_ERROR.message,
+          expectedControlVersion,
+          SNAPSHOT_ANCHOR_MISSING_ERROR,
         );
       } else if (isMissingTabError(err)) {
         await stopRunWithError(
