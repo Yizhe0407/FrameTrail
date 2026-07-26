@@ -112,6 +112,41 @@ describe('MultiHighlightThumbnail', () => {
     expect(annotateMocks.layoutAnnotations).toHaveBeenCalledOnce();
   });
 
+  it('anchors an overlay to the contained image pixels rather than its letterboxed box', () => {
+    const view = render(
+      <MultiHighlightThumbnail
+        blob={new Blob(['image'])}
+        annotations={[]}
+        screenshotScale={1}
+        numbered={false}
+        alt="overlay preview"
+        fit="contain"
+        overlay={<span>點擊放大</span>}
+      />,
+    );
+    const image = view.container.querySelector<HTMLImageElement>('img')!;
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 200 },
+      naturalHeight: { configurable: true, value: 100 },
+      offsetLeft: { configurable: true, value: 10 },
+      offsetTop: { configurable: true, value: 20 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }),
+      },
+    });
+
+    act(() => fireEvent.load(image));
+    act(flushAnimationFrames);
+
+    const contentFrame = view.container.querySelector<HTMLElement>('[data-frametrail-image-content-frame]')!;
+    expect(contentFrame.style.left).toBe('10px');
+    expect(contentFrame.style.top).toBe('45px');
+    expect(contentFrame.style.width).toBe('100px');
+    expect(contentFrame.style.height).toBe('50px');
+    expect(contentFrame.textContent).toBe('點擊放大');
+  });
+
   it('keeps minimum-size markers and badges inside a downscaled thumbnail at every corner', () => {
     annotateMocks.layoutAnnotations.mockReturnValue([
       {

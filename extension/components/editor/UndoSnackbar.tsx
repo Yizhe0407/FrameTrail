@@ -20,21 +20,24 @@ export default function UndoSnackbar({
   dismissRef.current = onDismiss;
 
   useEffect(() => {
+    // While the restore runs, auto-dismiss must not unmount the snackbar mid
+    // operation; the timer restarts from zero once the operation settles.
+    if (pending) return;
     const timer = setTimeout(() => dismissRef.current(), 5_000);
     return () => clearTimeout(timer);
-  }, [message]);
+  }, [message, pending]);
 
   return (
     <div
       role="status"
-      className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-3 rounded-md border border-stone-700 bg-stone-900 px-4 py-2 text-sm text-stone-50 shadow-lg dark:border-stone-500 dark:bg-stone-100 dark:text-stone-900 ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
+      className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-3 rounded-full bg-[var(--primary-raw)] px-4 py-2 text-sm text-[var(--primary-text-raw)] shadow-[var(--shadow-menu)] ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
     >
-      <span>{message}</span>
+      <span className="min-w-0 truncate" title={message}>{message}</span>
       <button
         type="button"
         onClick={onUndo}
         disabled={pending}
-        className="inline-flex min-h-8 items-center gap-1.5 rounded px-2 font-semibold text-lime-300 outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-60 dark:text-lime-700 dark:hover:bg-black/10"
+        className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2 font-semibold text-brand outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
       >
         {pending ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
         {pending ? '還原中' : '還原'}
@@ -44,7 +47,7 @@ export default function UndoSnackbar({
         onClick={onDismiss}
         disabled={pending}
         aria-label="關閉還原提示"
-        className="flex size-8 items-center justify-center rounded outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-60 dark:hover:bg-black/10"
+        className="flex size-8 items-center justify-center rounded-full outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40 disabled:opacity-60"
       >
         <X className="size-4" />
       </button>

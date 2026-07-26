@@ -7,10 +7,10 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Step } from '@/lib/storage/db';
-import { reorderById, restrictToVerticalAxis, useSortableSensors } from '@/lib/editor/dnd';
+import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
+import { createSortableAccessibility, reorderById, restrictToVerticalAxis, useSortableSensors } from '@/lib/editor/dnd';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
-import { Textarea } from '@/components/ui/textarea';
-import SaveStatus from './SaveStatus';
+import { Switch } from '@/components/ui/switch';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 import SortableItem from './SortableItem';
 
@@ -27,13 +27,11 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
   const {
     description,
     setDescription,
-    status,
-    error,
     recoveries,
     restoreRecovery,
     discardRecovery,
     flush,
-    retry,
+    confirmOverwrite,
   } = useStepDescriptionAutosave(step, onChange);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -53,55 +51,52 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
   }
 
   return (
-    <div className="px-4 py-3">
+    <div className="group flex flex-col rounded-md border border-border/80 bg-surface-raised p-[12px_14px] transition-all hover:border-foreground/20 dark:border-white/10 dark:hover:border-white/20">
       <div className="flex items-center gap-3">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-semibold text-white">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-recording text-xs font-bold text-recording-foreground shadow-xs">
           {index + 1}
         </span>
-        <Textarea
+        <input
+          type="text"
           aria-label={`標註 ${index + 1} 說明`}
           value={description}
+          maxLength={PERSISTED_STEP_LIMITS.maxDescriptionLength}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => void flush().catch(() => undefined)}
           disabled={deleteDisabled || deleting}
           placeholder="輸入標注說明…"
-          rows={1}
-          className="min-h-0 flex-1 resize-none border-transparent bg-transparent px-3 py-2 text-[13.5px] leading-[1.7] text-stone-700 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:text-stone-300"
+          className="min-w-0 flex-1 border-none bg-transparent px-1 py-0 text-[13.5px] font-normal text-foreground outline-none focus:ring-0 dark:text-white/90"
         />
-        <button
-          type="button"
-          onClick={handleDelete}
-          onPointerDown={(event) => event.preventDefault()}
-          disabled={deleteDisabled || deleting}
-          aria-label={`刪除標注 ${index + 1}`}
-          title={deleteDisabled ? '錄製或補拍期間無法刪除標注' : '刪除標注'}
-          className="shrink-0 rounded-md p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-stone-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-        >
-          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-        </button>
-        {dragHandle}
+        <div className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={handleDelete}
+            onPointerDown={(event) => event.preventDefault()}
+            disabled={deleteDisabled || deleting}
+            aria-label={`刪除標注 ${index + 1}`}
+            title={deleteDisabled ? '錄製或補拍期間無法刪除標注' : '刪除標注'}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-white/40 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+          </button>
+          {dragHandle}
+        </div>
       </div>
-      <SaveStatus
-        status={status}
-        error={error}
-        onRetry={() => void retry().catch(() => undefined)}
-        className={`mt-1 ml-8 ${status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}`}
-        hideSaved
-      />
       <DescriptionDraftRecoveries
         recoveries={recoveries}
         onRestore={restoreRecovery}
         onDiscard={discardRecovery}
+        onConfirmOverwrite={() => confirmOverwrite()}
         disabled={deleteDisabled || deleting}
-        className="mt-2 ml-8"
+        className="mt-2 ml-9"
       />
       {actionError && (
-        <div role="alert" className="ml-8 flex min-h-6 items-center gap-2 text-xs text-red-700 dark:text-red-300">
+        <div role="alert" className="ml-9 flex min-h-6 items-center gap-2 text-xs text-destructive">
           <span>{actionError}</span>
           <button
             type="button"
             onClick={() => void handleDelete()}
-            className="rounded px-1.5 py-1 font-medium text-blue-700 outline-none hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-600 dark:text-blue-300 dark:hover:bg-blue-950/40"
+            className="rounded-md px-1.5 py-1 font-medium text-focus outline-none hover:bg-focus/10 focus-visible:ring-2 focus-visible:ring-ring"
           >
             重試刪除
           </button>
@@ -113,14 +108,30 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
 
 interface Props {
   annotations: Step[];
+  numbered?: boolean;
+  onSetNumbered?: (numbered: boolean) => void | Promise<void>;
+  numberingPending?: boolean;
   onChange: () => void | Promise<void>;
   onDelete: (step: Step) => Promise<void>;
   onReorder: (reordered: Step[]) => Promise<void>;
   editingDisabled?: boolean;
 }
 
-export default function AnnotationList({ annotations, onChange, onDelete, onReorder, editingDisabled = false }: Props) {
+export default function AnnotationList({
+  annotations,
+  numbered = false,
+  onSetNumbered,
+  numberingPending = false,
+  onChange,
+  onDelete,
+  onReorder,
+  editingDisabled = false,
+}: Props) {
   const sensors = useSortableSensors();
+  const accessibility = createSortableAccessibility(
+    '標註',
+    (id) => annotations.findIndex((step) => step.id === id) + 1,
+  );
 
   function handleDragEnd(event: DragEndEvent) {
     if (editingDisabled) return;
@@ -133,23 +144,34 @@ export default function AnnotationList({ annotations, onChange, onDelete, onReor
   }
 
   if (annotations.length === 0) {
-    return <p className="text-sm text-stone-400 dark:text-stone-500">此快照目前沒有標注。</p>;
+    return <p className="text-sm text-muted-foreground p-4">此快照目前沒有標注。</p>;
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <label className="shrink-0 text-xs font-medium text-stone-600 dark:text-stone-300">
-        標注說明 · {annotations.length}
-      </label>
-      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto rounded-md border border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
+    <div className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-md border border-border/80 bg-card shadow-sm dark:border-white/10">
+      <div className="flex shrink-0 items-center justify-between border-b border-border/80 px-[18px] py-[14px] dark:border-white/10">
+        <span className="text-xs font-semibold text-muted-foreground/75 dark:text-white/50">
+          標注 · {annotations.length}
+        </span>
+        <label className="flex items-center gap-2.5 text-xs font-medium text-muted-foreground/75 cursor-pointer select-none dark:text-white/60">
+          順序編號
+          <Switch
+            checked={numbered}
+            onCheckedChange={(checked) => void onSetNumbered?.(checked)}
+            disabled={editingDisabled || numberingPending || !onSetNumbered}
+          />
+        </label>
+      </div>
+      <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto p-3.5">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
+          accessibility={accessibility}
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext items={annotations.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-            <ul className="divide-y divide-stone-200 dark:divide-stone-700">
+            <ul className="flex flex-col gap-2.5">
               {annotations.map((step, index) => (
                 <SortableItem key={step.id} id={step.id} disabled={editingDisabled}>
                   {(handle) => (

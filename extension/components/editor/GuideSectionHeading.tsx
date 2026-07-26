@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 /** A parent-owned action that may complete synchronously or asynchronously. */
 type MaybePromise = void | Promise<void>;
@@ -101,7 +103,7 @@ export function GuideSectionHeading({
   return (
     <section
       aria-label={`章節：${section.title}`}
-      className="flex flex-wrap items-center gap-2 border-y border-stone-200 bg-stone-50 px-3 py-2 dark:border-stone-700 dark:bg-stone-900"
+      className="flex flex-wrap items-center gap-2 border-y border-border bg-secondary px-3 py-2"
     >
       {editing ? (
         <form
@@ -112,7 +114,7 @@ export function GuideSectionHeading({
           }}
         >
           <label htmlFor={inputId} className="sr-only">章節名稱</label>
-          <input
+          <Input
             id={inputId}
             type="text"
             value={draftTitle}
@@ -143,63 +145,60 @@ export function GuideSectionHeading({
                 void saveRename();
               }
             }}
-            className="min-w-0 flex-1 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100"
+            className="min-w-0 flex-1 bg-card text-sm"
           />
           {emptyTitle && (
-            <p id={errorId} role="alert" className="w-full text-sm text-red-700 dark:text-red-400">
+            <p id={errorId} role="alert" className="w-full text-sm text-destructive">
               章節名稱不可為空白。
             </p>
           )}
-          <button
-            type="submit"
-            disabled={controlsDisabled}
-            onMouseDown={(event) => event.preventDefault()}
-            className="inline-flex min-h-9 items-center justify-center rounded-md border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          {/* A mousedown on either control would blur the input first and let the
+              field's own blur handler decide the outcome; suppress it so the
+              button the user actually pressed wins. */}
+          <Button type="submit" size="sm" disabled={controlsDisabled} onMouseDown={(event) => event.preventDefault()}>
             儲存
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant="outline"
             disabled={controlsDisabled}
             onMouseDown={(event) => event.preventDefault()}
             onClick={cancelRename}
-            className="inline-flex min-h-9 items-center justify-center rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700"
           >
             取消
-          </button>
+          </Button>
         </form>
       ) : (
         <>
-          <div
-            role="heading"
-            aria-level={2}
-            className="min-w-0 flex-1 break-words text-base font-semibold text-stone-900 dark:text-stone-100"
-          >
+          <h2 className="min-w-0 flex-1 break-words text-base font-semibold text-foreground">
             {section.title}
-          </div>
+          </h2>
           <div className="flex items-center gap-2" aria-label="章節操作">
-            <button
+            <Button
               type="button"
+              size="sm"
+              variant="outline"
               disabled={controlsDisabled}
               onClick={() => {
                 setDraftTitle(section.title);
                 setEmptyTitle(false);
                 setEditing(true);
               }}
-              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700"
             >
-              <Pencil className="size-4" aria-hidden="true" />
+              <Pencil aria-hidden="true" />
               重新命名
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              size="sm"
+              variant="destructive"
               disabled={controlsDisabled}
               onClick={handleDelete}
-              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-red-700 bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-600 dark:bg-red-600 dark:hover:bg-red-700"
             >
-              <Trash2 className="size-4" aria-hidden="true" />
+              <Trash2 aria-hidden="true" />
               刪除
-            </button>
+            </Button>
           </div>
         </>
       )}

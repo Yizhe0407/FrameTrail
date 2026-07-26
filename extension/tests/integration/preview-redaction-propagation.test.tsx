@@ -28,7 +28,7 @@ vi.mock('@/components/ui/dialog', () => ({
   DialogDescription: ({ children }: { children?: any }) => children,
 }));
 vi.mock('@/components/ui/button', () => ({ Button: () => null }));
-vi.mock('lucide-react', () => ({ Check: () => null, ChevronLeft: () => null, ChevronRight: () => null }));
+vi.mock('lucide-react', () => ({ Check: () => null, ChevronLeft: () => null, ChevronRight: () => null, GripVertical: () => null, Video: () => null, X: () => null }));
 vi.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children?: any }) => children,
   closestCenter: () => null,
@@ -39,13 +39,15 @@ vi.mock('@dnd-kit/sortable', () => ({
   verticalListSortingStrategy: {},
 }));
 vi.mock('@/lib/editor/dnd', () => ({
+  createSortableAccessibility: () => ({ announcements: {}, screenReaderInstructions: { draggable: '' } }),
   reorderById: () => null,
   restrictToHorizontalAxis: () => null,
   restrictToVerticalAxis: () => null,
   useSortableSensors: () => [],
 }));
 vi.mock('@/components/editor/SortableItem', () => ({
-  default: ({ children }: { children: (handle: null) => unknown }) => children(null),
+  default: ({ children }: { children: (handle: null, state: { isDragging: boolean }) => unknown }) =>
+    children(null, { isDragging: false }),
 }));
 
 import Lightbox from '@/components/editor/Lightbox';

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import HighlightThumbnail from './HighlightThumbnail';
@@ -23,64 +23,82 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
 
   useEffect(() => {
     if (!open || index === null) return;
+    const current = index;
     function handleKey(e: KeyboardEvent) {
       if (e.defaultPrevented || e.isComposing) return;
-      if (e.key === 'ArrowRight' && index! < entries.length - 1) {
+      if (e.key === 'ArrowRight' && current < entries.length - 1) {
         e.preventDefault();
-        onNavigate(index! + 1);
+        onNavigate(current + 1);
       }
-      if (e.key === 'ArrowLeft' && index! > 0) {
+      if (e.key === 'ArrowLeft' && current > 0) {
         e.preventDefault();
-        onNavigate(index! - 1);
+        onNavigate(current - 1);
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
       }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, index, entries.length, onNavigate]);
+  }, [open, index, entries.length, onNavigate, onClose]);
 
   if (!entry || index === null) return null;
   const privacy = getEntryPrivacyState(entry);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-w-[95vw] max-h-[95vh] border-none bg-transparent p-0 shadow-none">
-        <DialogTitle className="sr-only">步驟 {index + 1} 圖片預覽</DialogTitle>
+      <DialogContent showClose={false} className="fixed inset-0 z-50 flex max-h-none max-w-none translate-x-0 translate-y-0 items-center justify-center border-none bg-black/85 p-0 shadow-none backdrop-blur-md focus:outline-none">
+        <DialogTitle className="sr-only">步驟 {index + 1} 圖片大圖預覽</DialogTitle>
         <DialogDescription className="sr-only">
           {privacy.reviewRequired
             ? '此圖片因敏感資訊遮罩尚未重新確認而被隱藏。請回到編輯畫面完成確認。'
             : '使用左右方向鍵或畫面按鈕瀏覽其他步驟。'}
         </DialogDescription>
-        {entry.kind === 'single' ? (
-          <HighlightThumbnail
-            blob={entry.step.screenshotBlob}
-            bounds={getEffectiveBounds(entry.step)}
-            redactions={privacy.redactions}
-            privacyReviewRequired={privacy.reviewRequired}
-            screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
-            alt={`Step ${index + 1} 放大`}
-            fit="contain"
-            className="rounded-lg"
-            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto"
-          />
-        ) : (
-          <MultiHighlightThumbnail
-            blob={entry.anchor.screenshotBlob}
-            annotations={getOrderedAnnotations(entry.annotations)}
-            redactions={privacy.redactions}
-            privacyReviewRequired={privacy.reviewRequired}
-            screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
-            numbered={entry.anchor.numbered ?? false}
-            alt={`Step ${index + 1} 放大`}
-            fit="contain"
-            className="rounded-lg"
-            imgClassName="max-w-[95vw] max-h-[95vh] w-auto h-auto"
-          />
-        )}
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="fixed top-2 right-2 z-50 size-[44px] rounded-full border border-white/20 bg-black/75 text-white shadow-xl backdrop-blur-md transition-all hover:bg-black/90 hover:scale-105 hover:text-white sm:top-6 sm:right-6"
+          onClick={onClose}
+          aria-label="關閉預覽"
+        >
+          <X className="size-6 stroke-[2.5]" />
+        </Button>
+
+        <div className="relative flex items-center justify-center">
+          {entry.kind === 'single' ? (
+            <HighlightThumbnail
+              blob={entry.step.screenshotBlob}
+              bounds={getEffectiveBounds(entry.step)}
+              redactions={privacy.redactions}
+              privacyReviewRequired={privacy.reviewRequired}
+              screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
+              alt={`步驟 ${index + 1} 放大`}
+              fit="contain"
+              className="max-w-full border-none shadow-none"
+              imgClassName="max-h-[calc(100dvh-10rem)] max-w-[calc(100vw-7rem)] w-auto h-auto object-contain rounded-md border-none shadow-none sm:max-w-[calc(100vw-10rem)]"
+            />
+          ) : (
+            <MultiHighlightThumbnail
+              blob={entry.anchor.screenshotBlob}
+              annotations={getOrderedAnnotations(entry.annotations)}
+              redactions={privacy.redactions}
+              privacyReviewRequired={privacy.reviewRequired}
+              screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
+              numbered={entry.anchor.numbered ?? false}
+              alt={`步驟 ${index + 1} 放大`}
+              fit="contain"
+              className="max-w-full border-none shadow-none"
+              imgClassName="max-h-[calc(100dvh-10rem)] max-w-[calc(100vw-7rem)] w-auto h-auto object-contain rounded-md border-none shadow-none sm:max-w-[calc(100vw-10rem)]"
+            />
+          )}
+        </div>
 
         {privacy.reviewRequired && (
           <div
             role="alert"
-            className="fixed top-1/2 left-1/2 z-50 max-w-[min(80vw,34rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm leading-6 text-amber-950 shadow-lg dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+            className="fixed top-1/2 left-1/2 z-50 max-w-[min(80vw,34rem)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-amber-300 bg-amber-50 px-5 py-3.5 text-center text-sm leading-6 text-amber-950 shadow-2xl dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
           >
             此舊圖片的敏感資訊遮罩尚未確認，因此暫時隱藏。請使用補拍取代這張圖片。
           </div>
@@ -89,7 +107,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-1/2 left-4 z-50 size-11 -translate-y-1/2 rounded-full bg-black/50 text-white shadow-lg hover:bg-black/70 hover:text-white disabled:opacity-30"
+          className="fixed top-1/2 left-2 z-50 size-[44px] -translate-y-1/2 rounded-full border border-white/10 bg-black/60 text-white shadow-xl backdrop-blur-md transition-all hover:bg-black/80 hover:scale-105 hover:text-white disabled:pointer-events-none disabled:opacity-20 sm:left-6"
           onClick={() => onNavigate(index - 1)}
           disabled={!hasPrev}
           aria-label="上一張"
@@ -99,15 +117,17 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-1/2 right-4 z-50 size-11 -translate-y-1/2 rounded-full bg-black/50 text-white shadow-lg hover:bg-black/70 hover:text-white disabled:opacity-30"
+          className="fixed top-1/2 right-2 z-50 size-[44px] -translate-y-1/2 rounded-full border border-white/10 bg-black/60 text-white shadow-xl backdrop-blur-md transition-all hover:bg-black/80 hover:scale-105 hover:text-white disabled:pointer-events-none disabled:opacity-20 sm:right-6"
           onClick={() => onNavigate(index + 1)}
           disabled={!hasNext}
           aria-label="下一張"
         >
           <ChevronRight className="size-6" />
         </Button>
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/60 px-3.5 py-1.5 text-sm font-medium text-white tabular-nums shadow-lg">
-          {index + 1} / {entries.length}
+
+        <div className="fixed bottom-6 left-1/2 z-50 flex h-[42px] -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/15 bg-black/75 px-5 text-[13px] font-semibold tabular-nums text-white shadow-xl backdrop-blur-md">
+          <span>{index + 1}</span>
+          <span className="opacity-40">/ {entries.length}</span>
         </div>
       </DialogContent>
     </Dialog>

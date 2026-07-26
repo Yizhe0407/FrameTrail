@@ -7,11 +7,15 @@ import { cn } from '@/lib/shared/utils';
 interface Props {
   id: string;
   /** Render prop: receives a ready-made drag handle (a button wired to
-   * @dnd-kit's sortable listeners) so the caller can place it anywhere in its
-   * own layout instead of a fixed hard-left position. */
-  children: (handle: ReactNode) => ReactNode;
+   * @dnd-kit's sortable listeners) plus this row's drag state, so the caller can
+   * place the handle anywhere in its own layout and style the row while it
+   * moves, instead of a fixed hard-left position. */
+  children: (handle: ReactNode, state: { isDragging: boolean }) => ReactNode;
   /** Extra classes for the row's <li> element. */
   className?: string;
+  /** Extra classes for the handle button — rows that sit the handle on top of
+   * an image need their own contrast treatment. */
+  handleClassName?: string;
   disabled?: boolean;
 }
 
@@ -26,7 +30,7 @@ interface Props {
  * also applies dnd-kit's scaleX/scaleY, which visually squashes the dragged
  * row when list items have different heights.
  */
-export default function SortableItem({ id, children, className, disabled = false }: Props) {
+export default function SortableItem({ id, children, className, handleClassName, disabled = false }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
   const style = { transform: CSS.Translate.toString(transform), transition: isDragging ? undefined : transition };
 
@@ -36,16 +40,27 @@ export default function SortableItem({ id, children, className, disabled = false
       {...attributes}
       {...listeners}
       aria-label="拖曳排序"
+      // Names the interaction for screen readers, which otherwise announce only
+      // "button" and give no hint that this row can be moved.
+      aria-roledescription="可拖曳的排序控制項"
+      title="拖曳以重新排序（鍵盤：Enter 或空白鍵開始，方向鍵移動，再按一次放下）"
       disabled={disabled}
-      className="text-muted-foreground hover:text-foreground flex size-10 shrink-0 cursor-grab touch-none items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-40"
+      className={cn(
+        'flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded border-none bg-transparent text-muted-foreground/50 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
+        handleClassName,
+      )}
     >
       <GripVertical className="size-4" />
     </button>
   );
 
   return (
-    <li ref={setNodeRef} style={style} className={cn(isDragging && 'relative z-10', className)}>
-      {children(handle)}
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn(isDragging && 'relative z-10 cursor-grabbing', className)}
+    >
+      {children(handle, { isDragging })}
     </li>
   );
 }

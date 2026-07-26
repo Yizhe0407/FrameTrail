@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const database = vi.hoisted(() => {
   class GuideContentConflictError extends Error {}
@@ -80,6 +81,7 @@ vi.mock('@/lib/recording/useRecordingSession', () => ({
 vi.mock('@/lib/editor/editor-autosave', () => ({
   EditorSaveProvider: ({ children }: any) => children,
   useEditorSaveRegistry: () => ({ flushAll: editorSave.flushAll }),
+  DraftConfirmationRequiredError: class DraftConfirmationRequiredError extends Error {},
 }));
 vi.mock('@/lib/export/export-images', () => ({ exportImagesAsZip: vi.fn() }));
 
@@ -188,7 +190,6 @@ const guide = {
   ],
   createdAt: 1,
   updatedAt: 2,
-  archivedAt: null,
   contentRevision: 7,
 };
 
@@ -306,6 +307,7 @@ describe('Editor App structure wiring', () => {
   });
 
   it('preflights recapture without trusting the step URL and starts only after confirmation', async () => {
+    silenceIntentionalErrorLogs();
     browserApi.sendMessage.mockImplementation(async (message: any) => {
       if (message.type === 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION') {
         return {
@@ -328,6 +330,11 @@ describe('Editor App structure wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: '準備補拍' }));
 
     expect(await screen.findByText('https://fresh.example')).toBeTruthy();
+    // The grant is a security decision, so it blocks the editor in a modal
+    // rather than a banner the user can scroll away from.
+    const permissionDialog = screen.getByRole('dialog');
+    expect(permissionDialog.textContent).toContain('補拍前需要存取來源網站');
+    expect(permissionDialog.textContent).toContain('https://fresh.example');
     expect(browserApi.requestPermission).not.toHaveBeenCalled();
     expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',

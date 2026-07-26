@@ -1,11 +1,37 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
-vi.mock('@/components/editor/HighlightThumbnail', () => ({ default: () => null }));
-vi.mock('@/components/editor/MultiHighlightThumbnail', () => ({ default: () => null }));
+vi.mock('@/components/editor/HighlightThumbnail', () => ({
+  default: ({ overlay }: { overlay?: ReactNode }) => <div data-testid="single-image-frame">{overlay}</div>,
+}));
+vi.mock('@/components/editor/MultiHighlightThumbnail', () => ({
+  default: ({ overlay }: { overlay?: ReactNode }) => <div data-testid="group-image-frame">{overlay}</div>,
+}));
 vi.mock('@/components/editor/DescriptionField', () => ({ default: () => null }));
-vi.mock('@/components/editor/AnnotationList', () => ({ default: () => null }));
+vi.mock('@/components/editor/AnnotationList', () => ({
+  default: ({
+    numbered,
+    onSetNumbered,
+    numberingPending,
+    editingDisabled,
+  }: {
+    numbered: boolean;
+    onSetNumbered: (next: boolean) => void;
+    numberingPending: boolean;
+    editingDisabled: boolean;
+  }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-label="顯示編號"
+      aria-checked={numbered}
+      disabled={numberingPending || editingDisabled}
+      onClick={() => onSetNumbered(!numbered)}
+    />
+  ),
+}));
 vi.mock('@/components/editor/StepActions', () => ({ default: () => null }));
 
 import StepStage from '@/components/editor/StepStage';
@@ -42,6 +68,17 @@ function groupEntry(anchorChanges: Partial<ScreenshotStep> = {}): StepEntry {
       ...anchorChanges,
     } as ScreenshotStep,
     annotations: [makeStep()],
+  };
+}
+
+function singleEntry(stepChanges: Partial<ScreenshotStep> = {}): StepEntry {
+  return {
+    kind: 'single',
+    step: {
+      ...makeStep(),
+      screenshotBlob: new Blob(['image']),
+      ...stepChanges,
+    } as ScreenshotStep,
   };
 }
 
@@ -87,6 +124,17 @@ afterEach(() => {
 });
 
 describe('StepStage numbered snapshots', () => {
+  it('anchors the zoom hint to the rendered image frame in both modes', () => {
+    const { unmount } = renderStage();
+    const groupHint = screen.getByText('點擊放大');
+    expect(groupHint.parentElement?.dataset.testid).toBe('group-image-frame');
+
+    unmount();
+    renderStage({ entry: singleEntry() });
+    const singleHint = screen.getByText('點擊放大');
+    expect(singleHint.parentElement?.dataset.testid).toBe('single-image-frame');
+  });
+
   it('submits the parent atomic callback only once while the update is pending', async () => {
     const pending = deferred();
     const onSetNumbered = vi.fn().mockReturnValue(pending.promise);

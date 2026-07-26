@@ -1,0 +1,119 @@
+// @vitest-environment jsdom
+import 'fake-indexeddb/auto';
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import StepRail from '@/components/editor/StepRail';
+import type { StepEntry } from '@/lib/storage/db';
+
+function makeEntry(id: string, order: number): StepEntry {
+  return {
+    kind: 'single',
+    step: {
+      id,
+      sessionId: 'session-1',
+      order,
+      screenshotBlob: new Blob(['image'], { type: 'image/png' }),
+      bounds: { x: 10, y: 10, width: 20, height: 20 },
+      devicePixelRatio: 1,
+      screenshotScale: 1,
+      description: `Step ${order + 1}`,
+      url: 'https://example.com/',
+      timestamp: order,
+    },
+  };
+}
+
+const ENTRIES = [makeEntry('step-1', 0), makeEntry('step-2', 1), makeEntry('step-3', 2)];
+
+describe('StepRail arrow-key listener stability', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:step-rail');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it('registers the window keydown listener once despite parent re-renders', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    function Parent() {
+      const [tick, setTick] = useState(0);
+      return (
+        <>
+          <button type="button" onClick={() => setTick((value) => value + 1)}>
+            Re-render {tick}
+          </button>
+          {/* Inline arrow function: a fresh identity on every parent render. */}
+          <StepRail
+            entries={ENTRIES}
+            selectedEntryId="step-1"
+            onSelect={(id) => void id}
+            onReorder={vi.fn().mockResolvedValue(undefined)}
+          />
+        </>
+      );
+    }
+
+    render(<Parent />);
+    const keydownAddsAfterMount = addSpy.mock.calls.filter(([type]) => type === 'keydown').length;
+
+    const rerender = screen.getByRole('button', { name: /Re-render/ });
+    fireEvent.click(rerender);
+    fireEvent.click(rerender);
+    fireEvent.click(rerender);
+
+    expect(addSpy.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(keydownAddsAfterMount);
+    expect(removeSpy.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(0);
+  });
+
+  it('navigates with the latest callback and selection after a re-render', () => {
+    const selected: string[] = [];
+
+    function Parent() {
+      const [selectedEntryId, setSelectedEntryId] = useState('step-1');
+      return (
+        <StepRail
+          entries={ENTRIES}
+          selectedEntryId={selectedEntryId}
+          onSelect={(id) => {
+            selected.push(id);
+            setSelectedEntryId(id);
+          }}
+          onReorder={vi.fn().mockResolvedValue(undefined)}
+        />
+      );
+    }
+
+    render(<Parent />);
+    screen.getByRole('button', { name: '開啟步驟 1' }).focus();
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    screen.getByRole('button', { name: '開啟步驟 2' }).focus();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    screen.getByRole('button', { name: '開啟步驟 3' }).focus();
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+
+    expect(selected).toEqual(['step-2', 'step-3', 'step-2']);
+  });
+});

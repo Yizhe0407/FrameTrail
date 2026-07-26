@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Copy, Loader2, MoreHorizontal, Trash2 } from 'lucide-react';
+import { AlertCircle, Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import { compositeStepEntry } from '@/lib/export/entry-render';
 import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/db';
 
@@ -11,9 +11,6 @@ interface Props {
   operationsDisabled?: boolean;
   recaptureDisabledReason?: string;
 }
-
-const BUTTON_CLASS =
-  'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-stone-200 dark:hover:bg-stone-800';
 
 /** Composites the entry's highlight(s) onto its screenshot and writes the
  * result straight to the clipboard as PNG — same annotate pipeline the ZIP
@@ -99,50 +96,46 @@ export default function StepActions({
   }
 
   return (
-    <div className="relative flex flex-col items-end gap-1">
-      <details className="group relative">
-        <summary
-          aria-label="更多步驟操作"
-          title="更多步驟操作"
-          className="flex size-10 list-none items-center justify-center rounded-md text-stone-500 outline-none hover:bg-stone-200 hover:text-stone-800 focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-100"
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-[3px]">
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
+          title={privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製圖片'}
+          aria-label="複製圖片"
+          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
         >
-          <MoreHorizontal className="size-4" aria-hidden="true" />
-        </summary>
-        <div className="absolute top-10 right-0 z-20 w-48 rounded-lg border border-stone-200 bg-white p-1.5 shadow-lg dark:border-stone-700 dark:bg-stone-900">
-          <button
-            type="button"
-            onClick={handleCopy}
-            disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
-            title={privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製已套用遮罩的圖片'}
-            className={BUTTON_CLASS}
-          >
-            {copying ? <Loader2 className="size-4 animate-spin" /> : copied ? <Check className="size-4 text-lime-700 dark:text-lime-400" /> : <Copy className="size-4" />}
-            <span aria-live="polite">{copying ? '複製中' : copied ? '已複製' : '複製圖片'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleRecapture()}
-            disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
-            title={recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '回到來源頁面重新框選並拍攝')}
-            className={BUTTON_CLASS}
-          >
-            {recapturing ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
-            {recapturing ? '準備中' : '重新拍攝'}
-          </button>
-          <div className="my-1 border-t border-stone-200 dark:border-stone-700" />
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
-            title={deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除步驟'}
-            className={`${BUTTON_CLASS} text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30`}
-          >
-            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            {deleting ? '刪除中' : '刪除步驟'}
-          </button>
+          {copying ? <Loader2 className="size-[17px] animate-spin" /> : copied ? <Check className="size-[17px] text-brand" /> : <Copy className="size-[17px]" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleRecapture()}
+          disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
+          title={recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '重新拍攝')}
+          aria-label="重新拍攝"
+          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
+        >
+          {recapturing ? <Loader2 className="size-[17px] animate-spin" /> : <Camera className="size-[17px]" />}
+        </button>
+        <span className="mx-[3px] h-[20px] w-[1px] bg-border" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
+          title={deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除'}
+          aria-label="刪除步驟"
+          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
+        >
+          {deleting ? <Loader2 className="size-[17px] animate-spin" /> : <Trash2 className="size-[17px]" />}
+        </button>
+      </div>
+      {actionError && (
+        <div role="alert" className="flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span>{actionError}</span>
         </div>
-      </details>
-      {actionError && <span role="alert" className="max-w-64 text-right text-xs text-red-600 dark:text-red-400">{actionError}</span>}
+      )}
     </div>
   );
 }

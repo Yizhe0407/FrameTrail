@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import {
   BADGE_RADIUS,
   BADGE_TEXT_COLOR,
@@ -12,13 +12,18 @@ import {
   MARKER_RING_WIDTH,
   getBadgeFontSize,
   layoutAnnotations,
-  getExpandedRedactionBounds,
   type Annotation,
 } from '@/lib/media/annotate';
 import { cn } from '@/lib/shared/utils';
 import { useObjectUrl } from '@/lib/editor/useObjectUrl';
 import type { Redaction } from '@/lib/storage/db';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
+import {
+  computeOverlayGeometry,
+  isDrawableHighlightFrame,
+  useThumbnailOverlayMapping,
+  type OverlayGeometry,
+} from './use-thumbnail-overlay-mapping';
 
 const NO_REDACTIONS: Redaction[] = [];
 
@@ -34,6 +39,8 @@ interface Props {
   alt: string;
   className?: string;
   imgClassName?: string;
+  /** Content rendered over the exact image frame. */
+  overlay?: ReactNode;
   /** 'cover' crops to fill a fixed box. 'contain' shows the full uncropped
    * screenshot at its natural aspect ratio (editor cards). */
   fit?: 'cover' | 'contain';
@@ -41,17 +48,12 @@ interface Props {
   decoding?: 'async' | 'sync' | 'auto';
 }
 
-interface RedactionStyle {
-  id: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
 interface BoxStyle {
   order: number;
   markerOnly: boolean;
+  /** False when the mapped frame is a clamped-to-edge degenerate the raster
+   * path would also skip stroking. */
+  drawFrame: boolean;
   left: number;
   top: number;
   width: number;
@@ -88,17 +90,14 @@ export default function MultiHighlightThumbnail({
   alt,
   className,
   imgClassName,
+  overlay,
   fit = 'cover',
   loading = 'eager',
   decoding = 'async',
 }: Props) {
   const url = useObjectUrl(blob);
   const [boxes, setBoxes] = useState<BoxStyle[]>([]);
-  const [redactionBoxes, setRedactionBoxes] = useState<RedactionStyle[]>([]);
-  const [mappedRedactionKey, setMappedRedactionKey] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<{ url: string; width: number; height: number } | null>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const mapFrameRef = useRef<number | null>(null);
   const annotationSignature = useMemo(
     () =>
       annotations
@@ -106,43 +105,32 @@ export default function MultiHighlightThumbnail({
         .join('|'),
     [annotations],
   );
-  const stableAnnotations = useMemo(
-    () => annotations.map(({ bounds, order }) => ({ bounds: { ...bounds }, order })),
-    [annotationSignature],
-  );
-  const redactionSignature = redactions.map((redaction) => `${redaction.id}:${redaction.bounds.x},${redaction.bounds.y},${redaction.bounds.width},${redaction.bounds.height}`).join('|');
-  const redactionMapKey = `${url ?? ''}:${fit}:${screenshotScale}:${redactionSignature}`;
-  const redactionReady = redactions.length === 0 || mappedRedactionKey === redactionMapKey;
-  const showPixels = !privacyReviewRequired && redactionReady;
+  // An Annotation is fully described by its order and bounds, so the signature
+  // is a lossless serialization and the only real input here. Rebuilding from
+  // the signature rather than from `annotations` keeps the array identity
+  // stable across renders that pass an equivalent-but-new `annotations` prop —
+  // a fresh identity re-triggers the expensive layout and pixel remap below.
+  const stableAnnotations = useMemo<Annotation[]>(() => {
+    if (!annotationSignature) return [];
+    return annotationSignature.split('|').map((entry) => {
+      const [order, bounds] = entry.split(':');
+      const [x, y, width, height] = bounds.split(',').map(Number);
+      return { bounds: { x, y, width, height }, order: Number(order) };
+    });
+  }, [annotationSignature]);
   const dpr = getValidScreenshotScale(screenshotScale);
   const layouts = useMemo(() => {
     if (!url || imageSize?.url !== url || !imageSize.width || !imageSize.height) return [];
     return layoutAnnotations(stableAnnotations, imageSize.width / dpr, imageSize.height / dpr);
   }, [dpr, imageSize, stableAnnotations, url]);
 
-  const mapBoxes = useCallback(() => {
-    const img = imgRef.current;
-    if (!img || imageSize?.url !== url || !imageSize.width || !imageSize.height) {
-      setBoxes([]);
-      setRedactionBoxes([]);
-      return;
-    }
-    const nw = imageSize.width;
-    const nh = imageSize.height;
-    const renderedBox = img.getBoundingClientRect();
-    const boxWidth = renderedBox.width || nw;
-    const boxHeight = renderedBox.height || nh;
-    const scale = fit === 'cover' ? Math.max(boxWidth / nw, boxHeight / nh) : Math.min(boxWidth / nw, boxHeight / nh);
-    const contentWidth = nw * scale;
-    const contentHeight = nh * scale;
-    const offsetLeft = img.offsetLeft + (boxWidth - contentWidth) / 2;
-    const offsetTop = img.offsetTop + (boxHeight - contentHeight) / 2;
-    const visibleLeft = Math.max(offsetLeft, img.offsetLeft);
-    const visibleTop = Math.max(offsetTop, img.offsetTop);
-    const visibleRight = Math.min(offsetLeft + contentWidth, img.offsetLeft + boxWidth);
-    const visibleBottom = Math.min(offsetTop + contentHeight, img.offsetTop + boxHeight);
-    const mapX = (x: number) => offsetLeft + x * dpr * scale;
-    const mapY = (y: number) => offsetTop + y * dpr * scale;
+  const measure = useCallback((img: HTMLImageElement) => {
+    if (!url || imageSize?.url !== url || !imageSize.width || !imageSize.height) return null;
+    return computeOverlayGeometry(img, imageSize.width, imageSize.height, screenshotScale, fit);
+  }, [fit, imageSize, screenshotScale, url]);
+
+  const mapOverlays = useCallback((geometry: OverlayGeometry) => {
+    const { scale, mapX, mapY, visibleLeft, visibleTop, visibleRight, visibleBottom } = geometry;
     const fitCenter = (value: number, radius: number, start: number, end: number) => {
       const extent = Math.max(end - start, 0);
       return extent <= radius * 2
@@ -182,6 +170,7 @@ export default function MultiHighlightThumbnail({
         return {
           order: layout.order,
           markerOnly: layout.markerOnly,
+          drawFrame: isDrawableHighlightFrame(layout.frame),
           left: mapX(layout.frame.x),
           top: mapY(layout.frame.y),
           width: layout.frame.width * dpr * scale,
@@ -203,48 +192,20 @@ export default function MultiHighlightThumbnail({
         };
       }),
     );
-    setRedactionBoxes(
-      redactions.flatMap((redaction) => {
-        const expanded = getExpandedRedactionBounds(redaction.bounds, nw / dpr, nh / dpr);
-        return expanded
-          ? [{
-              id: redaction.id,
-              left: mapX(expanded.x),
-              top: mapY(expanded.y),
-              width: expanded.width * dpr * scale,
-              height: expanded.height * dpr * scale,
-            }]
-          : [];
-      }),
-    );
-    setMappedRedactionKey(redactionMapKey);
-  }, [dpr, fit, imageSize, layouts, redactions, redactionMapKey, url]);
+  }, [dpr, layouts]);
 
-  const scheduleMapping = useCallback(() => {
-    // ResizeObserver fires after layout. Invalidate the old pixel mapping before
-    // deferring the expensive remap so source pixels stay hidden for the frame
-    // in which the previous redaction coordinates are stale.
-    if (redactions.length > 0 && imgRef.current) imgRef.current.style.visibility = 'hidden';
-    setMappedRedactionKey(null);
-    if (mapFrameRef.current !== null) return;
-    mapFrameRef.current = requestAnimationFrame(() => {
-      mapFrameRef.current = null;
-      mapBoxes();
-    });
-  }, [mapBoxes]);
+  const clearOverlays = useCallback(() => setBoxes([]), []);
 
-  useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
-    const observer = new ResizeObserver(scheduleMapping);
-    observer.observe(img);
-    scheduleMapping();
-    return () => {
-      observer.disconnect();
-      if (mapFrameRef.current !== null) cancelAnimationFrame(mapFrameRef.current);
-      mapFrameRef.current = null;
-    };
-  }, [scheduleMapping, url]);
+  const { imgRef, contentFrame, redactionBoxes, showPixels } = useThumbnailOverlayMapping({
+    url,
+    fit,
+    screenshotScale,
+    redactions,
+    privacyReviewRequired,
+    measure,
+    mapOverlays,
+    clearOverlays,
+  });
 
   const onImageLoad = useCallback(() => {
     const img = imgRef.current;
@@ -255,12 +216,12 @@ export default function MultiHighlightThumbnail({
       }
       return { url, width: img.naturalWidth, height: img.naturalHeight };
     });
-  }, [url]);
+  }, [imgRef, url]);
 
-  const defaultImgClass = fit === 'contain' ? 'w-full h-auto' : 'w-full h-full';
+  const defaultImgClass = fit === 'contain' ? 'max-h-full max-w-full w-auto h-auto' : 'w-full h-full';
 
   return (
-    <div className={cn('relative inline-block overflow-hidden leading-none', !showPixels && 'bg-black', className)}>
+    <div className={cn('relative inline-block leading-none', !showPixels && 'bg-black', className)}>
       {url && (
         <img
           ref={imgRef}
@@ -318,7 +279,7 @@ export default function MultiHighlightThumbnail({
                   }}
                 />
               </div>
-            ) : (
+            ) : box.drawFrame && (
               <div
                 data-frametrail-annotation-frame={box.order}
                 className="pointer-events-none absolute box-border"
@@ -368,6 +329,15 @@ export default function MultiHighlightThumbnail({
           />
         ))}
         </>
+      )}
+      {overlay && contentFrame && (
+        <div
+          data-frametrail-image-content-frame
+          className="pointer-events-none absolute z-20"
+          style={contentFrame}
+        >
+          <div className="relative h-full w-full">{overlay}</div>
+        </div>
       )}
     </div>
   );

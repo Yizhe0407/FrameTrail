@@ -164,6 +164,119 @@ describe('StepRail keyboard navigation', () => {
     expect(screen.queryByRole('button', { name: /選取步驟/ })).toBeNull();
   });
 
+  it('把補錄遺漏步驟導向接續錄製，並在其他操作進行時停用', () => {
+    const onContinueRecording = vi.fn();
+    const { rerender } = render(
+      <StepRail
+        entries={[makeEntry('step-1', 0)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+        onContinueRecording={onContinueRecording}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '接續錄製' }));
+    expect(onContinueRecording).toHaveBeenCalledOnce();
+
+    rerender(
+      <StepRail
+        entries={[makeEntry('step-1', 0)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+        onContinueRecording={onContinueRecording}
+        reorderDisabled
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '接續錄製' }));
+    expect(onContinueRecording).toHaveBeenCalledOnce();
+  });
+
+  it('每張步驟卡常駐顯示拖曳把手，不倚賴 hover 才浮現', () => {
+    render(
+      <StepRail
+        entries={[makeEntry('step-1', 0), makeEntry('step-2', 1)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const handles = screen.getAllByRole('button', { name: '拖曳排序' });
+    expect(handles).toHaveLength(2);
+    for (const handle of handles) {
+      const wrapper = handle.parentElement!;
+      expect(wrapper.className).not.toContain('opacity-0');
+      expect(handle.getAttribute('aria-roledescription')).toBe('可拖曳的排序控制項');
+    }
+    expect(screen.getByText('拖曳排序', { selector: 'span' })).toBeTruthy();
+  });
+
+  it('單一步驟或操作進行中時不顯示排序提示', () => {
+    const { rerender } = render(
+      <StepRail
+        entries={[makeEntry('step-1', 0)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(screen.queryByText('拖曳排序', { selector: 'span' })).toBeNull();
+
+    rerender(
+      <StepRail
+        entries={[makeEntry('step-1', 0), makeEntry('step-2', 1)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+        reorderDisabled
+      />,
+    );
+    expect(screen.queryByText('拖曳排序', { selector: 'span' })).toBeNull();
+    for (const handle of screen.getAllByRole('button', { name: '拖曳排序' })) {
+      expect((handle as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it('桌面左欄依內容高度呈現，清單過長時才在欄內捲動', () => {
+    render(
+      <StepRail
+        entries={[makeEntry('step-1', 0)]}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const rail = screen.getByRole('navigation', { name: '步驟導覽' });
+    const list = screen.getByRole('list', { name: '可重新排序的步驟清單' });
+    expect(rail.className).toContain('lg:self-start');
+    expect(rail.className).toContain('lg:max-h-[calc(100%-3rem)]');
+    expect(list.className).toContain('lg:min-h-0');
+    expect(list.className).toContain('lg:overflow-y-auto');
+  });
+
+  it('選取步驟只以外框標示，不將整列染成藍灰色', () => {
+    render(
+      <StepRail
+        entries={[makeEntry('step-1', 0), makeEntry('step-2', 1)]}
+        selectedEntryId="step-2"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const selectedRow = screen.getByRole('button', { name: '開啟步驟 2' }).closest<HTMLElement>('[data-active]')!;
+    expect(selectedRow.className).toContain('bg-card');
+    expect(selectedRow.className).not.toContain('bg-[#e5ecf6]');
+    const outline = selectedRow.querySelector<HTMLElement>('[data-frametrail-selected-step-outline]');
+    expect(outline?.className).toContain('frametrail-selected-step-outline');
+    expect(outline?.className).toContain('z-10');
+    expect(outline?.className).toContain('border-2');
+    expect(outline?.getAttribute('style')).toBeNull();
+  });
+
   it('把章節標題與其起始步驟放在同一個 sortable 項目', () => {
     const sections: GuideSection[] = [{ id: 'section-1', title: '準備工作', startEntryId: 'step-2' }];
     render(

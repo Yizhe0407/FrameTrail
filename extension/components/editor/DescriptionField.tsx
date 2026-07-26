@@ -2,7 +2,6 @@ import type { Step } from '@/lib/storage/db';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
-import SaveStatus from './SaveStatus';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 
 interface Props {
@@ -15,20 +14,20 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
   const {
     description,
     setDescription,
-    status,
-    error,
     recoveries,
     restoreRecovery,
     discardRecovery,
     flush,
-    retry,
+    confirmOverwrite,
   } = useStepDescriptionAutosave(step, onChange);
 
   return (
-    <div className="flex flex-col gap-2">
-      <label htmlFor={`description-${step.id}`} className="text-xs font-medium text-stone-600 dark:text-stone-300">
-        說明
-      </label>
+    <div className="mt-4 flex w-full flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <label htmlFor={`description-${step.id}`} className="text-[11px] font-semibold text-muted-foreground">
+          說明
+        </label>
+      </div>
       <Textarea
         id={`description-${step.id}`}
         value={description}
@@ -37,18 +36,13 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
         onBlur={() => void flush().catch(() => undefined)}
         disabled={disabled}
         placeholder="輸入步驟說明…"
-        className="min-h-16 resize-none rounded-md border-stone-200 bg-stone-50 px-4 py-3 text-sm leading-[22px] text-stone-700 shadow-none hover:border-stone-300 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-600"
-      />
-      <SaveStatus
-        status={status}
-        error={error}
-        onRetry={() => void retry().catch(() => undefined)}
-        className={status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-stone-500 dark:text-stone-400'}
+        className="min-h-[64px] resize-none rounded-md border border-border bg-card p-[13px_15px] text-[14px] leading-[1.7] text-foreground shadow-none hover:border-foreground/20"
       />
       <DescriptionDraftRecoveries
         recoveries={recoveries}
         onRestore={restoreRecovery}
         onDiscard={discardRecovery}
+        onConfirmOverwrite={() => confirmOverwrite()}
         disabled={disabled}
       />
     </div>

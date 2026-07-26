@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { GripVertical, Video } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -12,6 +13,7 @@ import {
 import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/storage/db';
 import type { GuideSection } from '@/lib/guide/guide-sections';
 import {
+  createSortableAccessibility,
   reorderById,
   restrictToHorizontalAxis,
   restrictToVerticalAxis,
@@ -51,7 +53,7 @@ function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactN
     <div
       ref={host}
       aria-busy={!visible}
-      className="relative h-12 w-16 shrink-0 overflow-hidden rounded-[6px] bg-stone-200 lg:h-14 lg:w-20 dark:bg-stone-700"
+      className="relative size-full overflow-hidden"
     >
       {visible ? children : <span className="sr-only">縮圖尚未載入</span>}
     </div>
@@ -67,6 +69,7 @@ interface Props {
   onRenameSection?: (sectionId: string, title: string) => Promise<void>;
   onDeleteSection?: (sectionId: string) => Promise<void>;
   onReorder: (reordered: StepEntry[]) => Promise<void>;
+  onContinueRecording?: () => void;
   reorderDisabled?: boolean;
 }
 
@@ -78,6 +81,7 @@ export default function StepRail({
   onRenameSection,
   onDeleteSection,
   onReorder,
+  onContinueRecording,
   reorderDisabled = false,
 }: Props) {
   const sensors = useSortableSensors();
@@ -101,6 +105,11 @@ export default function StepRail({
     selectedItem.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [entries.length, selectedEntryId]);
 
+  const accessibility = createSortableAccessibility(
+    '步驟',
+    (id) => entries.findIndex((entry) => entryId(entry) === id) + 1,
+  );
+
   function handleDragEnd(event: DragEndEvent) {
     if (reorderDisabled) return;
     const reordered = reorderById(entries, event.active.id, event.over?.id, entryId);
@@ -110,6 +119,16 @@ export default function StepRail({
       });
     }
   }
+
+  // The parent recreates `onSelect` inline on every render, so binding the
+  // window listener to it directly would tear down and re-add it each time.
+  // Writing the ref during render breaks under concurrent rendering (a render
+  // can be discarded); committing it in an effect is safe because keydown only
+  // ever fires after a commit.
+  const navigation = useRef({ entries, isDesktop, onSelect, selectedEntryId });
+  useEffect(() => {
+    navigation.current = { entries, isDesktop, onSelect, selectedEntryId };
+  });
 
   // Arrow-key navigation across the rail, skipped while the user is typing
   // in a description/annotation field elsewhere on the page.
@@ -122,6 +141,7 @@ export default function StepRail({
       if (!activeElement || !railRef.current?.contains(activeElement)) return;
       const tag = activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
+      const { entries, isDesktop, onSelect, selectedEntryId } = navigation.current;
       const previousKey = isDesktop ? 'ArrowUp' : 'ArrowLeft';
       const nextKey = isDesktop ? 'ArrowDown' : 'ArrowRight';
       if (e.key !== previousKey && e.key !== nextKey) return;
@@ -134,7 +154,7 @@ export default function StepRail({
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [entries, isDesktop, onSelect, selectedEntryId]);
+  }, []);
 
   function renderThumbnail(entry: StepEntry) {
     const privacy = getEntryPrivacyState(entry);
@@ -147,7 +167,7 @@ export default function StepRail({
           privacyReviewRequired={privacy.reviewRequired}
           screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
           alt=""
-          fit="cover"
+          fit="contain"
           loading="lazy"
           decoding="async"
           className="size-full"
@@ -156,24 +176,19 @@ export default function StepRail({
     }
     const boxAnnotations = getOrderedAnnotations(entry.annotations);
     return (
-      <>
-        <MultiHighlightThumbnail
-          blob={entry.anchor.screenshotBlob}
-          annotations={boxAnnotations}
-          redactions={privacy.redactions}
-          privacyReviewRequired={privacy.reviewRequired}
-          screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
-          numbered={entry.anchor.numbered ?? false}
-          alt=""
-          fit="cover"
-          loading="lazy"
-          decoding="async"
-          className="size-full"
-        />
-        <span className="absolute right-1 bottom-1 rounded border border-stone-200 bg-stone-50 px-1 py-px text-[11px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
-          快照
-        </span>
-      </>
+      <MultiHighlightThumbnail
+        blob={entry.anchor.screenshotBlob}
+        annotations={boxAnnotations}
+        redactions={privacy.redactions}
+        privacyReviewRequired={privacy.reviewRequired}
+        screenshotScale={entry.anchor.screenshotScale ?? entry.anchor.devicePixelRatio}
+        numbered={entry.anchor.numbered ?? false}
+        alt=""
+        fit="contain"
+        loading="lazy"
+        decoding="async"
+        className="size-full"
+      />
     );
   }
 
@@ -181,15 +196,24 @@ export default function StepRail({
     <nav
       ref={railRef}
       aria-label="步驟導覽"
-      className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-stone-200 bg-stone-50 dark:border-stone-700 dark:bg-stone-900 lg:static lg:z-auto lg:h-auto lg:w-[19rem] lg:min-w-[18rem] lg:shrink-0 lg:basis-[19rem] lg:border-t-0 lg:border-r"
+      className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t border-border bg-card lg:static lg:z-auto lg:my-6 lg:ml-6 lg:h-auto lg:max-h-[calc(100%-3rem)] lg:min-h-0 lg:w-[194px] lg:min-w-[194px] lg:shrink-0 lg:self-start lg:basis-[194px] lg:rounded-md lg:border lg:border-border/70"
     >
-      <div className="flex shrink-0 items-center px-4 py-2 text-xs font-medium text-stone-600 dark:text-stone-300 lg:px-5 lg:pt-5 lg:pb-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3.5 pt-3 pb-2 text-[10.5px] font-semibold text-muted-foreground">
         <span>步驟 · {entries.length}</span>
+        {/* The grip icon on each card is the affordance; this legend is what
+            makes it readable as one, since a rail of screenshots gives no other
+            hint that the order is editable. */}
+        {entries.length > 1 && !reorderDisabled && (
+          <span className="hidden items-center gap-0.5 font-medium text-muted-foreground/70 lg:flex">
+            <GripVertical className="size-3" aria-hidden="true" />拖曳排序
+          </span>
+        )}
       </div>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
+        accessibility={accessibility}
         modifiers={[isDesktop ? restrictToVerticalAxis : restrictToHorizontalAxis]}
       >
         <SortableContext
@@ -198,7 +222,7 @@ export default function StepRail({
         >
           <ul
             aria-label="可重新排序的步驟清單"
-            className="app-scrollbar flex flex-1 flex-row gap-2 overflow-x-auto px-3 pb-3 lg:flex-col lg:gap-1.5 lg:overflow-x-visible lg:overflow-y-auto lg:px-3 lg:pb-4 lg:pr-4"
+            className="app-scrollbar flex flex-1 flex-row gap-1.5 overflow-x-auto px-2 pb-2 lg:min-h-0 lg:flex-col lg:gap-1.5 lg:overflow-x-visible lg:overflow-y-auto lg:px-2 lg:pb-1.5"
           >
             {entries.map((entry, index) => {
               const id = entryId(entry);
@@ -209,9 +233,12 @@ export default function StepRail({
                   key={id}
                   id={id}
                   disabled={reorderDisabled}
-                  className="w-44 shrink-0 [content-visibility:auto] [contain-intrinsic-size:176px_76px] lg:w-full lg:min-w-0 lg:[contain-intrinsic-size:288px_76px]"
+                  className="w-32 shrink-0 [content-visibility:auto] [contain-intrinsic-size:128px_78px] lg:w-full lg:min-w-0"
+                  // Sits on top of a screenshot, so it needs the same solid chip
+                  // treatment as the step number rather than muted-on-transparent.
+                  handleClassName="rounded-md bg-[rgba(28,28,28,0.75)] text-white/85 shadow-md hover:text-white dark:bg-[rgba(30,30,30,0.85)]"
                 >
-                  {(handle) => (
+                  {(handle, { isDragging }) => (
                     <div className="flex min-w-0 flex-col gap-1">
                       {section && onRenameSection && onDeleteSection && (
                         <GuideSectionHeading
@@ -224,10 +251,13 @@ export default function StepRail({
                       <div
                         data-active={active || undefined}
                         className={cn(
-                          "group relative flex min-w-0 items-center gap-2 rounded-md p-2 pr-11 text-left transition-colors before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r-sm before:content-[''] lg:min-h-[76px] lg:gap-2.5",
+                          'group relative flex min-w-0 items-center rounded-md p-[6px] transition-all cursor-pointer border',
                           active
-                            ? 'border border-stone-300 bg-white shadow-sm before:bg-emerald-700 dark:border-stone-600 dark:bg-stone-800 dark:before:bg-emerald-400'
-                            : 'border border-transparent hover:bg-stone-100 dark:hover:bg-stone-800',
+                            ? 'border-transparent bg-card'
+                            : 'border-transparent bg-transparent hover:bg-foreground/5 dark:hover:bg-white/5',
+                          // Lifts the row being moved off the list so the
+                          // reflow underneath reads as the drop preview.
+                          isDragging && 'border-brand/60 bg-card shadow-lg',
                         )}
                       >
                         <button
@@ -236,22 +266,35 @@ export default function StepRail({
                           onClick={() => onSelect(id)}
                           aria-label={`開啟步驟 ${index + 1}`}
                           aria-current={active ? 'step' : undefined}
-                          className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-inset"
+                          className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         />
-                        <span
-                          className={cn(
-                            'pointer-events-none relative z-[1] w-5 shrink-0 text-center text-xs tabular-nums',
-                            active ? 'font-semibold text-stone-800 dark:text-stone-100' : 'text-stone-400 dark:text-stone-500',
-                          )}
-                        >
-                          {index + 1}
-                        </span>
-                        <div className="pointer-events-none relative z-[1]">
+                        {active && (
+                          <span
+                            aria-hidden="true"
+                            data-frametrail-selected-step-outline
+                            className="frametrail-selected-step-outline pointer-events-none absolute inset-0 z-10 rounded-md border-2"
+                          />
+                        )}
+                        <div className="pointer-events-none relative z-[1] aspect-[16/9] w-full overflow-hidden rounded-md bg-secondary">
                           <LazyRailPreview eager={active}>
                             {renderThumbnail(entry)}
                           </LazyRailPreview>
+                          <span className={cn(
+                            'absolute left-2 top-2 z-30 flex size-6 items-center justify-center rounded-md text-xs font-bold tabular-nums shadow-md transition-all',
+                            active
+                              ? 'bg-brand text-primary-foreground scale-105'
+                              : 'bg-[rgba(28,28,28,0.75)] text-white dark:bg-[rgba(30,30,30,0.85)] dark:text-white',
+                          )}>
+                            {index + 1}
+                          </span>
+                          {entry.kind === 'group' && (
+                            <span className="pointer-events-none absolute inset-[6px] rounded-md border-[1.4px] border-recording/75" aria-hidden="true" />
+                          )}
                         </div>
-                        <span className="absolute top-1/2 right-1 z-[3] flex -translate-y-1/2 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
+                        {/* Always rendered: a hover-only handle is invisible on
+                            touch and undiscoverable everywhere else. It rests
+                            dimmed so it does not compete with the thumbnail. */}
+                        <span className="absolute top-2 right-2 z-20 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           {handle}
                         </span>
                       </div>
@@ -263,6 +306,17 @@ export default function StepRail({
           </ul>
         </SortableContext>
       </DndContext>
+      {onContinueRecording && (
+        <button
+          type="button"
+          onClick={onContinueRecording}
+          disabled={reorderDisabled}
+          title="回到來源頁面繼續錄製，新步驟會接在最後"
+          className="mx-2.5 mt-1.5 mb-3 hidden h-[32px] shrink-0 items-center justify-center gap-[5px] rounded-md border border-dashed border-border/80 bg-card text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:border-brand/40 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
+        >
+          <Video className="size-3" />接續錄製
+        </button>
+      )}
     </nav>
   );
 }

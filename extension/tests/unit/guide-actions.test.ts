@@ -34,7 +34,6 @@ function guide(id: string) {
     description: '',
     createdAt: 1,
     updatedAt: 1,
-    archivedAt: null,
   };
 }
 

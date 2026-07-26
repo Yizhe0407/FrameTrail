@@ -1,17 +1,22 @@
 import { useState } from 'react';
-import { AlertCircle, Loader2, ZoomIn } from 'lucide-react';
+import { AlertCircle, Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
 import { entryId, getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type Step, type StepEntry } from '@/lib/storage/db';
-import { cn } from '@/lib/shared/utils';
-import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import HighlightThumbnail from './HighlightThumbnail';
 import MultiHighlightThumbnail from './MultiHighlightThumbnail';
 import StepActions from './StepActions';
 import DescriptionField from './DescriptionField';
 import AnnotationList from './AnnotationList';
+import TagSelectDialog from './TagSelectDialog';
+import EditableTitle from '@/components/shared/EditableTitle';
 
 interface Props {
   entry: StepEntry;
   index: number;
+  guideTitle?: string;
+  guideTags?: readonly string[];
+  onTitleChange?: (title: string) => Promise<void>;
+  onTagsChange?: (tags: string[]) => Promise<void>;
   onChange: () => void | Promise<void>;
   onDelete: () => Promise<void>;
   onDeleteAnnotation: (step: Step) => Promise<void>;
@@ -25,6 +30,10 @@ interface Props {
 export default function StepStage({
   entry,
   index,
+  guideTitle,
+  guideTags = [],
+  onTitleChange,
+  onTagsChange,
   onChange,
   onDelete,
   onDeleteAnnotation,
@@ -35,8 +44,93 @@ export default function StepStage({
   editingDisabled = false,
 }: Props) {
   const [numberingPending, setNumberingPending] = useState(false);
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const privacy = getEntryPrivacyState(entry);
+
+  const displayTags = guideTags;
+
+  // Guide metadata writes can be refused (a recording or recapture holds the
+  // data lock) or fail outright. Both used to be swallowed by a bare `void`,
+  // leaving the field showing a value that was never stored.
+  //
+  // Rethrows so each surface owns its own reporting: the tag dialog shows the
+  // failure inline while it is open (a stage banner would sit behind the
+  // modal), and the inline chip row routes it into `stageError` below.
+  async function commitTags(tags: string[]): Promise<void> {
+    if (!onTagsChange) return;
+    setStageError(null);
+    try {
+      await onTagsChange(tags);
+    } catch (tagError) {
+      console.error('更新標籤失敗', tagError);
+      throw tagError;
+    }
+  }
+
+  async function commitTagsInline(tags: string[]): Promise<void> {
+    try {
+      await commitTags(tags);
+    } catch (tagError) {
+      setStageError(tagError instanceof Error ? tagError.message : '標籤儲存失敗，請再試一次。');
+    }
+  }
+
+  const titleAndTagRow = (
+    <>
+      <div className="mb-4 flex shrink-0 flex-col gap-3 border-b border-border/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 w-full items-center gap-1.5 sm:max-w-[45%]">
+          <EditableTitle
+            value={guideTitle ?? ''}
+            fallback="未命名教學"
+            label="教學標題"
+            disabled={editingDisabled || !onTitleChange}
+            onCommit={(title) => onTitleChange?.(title)}
+            onCommitError={(titleError) => {
+              console.error('重新命名教學失敗', titleError);
+              setStageError(titleError instanceof Error ? titleError.message : '標題儲存失敗，請再試一次。');
+            }}
+            className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-none px-2 py-1 text-[20px] font-bold leading-tight text-foreground transition-colors hover:bg-foreground/5 focus:bg-card focus:shadow-[0_0_0_1.5px_var(--focus)] [field-sizing:content]"
+          />
+          <Pencil className="size-[15px] shrink-0 text-muted-foreground/50" />
+        </div>
+        <div className="app-scrollbar flex max-h-[84px] min-w-0 flex-wrap items-center gap-2 overflow-y-auto pr-1 sm:max-w-[55%] sm:justify-end">
+          {displayTags.map((tag) => (
+            <Badge key={tag} variant="tagEditable" className="max-w-full select-none">
+              <span className="min-w-0 truncate">{tag}</span>
+              <button
+                type="button"
+                onClick={() => void commitTagsInline(guideTags.filter((t) => t !== tag))}
+                aria-label={`移除 ${tag} 標籤`}
+                disabled={editingDisabled}
+                className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground/70 transition-colors hover:bg-destructive/20 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/15 dark:text-white/70 dark:hover:bg-rose-500/30 dark:hover:text-rose-300"
+              >
+                <X className="size-2.5 stroke-[2.5]" />
+              </button>
+            </Badge>
+          ))}
+          <Badge asChild variant="tagAction" className="disabled:opacity-50">
+            <button
+              type="button"
+              onClick={() => setTagDialogOpen(true)}
+              disabled={editingDisabled}
+              title="設定標籤（顯示於作品庫）"
+            >
+              <Plus className="size-3.5 stroke-[2.5]" />
+              標籤
+            </button>
+          </Badge>
+        </div>
+      </div>
+
+      <TagSelectDialog
+        open={tagDialogOpen}
+        selectedTags={guideTags}
+        onOpenChange={setTagDialogOpen}
+        onSave={commitTags}
+      />
+    </>
+  );
 
   async function setNumbered(next: boolean) {
     if (entry.kind !== 'group' || numberingPending || editingDisabled) return;
@@ -53,32 +147,14 @@ export default function StepStage({
   }
 
   const headerRow = (
-    <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex shrink-0 items-center justify-between gap-3 mb-3.5">
       <div className="flex items-center gap-3">
-        <span className="flex size-8 items-center justify-center rounded-md border border-stone-300 bg-stone-50 text-xs font-semibold tabular-nums text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
-          {index + 1}
-        </span>
-        <span className="text-xs text-stone-500 dark:text-stone-400">
-          {entry.kind === 'single' ? '操作流程' : `單頁標註 · ${entry.annotations.length} 個標註`}
+        <span className="text-xs font-semibold text-muted-foreground/80">
+          {entry.kind === 'single' ? '步驟模式' : `快照模式 · ${entry.annotations.length} 個標註`}
         </span>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-1.5">
-        {entry.kind === 'group' && (
-          <label
-            className={cn(
-              'flex items-center gap-2',
-              editingDisabled || numberingPending ? 'cursor-not-allowed' : 'cursor-pointer',
-            )}
-          >
-            <span className="text-xs text-stone-500 dark:text-stone-400">顯示編號</span>
-            <Switch
-              checked={entry.anchor.numbered ?? false}
-              onCheckedChange={setNumbered}
-              disabled={editingDisabled || numberingPending}
-            />
-          </label>
-        )}
-        {numberingPending && <Loader2 className="size-3.5 animate-spin text-stone-400" aria-label="正在儲存編號設定" />}
+      <div className="flex items-center gap-3">
+        {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label="正在儲存編號設定" />}
         <StepActions
           entry={entry}
           onDelete={onDelete}
@@ -96,14 +172,14 @@ export default function StepStage({
   );
 
   const zoomHint = (
-    <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-xs opacity-0 shadow backdrop-blur transition-opacity group-hover:opacity-100 dark:bg-stone-900/90">
+    <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-md bg-card/90 px-2 py-1 text-xs opacity-0 shadow backdrop-blur transition-opacity group-hover:opacity-100">
       <ZoomIn className="size-3.5" />
       點擊放大
     </span>
   );
 
   const errorNotice = stageError && (
-    <div role="alert" className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+    <div role="alert" className="flex items-center gap-1.5 text-xs text-destructive">
       <AlertCircle className="size-3.5" />
       {stageError}
     </div>
@@ -117,52 +193,59 @@ export default function StepStage({
 
   if (entry.kind === 'single') {
     return (
-      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:overflow-hidden lg:px-16 lg:pt-10 lg:pb-8 dark:bg-stone-800">
-        <div className="flex w-full max-w-[1040px] flex-none flex-col gap-4 lg:min-h-0 lg:flex-1 lg:gap-5">
-          {headerRow}
-          {errorNotice}
-          {privacyReviewNotice}
-          <button
-            type="button"
-            onClick={onZoom}
-            aria-label="放大圖片"
-            className="group relative w-full shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm lg:min-h-0 lg:shrink dark:border-stone-700 dark:bg-stone-900"
-          >
-            <HighlightThumbnail
-              blob={entry.step.screenshotBlob}
-              bounds={getEffectiveBounds(entry.step)}
-              redactions={privacy.redactions}
-              privacyReviewRequired={privacy.reviewRequired}
-              screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
-              alt={`步驟 ${index + 1}`}
-              fit="contain"
-              className="w-full"
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto bg-background px-4 pt-4 pb-6 sm:px-6 lg:overflow-hidden lg:px-10 lg:pt-5 lg:pb-16">
+        <div className="flex w-full max-w-[1180px] flex-none flex-col gap-3 lg:min-h-0 lg:flex-1">
+          <div className="flex-none">{titleAndTagRow}</div>
+          <div className="flex-none">{headerRow}</div>
+          {errorNotice && <div className="flex-none">{errorNotice}</div>}
+          {privacyReviewNotice && <div className="flex-none">{privacyReviewNotice}</div>}
+          <div className="flex w-full flex-none items-center justify-center p-1 lg:min-h-0 lg:flex-1">
+            <button
+              type="button"
+              onClick={onZoom}
+              aria-label="放大圖片"
+              className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
+            >
+              <HighlightThumbnail
+                blob={entry.step.screenshotBlob}
+                bounds={getEffectiveBounds(entry.step)}
+                redactions={privacy.redactions}
+                privacyReviewRequired={privacy.reviewRequired}
+                screenshotScale={entry.step.screenshotScale ?? entry.step.devicePixelRatio}
+                alt={`步驟 ${index + 1}`}
+                fit="contain"
+                className="max-w-full lg:h-full lg:max-h-full"
+                imgClassName="block h-auto max-w-full w-auto object-contain rounded-md border border-black/15 shadow-xs dark:border-white/15 lg:max-h-full"
+                overlay={zoomHint}
+              />
+            </button>
+          </div>
+          <div className="flex-none">
+            <DescriptionField
+              key={entry.step.id}
+              step={entry.step}
+              onChange={onChange}
+              disabled={editingDisabled}
             />
-            {zoomHint}
-          </button>
-          <DescriptionField
-            key={entry.step.id}
-            step={entry.step}
-            onChange={onChange}
-            disabled={editingDisabled}
-          />
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto bg-stone-100 px-4 pt-4 pb-36 sm:px-6 lg:gap-5 lg:overflow-hidden lg:px-9 lg:pt-7 lg:pb-7 dark:bg-stone-800">
-      {headerRow}
-      {errorNotice}
-      {privacyReviewNotice}
-      <div className="flex min-h-0 flex-none flex-col gap-5 lg:flex-1 lg:flex-row lg:gap-7">
-        <div className="flex min-w-0 shrink-0 items-center justify-center lg:flex-1">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto bg-background px-4 pt-4 pb-6 sm:px-6 lg:overflow-hidden lg:px-10 lg:pt-5 lg:pb-16">
+      <div className="flex-none">{titleAndTagRow}</div>
+      <div className="flex-none">{headerRow}</div>
+      {errorNotice && <div className="flex-none">{errorNotice}</div>}
+      {privacyReviewNotice && <div className="flex-none">{privacyReviewNotice}</div>}
+      <div className="flex flex-none flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-[22px]">
+        <div className="flex min-w-0 flex-none items-center justify-center p-1 lg:min-h-0 lg:flex-1">
           <button
             type="button"
             onClick={onZoom}
             aria-label="放大圖片"
-            className="group relative w-full cursor-zoom-in overflow-hidden rounded-md border border-stone-200 bg-stone-100 shadow-sm dark:border-stone-700 dark:bg-stone-900"
+            className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
           >
             <MultiHighlightThumbnail
               blob={entry.anchor.screenshotBlob}
@@ -173,14 +256,18 @@ export default function StepStage({
               numbered={entry.anchor.numbered ?? false}
               alt={`步驟 ${index + 1}（快照）`}
               fit="contain"
-              className="w-full"
+              className="max-w-full lg:h-full lg:max-h-full"
+              imgClassName="block h-auto max-w-full w-auto object-contain rounded-md border border-black/15 shadow-xs dark:border-white/15 lg:max-h-full"
+              overlay={zoomHint}
             />
-            {zoomHint}
           </button>
         </div>
-        <aside className="flex min-h-[280px] w-full shrink-0 flex-col gap-2.5 lg:min-h-0 lg:w-[400px]">
+        <aside className="flex min-h-[280px] w-full shrink-0 flex-col gap-2.5 lg:min-h-0 lg:w-[380px]">
           <AnnotationList
             annotations={entry.annotations}
+            numbered={entry.anchor.numbered ?? false}
+            onSetNumbered={(next) => setNumbered(next)}
+            numberingPending={numberingPending}
             onChange={onChange}
             onDelete={onDeleteAnnotation}
             onReorder={onReorderAnnotations}
