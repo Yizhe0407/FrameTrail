@@ -174,9 +174,18 @@ describe('guide export', () => {
     expect(pdf.type).toBe('application/pdf');
     expect(Array.from(new Uint8Array(await pdf.arrayBuffer()))).toEqual([0x25, 0x50, 0x44, 0x46]);
     expect(mocks.composite).toHaveBeenCalledOnce();
-    expect(mocks.pdfEmbedJpg).toHaveBeenCalledOnce();
+    // Hybrid raster: the page background JPEG plus the screenshot embedded as
+    // its own image so it keeps native resolution.
+    expect(mocks.pdfEmbedJpg).toHaveBeenCalledTimes(2);
     expect(mocks.pdfAddPage).toHaveBeenCalledWith([595.28, 841.89]);
-    expect(mocks.pdfDrawImage).toHaveBeenCalledOnce();
+    expect(mocks.pdfDrawImage).toHaveBeenCalledTimes(2);
+    const [pagePlacement, screenshotPlacement] = mocks.pdfDrawImage.mock.calls.map(([, placement]) => placement);
+    expect(pagePlacement).toEqual({ x: 0, y: 0, width: 595.28, height: 841.89 });
+    // The screenshot is layered inside the content area, above the footer.
+    expect(screenshotPlacement.x).toBeGreaterThan(0);
+    expect(screenshotPlacement.y).toBeGreaterThan(0);
+    expect(screenshotPlacement.width).toBeLessThan(595.28);
+    expect(screenshotPlacement.height).toBeLessThan(841.89);
     expect(drawnText).toContain('PDF guide');
     expect(drawnText).toContain('Shared page');
     expect(drawnText).toContain('1. ');

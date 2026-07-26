@@ -17,9 +17,12 @@ import {
 import { renderEntryImages, type RenderedEntryContent } from './guide-export-render';
 
 /**
- * Generates a local PDF whose pages are rasterized before being embedded. Text
- * is drawn with the browser's installed fonts so CJK descriptions remain
- * visible without shipping a large font file in the extension bundle.
+ * Generates a local PDF using a hybrid raster pipeline: text and decorations
+ * are rasterized per page with the browser's installed fonts (so CJK
+ * descriptions remain visible without shipping a large font file in the
+ * extension bundle), while each step screenshot is embedded as its own
+ * full-resolution JPEG layered over the page raster. This keeps screenshots at
+ * their native capture resolution instead of the page raster's ~150dpi.
  *
  * Layout: a title block (accent kicker, title, description, metadata line)
  * merged with the first step page, one step per page with a numbered badge
@@ -39,10 +42,11 @@ export async function generateGuidePdf(
   let pageCount = 0;
   let pageImageBytes = 0;
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
-  const paginator = new GuidePdfPaginator(async (jpegBytes) => {
+  const paginator = new GuidePdfPaginator(async (jpegBytes, screenshots) => {
     throwIfAborted(signal);
     pageCount += 1;
     pageImageBytes += jpegBytes.byteLength;
+    for (const screenshot of screenshots) pageImageBytes += screenshot.bytes.byteLength;
     if (pageCount > GUIDE_EXPORT_LIMITS.maxPdfPages) {
       throw new GuideExportLimitError('Guide PDF exceeds the page limit.');
     }
@@ -58,6 +62,18 @@ export async function generateGuidePdf(
       width: PDF_PAGE_WIDTH_POINTS,
       height: PDF_PAGE_HEIGHT_POINTS,
     });
+    // Screenshots are layered ON TOP of the page raster (whose rectangles are
+    // left blank) so the PDF shows them at native capture resolution; pdf-lib
+    // scales the embedded JPEG into the layout rectangle at display time.
+    for (const screenshot of screenshots) {
+      const image = await document.embedJpg(screenshot.bytes);
+      page.drawImage(image, {
+        x: screenshot.x * PDF_POINTS_PER_PIXEL_X,
+        y: PDF_PAGE_HEIGHT_POINTS - (screenshot.y + screenshot.height) * PDF_POINTS_PER_PIXEL_Y,
+        width: screenshot.width * PDF_POINTS_PER_PIXEL_X,
+        height: screenshot.height * PDF_POINTS_PER_PIXEL_Y,
+      });
+    }
   }, title, signal);
 
   await paginator.addRule(0, 26, 8, PDF_COLOR_ACCENT, 120);
@@ -102,6 +118,19 @@ const PDF_PAGE_WIDTH = 1_240;
 const PDF_PAGE_HEIGHT = 1_754;
 const PDF_PAGE_WIDTH_POINTS = 595.28;
 const PDF_PAGE_HEIGHT_POINTS = 841.89;
+/**
+ * Converts page-canvas pixel coordinates to PDF points, matching the slight
+ * per-axis stretch the full-page raster gets so overlaid screenshots align
+ * exactly with the borders drawn on the raster.
+ */
+const PDF_POINTS_PER_PIXEL_X = PDF_PAGE_WIDTH_POINTS / PDF_PAGE_WIDTH;
+const PDF_POINTS_PER_PIXEL_Y = PDF_PAGE_HEIGHT_POINTS / PDF_PAGE_HEIGHT;
+/**
+ * Quality when a screenshot must be re-encoded to fit the byte budget. Kept
+ * above the 0.9 floor screenshots require; the normal path embeds the
+ * composited JPEG bytes untouched, so no re-encode happens at all.
+ */
+const PDF_SCREENSHOT_JPEG_QUALITY = 0.92;
 const PDF_MARGIN = 84;
 const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
 /** Content stops above the footer zone so steps never collide with it. */
@@ -179,15 +208,32 @@ const PDF_LIST_TEXT: PdfTextStyle = {
 
 type PdfCanvasContext = OffscreenCanvasRenderingContext2D;
 
+/** A screenshot embedded as a standalone PDF image over the page raster. */
+type PdfPageScreenshot = {
+  /** Pre-encoded JPEG bytes, embedded at their native resolution. */
+  bytes: Uint8Array;
+  /** Layout rectangle in page-canvas pixel coordinates (top-left origin). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 class GuidePdfPaginator {
   private canvas!: OffscreenCanvas;
   private context!: PdfCanvasContext;
   private cursorY = PDF_MARGIN;
   private hasContent = false;
   private pageNumber = 0;
+  private pageScreenshots: PdfPageScreenshot[] = [];
+  /** Bytes already handed to emitPage (page rasters plus embedded screenshots). */
+  private committedBytes = 0;
 
   constructor(
-    private readonly emitPage: (jpegBytes: Uint8Array) => Promise<void>,
+    private readonly emitPage: (
+      jpegBytes: Uint8Array,
+      screenshots: readonly PdfPageScreenshot[],
+    ) => Promise<void>,
     private readonly footerTitle: string,
     private readonly signal?: AbortSignal,
   ) {
@@ -219,23 +265,30 @@ class GuidePdfPaginator {
 
   /**
    * Step heading in the Scribe/Tango convention: a filled circular badge with
-   * the step number, and the step description as a bold title beside it.
+   * the step number, and the step description as a bold title beside it. The
+   * badge is centered on the FIRST title line's optical middle (multi-line
+   * titles keep it anchored there), and the first line drops just far enough
+   * that the badge never rises above the heading's top edge.
    */
   async addStepHeading(ordinal: number, text: string): Promise<void> {
     const style = PDF_STEP_TITLE_TEXT;
     this.applyTextStyle(style);
     const indent = PDF_STEP_BADGE_SIZE + PDF_STEP_BADGE_GAP;
     const lines = wrapPdfText(this.context, text, PDF_CONTENT_WIDTH - indent, this.signal);
+    const middleOffset = pdfLineMiddleOffset(this.context, lines[0], style.fontSize);
+    const badgeRadius = PDF_STEP_BADGE_SIZE / 2;
+    const firstLineDrop = Math.max(0, badgeRadius - middleOffset);
     let pendingGap = style.gapBefore;
     let isFirstLine = true;
 
     for (const line of lines) {
-      const badgeHeight = isFirstLine ? PDF_STEP_BADGE_SIZE : 0;
-      await this.ensureSpace(pendingGap + Math.max(style.lineHeight, badgeHeight));
+      const drop = isFirstLine ? firstLineDrop : 0;
+      const badgeBottom = isFirstLine ? middleOffset + badgeRadius : 0;
+      await this.ensureSpace(pendingGap + drop + Math.max(style.lineHeight, badgeBottom));
       this.applyTextStyle(style);
-      this.cursorY += pendingGap;
+      this.cursorY += pendingGap + drop;
       if (isFirstLine) {
-        this.drawStepBadge(ordinal, style.lineHeight);
+        this.drawStepBadge(ordinal, this.cursorY + middleOffset);
         this.applyTextStyle(style);
         isFirstLine = false;
       }
@@ -306,15 +359,64 @@ class GuidePdfPaginator {
       const width = Math.max(1, bitmap.width * scale);
       const height = Math.max(1, bitmap.height * scale);
       const x = PDF_MARGIN + (PDF_CONTENT_WIDTH - width) / 2;
-      this.context.drawImage(bitmap, x, this.cursorY, width, height);
+      const y = this.cursorY;
+      const embeddable = await this.prepareScreenshot(imageBytes, bitmap, width, height);
+      if (embeddable) {
+        // The rectangle stays blank on the page canvas; emitPage layers the
+        // full-resolution JPEG over it, so the ~150dpi raster never softens
+        // the screenshot.
+        this.pageScreenshots.push({ bytes: embeddable, x, y, width, height });
+      } else {
+        this.context.drawImage(bitmap, x, y, width, height);
+      }
       this.context.strokeStyle = PDF_COLOR_IMAGE_BORDER;
       this.context.lineWidth = 2;
-      this.context.strokeRect(x - 1, this.cursorY - 1, width + 2, height + 2);
+      this.context.strokeRect(x - 1, y - 1, width + 2, height + 2);
       this.cursorY += height + 30;
       this.hasContent = true;
     } finally {
       bitmap.close();
     }
+  }
+
+  /**
+   * Chooses the bytes embedded for a screenshot. The composited JPEG from the
+   * shared render pipeline is reused untouched whenever the byte budget
+   * allows, so no decode/re-encode pass degrades it and the PDF keeps the
+   * native capture resolution. Under byte pressure it re-encodes at 2x the
+   * layout rectangle (still ~300dpi at print size) with quality 0.92, and as
+   * a last resort returns undefined so the caller falls back to drawing into
+   * the page raster — degrading resolution instead of failing the export.
+   */
+  private async prepareScreenshot(
+    imageBytes: Uint8Array,
+    bitmap: ImageBitmap,
+    layoutWidth: number,
+    layoutHeight: number,
+  ): Promise<Uint8Array | undefined> {
+    const budget = this.screenshotByteBudget();
+    if (imageBytes.byteLength <= budget) return imageBytes;
+    const targetWidth = Math.max(1, Math.min(bitmap.width, Math.round(layoutWidth * 2)));
+    const targetHeight = Math.max(1, Math.min(bitmap.height, Math.round(layoutHeight * 2)));
+    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return undefined;
+    context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+    const blob = await canvas.convertToBlob({ type: IMAGE_MIME_TYPE, quality: PDF_SCREENSHOT_JPEG_QUALITY });
+    throwIfAborted(this.signal);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return bytes.byteLength <= budget ? bytes : undefined;
+  }
+
+  /**
+   * Bytes one screenshot may add while leaving at least half of the unspent
+   * maxPdfBytes budget for page rasters and later screenshots, so a single
+   * large capture cannot starve the rest of the guide.
+   */
+  private screenshotByteBudget(): number {
+    let pending = 0;
+    for (const screenshot of this.pageScreenshots) pending += screenshot.bytes.byteLength;
+    return Math.max(0, Math.floor((GUIDE_EXPORT_LIMITS.maxPdfBytes - this.committedBytes - pending) / 2));
   }
 
   async finish(): Promise<void> {
@@ -334,10 +436,10 @@ class GuidePdfPaginator {
     this.context.textAlign = 'left';
   }
 
-  private drawStepBadge(ordinal: number, lineHeight: number): void {
+  /** Filled circular numbered badge whose vertical center sits on centerY. */
+  private drawStepBadge(ordinal: number, centerY: number): void {
     const radius = PDF_STEP_BADGE_SIZE / 2;
     const centerX = PDF_MARGIN + radius;
-    const centerY = this.cursorY + lineHeight / 2;
     const context = this.context;
     context.beginPath();
     context.arc(centerX, centerY, radius, 0, Math.PI * 2);
@@ -374,7 +476,12 @@ class GuidePdfPaginator {
     this.drawFooter();
     const blob = await this.canvas.convertToBlob({ type: IMAGE_MIME_TYPE, quality: 0.9 });
     throwIfAborted(this.signal);
-    await this.emitPage(new Uint8Array(await blob.arrayBuffer()));
+    const pageBytes = new Uint8Array(await blob.arrayBuffer());
+    const screenshots = this.pageScreenshots;
+    this.committedBytes += pageBytes.byteLength;
+    for (const screenshot of screenshots) this.committedBytes += screenshot.bytes.byteLength;
+    this.pageScreenshots = [];
+    await this.emitPage(pageBytes, screenshots);
     throwIfAborted(this.signal);
     this.resetPage();
   }
@@ -420,6 +527,26 @@ function segmentPdfText(text: string, granularity: 'word' | 'grapheme'): string[
   if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
   // Per-code-point fallback for runtimes without Intl.Segmenter.
   return Array.from(text);
+}
+
+/**
+ * Distance from a text line's top edge (textBaseline 'top') down to its
+ * optical middle, used to center the step badge on the first title line. Uses
+ * the measured glyph bounding box when the canvas reports one; otherwise it
+ * approximates the cap-height middle — baseline (≈0.8em below the top) minus
+ * half a cap height (≈0.7em), i.e. 0.45em — which also suits CJK squares.
+ */
+function pdfLineMiddleOffset(context: PdfCanvasContext, line: string, fontSize: number): number {
+  // Whitespace-only lines have an empty bounding box; measure a representative
+  // full-height glyph instead so the badge still lands on the text band.
+  const metrics = context.measureText(line.trim() || '中');
+  // With textBaseline 'top' both values are measured from the line's top edge:
+  // the glyph box spans [-ascent, +descent] below it.
+  const { actualBoundingBoxAscent: ascent, actualBoundingBoxDescent: descent } = metrics;
+  if (Number.isFinite(ascent) && Number.isFinite(descent) && descent - ascent > 0) {
+    return (descent - ascent) / 2;
+  }
+  return fontSize * 0.45;
 }
 
 /** Shortens footer text with an ellipsis, never splitting a grapheme cluster. */
