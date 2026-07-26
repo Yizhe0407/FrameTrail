@@ -26,40 +26,46 @@ test.describe('popup workflows', () => {
     await resetExtensionData(popupPage);
   });
 
-  test('starts snapshot recording with the selected numbering option and shows the active-run summary', async ({
+  test('starts snapshot recording always numbered and shows the active-run summary', async ({
     appPage,
     popupPage,
     extensionContext,
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    const stepsMode = popupPage.getByRole('radio', { name: '操作流程' });
-    const snapshotMode = popupPage.getByRole('radio', { name: '單頁標註' });
+    const stepsMode = popupPage.getByRole('radio', { name: '步驟' });
+    const snapshotMode = popupPage.getByRole('radio', { name: '快照' });
     await expect(stepsMode).toHaveAttribute('aria-checked', 'true');
     await snapshotMode.click();
     await expect(snapshotMode).toHaveAttribute('aria-checked', 'true');
-    await expect(popupPage.getByText('鎖定目前畫面；在同一張圖加入多個標註。')).toBeVisible();
+    await expect(popupPage.getByText('鎖定目前畫面，在同一張截圖上加入多個標註點。')).toBeVisible();
 
-    const numbering = popupPage.getByRole('switch', { name: '顯示順序編號' });
-    await expect(numbering).toBeChecked();
-    await numbering.click();
-    await expect(numbering).not.toBeChecked();
+    // Numbering is no longer a start-time choice: recordings always begin
+    // numbered and the editor owns turning it off per snapshot.
+    await expect(popupPage.getByRole('switch', { name: '自動編號' })).toHaveCount(0);
 
     const statePage = await extensionContext.newPage();
     await statePage.goto(`chrome-extension://${extensionId}/editor.html`);
+    // The mount-time preflight reads the active tab; a real popup opens while
+    // the target page is active, so activate it before remounting the popup
+    // (the popup-as-tab harness would otherwise preflight against itself and
+    // show the restricted-page notice).
+    await appPage.bringToFront();
+    await popupPage.reload({ waitUntil: 'domcontentloaded' });
     await popupPage.evaluate(() => {
       window.close = () => {};
     });
-    await appPage.bringToFront();
-    await clickPopupCommandWithoutActivatingTab(popupPage, '開始');
+    await popupPage.getByRole('radio', { name: '快照' }).click();
+    await expect(popupPage.getByRole('radio', { name: '快照' })).toHaveAttribute('aria-checked', 'true');
+    await clickPopupCommandWithoutActivatingTab(popupPage, '開始錄製');
 
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(true);
     await expect.poll(async () => (await readRecordingState(statePage)).phase).toBe('recording');
     await expect.poll(async () => (await readRecordingState(statePage)).mode).toBe('snapshot');
-    await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(false);
+    await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(true);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(1);
 
-    await expect(popupPage.getByText('單頁標註 · 0 個標註')).toBeVisible();
+    await expect(popupPage.getByText('快照 · 0 個標註')).toBeVisible();
     await expect(popupPage.getByRole('button', { name: '回到錄製分頁' })).toBeEnabled();
     await expect(popupPage.getByRole('button', { name: '停止錄製' })).toHaveCount(0);
     await stopRecording(statePage);
@@ -87,8 +93,12 @@ test.describe('popup workflows', () => {
       throw new Error('Expected reset data to select an empty Guide.');
     }
 
-    await expect(popupPage.getByRole('button', { name: '匯出圖片' })).toHaveCount(0);
-    await expect(popupPage.getByRole('button', { name: '重置' })).toHaveCount(0);
+    // The redesign keeps this action visible (rather than hiding it) and
+    // disables it instead when the session has no recorded steps.
+    await expect(popupPage.getByRole('button', { name: '重置' })).toBeDisabled();
+    // 開啟編輯器 is the popup's secondary entry point (UX_PLAN 6.1) and stays
+    // enabled for an empty Guide: opening an empty editor is valid.
+    await expect(popupPage.getByRole('button', { name: '作品庫', exact: true })).toBeEnabled();
 
     const editorPromise = extensionContext.waitForEvent('page');
     await popupPage.getByRole('button', { name: '編輯器' }).click();
@@ -104,8 +114,33 @@ test.describe('popup workflows', () => {
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
     await expect(editor.getByRole('button', { name: '回到網頁開始錄製' })).toBeVisible();
-    await expect(editor.getByRole('button', { name: '發佈' })).toBeDisabled();
+    await expect(editor.getByRole('button', { name: '匯出' })).toBeDisabled();
     await expect(editor.getByRole('button', { name: '重置' })).toBeDisabled();
+  });
+
+  test('opens a multi-step guide at its first entry, not its latest capture', async ({
+    appPage,
+    popupPage,
+    extensionContext,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    await clickTarget(appPage, '#plain-text');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await clickTarget(appPage, '#visual-container strong');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await stopRecording(popupPage);
+
+    const editorOpened = extensionContext.waitForEvent('page');
+    await popupPage.getByRole('button', { name: '開啟編輯器' }).click();
+    const editor = await editorOpened;
+    await editor.waitForLoadState('domcontentloaded');
+
+    // Ordinary navigation must not inherit the newest capture as its target:
+    // opening a finished guide should start reading it from the top.
+    expect(new URL(editor.url()).searchParams.get('entryId')).toBeNull();
+    await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
+    await expect(editor.getByRole('button', { name: '開啟步驟 2' })).not.toHaveAttribute('aria-current', 'step');
   });
 
   test('keeps recorded data recoverable when the source tab closes', async ({

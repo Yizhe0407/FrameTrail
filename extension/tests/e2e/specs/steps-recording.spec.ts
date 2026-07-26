@@ -1,6 +1,7 @@
 import { test, expect } from '../support/fixture';
 import {
   clickTarget,
+  expectSteady,
   getStepPreviewStyle,
   hoverTarget,
   rawScreenshotRosePixels,
@@ -27,7 +28,7 @@ test.describe('step recording', () => {
 
     const preview = await getStepPreviewStyle(appPage);
     expect(preview.hidden).toBe(false);
-    expect(preview.style).toContain('border: 2px solid rgb(244, 63, 94)');
+    expect(preview.style).toContain('border: 2px solid rgb(255, 71, 71)');
     expect(preview.style).toContain('box-shadow: none');
 
     await clickTarget(appPage, '#plain-text');
@@ -86,7 +87,7 @@ test.describe('step recording', () => {
 
     expect(await sendControl('PAUSE_RECORDING')).toMatchObject({ ok: true });
     await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('paused');
-    await hoverTarget(appPage, '#action-button');
+    await hoverTarget(appPage, '#action-button', 'hidden');
     expect((await getStepPreviewStyle(appPage)).hidden).toBe(true);
 
     expect(await sendControl('RESUME_RECORDING')).toMatchObject({ ok: true });
@@ -258,8 +259,7 @@ test.describe('step recording', () => {
     await appPage.mouse.down();
     await appPage.mouse.move(gutter.x, gutter.y + 120, { steps: 4 });
     await appPage.mouse.up();
-    await appPage.waitForTimeout(300);
-    expect((await readSteps(popupPage)).length).toBe(1);
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
 
     // The same rule applies to a nested scrollport: its scrollbar gutter is a
     // native scroll gesture, never a generic mark on the scroll container.
@@ -271,8 +271,7 @@ test.describe('step recording', () => {
     await appPage.mouse.down();
     await appPage.mouse.move(nestedGutter.x, nestedGutter.y + 30, { steps: 2 });
     await appPage.mouse.up();
-    await appPage.waitForTimeout(300);
-    expect((await readSteps(popupPage)).length).toBe(1);
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
 
     await stopRecording(popupPage);
   });

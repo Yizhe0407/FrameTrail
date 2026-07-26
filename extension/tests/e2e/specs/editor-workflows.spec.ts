@@ -37,10 +37,9 @@ async function recordSnapshotTargets(
   appPage: Page,
   popupPage: Page,
   selectors: string[],
-  numbered = true,
 ): Promise<void> {
   const initialCount = (await readSteps(popupPage)).length;
-  await startRecording(appPage, popupPage, 'snapshot', numbered);
+  await startRecording(appPage, popupPage, 'snapshot');
   await expect.poll(async () => (await readSteps(popupPage)).length).toBe(initialCount + 1);
   for (const [index, selector] of selectors.entries()) {
     await clickSnapshotTarget(appPage, await targetCenter(appPage, selector));
@@ -111,6 +110,25 @@ async function readClipboardPng(page: Page): Promise<{
   });
 }
 
+/** StepActions' copy button (components/editor/StepActions.tsx) no longer
+ * shows a visible/aria-live "已複製" confirmation once the write finishes —
+ * only a transient icon swap — so there is no DOM signal left to wait on.
+ * Poll the clipboard directly instead of racing the async composite+write. */
+async function readClipboardPngEventually(page: Page): ReturnType<typeof readClipboardPng> {
+  await expect.poll(
+    async () => {
+      try {
+        await readClipboardPng(page);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 10_000 },
+  ).toBe(true);
+  return readClipboardPng(page);
+}
+
 test.describe('editor workflows', () => {
   test.beforeEach(async ({ popupPage }) => {
     await resetExtensionData(popupPage);
@@ -129,19 +147,17 @@ test.describe('editor workflows', () => {
 
     const description = editor.getByPlaceholder('輸入步驟說明…');
     await description.fill('更新後的步驟說明');
-    await expect(editor.getByText('尚未儲存', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage))[0]?.description).toBe('更新後的步驟說明');
-    await expect(editor.getByText('已儲存', { exact: true })).toBeVisible();
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByRole('main').getByText('單頁標註 · 2 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照模式 · 2 個標註', { exact: true })).toBeVisible();
     const annotations = editor.getByPlaceholder('輸入標注說明…');
     await annotations.nth(0).fill('更新後的快照標注');
     await expect.poll(async () => (await readSteps(popupPage)).some(
       (step) => step.description === '更新後的快照標注',
     )).toBe(true);
 
-    const numbering = editor.getByRole('switch', { name: '顯示編號' });
+    const numbering = editor.getByRole('switch', { name: '順序編號' });
     await expect(numbering).toBeChecked();
     await numbering.click();
     await expect(numbering).not.toBeChecked();
@@ -150,7 +166,7 @@ test.describe('editor workflows', () => {
     )).toBe(true);
 
     await editor.getByRole('button', { name: '刪除標注 2' }).click();
-    await expect(editor.getByRole('main').getByText('單頁標註 · 1 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
     expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
   });
@@ -170,7 +186,7 @@ test.describe('editor workflows', () => {
     expect(annotation).toBeDefined();
 
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
-    await expect(editor.getByRole('main').getByText('單頁標註 · 1 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '刪除標注 1' }).click();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
@@ -267,7 +283,7 @@ test.describe('editor workflows', () => {
     await editor.reload();
     await expect(editor.getByText('步驟 · 3', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByRole('main').getByText('單頁標註 · 3 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照模式 · 3 個標註', { exact: true })).toBeVisible();
     const annotationPanel = editor.locator('aside');
     const annotationHandles = annotationPanel.getByRole('button', { name: '拖曳排序' });
     await expect(annotationHandles).toHaveCount(3);
@@ -296,19 +312,19 @@ test.describe('editor workflows', () => {
 
     await editor.getByRole('button', { name: '放大圖片' }).click();
     const dialog = editor.getByRole('dialog');
-    await expect(dialog.getByAltText('Step 1 放大')).toBeVisible();
-    await expect(dialog.getByText('1 / 3', { exact: true })).toBeVisible();
+    await expect(dialog.getByAltText('步驟 1 放大')).toBeVisible();
+    await expect(dialog.getByText('1/ 3', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: '上一張' })).toBeDisabled();
 
     await editor.keyboard.press('ArrowRight');
-    await expect(dialog.getByAltText('Step 2 放大')).toBeVisible();
+    await expect(dialog.getByAltText('步驟 2 放大')).toBeVisible();
     await dialog.getByRole('button', { name: '下一張' }).click();
-    await expect(dialog.getByAltText('Step 3 放大')).toBeVisible();
-    await expect(dialog.getByText('3 / 3', { exact: true })).toBeVisible();
+    await expect(dialog.getByAltText('步驟 3 放大')).toBeVisible();
+    await expect(dialog.getByText('3/ 3', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: '下一張' })).toBeDisabled();
 
     await dialog.getByRole('button', { name: '上一張' }).click();
-    await expect(dialog.getByAltText('Step 2 放大')).toBeVisible();
+    await expect(dialog.getByAltText('步驟 2 放大')).toBeVisible();
     await editor.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
   });
@@ -324,10 +340,14 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
-    await editor.getByLabel('更多步驟操作').click();
+    // StepActions no longer hides its actions behind a "更多步驟操作" menu
+    // trigger (components/editor/StepActions.tsx) — copy/recapture/delete are
+    // always-visible icon buttons now, so the menu-open step is gone. The
+    // redesign also dropped the visible/aria-live "已複製" confirmation text
+    // in favour of a transient icon swap with no accessible name change; the
+    // clipboard-content assertions below are the reliable success signal.
     await editor.getByRole('button', { name: '複製圖片' }).click();
-    await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
-    const ordinaryPng = await readClipboardPng(editor);
+    const ordinaryPng = await readClipboardPngEventually(editor);
     expect(ordinaryPng).toMatchObject({
       type: 'image/png',
       signature: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -337,10 +357,8 @@ test.describe('editor workflows', () => {
     expect(ordinaryPng.height).toBeGreaterThan(600);
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await editor.getByLabel('更多步驟操作').click();
     await editor.getByRole('button', { name: '複製圖片' }).click();
-    await expect(editor.getByText('已複製', { exact: true })).toBeVisible();
-    const snapshotPng = await readClipboardPng(editor);
+    const snapshotPng = await readClipboardPngEventually(editor);
     expect(snapshotPng).toMatchObject({
       type: 'image/png',
       signature: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -359,11 +377,11 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 3);
 
-    await editor.getByRole('button', { name: '發佈', exact: true }).click();
-    const publishDialog = editor.getByRole('dialog', { name: '發佈教學' });
+    await editor.getByRole('button', { name: '匯出', exact: true }).click();
+    const publishDialog = editor.getByRole('dialog', { name: '匯出' });
     await expect(publishDialog).toBeVisible();
     const browserDownload = editor.waitForEvent('download');
-    await publishDialog.getByRole('button', { name: /^下載圖片 ZIP/ }).click();
+    await publishDialog.getByRole('button', { name: '下載圖片' }).click();
     const download = await browserDownload;
     const archivePath = await download.path();
     if (!archivePath) throw new Error('Export download has no local path');
@@ -375,7 +393,7 @@ test.describe('editor workflows', () => {
     await expect(publishDialog.getByText('圖片 ZIP 已開始下載。', { exact: true })).toBeVisible();
 
     const files = unzipSync(new Uint8Array(await readFile(archivePath)));
-    expect(Object.keys(files).sort()).toEqual(['1.jpg', '2.jpg', '3.jpg']);
+    expect(Object.keys(files).sort()).toEqual(['01.jpg', '02.jpg', '03.jpg']);
     for (const bytes of Object.values(files)) {
       expect(Array.from(bytes.slice(0, 3))).toEqual([0xff, 0xd8, 0xff]);
       expect(Array.from(bytes.slice(-2))).toEqual([0xff, 0xd9]);
@@ -397,12 +415,12 @@ test.describe('editor workflows', () => {
     for (const width of [320, 768]) {
       await editor.setViewportSize({ width, height: 700 });
       await expect(editor.getByRole('navigation', { name: '步驟導覽' })).toBeVisible();
-      const publishButton = editor.getByRole('button', { name: '發佈', exact: true });
+      const publishButton = editor.getByRole('button', { name: '匯出', exact: true });
       await expect(publishButton).toBeVisible();
       await publishButton.click();
-      const publishDialog = editor.getByRole('dialog', { name: '發佈教學' });
+      const publishDialog = editor.getByRole('dialog', { name: '匯出' });
       await expect(publishDialog).toBeVisible();
-      await expect(publishDialog.getByRole('button', { name: /^下載圖片 ZIP/ })).toBeVisible();
+      await expect(publishDialog.getByRole('button', { name: '下載圖片' })).toBeVisible();
       await publishDialog.getByRole('button', { name: '關閉', exact: true }).last().click();
       await expect(publishDialog).not.toBeVisible();
       const layout = await editor.evaluate(() => {
@@ -444,7 +462,6 @@ test.describe('editor workflows', () => {
     const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await editor.getByLabel('更多步驟操作').click();
     await editor.getByRole('button', { name: '刪除步驟', exact: true }).click();
     await expect(editor.getByText('已刪除步驟 2', { exact: true })).toBeVisible();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
@@ -454,12 +471,16 @@ test.describe('editor workflows', () => {
     await expect(editor.getByText('步驟 · 2', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
 
-    await editor.getByLabel('更多步驟操作').click();
     await editor.getByRole('button', { name: '刪除步驟', exact: true }).click();
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
 
-    await editor.getByRole('button', { name: '重置', exact: true }).click();
+    // The header's reset trigger now carries an explicit aria-label
+    // ("重置目前錄製", added in ResetButton.tsx) that is more descriptive than
+    // its visible "重置" text, so it is no longer an exact match for '重置'.
+    // The in-dialog confirm button (ConfirmationDialog's confirmLabel) has no
+    // such override and keeps the plain "重置" accessible name.
+    await editor.getByRole('button', { name: '重置目前錄製' }).click();
     const resetDialog = editor.getByRole('dialog');
     await expect(resetDialog).toContainText('重置目前錄製？');
     await resetDialog.getByRole('button', { name: '重置', exact: true }).click();

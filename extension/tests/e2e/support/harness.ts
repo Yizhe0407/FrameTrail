@@ -158,7 +158,6 @@ export async function resetExtensionData(popup: Page): Promise<void> {
           sections: [],
           createdAt: 0,
           updatedAt: 0,
-          archivedAt: null,
           contentRevision: 0,
           stepCount: 0,
           entryCount: 0,
@@ -343,9 +342,9 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
   }, stepId);
 }
 
-export async function startRecording(appPage: Page, popup: Page, mode: RecordingMode, numbered = true): Promise<void> {
+export async function startRecording(appPage: Page, popup: Page, mode: RecordingMode): Promise<void> {
   await appPage.bringToFront();
-  await popup.evaluate(async ({ mode, numbered }) => {
+  await popup.evaluate(async (mode) => {
     try {
       const stored = await chrome.storage.local.get('frametrail:activeGuideId');
       const sessionId = stored['frametrail:activeGuideId'];
@@ -356,7 +355,6 @@ export async function startRecording(appPage: Page, popup: Page, mode: Recording
         type: 'START_RECORDING',
         sessionId,
         mode,
-        numbered,
       }) as { ok: true } | { ok: false; error?: string } | undefined;
 
       if (!result?.ok) {
@@ -369,7 +367,7 @@ export async function startRecording(appPage: Page, popup: Page, mode: Recording
           : `START_RECORDING rejected: ${String(error)}`,
       );
     }
-  }, { mode, numbered });
+  }, mode);
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   if (mode === 'steps') {
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
@@ -401,13 +399,52 @@ export async function sendRecordingControl(
   }, { type, undoToken });
 }
 
-export async function hoverTarget(page: Page, locator: Parameters<Page['locator']>[0]): Promise<void> {
+/**
+ * Repeatedly asserts that `read` keeps returning `expected` for the whole
+ * window. Unlike a sleep-then-assert, this fails at the instant a spurious
+ * value lands instead of sampling once after an arbitrary delay. Each read is
+ * a real extension round-trip, so the loop needs no artificial pacing.
+ */
+export async function expectSteady<T>(
+  read: () => Promise<T>,
+  expected: T,
+  windowMs = 400,
+): Promise<void> {
+  const deadline = Date.now() + windowMs;
+  do {
+    // Widen to unknown: Playwright's conditional matcher types cannot resolve
+    // the generic and would otherwise drop the toEqual matcher.
+    const value: unknown = await read();
+    expect(value).toEqual(expected);
+  } while (Date.now() < deadline);
+}
+
+export async function hoverTarget(
+  page: Page,
+  locator: Parameters<Page['locator']>[0],
+  expectedPreview: 'visible' | 'hidden' = 'visible',
+): Promise<void> {
   const target = page.locator(locator);
   const box = await target.boundingBox();
   if (!box) throw new Error(`Target ${locator} has no bounding box`);
   await page.mouse.move(5, 5);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
-  await page.waitForTimeout(160);
+  if (expectedPreview === 'visible') {
+    // Settle on the preview overlay itself: visible, and stable across two
+    // consecutive reads so the hover probe for the final coordinate has won.
+    await expect
+      .poll(async () => {
+        const first = await getStepPreviewStyle(page);
+        if (first.hidden) return false;
+        const second = await getStepPreviewStyle(page);
+        return !second.hidden && second.style === first.style;
+      })
+      .toBe(true);
+  } else {
+    // A paused/ignoring recorder shows nothing to wait for; assert the preview
+    // overlay stays hidden across a short polling window instead.
+    await expectSteady(async () => (await getStepPreviewStyle(page)).hidden, true);
+  }
 }
 
 export async function clickTarget(page: Page, locator: Parameters<Page['locator']>[0]): Promise<void> {

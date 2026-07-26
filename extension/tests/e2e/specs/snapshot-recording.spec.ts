@@ -1,6 +1,7 @@
 import { test, expect } from '../support/fixture';
 import {
   clickSnapshotTarget,
+  expectSteady,
   getSnapshotFrame,
   readRecordingState,
   readSteps,
@@ -21,7 +22,7 @@ test.describe('snapshot recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const point = await targetCenter(appPage, '#plain-text');
     const shield = await getSnapshotFrame(appPage);
 
@@ -35,8 +36,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
 
     await clickSnapshotTarget(appPage, point);
-    await appPage.waitForTimeout(300);
-    expect(await readSteps(popupPage)).toHaveLength(2);
+    await expectSteady(async () => (await readSteps(popupPage)).length, 2);
     await expect(shield.locator('.snapshot-annotation__frame')).toHaveCount(1);
 
     const steps = await readSteps(popupPage);
@@ -55,7 +55,7 @@ test.describe('snapshot recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', false);
+    await startRecording(appPage, popupPage, 'snapshot');
     const point = await targetCenter(appPage, '#plain-text');
     const shield = await getSnapshotFrame(appPage);
 
@@ -79,10 +79,10 @@ test.describe('snapshot recording', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
     const point = await targetCenter(appPage, '#plain-text');
-    await expect(shield.getByRole('button', { name: '完成快照' })).toBeVisible();
+    await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
 
     await clickSnapshotTarget(appPage, point);
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
@@ -96,7 +96,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
 
     const editorOpened = extensionContext.waitForEvent('page');
-    await shield.getByRole('button', { name: '完成快照' }).click();
+    await shield.getByRole('button', { name: '完成', exact: true }).click();
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
@@ -110,7 +110,7 @@ test.describe('snapshot recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
     await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
@@ -146,8 +146,11 @@ test.describe('snapshot recording', () => {
     })).toEqual({ left: 16, bottom: 16 });
     await expect.poll(readToolbarCorner).toBe('bottom-left');
 
-    await shield.getByRole('button', { name: '更多錄製動作' }).click();
-    await shield.getByRole('menuitem', { name: '放棄這次錄製' }).click();
+    // The "更多錄製動作" dropdown-menu trigger only exists in the toolbar's
+    // invalidated-viewport variant now (components/recording/RecordingToolbar.tsx).
+    // The normal toolbar shows "放棄這次錄製" as an always-visible icon button
+    // directly, with no menu step in between.
+    await shield.getByRole('button', { name: '放棄這次錄製' }).click();
     await expect(shield.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeVisible();
     await shield.getByRole('button', { name: '放棄錄製' }).click();
 
@@ -162,7 +165,7 @@ test.describe('snapshot recording', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const firstShield = await getSnapshotFrame(appPage);
     await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
@@ -202,7 +205,7 @@ test.describe('snapshot recording', () => {
     );
 
     const editorOpened = extensionContext.waitForEvent('page');
-    await secondShield.getByRole('button', { name: '完成快照' }).click();
+    await secondShield.getByRole('button', { name: '完成', exact: true }).click();
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect(editor.getByRole('button', { name: /開啟步驟/ })).toHaveCount(2);
@@ -214,7 +217,7 @@ test.describe('snapshot recording', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
 
@@ -249,8 +252,7 @@ test.describe('snapshot recording', () => {
     expect(invalidatedLayout.secondary.right).toBeLessThanOrEqual(invalidatedLayout.primary.left);
 
     await clickSnapshotTarget(appPage, await targetCenter(appPage, '#action-button'));
-    await appPage.waitForTimeout(200);
-    expect(await readSteps(popupPage)).toEqual(originalSteps);
+    await expectSteady(async () => await readSteps(popupPage), originalSteps);
 
     await invalidatedShield.getByRole('button', { name: '保留並重建' }).click();
     await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('recording');
@@ -288,7 +290,7 @@ test.describe('snapshot recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
     const firstPoint = await targetCenter(appPage, '#plain-text');
     const secondPoint = await targetCenter(appPage, '#action-button');
@@ -331,7 +333,7 @@ test.describe('snapshot recording', () => {
     });
 
     const point = await targetCenter(appPage, '#viewport-edge-target');
-    await startRecording(appPage, popupPage, 'snapshot', false);
+    await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
     await clickSnapshotTarget(appPage, point);
 
@@ -373,9 +375,9 @@ test.describe('snapshot recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'snapshot', true);
+    await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
-    await expect(shield.getByRole('button', { name: '完成快照' })).toBeVisible();
+    await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
 
     // Focus the skip link to enter the shield, then Tab to the first candidate
     // (the enabled action button, first in reading order). No pointer is used.

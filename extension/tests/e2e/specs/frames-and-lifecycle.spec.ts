@@ -20,7 +20,7 @@ test.describe('frames and recording lifecycle', () => {
     browserErrors: _browserErrors,
   }) => {
     await appPage.goto('http://127.0.0.1:4175/frames-host.html');
-    await startRecording(appPage, popupPage, 'snapshot', false);
+    await startRecording(appPage, popupPage, 'snapshot');
     const outer = appPage.frameLocator('#cross-origin-frame');
     const outerBox = await outer.locator('#frame-text').boundingBox();
     if (!outerBox) throw new Error('Cross-origin frame target has no box');
@@ -72,7 +72,7 @@ test.describe('frames and recording lifecycle', () => {
     browserErrors: _browserErrors,
   }) => {
     await appPage.goto('http://127.0.0.1:4175/sandbox-host.html');
-    await startRecording(appPage, popupPage, 'snapshot', false);
+    await startRecording(appPage, popupPage, 'snapshot');
     await appPage.locator('#sandbox-frame').evaluate((element) => {
       element.replaceWith(element.cloneNode(true));
     });
@@ -100,7 +100,7 @@ test.describe('frames and recording lifecycle', () => {
     await appPage.goto('http://127.0.0.1:4175/navigated.html');
 
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
-    expect((await readRecordingState(popupPage)).error).toBe('Recording stopped because the snapshot page changed.');
+    expect((await readRecordingState(popupPage)).error).toBe('錄製已停止，因為快照頁面已變更。');
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
   });
 
