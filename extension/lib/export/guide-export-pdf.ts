@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import type { StepEntry } from '../storage/db';
 import {
   DEFAULT_DESCRIPTION,
@@ -9,7 +10,6 @@ import {
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  throwIfAborted,
   type GuideExportControl,
   type GuideExportMetadata,
 } from './guide-export-contract';
@@ -201,9 +201,9 @@ class GuidePdfPaginator {
 
   async addImage(imageBytes: Uint8Array): Promise<void> {
     throwIfAborted(this.signal);
-    const ownedImageBytes = new Uint8Array(imageBytes.byteLength);
-    ownedImageBytes.set(imageBytes);
-    const bitmap = await createImageBitmap(new Blob([ownedImageBytes.buffer], { type: IMAGE_MIME_TYPE }));
+    // Blob construction already copies the bytes, and the caller hands us an
+    // owned buffer, so no additional defensive copy is needed here.
+    const bitmap = await createImageBitmap(new Blob([imageBytes as Uint8Array<ArrayBuffer>], { type: IMAGE_MIME_TYPE }));
     try {
       throwIfAborted(this.signal);
       if (PDF_PAGE_HEIGHT - PDF_MARGIN - this.cursorY < 360) await this.startNewPage();
@@ -280,6 +280,30 @@ async function addPdfEntryText(
   }
 }
 
+type TextSegmenter = { segment(input: string): Iterable<{ segment: string }> };
+
+const pdfSegmenters: { word?: TextSegmenter; grapheme?: TextSegmenter } =
+  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? {
+        word: new Intl.Segmenter(undefined, { granularity: 'word' }),
+        grapheme: new Intl.Segmenter(undefined, { granularity: 'grapheme' }),
+      }
+    : {};
+
+function segmentPdfText(text: string, granularity: 'word' | 'grapheme'): string[] {
+  const segmenter = pdfSegmenters[granularity];
+  if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
+  // Per-code-point fallback for runtimes without Intl.Segmenter.
+  return Array.from(text);
+}
+
+/**
+ * Greedy line wrapping against measured widths. Breaks at word boundaries
+ * first (Intl.Segmenter also dictionary-segments CJK), and only splits a
+ * segment wider than a whole line at grapheme-cluster boundaries, so English
+ * words are not chopped mid-word and emoji/combining sequences never split
+ * into broken glyphs.
+ */
 function wrapPdfText(
   context: PdfCanvasContext,
   text: string,
@@ -287,6 +311,11 @@ function wrapPdfText(
   signal?: AbortSignal,
 ): string[] {
   const lines: string[] = [];
+  let steps = 0;
+  const poll = () => {
+    if ((steps++ & 255) === 0) throwIfAborted(signal);
+  };
+
   for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
     if (!paragraph) {
       lines.push('');
@@ -294,17 +323,32 @@ function wrapPdfText(
     }
 
     let line = '';
-    for (const [index, character] of Array.from(paragraph).entries()) {
-      if ((index & 255) === 0) throwIfAborted(signal);
-      const candidate = `${line}${character}`;
-      if (line && context.measureText(candidate).width > maxWidth) {
-        lines.push(line.trimEnd());
-        line = character.trimStart();
-      } else {
+    for (const word of segmentPdfText(paragraph, 'word')) {
+      poll();
+      const candidate = `${line}${word}`;
+      if (context.measureText(candidate).width <= maxWidth) {
         line = candidate;
+        continue;
+      }
+      const wrapped = word.trimStart();
+      if (line && context.measureText(wrapped).width <= maxWidth) {
+        lines.push(line.trimEnd());
+        line = wrapped;
+        continue;
+      }
+      // Wider than a whole line: split it, but never inside a grapheme cluster.
+      for (const grapheme of segmentPdfText(word, 'grapheme')) {
+        poll();
+        const graphemeCandidate = `${line}${grapheme}`;
+        if (line && context.measureText(graphemeCandidate).width > maxWidth) {
+          lines.push(line.trimEnd());
+          line = grapheme.trimStart();
+        } else {
+          line = graphemeCandidate;
+        }
       }
     }
-    lines.push(line);
+    lines.push(line.trimEnd());
   }
   return lines.length > 0 ? lines : [''];
 }

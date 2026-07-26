@@ -145,7 +145,7 @@ describe('project archive', () => {
     const imported = await importProjectArchive(JSON.stringify(archive), { includeMetadata: true });
 
     expect(imported.version).toBe(PROJECT_ARCHIVE_LEGACY_VERSION);
-    expect(imported.metadata).toEqual({ title: '', description: '', sections: [] });
+    expect(imported.metadata).toEqual({ title: '', description: '', sections: [], tags: [] });
     expect(imported.steps).toHaveLength(1);
     expect(imported.steps[0].id).not.toBe('step-1');
     expect(imported.steps[0].sessionId).not.toBe('session-1');

@@ -86,8 +86,11 @@ export function escapeGuideHtml(value: string): string {
 export function escapeGuideMarkdown(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/[\[\]()<>`*_#!+\-|{}~]/g, '\\$&')
+    .replace(/[[\]()<>`*_#!+\-|{}~=]/g, '\\$&')
     .replace(/\r\n?/g, '\n')
+    // `1.` at a line start (up to three spaces of indent) would begin a real
+    // ordered list - CommonMark even lets it interrupt a paragraph.
+    .replace(/^( {0,3}\d+)\./gm, '$1\\.')
     .replace(/\n/g, '  \n');
 }
 
@@ -97,20 +100,19 @@ function filenameStem(metadata: GuideExportMetadata): string {
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96);
-  return stem || DEFAULT_FILENAME;
+    // Keep every Unicode letter and digit so CJK titles survive as filenames;
+    // everything else (separators, punctuation, path and filesystem-unsafe
+    // characters, control characters) folds into single dashes.
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  // Bound by code points so truncation can never leave a lone surrogate.
+  const bounded = [...stem].slice(0, 96).join('').replace(/-+$/, '');
+  return bounded || DEFAULT_FILENAME;
 }
 
 export function getSignal(control: GuideExportControl): AbortSignal | undefined {
   if (!control) return undefined;
   return 'aborted' in control ? control : control.signal;
-}
-
-export function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  throw signal.reason instanceof Error ? signal.reason : new DOMException('Guide export cancelled', 'AbortError');
 }
 
 export function textValue(value: unknown): string {

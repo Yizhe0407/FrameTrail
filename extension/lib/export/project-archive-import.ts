@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import { type Step } from '../storage/models';
 import {
   BLOB_KEYS,
@@ -29,7 +30,6 @@ import {
   hasOwn,
   parseArchiveMetadata,
   remapImportedProject,
-  throwIfAborted,
   validateGroups,
   validateRuntimeStep,
   validateScreenshotRaster,
@@ -203,7 +203,7 @@ export async function importProjectArchive(
 
   const metadata = version === PROJECT_ARCHIVE_VERSION
     ? parseArchiveMetadata(manifest.metadata, steps)
-    : { title: '', description: '', sections: [] };
+    : { title: '', description: '', sections: [], tags: [] };
   const remapped = remapImportedProject(steps, metadata);
   throwIfAborted(signal);
 

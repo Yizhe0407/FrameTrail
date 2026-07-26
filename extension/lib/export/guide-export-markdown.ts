@@ -1,5 +1,7 @@
-import { strToU8, Zip, ZipPassThrough } from 'fflate';
+import { throwIfAborted } from '../shared/abort';
+import { strToU8 } from 'fflate';
 import type { StepEntry } from '../storage/db';
+import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 import {
   DEFAULT_DESCRIPTION,
   DEFAULT_IMAGE_ALT,
@@ -10,7 +12,6 @@ import {
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  throwIfAborted,
   type GuideExportControl,
   type GuideExportMetadata,
   type GuideMarkdownArchive,
@@ -52,13 +53,11 @@ export async function generateGuideMarkdownArchive(
   const signal = getSignal(control);
   const markdownEntries: RenderedMarkdownEntry[] = [];
   const markdownFilename = guideExportFilename(metadata, 'markdown');
-  const pad = Math.max(2, String(entries.length).length);
-  const { archive, result } = createStreamingZip();
 
-  try {
+  const blob = await buildZipBlob(async (addFile) => {
     for await (const rendered of renderEntryImages(entries, signal)) {
-      const imageReference = `images/${String(rendered.content.ordinal).padStart(pad, '0')}.jpg`;
-      addZipFile(archive, imageReference, rendered.imageBytes);
+      const imageReference = `images/${paddedZipOrdinal(rendered.content.ordinal, entries.length)}.jpg`;
+      addFile(imageReference, rendered.imageBytes);
       markdownEntries.push({ ...rendered.content, imageReference });
     }
 
@@ -69,14 +68,8 @@ export async function generateGuideMarkdownArchive(
       metadata,
       (entry) => entry.imageReference,
     );
-    addZipFile(archive, markdownFilename, strToU8(markdown));
-    archive.end();
-  } catch (error) {
-    archive.terminate();
-    throw error;
-  }
-
-  const blob = await result;
+    addFile(markdownFilename, strToU8(markdown));
+  });
   throwIfAborted(signal);
   return { blob, markdownFilename, imageCount: markdownEntries.length };
 }
@@ -118,33 +111,3 @@ function appendMarkdownEntryText(lines: string[], entry: RenderedEntryContent): 
   }
 }
 
-
-function createStreamingZip(): { archive: Zip; result: Promise<Blob> } {
-  const chunks: ArrayBuffer[] = [];
-  let resolveZip!: (value: Blob) => void;
-  let rejectZip!: (reason: unknown) => void;
-  const result = new Promise<Blob>((resolve, reject) => {
-    resolveZip = resolve;
-    rejectZip = reject;
-  });
-
-  const archive = new Zip((error, chunk, final) => {
-    if (error) {
-      rejectZip(error);
-      return;
-    }
-    // fflate may reuse its output buffer after the callback.
-    const owned = new Uint8Array(chunk.byteLength);
-    owned.set(chunk);
-    chunks.push(owned.buffer);
-    if (final) resolveZip(new Blob(chunks, { type: 'application/zip' }));
-  });
-
-  return { archive, result };
-}
-
-function addZipFile(archive: Zip, filename: string, bytes: Uint8Array): void {
-  const file = new ZipPassThrough(filename);
-  archive.add(file);
-  file.push(bytes, true);
-}

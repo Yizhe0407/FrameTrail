@@ -18,10 +18,3 @@ export {
 } from './project-archive-contract';
 export { exportProjectArchive, serializeProjectArchive } from './project-archive-serialize';
 export { importProjectArchive } from './project-archive-import';
-
-import { exportProjectArchive } from './project-archive-serialize';
-import { importProjectArchive } from './project-archive-import';
-
-/** Naming aliases for callers that prefer create/parse terminology. */
-export const createProjectArchive = exportProjectArchive;
-export const parseProjectArchive = importProjectArchive;

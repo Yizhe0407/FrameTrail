@@ -1,7 +1,8 @@
-import { Zip, ZipPassThrough } from 'fflate';
-import { browser } from 'wxt/browser';
-import { compositeStepEntry } from './entry-render';
+import { downloadBlobViaBrowser } from './download-utils';
+import { throwIfAborted } from '../shared/abort';
 import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/db';
+import { renderEntryImages, type EntryImageBudget } from './guide-export-render';
+import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 
 export const IMAGE_ZIP_EXPORT_LIMITS = Object.freeze({
   maxEntries: 2_000,
@@ -23,6 +24,20 @@ export class RedactionReviewRequiredError extends Error {
   }
 }
 
+const IMAGE_ZIP_ENTRY_BUDGET: EntryImageBudget = {
+  ...IMAGE_ZIP_EXPORT_LIMITS,
+  createLimitError: (violation) => {
+    switch (violation.kind) {
+      case 'entry-count':
+        return new ImageZipExportLimitError('Guide contains too many images to export safely.');
+      case 'image-bytes':
+        return new ImageZipExportLimitError(`Image ${violation.ordinal} exceeds the per-image ZIP export limit.`);
+      case 'total-bytes':
+        return new ImageZipExportLimitError('Images exceed the total ZIP export limit.');
+    }
+  },
+};
+
 export function localDateStamp(date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -31,50 +46,6 @@ export function localDateStamp(date = new Date()): string {
 export interface ExportImagesResult {
   filename: string;
   itemCount: number;
-}
-
-export function isExportCancelledError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
-
-function throwIfCancelled(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  throw signal.reason instanceof Error ? signal.reason : new DOMException('Export cancelled', 'AbortError');
-}
-
-function assertImageZipBudget(imageBytes: number, totalImageBytes: number, ordinal: number): void {
-  if (!Number.isSafeInteger(imageBytes) || imageBytes < 0 || imageBytes > IMAGE_ZIP_EXPORT_LIMITS.maxImageBytes) {
-    throw new ImageZipExportLimitError(`Image ${ordinal} exceeds the per-image ZIP export limit.`);
-  }
-  if (totalImageBytes + imageBytes > IMAGE_ZIP_EXPORT_LIMITS.maxTotalImageBytes) {
-    throw new ImageZipExportLimitError('Images exceed the total ZIP export limit.');
-  }
-}
-
-function createStreamingZip() {
-  const chunks: ArrayBuffer[] = [];
-  let resolveZip!: (value: Blob) => void;
-  let rejectZip!: (reason: unknown) => void;
-  const result = new Promise<Blob>((resolve, reject) => {
-    resolveZip = resolve;
-    rejectZip = reject;
-  });
-
-  const archive = new Zip((error, chunk, final) => {
-    if (error) {
-      rejectZip(error);
-      return;
-    }
-    // fflate may reuse its output buffer after this callback. Keep one owned
-    // copy per emitted chunk, but avoid the previous final contiguous copy that
-    // temporarily doubled the entire archive in memory.
-    const owned = new Uint8Array(chunk.byteLength);
-    owned.set(chunk);
-    chunks.push(owned.buffer);
-    if (final) resolveZip(new Blob(chunks, { type: 'application/zip' }));
-  });
-
-  return { archive, result };
 }
 
 /**
@@ -89,62 +60,30 @@ export async function exportImagesAsZip(
   onProgress?: (done: number, total: number) => void,
   signal?: AbortSignal,
 ): Promise<ExportImagesResult | null> {
-  throwIfCancelled(signal);
+  throwIfAborted(signal);
   if (steps.length === 0) return null;
 
   const entries = buildStepEntries(steps);
   if (entries.length === 0) return null;
-  if (entries.length > IMAGE_ZIP_EXPORT_LIMITS.maxEntries) {
-    throw new ImageZipExportLimitError('Guide contains too many images to export safely.');
-  }
   if (entries.some((entry) => getEntryPrivacyState(entry).reviewRequired)) {
     throw new RedactionReviewRequiredError();
   }
-  const pad = String(entries.length).length;
   let done = 0;
-  let declaredImageBytes = 0;
-  let actualImageBytes = 0;
-  const { archive, result } = createStreamingZip();
 
-  try {
-    // Process one bitmap/canvas at a time. The ZIP stream can release each
-    // annotated JPEG as soon as it has emitted the corresponding archive
-    // chunks, avoiding a decoded image for every step at once.
-    for (const [index, entry] of entries.entries()) {
-      throwIfCancelled(signal);
-      const annotated = await compositeStepEntry(entry, 'image/jpeg');
-      throwIfCancelled(signal);
-      const ordinal = index + 1;
-      // Reject from Blob metadata before arrayBuffer() duplicates the image in
-      // memory, then verify the owned buffer before adding it to the archive.
-      assertImageZipBudget(annotated.size, declaredImageBytes, ordinal);
-      declaredImageBytes += annotated.size;
-      const bytes = new Uint8Array(await annotated.arrayBuffer());
-      throwIfCancelled(signal);
-      assertImageZipBudget(bytes.byteLength, actualImageBytes, ordinal);
-      actualImageBytes += bytes.byteLength;
-      const file = new ZipPassThrough(`${String(index + 1).padStart(pad, '0')}.jpg`);
-      archive.add(file);
-      file.push(bytes, true);
+  // renderEntryImages is deliberately sequential (one decoded canvas at a
+  // time) and composites through the shared rasterization path, which refuses
+  // redaction-review-required entries fail-closed. The ZIP stream can release
+  // each annotated JPEG as soon as it has emitted the corresponding chunks.
+  const blob = await buildZipBlob(async (addFile) => {
+    for await (const rendered of renderEntryImages(entries, signal, IMAGE_ZIP_ENTRY_BUDGET)) {
+      addFile(`${paddedZipOrdinal(rendered.content.ordinal, entries.length)}.jpg`, rendered.imageBytes);
       onProgress?.(++done, entries.length);
     }
-    throwIfCancelled(signal);
-    archive.end();
-  } catch (error) {
-    archive.terminate();
-    throw error;
-  }
+    throwIfAborted(signal);
+  });
+  throwIfAborted(signal);
 
-  const blob = await result;
-  throwIfCancelled(signal);
-
-  const url = URL.createObjectURL(blob);
   const filename = `frame-trail-images-${localDateStamp()}.zip`;
-  try {
-    throwIfCancelled(signal);
-    await browser.downloads.download({ url, filename, saveAs: true });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  await downloadBlobViaBrowser(blob, filename, { signal });
   return { filename, itemCount: entries.length };
 }

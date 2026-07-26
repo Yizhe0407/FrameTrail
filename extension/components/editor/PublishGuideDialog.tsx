@@ -1,12 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { Download, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Download, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
@@ -17,28 +14,14 @@ import {
   type GuideExportMetadata,
 } from '@/lib/export/guide-export';
 import type { StepEntry } from '@/lib/storage/db';
-import {
-  downloadBlob,
-  downloadText,
-  throwIfDownloadAborted,
-} from '@/lib/export/download-utils';
-import PublicationActionButton, {
-  PUBLICATION_ACTION_CONTENT,
-  type ActionPresentation,
-  type PublicationAction,
-} from './PublicationActionButton';
+import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
+import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
 
 export type GuideEntriesSnapshot = {
-  /** Entries captured for one publication action. */
   entries: readonly StepEntry[];
-  /** Metadata captured with those entries. */
   metadata?: GuideExportMetadata;
 };
 
-/**
- * May return entries alone, or an atomic publication snapshot that keeps
- * metadata paired with the entries used for the action.
- */
 export type GuideEntriesProvider = (
   signal: AbortSignal,
 ) =>
@@ -48,13 +31,11 @@ export type GuideEntriesProvider = (
 
 type GuideEntriesSource =
   | {
-      /** Entries supplied directly to the dialog. */
       guideEntries: readonly StepEntry[];
       getGuideEntries?: never;
     }
   | {
       guideEntries?: never;
-      /** Flushes pending edits, then returns the current guide entries. */
       getGuideEntries: GuideEntriesProvider;
     };
 
@@ -62,26 +43,70 @@ export type PublishGuideDialogProps = GuideEntriesSource & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   metadata?: GuideExportMetadata;
-  /** Optional bridge to the existing annotated-images ZIP export. */
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 };
 
 type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html' | 'pdf'>;
-
-const HTML_DOWNLOAD = {
-  mimeType: 'text/html;charset=utf-8',
-  successMessage: '自包含 HTML 已開始下載。',
-} as const;
+type PublicationAction = 'markdown' | 'html' | 'pdf' | 'images';
 
 const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
   markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與教學內容後再試一次。',
-  html: '無法下載 HTML。請確認所有敏感資訊遮罩與教學內容後再試一次。',
+  html: '無法下載 HTML 網頁。請確認所有敏感資訊遮罩與教學內容後再試一次。',
   pdf: '無法下載 PDF。請確認所有敏感資訊遮罩與教學內容後再試一次。',
   images: '無法下載圖片。請確認所有敏感資訊遮罩後再試一次。',
 };
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+const DOWNLOAD_SUCCESS_MESSAGES: Readonly<Record<DownloadPublicationAction, string>> = {
+  markdown: 'Markdown ZIP 已開始下載。',
+  html: 'HTML 網頁已開始下載。',
+  pdf: 'PDF 已開始下載。',
+};
+
+type PublicationOption = {
+  action: PublicationAction;
+  title: string;
+  ariaLabel: string;
+  description: string;
+  icon: ReactNode;
+  disabled: boolean;
+  onSelect: () => void;
+};
+
+function MonoGlyph({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <span className={`rounded-md border border-foreground/70 py-0.5 font-mono font-bold leading-none ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+function PublicationOptionCard({ option, pending }: { option: PublicationOption; pending: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label={option.ariaLabel}
+      disabled={option.disabled}
+      onClick={option.onSelect}
+      className="group flex items-center justify-between rounded-md border border-border bg-surface-raised p-4 text-left transition-all hover:border-foreground/25 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+    >
+      <div className="flex min-w-0 items-center gap-4">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-md bg-secondary text-foreground">
+          {option.icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-bold text-foreground">{option.title}</div>
+          <div className="mt-0.5 break-words text-[12.5px] font-normal text-muted-foreground">
+            {option.description}
+          </div>
+        </div>
+      </div>
+      {pending ? (
+        <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
+      ) : (
+        <Download className="size-5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+      )}
+    </button>
+  );
 }
 
 function isGuideEntriesSnapshot(
@@ -96,7 +121,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const activeController = useRef<AbortController | null>(null);
-  const messageId = useId();
   const busy = pendingAction !== null;
   const knownEmpty = props.guideEntries?.length === 0;
 
@@ -117,7 +141,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     const result = props.getGuideEntries
       ? await props.getGuideEntries(signal)
       : { entries: props.guideEntries, metadata };
-    throwIfDownloadAborted(signal);
+    throwIfAborted(signal);
 
     const snapshot = isGuideEntriesSnapshot(result)
       ? { entries: result.entries, metadata: result.metadata ?? metadata }
@@ -141,13 +165,13 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
 
     try {
       await task(controller.signal);
-      throwIfDownloadAborted(controller.signal);
+      throwIfAborted(controller.signal);
       setNotice(successMessage);
     } catch (actionError) {
       if (isAbortError(actionError) || controller.signal.aborted) {
-        setNotice('已取消發佈操作。');
+        setNotice('已取消匯出操作。');
       } else {
-        console.error(`教學發佈失敗：${action}`, actionError);
+        console.error(`教學匯出失敗：${action}`, actionError);
         setError(ACTION_ERROR_MESSAGES[action]);
       }
     } finally {
@@ -161,38 +185,42 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       action,
       async (signal) => {
         const snapshot = await resolveGuideEntries(signal);
-        if (action === 'markdown') {
-          const archive = await generateGuideMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
-          throwIfDownloadAborted(signal);
-          await downloadBlob(
-            archive.blob,
-            guideExportFilename(snapshot.metadata, 'markdown-archive'),
-            { signal },
-          );
-          return;
-        }
+        switch (action) {
+          // downloadBlobViaBrowser resolves only after the browser has queued
+          // the transfer, and the transfer itself survives this page closing,
+          // so the success notice below cannot report a download that never
+          // reached the browser.
+          case 'markdown': {
+            const archive = await generateGuideMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
+            throwIfAborted(signal);
+            await downloadBlobViaBrowser(
+              archive.blob,
+              guideExportFilename(snapshot.metadata, 'markdown-archive'),
+              { signal },
+            );
+            return;
+          }
 
-        if (action === 'pdf') {
-          const pdf = await generateGuidePdf(snapshot.entries, snapshot.metadata, { signal });
-          throwIfDownloadAborted(signal);
-          await downloadBlob(pdf, guideExportFilename(snapshot.metadata, 'pdf'), { signal });
-          return;
-        }
+          case 'html': {
+            const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
+            throwIfAborted(signal);
+            await downloadBlobViaBrowser(
+              new Blob([html], { type: 'text/html;charset=utf-8' }),
+              guideExportFilename(snapshot.metadata, 'html'),
+              { signal },
+            );
+            return;
+          }
 
-        const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
-        throwIfDownloadAborted(signal);
-        await downloadText(
-          html,
-          guideExportFilename(snapshot.metadata, 'html'),
-          HTML_DOWNLOAD.mimeType,
-          { signal },
-        );
+          case 'pdf': {
+            const pdf = await generateGuidePdf(snapshot.entries, snapshot.metadata, { signal });
+            throwIfAborted(signal);
+            await downloadBlobViaBrowser(pdf, guideExportFilename(snapshot.metadata, 'pdf'), { signal });
+            return;
+          }
+        }
       },
-      action === 'markdown'
-        ? 'Markdown ZIP 已開始下載。'
-        : action === 'pdf'
-          ? 'PDF 已開始下載。'
-          : HTML_DOWNLOAD.successMessage,
+      DOWNLOAD_SUCCESS_MESSAGES[action],
     );
   }
 
@@ -207,101 +235,98 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     );
   }
 
-  function cancelAction() {
-    activeController.current?.abort();
-  }
-
-  const actionButton = (action: PublicationAction, presentation: ActionPresentation, onClick: () => void) => (
-    <PublicationActionButton
-      action={action}
-      presentation={presentation}
-      busy={busy}
-      disabled={knownEmpty}
-      pendingAction={pendingAction}
-      descriptionId={`${messageId}-${action}`}
-      onClick={onClick}
-    />
-  );
+  const titleText = metadata.title?.trim() || '未命名教學';
+  const publicationOptions: readonly PublicationOption[] = [
+    {
+      action: 'markdown',
+      title: 'Markdown',
+      ariaLabel: '下載 Markdown',
+      description: '純文字步驟與說明，適合貼進文件',
+      icon: <MonoGlyph className="px-1 text-[10.5px]">M↓</MonoGlyph>,
+      disabled: busy || knownEmpty,
+      onSelect: () => downloadGuide('markdown'),
+    },
+    {
+      action: 'pdf',
+      title: 'PDF',
+      ariaLabel: '下載 PDF',
+      description: '排版好的教學文件，可直接列印分享',
+      icon: <MonoGlyph className="px-1.5 text-[11px]">P</MonoGlyph>,
+      disabled: busy || knownEmpty,
+      onSelect: () => downloadGuide('pdf'),
+    },
+    {
+      action: 'images',
+      title: '圖片',
+      ariaLabel: '下載圖片',
+      description: '每個步驟的截圖，打包成 ZIP 下載',
+      icon: <ImageIcon className="size-5 text-foreground" />,
+      disabled: busy || knownEmpty || !onExportImages,
+      onSelect: exportImages,
+    },
+    {
+      action: 'html',
+      title: 'HTML 網頁',
+      ariaLabel: '下載 HTML 網頁',
+      description: '單一檔案內含所有截圖，最適合直接分享',
+      icon: <MonoGlyph className="px-1 text-[10.5px]">&lt;/&gt;</MonoGlyph>,
+      disabled: busy || knownEmpty,
+      onSelect: () => downloadGuide('html'),
+    },
+  ];
 
   return (
     <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
-        showClose={!busy}
-        aria-describedby={`${messageId}-description`}
-        className="app-scrollbar max-h-[min(820px,calc(100vh-28px))] w-[min(760px,calc(100vw-28px))] overflow-y-auto border border-stone-200 bg-stone-50 p-0 text-stone-900 shadow-2xl dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
+        showClose={false}
+        className="app-scrollbar max-h-[calc(100vh-32px)] w-[92vw] max-w-[480px] overflow-y-auto rounded-md border border-border bg-card p-6 text-foreground shadow-[var(--shadow-dialog)] focus:outline-none"
       >
-        <DialogHeader className="border-b border-stone-200 bg-white px-6 py-5 pr-16 sm:px-7 dark:border-stone-700 dark:bg-stone-900">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-lime-100 text-lime-800 dark:bg-lime-950 dark:text-lime-300" aria-hidden="true">
-              <Download className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <DialogTitle className="text-lg">發佈教學</DialogTitle>
-              <DialogDescription id={`${messageId}-description`} className="mt-1 max-w-2xl leading-6 text-stone-600 dark:text-stone-300">
-                選擇最適合的輸出方式。所有圖片都會先套用既有標註與敏感資訊遮罩，再於本機產生檔案。
-              </DialogDescription>
-            </div>
+        {/* Header */}
+        <div className="flex items-start gap-3 pb-2">
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-xl font-bold text-foreground">匯出</DialogTitle>
+            <DialogDescription className="mt-1 break-words text-[13.5px] font-normal text-muted-foreground">
+              「{titleText}」
+            </DialogDescription>
           </div>
-        </DialogHeader>
-
-        <div className="space-y-6 px-6 py-6 sm:px-7">
-          {knownEmpty && (
-            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-              目前沒有可供發佈的步驟。
-            </p>
-          )}
-
-          <section aria-labelledby={`${messageId}-recommended-title`} className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-lime-700 dark:text-lime-400" aria-hidden="true" />
-              <h2 id={`${messageId}-recommended-title`} className="text-sm font-semibold">推薦格式</h2>
-            </div>
-            <div>
-              {actionButton('html', 'featured', () => downloadGuide('html'))}
-            </div>
-          </section>
-
-          <section aria-labelledby={`${messageId}-more-title`} className="space-y-3">
-            <div>
-              <h2 id={`${messageId}-more-title`} className="text-sm font-semibold">其他下載方式</h2>
-              <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">需要再編輯內容或取得個別圖片時使用。</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {actionButton('pdf', 'compact', () => downloadGuide('pdf'))}
-              {actionButton('markdown', 'compact', () => downloadGuide('markdown'))}
-              {onExportImages && actionButton('images', 'compact', exportImages)}
-            </div>
-          </section>
-
-          <div aria-live="polite" aria-atomic="true">
-            {error && (
-              <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
-                {error}
-              </p>
-            )}
-            {!error && notice && (
-              <p role="status" className="rounded-lg border border-lime-200 bg-lime-50 px-4 py-3 text-sm text-lime-900 dark:border-lime-900 dark:bg-lime-950/40 dark:text-lime-200">
-                {notice}
-              </p>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => requestOpenChange(false)}
+            aria-label="關閉"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
         </div>
 
-        <DialogFooter className="flex-col-reverse items-stretch justify-between border-t border-stone-200 bg-white px-6 py-4 sm:flex-row sm:items-center sm:px-7 dark:border-stone-700 dark:bg-stone-900">
-          <p className="flex items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
-            <ShieldCheck className="size-4 text-lime-700 dark:text-lime-400" aria-hidden="true" />
-            檔案僅在此裝置上產生
-          </p>
-          {busy ? (
-            <Button type="button" variant="outline" onClick={cancelAction}>
-              <X />取消{PUBLICATION_ACTION_CONTENT[pendingAction].label}
-            </Button>
-          ) : (
-            <Button type="button" variant="outline" onClick={() => requestOpenChange(false)}>
-              關閉
-            </Button>
+        {/* Options List */}
+        <div className="mt-4 flex flex-col gap-3">
+          {publicationOptions.map((option) => (
+            <PublicationOptionCard
+              key={option.action}
+              option={option}
+              pending={pendingAction === option.action}
+            />
+          ))}
+        </div>
+
+        {knownEmpty && (
+          <p className="mt-4 text-center text-xs text-muted-foreground">目前沒有可供匯出的步驟。</p>
+        )}
+
+        {/* Notices */}
+        <div aria-live="polite" aria-atomic="true" className="mt-1">
+          {error && (
+            <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
+              {error}
+            </p>
           )}
-        </DialogFooter>
+          {!error && notice && (
+            <p role="status" className="rounded-md border border-brand/30 bg-brand/10 px-4 py-2.5 text-xs text-foreground">
+              {notice}
+            </p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

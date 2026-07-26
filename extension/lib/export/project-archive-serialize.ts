@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import { encodeBase64 } from './base64';
 import { type Step } from '../storage/models';
 import {
@@ -14,7 +15,6 @@ import {
   archiveMetadataFromInput,
   canonicalStepComparator,
   fail,
-  throwIfAborted,
   validateGroups,
   validateRuntimeStep,
   validateScreenshotRaster,
@@ -105,11 +105,29 @@ async function buildArchiveText(stepsInput: readonly Step[], options: ProjectArc
     blobs,
   };
   const text = JSON.stringify(envelope);
-  if (new TextEncoder().encode(text).byteLength > PROJECT_ARCHIVE_LIMITS.maxArchiveBytes) {
+  // The stringified text now carries the only copy the archive needs; drop the
+  // per-screenshot base64 strings before the size check instead of keeping the
+  // whole payload alive twice until this function returns.
+  blobs.length = 0;
+  archivedSteps.length = 0;
+  throwIfAborted(signal);
+  assertArchiveTextWithinLimit(text);
+  return text;
+}
+
+/**
+ * Enforces maxArchiveBytes (UTF-8 encoded size) without materializing another
+ * full copy of the archive on the JS heap: UTF-8 needs between one and three
+ * bytes per UTF-16 code unit, so text.length bounds the encoded size from
+ * below and text.length * 3 bounds it from above. Only the narrow band in
+ * between needs an exact measurement, which Blob provides off-heap.
+ */
+function assertArchiveTextWithinLimit(text: string): void {
+  const limit = PROJECT_ARCHIVE_LIMITS.maxArchiveBytes;
+  if (text.length * 3 <= limit) return;
+  if (text.length > limit || new Blob([text]).size > limit) {
     fail('ARCHIVE_TOO_LARGE', 'The encoded project archive is too large.');
   }
-  throwIfAborted(signal);
-  return text;
 }
 
 /** Returns canonical JSON. Step and blob ordering is stable for the same project data. */

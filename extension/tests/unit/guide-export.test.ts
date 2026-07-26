@@ -89,6 +89,35 @@ function groupEntry(): StepEntry {
   } as StepEntry;
 }
 
+/**
+ * Stubs OffscreenCanvas with a 14px-per-code-point measurer (content width
+ * 1072px, so 76 code points fit per line) and returns the fillText spy.
+ */
+function stubPdfCanvas() {
+  const fillText = vi.fn();
+  const context = {
+    fillStyle: '',
+    font: '',
+    textBaseline: 'top',
+    fillRect: vi.fn(),
+    fillText,
+    drawImage: vi.fn(),
+    measureText: vi.fn((text: string) => ({ width: Array.from(text).length * 14 })),
+  };
+  class OffscreenCanvasMock {
+    constructor(readonly width: number, readonly height: number) {}
+    getContext() {
+      return context;
+    }
+    async convertToBlob() {
+      return new Blob(['jpeg-page'], { type: 'image/jpeg' });
+    }
+  }
+  vi.stubGlobal('OffscreenCanvas', OffscreenCanvasMock);
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1_600, height: 900, close: vi.fn() }));
+  return fillText;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -112,6 +141,18 @@ describe('guide export', () => {
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown-archive')).toBe('my-guide.zip');
     expect(guideExportFilename({ filename: '../../Report 2026' }, 'html')).toBe('report-2026.html');
     expect(guideExportFilename({ filename: '../../Report 2026' }, 'pdf')).toBe('report-2026.pdf');
+  });
+
+  it('keeps CJK titles as readable filename stems', () => {
+    expect(guideExportFilename({ title: '登入與初始設定' }, 'pdf')).toBe('登入與初始設定.pdf');
+    expect(guideExportFilename({ title: 'Chrome 擴充功能：匯出教學' }, 'html')).toBe('chrome-擴充功能-匯出教學.html');
+    expect(guideExportFilename({ title: '設定/教學\\範例' }, 'markdown')).toBe('設定-教學-範例.md');
+  });
+
+  it('strips filesystem-unsafe characters and falls back for symbol-only titles', () => {
+    expect(guideExportFilename({ title: 'a\\b:c*d?e"f<g>h|i' }, 'markdown')).toBe('a-b-c-d-e-f-g-h-i.md');
+    expect(guideExportFilename({ title: '  ！？＊  ' }, 'markdown')).toBe('frame-trail-guide.md');
+    expect(guideExportFilename({}, 'pdf')).toBe('frame-trail-guide.pdf');
   });
 
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
@@ -156,6 +197,50 @@ describe('guide export', () => {
     expect(drawnText).not.toContain('Annotations');
     expect(close).toHaveBeenCalledOnce();
 
+  });
+
+  it('wraps PDF text at word boundaries instead of splitting English mid-word', async () => {
+    const fillText = stubPdfCanvas();
+    const description = Array.from({ length: 20 }, () => 'documentation').join(' ');
+
+    await generateGuidePdf([entry({ description })], { title: 'T' });
+
+    const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('documentation'));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(line).toMatch(/^documentation( documentation)*$/);
+      expect(Array.from(line).length).toBeLessThanOrEqual(76);
+    }
+    expect(lines.join(' ')).toBe(description);
+  });
+
+  it('never splits grapheme clusters such as ZWJ emoji when wrapping PDF text', async () => {
+    const fillText = stubPdfCanvas();
+    const cluster = '👩‍👩‍👧‍👦';
+    const description = cluster.repeat(30);
+
+    await generateGuidePdf([entry({ description })], { title: 'T' });
+
+    const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('👩'));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(line).toMatch(/^(?:👩‍👩‍👧‍👦)+$/u);
+    }
+    expect(lines.join('')).toBe(description);
+  });
+
+  it('wraps long CJK paragraphs without losing or duplicating characters', async () => {
+    const fillText = stubPdfCanvas();
+    const description = '點擊瀏覽器工具列上的擴充功能圖示開啟設定頁面'.repeat(8);
+
+    await generateGuidePdf([entry({ description })], { title: 'T' });
+
+    const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('點擊'));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      expect(Array.from(line).length).toBeLessThanOrEqual(76);
+    }
+    expect(lines.join('')).toBe(description);
   });
 
   it('packs one Markdown file and every composited image into a portable ZIP', async () => {
@@ -229,6 +314,19 @@ describe('guide export', () => {
     expect(html.match(/<\/header>/g)).toHaveLength(1);
     expect(html).not.toContain('<svg onload=alert(1)>');
     expect(html).not.toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('escapes ordered-list markers and setext underlines in Markdown text', async () => {
+    const markdown = await generateGuideMarkdown(
+      [entry({ description: '1. 點擊按鈕\n10. 完成設定' })],
+      { title: '版本說明', description: '總覽\n====' },
+    );
+
+    expect(markdown).toContain('1\\. 點擊按鈕');
+    expect(markdown).toContain('10\\. 完成設定');
+    expect(markdown).toContain('\\=\\=\\=\\=');
+    expect(markdown).not.toContain('\n1. 點擊按鈕');
+    expect(markdown).not.toContain('\n====');
   });
 
   it('renders repaired section headings in timeline order and escapes Markdown text', async () => {

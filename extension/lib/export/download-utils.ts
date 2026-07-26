@@ -1,3 +1,6 @@
+import { browser } from 'wxt/browser';
+import { throwIfAborted } from '../shared/abort';
+
 export interface DownloadBlobOptions {
   signal?: AbortSignal;
   document?: Document;
@@ -5,26 +8,89 @@ export interface DownloadBlobOptions {
 
 const DOWNLOAD_URL_REVOKE_DELAY_MS = 60_000;
 
-function abortError(signal: AbortSignal): unknown {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new DOMException('Operation cancelled', 'AbortError');
+type DownloadChangeListener = Parameters<typeof browser.downloads.onChanged.addListener>[0];
+
+// Generous upper bound for a save-as dialog plus the transfer itself. It only
+// exists so a missed terminal event cannot leak the listener and the blob.
+const DOWNLOAD_SETTLE_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Holds a download's object URL until the transfer reaches a terminal state.
+ * `downloads.download()` resolves as soon as the item is queued, so revoking
+ * there can abort a file that is still being written to disk. Every
+ * downloads-API caller must route its URL through here.
+ */
+export function revokeWhenDownloadSettles(downloadId: number, url: string): void {
+  const changes = browser.downloads.onChanged;
+  // Runtimes without the event give no way to observe the transfer; the
+  // previous best-effort behaviour is still better than never revoking.
+  if (!changes) {
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  const settle = () => {
+    clearTimeout(timer);
+    changes.removeListener(listener);
+    URL.revokeObjectURL(url);
+  };
+  const listener: DownloadChangeListener = (delta) => {
+    if (delta.id !== downloadId) return;
+    const state = delta.state?.current;
+    if (state === 'complete' || state === 'interrupted') settle();
+  };
+
+  changes.addListener(listener);
+  // Only ever reached asynchronously, so `timer` is always initialised by then.
+  const timer = setTimeout(settle, DOWNLOAD_SETTLE_TIMEOUT_MS);
 }
 
-export function throwIfDownloadAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw abortError(signal);
+export interface BrowserDownloadOptions {
+  signal?: AbortSignal;
+  saveAs?: boolean;
 }
 
 /**
- * Starts a browser download without retaining the object URL or a detached
- * anchor. The signal is checked until the irreversible click is dispatched.
+ * Preferred download path for extension pages, which hold the `downloads`
+ * permission. Queueing through the downloads API means a failure to start
+ * rejects instead of silently vanishing, and the transfer keeps running even
+ * if the calling page closes immediately afterwards — the anchor-based
+ * fallback loses the file when its document goes away before the browser
+ * captures the blob. Resolves once the browser has accepted the download; the
+ * object URL is held until the transfer settles.
+ */
+export async function downloadBlobViaBrowser(
+  blob: Blob,
+  filename: string,
+  { signal, saveAs = true }: BrowserDownloadOptions = {},
+): Promise<void> {
+  throwIfAborted(signal);
+  const url = URL.createObjectURL(blob);
+  try {
+    throwIfAborted(signal);
+    const downloadId = await browser.downloads.download({ url, filename, saveAs });
+    if (typeof downloadId !== 'number') throw new Error('瀏覽器沒有開始下載，請再試一次。');
+    revokeWhenDownloadSettles(downloadId, url);
+  } catch (downloadError) {
+    // Nothing was queued, so no consumer is left holding the URL.
+    URL.revokeObjectURL(url);
+    throw downloadError;
+  }
+}
+
+/**
+ * Anchor-based fallback for documents without access to the downloads API.
+ * It starts a browser download without retaining the object URL or a detached
+ * anchor, but resolving at click() means an interrupted or never-started
+ * transfer is unobservable — prefer downloadBlobViaBrowser in extension pages.
+ * The signal is checked until the irreversible click is dispatched.
  */
 export async function downloadBlob(
   blob: Blob,
   filename: string,
   { signal, document: ownerDocument = globalThis.document }: DownloadBlobOptions = {},
 ): Promise<void> {
-  throwIfDownloadAborted(signal);
+  throwIfAborted(signal);
   const objectUrl = URL.createObjectURL(blob);
   const anchor = ownerDocument.createElement('a');
 
@@ -34,7 +100,7 @@ export async function downloadBlob(
     anchor.download = filename;
     anchor.hidden = true;
     ownerDocument.body.append(anchor);
-    throwIfDownloadAborted(signal);
+    throwIfAborted(signal);
     anchor.click();
     clickDispatched = true;
   } finally {
@@ -48,13 +114,4 @@ export async function downloadBlob(
       URL.revokeObjectURL(objectUrl);
     }
   }
-}
-
-export async function downloadText(
-  text: string,
-  filename: string,
-  mimeType: string,
-  options: DownloadBlobOptions = {},
-): Promise<void> {
-  return downloadBlob(new Blob([text], { type: mimeType }), filename, options);
 }

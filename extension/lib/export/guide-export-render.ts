@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import { encodeBase64 } from './base64';
 import { compositeStepEntry } from './entry-render';
 import type { Step, StepEntry } from '../storage/db';
@@ -6,7 +7,6 @@ import {
   GuideExportLimitError,
   IMAGE_MIME_TYPE,
   textValue,
-  throwIfAborted,
 } from './guide-export-contract';
 
 export type RenderedEntryContent = {
@@ -38,21 +38,60 @@ function entryOwner(entry: StepEntry): Step {
   return entry.kind === 'single' ? entry.step : entry.anchor;
 }
 
-function assertGuideImageBudget(imageBytes: number, totalImageBytes: number, ordinal: number): void {
-  if (!Number.isSafeInteger(imageBytes) || imageBytes < 0 || imageBytes > GUIDE_EXPORT_LIMITS.maxImageBytes) {
-    throw new GuideExportLimitError(`Step ${ordinal} exceeds the per-image guide export limit.`);
+export type EntryImageBudgetViolation =
+  | { kind: 'entry-count' }
+  | { kind: 'image-bytes'; ordinal: number }
+  | { kind: 'total-bytes'; ordinal: number };
+
+/**
+ * Limits plus an error factory so every consumer of the shared sequential
+ * rendering loop (guide publications, image ZIP export) enforces the same
+ * budget checks while surfacing its own error class and wording.
+ */
+export interface EntryImageBudget {
+  maxEntries: number;
+  maxImageBytes: number;
+  maxTotalImageBytes: number;
+  createLimitError: (violation: EntryImageBudgetViolation) => Error;
+}
+
+const GUIDE_ENTRY_IMAGE_BUDGET: EntryImageBudget = {
+  maxEntries: GUIDE_EXPORT_LIMITS.maxEntries,
+  maxImageBytes: GUIDE_EXPORT_LIMITS.maxImageBytes,
+  maxTotalImageBytes: GUIDE_EXPORT_LIMITS.maxTotalImageBytes,
+  createLimitError: (violation) => {
+    switch (violation.kind) {
+      case 'entry-count':
+        return new GuideExportLimitError('Guide contains too many entries to export safely.');
+      case 'image-bytes':
+        return new GuideExportLimitError(`Step ${violation.ordinal} exceeds the per-image guide export limit.`);
+      case 'total-bytes':
+        return new GuideExportLimitError('Guide images exceed the total export limit.');
+    }
+  },
+};
+
+function assertEntryImageBudget(
+  budget: EntryImageBudget,
+  imageBytes: number,
+  totalImageBytes: number,
+  ordinal: number,
+): void {
+  if (!Number.isSafeInteger(imageBytes) || imageBytes < 0 || imageBytes > budget.maxImageBytes) {
+    throw budget.createLimitError({ kind: 'image-bytes', ordinal });
   }
-  if (totalImageBytes + imageBytes > GUIDE_EXPORT_LIMITS.maxTotalImageBytes) {
-    throw new GuideExportLimitError('Guide images exceed the total export limit.');
+  if (totalImageBytes + imageBytes > budget.maxTotalImageBytes) {
+    throw budget.createLimitError({ kind: 'total-bytes', ordinal });
   }
 }
 
 export async function* renderEntryImages(
   entries: readonly StepEntry[],
   signal?: AbortSignal,
+  budget: EntryImageBudget = GUIDE_ENTRY_IMAGE_BUDGET,
 ): AsyncGenerator<RenderedEntryImage> {
-  if (entries.length > GUIDE_EXPORT_LIMITS.maxEntries) {
-    throw new GuideExportLimitError('Guide contains too many entries to export safely.');
+  if (entries.length > budget.maxEntries) {
+    throw budget.createLimitError({ kind: 'entry-count' });
   }
 
   let declaredImageBytes = 0;
@@ -70,13 +109,13 @@ export async function* renderEntryImages(
 
     // Blob.size is available without allocating another full copy, so reject
     // oversized output before arrayBuffer() and base64's ~4/3 expansion.
-    assertGuideImageBudget(image.size, declaredImageBytes, ordinal);
+    assertEntryImageBudget(budget, image.size, declaredImageBytes, ordinal);
     declaredImageBytes += image.size;
     const bytes = new Uint8Array(await image.arrayBuffer());
     throwIfAborted(signal);
     // Recheck the owned buffer as defense-in-depth for non-native Blob-like
     // implementations used by tests or future adapters.
-    assertGuideImageBudget(bytes.byteLength, actualImageBytes, ordinal);
+    assertEntryImageBudget(budget, bytes.byteLength, actualImageBytes, ordinal);
     actualImageBytes += bytes.byteLength;
 
     const owner = entryOwner(entry);

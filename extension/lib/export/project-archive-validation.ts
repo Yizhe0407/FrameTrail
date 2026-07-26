@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import { buildStepEntries, type Bounds, type Redaction, type Step } from '../storage/models';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
@@ -5,6 +6,7 @@ import {
   sanitizeGuideSectionTitle,
   type GuideSection,
 } from '../guide/guide-sections';
+import { sanitizeGuideTag } from '../guide/guide-tag-model';
 import {
   BASE64_VALUES,
   BOUNDS_KEYS,
@@ -24,12 +26,6 @@ import {
 
 export function fail(code: ProjectArchiveErrorCode, message: string): never {
   throw new ProjectArchiveError(code, message);
-}
-
-export function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  if (typeof signal.throwIfAborted === 'function') signal.throwIfAborted();
-  throw new DOMException('The operation was aborted.', 'AbortError');
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -268,6 +264,24 @@ function parseSectionRecords(value: unknown, path: string, steps: readonly Step[
   return repairGuideSections(sections, buildStepEntries([...steps]));
 }
 
+function parseTagRecords(value: unknown, path: string): string[] {
+  const records = expectArray(value, path);
+  if (records.length > PROJECT_ARCHIVE_LIMITS.maxTags) {
+    fail('LIMIT_EXCEEDED', `An archive may contain at most ${PROJECT_ARCHIVE_LIMITS.maxTags} tags.`);
+  }
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  records.forEach((tag, index) => {
+    const raw = expectString(tag, `${path}[${index}]`, PROJECT_ARCHIVE_LIMITS.maxTagLength);
+    const sanitized = sanitizeGuideTag(raw);
+    if (sanitized && !seen.has(sanitized)) {
+      seen.add(sanitized);
+      tags.push(sanitized);
+    }
+  });
+  return tags;
+}
+
 export function parseArchiveMetadata(value: unknown, steps: readonly Step[], path = 'manifest.metadata'): ProjectArchiveMetadata {
   const record = expectRecord(value, path);
   assertExactKeys(record, METADATA_KEYS, path);
@@ -279,6 +293,9 @@ export function parseArchiveMetadata(value: unknown, steps: readonly Step[], pat
       PROJECT_ARCHIVE_LIMITS.maxGuideDescriptionLength,
     ),
     sections: parseSectionRecords(record.sections, `${path}.sections`, steps),
+    // Archives written before tags existed omit this key entirely; treat
+    // that as "no tags" rather than a malformed archive.
+    tags: hasOwn(record, 'tags') ? parseTagRecords(record.tags, `${path}.tags`) : [],
   };
 }
 
@@ -298,7 +315,8 @@ export function archiveMetadataFromInput(value: ProjectArchiveMetadataInput | un
   const sections = hasOwn(record, 'sections')
     ? parseSectionRecords(record.sections, 'metadata.sections', steps)
     : [];
-  return { title, description, sections };
+  const tags = hasOwn(record, 'tags') ? parseTagRecords(record.tags, 'metadata.tags') : [];
+  return { title, description, sections, tags };
 }
 
 function freshImportId(used: Set<string>): string {
@@ -339,6 +357,7 @@ export function remapImportedProject(
       title: metadata.title,
       description: metadata.description,
       sections: repairGuideSections(remappedSections, buildStepEntries(remappedSteps)),
+      tags: metadata.tags,
     },
   };
 }

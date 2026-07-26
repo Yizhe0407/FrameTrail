@@ -1,3 +1,4 @@
+import { throwIfAborted } from '../shared/abort';
 import type { GuideSection } from '../guide/guide-sections';
 import type { StepEntry } from '../storage/db';
 import {
@@ -9,7 +10,6 @@ import {
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  throwIfAborted,
   type GuideExportControl,
   type GuideExportMetadata,
 } from './guide-export-contract';
@@ -125,15 +125,15 @@ function htmlText(value: string): string {
 const BASE_STYLE = `
 :root {
   color-scheme: light;
-  --canvas: #f5f5f4;
+  --canvas: #f7f9fb;
   --surface: #ffffff;
-  --surface-muted: #fafaf9;
-  --text: #1c1917;
-  --text-muted: #57534e;
-  --line: #d6d3d1;
-  --line-soft: #e7e5e4;
-  --accent: #4d7c0f;
-  --accent-soft: #ecfccb;
+  --surface-muted: #f3f5f8;
+  --text: #1c1c1c;
+  --text-muted: #5b6472;
+  --line: #e2e6ec;
+  --line-soft: #edf0f4;
+  --accent: #4f6fce;
+  --accent-soft: #e5ecf6;
   font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
@@ -145,8 +145,8 @@ body { margin: 0; background: var(--canvas); color: var(--text); font-size: 16px
   padding: 34px 36px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  background: linear-gradient(145deg, #ffffff 0%, #fafaf9 74%, #f7fee7 100%);
+  border-radius: 8px;
+  background: linear-gradient(145deg, #ffffff 0%, #fafbfc 74%, #eef2fb 100%);
   box-shadow: 0 12px 32px rgb(28 25 23 / 0.06);
 }
 .guide-overline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; color: var(--accent); font-size: .75rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
@@ -168,18 +168,18 @@ li + li { margin-top: 7px; }
   margin: 0 0 20px;
   padding: 26px;
   border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: 0 8px 24px rgb(28 25 23 / 0.045);
 }
 .step-description { max-width: 72ch; margin-bottom: 16px; color: #292524; white-space: normal; }
-.annotation-list { margin-bottom: 18px; padding: 16px 18px; border-left: 3px solid #84cc16; border-radius: 0 8px 8px 0; background: var(--surface-muted); }
+.annotation-list { margin-bottom: 18px; padding: 16px 18px; border-left: 3px solid #7094f4; border-radius: 0 8px 8px 0; background: var(--surface-muted); }
 figure { margin: 0 0 18px; }
-img { display: block; width: auto; max-width: 100%; height: auto; margin-inline: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); }
+img { display: block; width: auto; max-width: 100%; height: auto; margin-inline: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); }
 @media (max-width: 640px) {
   .guide { width: min(calc(100% - 20px), 1040px); padding: 18px 0 36px; }
-  .guide-header { padding: 24px 20px; border-radius: 12px; }
+  .guide-header { padding: 24px 20px; border-radius: 8px; }
   .guide-overline { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .guide-step { padding: 18px 16px; border-radius: 10px; }
+  .guide-step { padding: 18px 16px; border-radius: 8px; }
 }
 `;

@@ -1,6 +1,8 @@
+import { BASE64_ALPHABET } from './base64';
 import type { Bounds, Redaction, Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { GUIDE_SECTION_LIMITS, type GuideSection } from '../guide/guide-section-model';
+import { GUIDE_TAG_LIMITS } from '../guide/guide-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'frametrail-project';
 export const PROJECT_ARCHIVE_LEGACY_VERSION = 1;
@@ -21,6 +23,8 @@ export const PROJECT_ARCHIVE_LIMITS = Object.freeze({
   maxGuideDescriptionLength: 2_000,
   maxSections: GUIDE_SECTION_LIMITS.maxSections,
   maxSectionTitleLength: GUIDE_SECTION_LIMITS.maxTitleLength,
+  maxTags: GUIDE_TAG_LIMITS.maxTags,
+  maxTagLength: GUIDE_TAG_LIMITS.maxTagLength,
   maxUrlLength: PERSISTED_STEP_LIMITS.maxUrlLength,
   maxCoordinateMagnitude: PERSISTED_STEP_LIMITS.maxCoordinateMagnitude,
   maxBoundsDimension: PERSISTED_STEP_LIMITS.maxBoundsDimension,
@@ -69,12 +73,14 @@ export interface ProjectArchiveMetadataInput {
   title?: string;
   description?: string;
   sections?: readonly GuideSection[];
+  tags?: readonly string[];
 }
 
 export interface ProjectArchiveMetadata {
   title: string;
   description: string;
   sections: GuideSection[];
+  tags: string[];
 }
 
 export interface ImportedProjectArchive {
@@ -137,6 +143,7 @@ export interface ArchiveMetadataV2 {
   title: string;
   description: string;
   sections: GuideSection[];
+  tags: string[];
 }
 
 export interface ArchiveManifestV2 extends Omit<ArchiveManifestV1, 'version'> {
@@ -152,7 +159,7 @@ export interface ArchiveEnvelopeV2 {
 export const ENVELOPE_KEYS = ['manifest', 'blobs'] as const;
 export const MANIFEST_V1_KEYS = ['format', 'version', 'stepCount', 'blobCount', 'steps'] as const;
 export const MANIFEST_V2_KEYS = [...MANIFEST_V1_KEYS, 'metadata'] as const;
-export const METADATA_KEYS = ['title', 'description', 'sections'] as const;
+export const METADATA_KEYS = ['title', 'description', 'sections', 'tags'] as const;
 export const SECTION_KEYS = ['id', 'title', 'startEntryId'] as const;
 export const BLOB_KEYS = ['id', 'mediaType', 'size', 'encoding', 'data'] as const;
 export const BOUNDS_KEYS = ['x', 'y', 'width', 'height'] as const;
@@ -179,7 +186,6 @@ export const STEP_KEYS = [
 ] as const;
 export const RUNTIME_STEP_KEYS = STEP_KEYS.map((key) => (key === 'screenshotBlobId' ? 'screenshotBlob' : key));
 export const SAFE_SCREENSHOT_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-export const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 export const BASE64_VALUES = new Int16Array(128).fill(-1);
 for (let index = 0; index < BASE64_ALPHABET.length; index += 1) {
   BASE64_VALUES[BASE64_ALPHABET.charCodeAt(index)] = index;

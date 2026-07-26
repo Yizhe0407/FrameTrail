@@ -1,11 +1,8 @@
-const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const OUTPUT_CHUNK_SIZE = 32_768;
+import { throwIfAborted } from '../shared/abort';
 
-function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  if (typeof signal.throwIfAborted === 'function') signal.throwIfAborted();
-  throw new DOMException('The operation was aborted.', 'AbortError');
-}
+/** Standard (RFC 4648) alphabet, shared with the archive decoder's value table. */
+export const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const OUTPUT_CHUNK_SIZE = 32_768;
 
 /** Encodes bytes without creating one array entry per output character. */
 export function encodeBase64(bytes: Uint8Array, signal?: AbortSignal): string {
