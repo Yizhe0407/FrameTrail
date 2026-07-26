@@ -1,10 +1,12 @@
 import { browser } from 'wxt/browser';
 import {
   CLEANUP_EVENT,
+  SNAPSHOT_FREEZE_EVENTS,
   describeElement,
   collectKeyboardCandidateAnchors,
   isOutOfViewport,
   installSnapshotFrameProbe,
+  readRegionScrollSnapshot,
   readScrollSnapshot,
   replayElementClick,
   type ResolvedSnapshotTarget,
@@ -12,6 +14,16 @@ import {
   snapshotRectKey,
   waitForNextFrame,
 } from '@/lib/recording/snapshot-targeting';
+import {
+  createStepFrameRelayLimiter,
+  findIframeForWindow,
+  installSnapshotFrameFreeze,
+  installStepFrameRecorder,
+  resolveRelayedStepFrameClick,
+  respondToStepFrameClick,
+  snapshotFrameScrollPingType,
+  stepFrameClickMessageType,
+} from '@/lib/recording/frame-relay';
 import { startKeepAlive } from '@/lib/runtime/keep-alive';
 import {
   deepElementFromPoint,
@@ -24,7 +36,12 @@ import {
 } from '@/lib/capture/selector-utils';
 import { createSnapshotShield, type SnapshotShield } from '@/lib/recording/snapshot-shield';
 import { createStepPreview, type StepPreview } from '@/lib/capture/step-preview';
-import { orchestrateStepCapture, type ScrollSnapshot } from '@/lib/capture/step-capture';
+import {
+  createLateClickSuppressor,
+  createStepCaptureDedup,
+  orchestrateStepCapture,
+  type ScrollSnapshot,
+} from '@/lib/capture/step-capture';
 import {
   isInScrollableElementGutter,
   isInScrollbarGutter,
@@ -79,11 +96,7 @@ const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 const CAPTURE_FAILSAFE_MS = 2_000;
 const LATE_CLICK_SUPPRESS_MS = 2_000;
 const STEP_PREVIEW_FALLBACK_MS = 750;
-
-const SNAPSHOT_FREEZE_EVENTS = [
-  'pointerdown', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'click',
-  'dblclick', 'auxclick', 'contextmenu', 'submit', 'keydown', 'keyup', 'beforeinput', 'wheel', 'touchmove',
-] as const;
+const TOOLBAR_COMMAND_TIMEOUT_MS = 15_000;
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
@@ -113,7 +126,19 @@ export default defineContentScript({
     const isStepMode = recordingState.mode === 'steps';
     const shouldFreezeSnapshot = isSnapshotMode && recordingState.phase !== 'preparing-next';
     if (isSnapshotMode && window.top !== window) {
-      if (shouldFreezeSnapshot) installSnapshotFrameProbe(runId);
+      if (shouldFreezeSnapshot) {
+        installSnapshotFrameProbe(runId);
+        // The shield only covers the top viewport: before it is ready (and for
+        // frame-internal activity in general) each child must freeze itself and
+        // report pixel-shifting scrolls upward.
+        installSnapshotFrameFreeze();
+      }
+      return;
+    }
+    if (isStepMode && window.top !== window) {
+      // Child frames capture their own clicks and relay them (with rects
+      // mapped hop-by-hop into the top viewport) to the top-frame recorder.
+      installStepFrameRecorder(runId, recordingState.phase === 'paused');
       return;
     }
     const snapshotViewportContract = recordingState.snapshotViewport ?? {
@@ -124,8 +149,7 @@ export default defineContentScript({
     };
     const snapshotDevicePixelRatioContract = recordingState.snapshotDevicePixelRatio ?? window.devicePixelRatio;
 
-    let lastTarget: Element | null = null;
-    let lastTime = 0;
+    const stepDedup = createStepCaptureDedup<Element | string>(DEDUP_MS);
     let stepGesture: {
       target: Element;
       captureId: string;
@@ -137,9 +161,7 @@ export default defineContentScript({
     // position, so the screenshot pixels always match it. Null when idle.
     let captureScrollLock: ScrollSnapshot | null = null;
     const lockedScrollElements = new Set<Element>();
-    let suppressLateClickTarget: Element | null = null;
-    let suppressLateClickUntil = 0;
-    let snapshotAnnotationNumber = 0;
+    const lateClickSuppressor = createLateClickSuppressor<Element>(LATE_CLICK_SUPPRESS_MS);
     let recorderPaused = recordingState.phase === 'paused';
     let snapshotShield: SnapshotShield | null = null;
     let manualRegionCapture: RegionCapture | null = null;
@@ -165,10 +187,13 @@ export default defineContentScript({
       scrollX: window.scrollX,
       scrollY: window.scrollY,
     });
-    const notifySnapshotInvalidated = () => {
+    const notifySnapshotInvalidated = (force = false) => {
       if (!shouldFreezeSnapshot || !snapshotInteractionsActive || snapshotInvalidationSent) return;
       const viewport = readSnapshotViewport();
       if (
+        // A child-frame scroll shifts pixels without moving the top viewport,
+        // so a forced invalidation must not be masked by a matching contract.
+        !force &&
         isMatchingSnapshotViewport(
           snapshotViewportContract,
           snapshotDevicePixelRatioContract,
@@ -209,12 +234,7 @@ export default defineContentScript({
       return stepGesture;
     };
 
-    const shouldCaptureTarget = (el: Element, now: number) => {
-      if (el === lastTarget && now - lastTime < DEDUP_MS) return;
-      lastTarget = el;
-      lastTime = now;
-      return true;
-    };
+    const shouldCaptureTarget = (key: Element | string, now: number) => stepDedup.shouldCapture(key, now);
 
     const resolvePrimaryVisualTarget = (clientX: number, clientY: number): Element | null => {
       const hit = deepElementFromPoint(clientX, clientY);
@@ -271,6 +291,9 @@ export default defineContentScript({
     };
 
     const armStepPreviewFallback = () => {
+      // Hidden tabs get no frames, so the timer would spin without ever
+      // rendering; visibilitychange re-arms it when the tab returns.
+      if (document.visibilityState === 'hidden') return;
       if (recorderPaused || !stepPreview || !stepPreviewPoint || stepGesture || stepPreviewFallbackTimer !== null) return;
       stepPreviewFallbackTimer = setTimeout(() => {
         stepPreviewFallbackTimer = null;
@@ -407,6 +430,42 @@ export default defineContentScript({
       return false;
     };
 
+    // The background's itemCount is the single source of truth for how many
+    // annotations the current snapshot holds (it resets per snapshot and moves
+    // on undo/restore). Deriving labels from it keeps overlay numbering
+    // correct even when a capture response is lost after the background
+    // already committed the step.
+    const readAuthoritativeAnnotationCount = async (): Promise<number | null> => {
+      try {
+        const state = await getRecordingState();
+        return state.operation === 'recording' && state.runId === runId ? state.itemCount : null;
+      } catch {
+        return null;
+      }
+    };
+
+    /** Commits one snapshot annotation and returns its authoritative 1-based
+     * label, or null when no step was stored. */
+    const commitSnapshotAnnotation = async (
+      rect: SnapshotShieldRect,
+      target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
+      captureKind: ClickCapture['captureKind'],
+      now: number,
+    ): Promise<number | null> => {
+      const before = (await readAuthoritativeAnnotationCount()) ?? 0;
+      try {
+        if (!(await sendCapture(rect, target, 'mark', now, crypto.randomUUID(), captureKind))) return null;
+        return (await readAuthoritativeAnnotationCount()) ?? before + 1;
+      } catch (error) {
+        // The response was lost after the background may already have
+        // committed the step; the durable recording state decides which of
+        // the two actually happened, so labels cannot drift off-by-one.
+        console.warn('[frametrail] snapshot capture response was lost; reconciling with recording state', error);
+        const after = await readAuthoritativeAnnotationCount();
+        return after !== null && after > before ? after : null;
+      }
+    };
+
     const startStepRegionCapture = () => {
       if (!isStepMode || recorderPaused || stepGesture || manualRegionCapture?.isActive()) return;
       suspendStepPreview();
@@ -418,6 +477,11 @@ export default defineContentScript({
       const controller = createRegionCapture({
         onCapture: async (rect) => {
           captureSent = true;
+          // The drag settled on a concrete rect: extend the window-only pin to
+          // every scrollable container intersecting it, mirroring the element
+          // path, so nested programmatic scrolls cannot shift the pixels while
+          // the screenshot is in flight.
+          setCaptureScrollLock({ ...readRegionScrollSnapshot(rect), x: origin.x, y: origin.y });
           let timeout: ReturnType<typeof setTimeout> | undefined;
           const outcome = await Promise.race([
             sendCapture(
@@ -502,6 +566,11 @@ export default defineContentScript({
     const onPointerDown = async (event: Event) => {
       const pe = event as PointerEvent;
       if (pe.button !== 0 || !pe.isPrimary) return;
+      // Trusted events are ordered: the previous gesture's trailing click (if
+      // any) has already been dispatched before a new trusted press arrives.
+      // Disarming here keeps a rapid second click on the same element from
+      // being swallowed after the dedup window declines to capture it.
+      if (pe.isTrusted) lateClickSuppressor.onTrustedPointerDown();
       if (recorderPaused || manualRegionCapture?.isActive()) return;
       if (pe.target instanceof Element && pe.target.closest('[data-frametrail-recording-toolbar]')) return;
 
@@ -573,8 +642,7 @@ export default defineContentScript({
           if (!el.isConnected) return;
           // A trailing trusted click can still arrive after the gesture cleared;
           // suppress it so the page handler runs exactly once — from this replay.
-          suppressLateClickTarget = el;
-          suppressLateClickUntil = Date.now() + LATE_CLICK_SUPPRESS_MS;
+          lateClickSuppressor.arm(el);
           // click() preserves control/default behavior and bubbling page click
           // handlers, but intentionally runs only after the screenshot.
           replayElementClick(el);
@@ -629,16 +697,16 @@ export default defineContentScript({
       ) {
         return null;
       }
-      if (!(await sendCapture(target.rect, target, 'mark', now))) return null;
+      const label = await commitSnapshotAnnotation(target.rect, target, 'element', now);
+      if (label === null) return null;
       selectedSnapshotTargets.add(target.identity);
       if (target.element) selectedSnapshotElements.add(target.element);
       selectedSnapshotRects.add(snapshotRectKey(target.rect));
       selectedSnapshotHistory.push(target);
       undoneSnapshotTarget = null;
-      snapshotAnnotationNumber += 1;
       return {
         rect: target.rect,
-        label: recordingState.numbered ? snapshotAnnotationNumber : null,
+        label: recordingState.numbered ? label : null,
       };
     };
 
@@ -658,16 +726,16 @@ export default defineContentScript({
         tagName: 'region',
         candidateOffset: 0,
       };
-      if (!(await sendCapture(message.rect, target, 'mark', Date.now(), crypto.randomUUID(), 'region'))) return null;
+      const label = await commitSnapshotAnnotation(message.rect, target, 'region', Date.now());
+      if (label === null) return null;
       if (!snapshotInteractionsActive) return null;
       selectedSnapshotTargets.add(target.identity);
       selectedSnapshotRects.add(key);
       selectedSnapshotHistory.push(target);
       undoneSnapshotTarget = null;
-      snapshotAnnotationNumber += 1;
       return {
         rect: message.rect,
-        label: recordingState.numbered ? snapshotAnnotationNumber : null,
+        label: recordingState.numbered ? label : null,
       };
     };
 
@@ -683,7 +751,6 @@ export default defineContentScript({
           selectedSnapshotTargets.delete(target.identity);
           if (target.element) selectedSnapshotElements.delete(target.element);
           selectedSnapshotRects.delete(snapshotRectKey(target.rect));
-          snapshotAnnotationNumber = Math.max(0, snapshotAnnotationNumber - 1);
           undoneSnapshotTarget = target;
         }
       } else if (message.action === 'RESTORE_LAST_CAPTURE' && undoneSnapshotTarget) {
@@ -692,10 +759,92 @@ export default defineContentScript({
         if (target.element) selectedSnapshotElements.add(target.element);
         selectedSnapshotRects.add(snapshotRectKey(target.rect));
         selectedSnapshotHistory.push(target);
-        snapshotAnnotationNumber += 1;
         undoneSnapshotTarget = null;
       }
       return result;
+    };
+
+    // Clicks inside child frames never bubble into this document. Instrumented
+    // child frames capture them locally and relay them here with rects already
+    // mapped hop-by-hop into the top viewport; this handler records the step
+    // and only then confirms the replay back to the originating frame.
+    const stepFrameClickType = stepFrameClickMessageType(browser.runtime.id);
+    const stepFrameRelayLimiter = createStepFrameRelayLimiter();
+    const onStepFrameClickMessage = (event: MessageEvent) => {
+      const relayed = resolveRelayedStepFrameClick(event, stepFrameClickType, stepFrameRelayLimiter);
+      if (!relayed) return;
+      const rect = relayed.rect;
+      if (!rect || recorderPaused || manualRegionCapture?.isActive() || stepGesture) {
+        respondToStepFrameClick(relayed.port, false);
+        return;
+      }
+      const now = Date.now();
+      if (!shouldCaptureTarget(`frame:${snapshotRectKey(rect)}`, now)) {
+        // The child swallowed its gesture and replays only on confirmation:
+        // deliver the activation without recording a duplicate step.
+        respondToStepFrameClick(relayed.port, true);
+        return;
+      }
+      suspendStepPreview();
+      const gesture = beginStepGesture(relayed.frame);
+      let replayConfirmed = false;
+      void orchestrateStepCapture({
+        failsafeMs: CAPTURE_FAILSAFE_MS,
+        cancelled: gesture.cancelled,
+        readScroll: () => readScrollSnapshot(relayed.frame),
+        hidePreview: () => stepPreview?.prepareForCapture() ?? Promise.resolve(),
+        capture: () => {
+          // Pin the iframe's scrollable ancestor chain exactly like the
+          // element path so the screenshot pixels match the relayed rect.
+          setCaptureScrollLock(readScrollSnapshot(relayed.frame));
+          return sendCapture(
+            rect,
+            { text: relayed.payload.text, tagName: relayed.payload.tagName },
+            relayed.payload.interactive ? 'click' : 'mark',
+            now,
+            gesture.captureId,
+          );
+        },
+        cancelCapture: async () => {
+          gesture.cancel();
+          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId: gesture.captureId });
+        },
+        endGesture: () => {
+          if (stepGesture === gesture) stepGesture = null;
+        },
+        restoreScroll: (origin) => {
+          setCaptureScrollLock(null);
+          if (window.scrollX !== origin.x || window.scrollY !== origin.y) {
+            window.scrollTo(origin.x, origin.y);
+          }
+          for (const container of origin.containers ?? []) {
+            container.element.scrollLeft = container.x;
+            container.element.scrollTop = container.y;
+          }
+        },
+        replay: () => {
+          // The click replays inside the child frame; confirming over the
+          // port preserves capture-before-replay ordering across frames.
+          replayConfirmed = true;
+          respondToStepFrameClick(relayed.port, true);
+        },
+        resumePreview: () => scheduleStepPreview(),
+      }).then((outcome) => {
+        if (!replayConfirmed) respondToStepFrameClick(relayed.port, false);
+        if (outcome === 'timeout') {
+          console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
+        }
+      });
+    };
+
+    const onStepVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        stopStepPreviewFallback();
+        return;
+      }
+      if (recorderPaused) return;
+      scheduleStepPreview();
+      armStepPreviewFallback();
     };
 
     if (isStepMode) {
@@ -706,6 +855,8 @@ export default defineContentScript({
       window.addEventListener('scroll', onStepScroll, { capture: true, passive: true });
       window.addEventListener('scrollend', scheduleStepPreview, { capture: true, passive: true });
       window.addEventListener('resize', scheduleStepPreview, { passive: true });
+      window.addEventListener('message', onStepFrameClickMessage);
+      document.addEventListener('visibilitychange', onStepVisibilityChange);
       stepPreviewObserver = new MutationObserver(scheduleStepPreview);
       document.addEventListener('pointerdown', onPointerDown, { capture: true });
     }
@@ -713,14 +864,14 @@ export default defineContentScript({
     const onStepFollowup = (event: Event) => {
       if (
         event.type === 'click' &&
-        event.isTrusted &&
-        suppressLateClickTarget &&
-        Date.now() < suppressLateClickUntil &&
-        (event.target === suppressLateClickTarget || suppressLateClickTarget.contains(event.target as Node))
+        lateClickSuppressor.shouldSuppress(
+          event.target,
+          event.isTrusted,
+          (armed, target) => armed === target || (target instanceof Node && armed.contains(target)),
+        )
       ) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        suppressLateClickTarget = null;
         return;
       }
       if (!stepGesture) return;
@@ -742,12 +893,23 @@ export default defineContentScript({
       event.stopImmediatePropagation();
     };
     const onSnapshotScroll = () => notifySnapshotInvalidated();
+    const onSnapshotResize = () => notifySnapshotInvalidated();
+    const snapshotScrollPing = snapshotFrameScrollPingType(browser.runtime.id);
+    const onSnapshotFramePing = (event: MessageEvent) => {
+      if ((event.data as { type?: unknown } | null)?.type !== snapshotScrollPing) return;
+      // Only a window that is actually one of this document's iframes may
+      // invalidate; page scripts in this frame post with this window as their
+      // source and never match.
+      if (!findIframeForWindow(event.source)) return;
+      notifySnapshotInvalidated(true);
+    };
     if (shouldFreezeSnapshot) {
       for (const type of SNAPSHOT_FREEZE_EVENTS) {
         window.addEventListener(type, onSnapshotFreeze, { capture: true, passive: false });
       }
       window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
-      window.addEventListener('resize', notifySnapshotInvalidated, { passive: true });
+      window.addEventListener('resize', onSnapshotResize, { passive: true });
+      window.addEventListener('message', onSnapshotFramePing);
       snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
     }
@@ -763,15 +925,35 @@ export default defineContentScript({
       action: RecordingControlMessage['type'],
       undoToken?: string,
     ): Promise<RecordingControlResult> => {
-      return requireRuntimeMessageResult<RecordingControlResult>(
-        await browser.runtime.sendMessage({
-          type: action,
-          runId,
-          ...(undoToken ? { undoToken } : {}),
-        } satisfies RecordingControlMessage),
-        isRecordingControlResult,
-        '錄製服務已中斷，請重新整理頁面後再試一次。',
-      );
+      const command = (async () =>
+        requireRuntimeMessageResult<RecordingControlResult>(
+          await browser.runtime.sendMessage({
+            type: action,
+            runId,
+            ...(undoToken ? { undoToken } : {}),
+          } satisfies RecordingControlMessage),
+          isRecordingControlResult,
+          '錄製服務已中斷，請重新整理頁面後再試一次。',
+        ))();
+      // A hung background must not wedge the in-page toolbar forever: surface
+      // the channel-failure error after the same budget the shield toolbar
+      // uses, so controls re-enable and the user sees what went wrong.
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          command,
+          new Promise<RecordingControlResult>((resolve) => {
+            timeout = setTimeout(
+              () => resolve({ ok: false, error: '錄製服務已中斷，請重新整理頁面後再試一次。' }),
+              TOOLBAR_COMMAND_TIMEOUT_MS,
+            );
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        // A late settlement after the timeout must not surface as unhandled.
+        command.catch(() => undefined);
+      }
     };
 
     if (isStepMode || recordingState.phase === 'preparing-next') {
@@ -783,12 +965,19 @@ export default defineContentScript({
 
     const unsubscribeRecordingState = onRecordingStateChange((state) => {
       if (state.runId !== runId) return;
+      const wasPaused = recorderPaused;
       recorderPaused = state.phase === 'paused';
       if (isSnapshotMode) {
         snapshotInteractionsActive = state.phase === 'recording';
         if (state.phase === 'invalidated') snapshotInvalidationSent = true;
       }
       if (recorderPaused) suspendStepPreview();
+      else if (wasPaused && isStepMode) {
+        // Resume must bring the hover highlight back at the last known pointer
+        // position instead of waiting for the next pointer move.
+        scheduleStepPreview();
+        armStepPreviewFallback();
+      }
       if (state.phase !== 'recording') manualRegionCapture?.cancel('removed');
       recordingToolbar?.update(toToolbarState(state));
       snapshotShield?.updateToolbar(toToolbarState(state));
@@ -797,6 +986,9 @@ export default defineContentScript({
     const keepAlive = startKeepAlive(browser.runtime, {
       name: CONTENT_KEEPALIVE_PORT_NAME,
       intervalMs: CONTENT_KEEPALIVE_INTERVAL_MS,
+      // The background rejected this recorder (or is unreachable for good):
+      // tear down the injected UI instead of reconnecting forever.
+      onRejected: () => cleanup(),
     });
 
     const onRecorderMessage = (message: FrameTrailStopMessage | FrameTrailSnapshotActiveMessage) => {
@@ -821,6 +1013,8 @@ export default defineContentScript({
         window.removeEventListener('scroll', onStepScroll, { capture: true });
         window.removeEventListener('scrollend', scheduleStepPreview, { capture: true });
         window.removeEventListener('resize', scheduleStepPreview);
+        window.removeEventListener('message', onStepFrameClickMessage);
+        document.removeEventListener('visibilitychange', onStepVisibilityChange);
         stepPreviewObserver?.disconnect();
         stepPreviewObserver = null;
         stepPreviewObservedTarget = null;
@@ -834,7 +1028,8 @@ export default defineContentScript({
           window.removeEventListener(type, onSnapshotFreeze, { capture: true });
         }
         window.removeEventListener('scroll', onSnapshotScroll, { capture: true });
-        window.removeEventListener('resize', notifySnapshotInvalidated);
+        window.removeEventListener('resize', onSnapshotResize);
+        window.removeEventListener('message', onSnapshotFramePing);
         snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
         snapshotDprQuery = null;
       }
@@ -852,6 +1047,7 @@ export default defineContentScript({
         stepGesture.cancel();
         stepGesture = null;
       }
+      lateClickSuppressor.clear();
       setCaptureScrollLock(null);
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onRecorderMessage);
@@ -917,13 +1113,13 @@ export default defineContentScript({
         ...(shouldFreezeSnapshot
           ? {
               snapshotContext: {
-                viewport: {
-                  width: window.innerWidth,
-                  height: window.innerHeight,
-                  scrollX: window.scrollX,
-                  scrollY: window.scrollY,
-                },
-                devicePixelRatio: window.devicePixelRatio,
+                // Must be the exact object used as the local invalidation
+                // contract: re-reading the window here would let a scroll
+                // between injection and readiness give the background a
+                // different baseline than the one this recorder validates
+                // against.
+                viewport: { ...snapshotViewportContract },
+                devicePixelRatio: snapshotDevicePixelRatioContract,
                 url: location.href,
                 timestamp: Date.now(),
               },

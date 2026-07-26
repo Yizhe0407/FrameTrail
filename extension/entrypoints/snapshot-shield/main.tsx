@@ -1,7 +1,10 @@
 import { createRoot } from 'react-dom/client';
+import { browser } from 'wxt/browser';
 import { createRegionCapture, type RegionCapture } from '@/lib/capture/region-capture';
 import RecordingToolbar from '@/components/recording/RecordingToolbar';
 import {
+  buildShieldTokenStorageKey,
+  isSnapshotShieldTokenRecord,
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
   SNAPSHOT_SHIELD_CANDIDATES,
@@ -74,8 +77,15 @@ const FREEZE_EVENTS = [
   'selectstart',
 ] as const;
 
-const token = new URL(location.href).searchParams.get('token');
+// The frame URL only carries a public frame key. The secret init token is
+// fetched from extension storage, which the host page cannot read (frame URLs
+// leak through resource timing, so a URL-borne token would let page scripts
+// race the SNAPSHOT_SHIELD_INIT handshake and hijack the channel).
+const frameKey = new URL(location.href).searchParams.get('frame');
+let expectedToken: string | null = null;
 let initialized = false;
+const MAX_PENDING_INIT_EVENTS = 8;
+let pendingInitEvents: MessageEvent[] | null = [];
 
 function consume(event: Event): void {
   if (
@@ -295,7 +305,8 @@ function createOverlay() {
   };
 }
 
-window.addEventListener('message', (event) => {
+function tryInitialize(event: MessageEvent): void {
+  const token = expectedToken;
   if (initialized || !token || event.source !== parent || !isSnapshotShieldInitMessage(event.data, token)) return;
   const port = event.ports[0];
   if (!port) return;
@@ -313,6 +324,10 @@ window.addEventListener('message', (event) => {
   let channelFailed = false;
   let controlSequence = 0;
   let capturing = false;
+  // Monotonic capture generation: completions and timeouts only settle the
+  // capture they were armed for, never a newer one started after a timeout.
+  let captureSequence = 0;
+  let activeCaptureId = 0;
   let moveFrame: number | null = null;
   let lastPoint: { clientX: number; clientY: number } | null = null;
   let requestSequence = 0;
@@ -347,10 +362,11 @@ window.addEventListener('message', (event) => {
     captureTimeout = null;
   };
 
-  const armCaptureTimeout = () => {
+  const armCaptureTimeout = (captureId: number) => {
     clearCaptureTimeout();
     captureTimeout = setTimeout(() => {
       captureTimeout = null;
+      if (captureId !== activeCaptureId) return;
       capturing = false;
       lastCommitViaKeyboard = false;
       lastCommitWasRegion = false;
@@ -479,6 +495,7 @@ window.addEventListener('message', (event) => {
   const commitAt = (clientX: number, clientY: number, viaKeyboard: boolean) => {
     if (!interactionsEnabled || capturing) return;
     capturing = true;
+    activeCaptureId = ++captureSequence;
     lastCommitViaKeyboard = viaKeyboard;
     lastPoint = { clientX, clientY };
     pointRevision++;
@@ -490,11 +507,12 @@ window.addEventListener('message', (event) => {
     const message: SnapshotShieldPointerDownMessage = {
       type: SNAPSHOT_SHIELD_POINTER_DOWN,
       token,
+      captureId: activeCaptureId,
       clientX,
       clientY,
       candidateOffset,
     };
-    armCaptureTimeout();
+    armCaptureTimeout(activeCaptureId);
     if (!safePostToParent(message)) clearCaptureTimeout();
   };
 
@@ -592,15 +610,17 @@ window.addEventListener('message', (event) => {
       onCapture: async (rect) => {
         if (!interactionsEnabled || capturing) return;
         capturing = true;
+        activeCaptureId = ++captureSequence;
         lastCommitWasRegion = true;
         const message: SnapshotShieldRegionCaptureMessage = {
           type: SNAPSHOT_SHIELD_REGION_CAPTURE,
           token,
+          captureId: activeCaptureId,
           rect,
         };
         await new Promise<void>((resolve) => {
           pendingRegionCompletion = resolve;
-          armCaptureTimeout();
+          armCaptureTimeout(activeCaptureId);
           if (!safePostToParent(message)) clearCaptureTimeout();
         });
       },
@@ -775,6 +795,14 @@ window.addEventListener('message', (event) => {
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
+      if (event.data.captureId !== activeCaptureId || !capturing) {
+        // A stale completion — its local timeout already fired, or a newer
+        // capture owns the flow. Its annotation may still be committed to the
+        // overlay, but it must not settle the current capture and above all
+        // must not run a pendingRegionCompletion it does not own.
+        if (event.data.selection) overlay.commit(event.data.selection);
+        return;
+      }
       if (event.data.selection) {
         overlay.commit(event.data.selection);
         if (lastCommitWasRegion) {
@@ -821,4 +849,39 @@ window.addEventListener('message', (event) => {
 
   const readyMessage: SnapshotShieldReadyMessage = { type: SNAPSHOT_SHIELD_READY, token };
   safePostToParent(readyMessage);
+}
+
+window.addEventListener('message', (event) => {
+  if (initialized) return;
+  if (expectedToken === null) {
+    // Init can arrive before the token read resolves; keep a bounded buffer
+    // of parent-sourced candidates and replay them once the token is known.
+    if (pendingInitEvents && event.source === parent && pendingInitEvents.length < MAX_PENDING_INIT_EVENTS) {
+      pendingInitEvents.push(event);
+    }
+    return;
+  }
+  tryInitialize(event);
 });
+
+void (async () => {
+  if (!frameKey) return;
+  const storageKey = buildShieldTokenStorageKey(frameKey);
+  try {
+    const stored = await browser.storage.local.get(storageKey);
+    const record = stored[storageKey];
+    // Single use: consume the record immediately so it cannot be replayed.
+    void browser.storage.local.remove(storageKey).catch(() => undefined);
+    if (!isSnapshotShieldTokenRecord(record)) return;
+    expectedToken = record.token;
+  } catch (error) {
+    console.error('[frametrail] failed to load the snapshot shield init token', error);
+    return;
+  }
+  const queued = pendingInitEvents ?? [];
+  pendingInitEvents = null;
+  for (const event of queued) {
+    if (initialized) break;
+    tryInitialize(event);
+  }
+})();

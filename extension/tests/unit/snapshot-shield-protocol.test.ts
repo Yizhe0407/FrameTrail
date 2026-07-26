@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildShieldTokenStorageKey,
+  isSnapshotShieldTokenRecord,
   isSnapshotShieldFrameMessage,
   isSnapshotShieldInitMessage,
   isSnapshotShieldPortMessage,
   isSnapshotShieldRegionRect,
+  SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX,
   SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
@@ -29,19 +32,33 @@ describe('snapshot shield protocol', () => {
     expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_READY, token }, token)).toBe(true);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: 120, clientY: 80, candidateOffset: 0 },
         token,
       ),
     ).toBe(true);
+    // A pointer-down without its capture generation can never be matched to a
+    // completion, so it is rejected outright.
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: Number.NaN, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80, candidateOffset: 0 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: -1, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: -1, clientX: 120, clientY: 80, candidateOffset: 0 },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldPortMessage(
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: Number.NaN, clientY: 80, candidateOffset: 0 },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldPortMessage(
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: -1, clientY: 80, candidateOffset: 0 },
         token,
       ),
     ).toBe(false);
@@ -90,10 +107,15 @@ describe('snapshot shield protocol', () => {
   it('authenticates and validates region capture rectangles', () => {
     const rect = { x: 10, y: 20, width: 30, height: 40 };
     expect(isSnapshotShieldRegionRect(rect)).toBe(true);
-    expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, rect }, token)).toBe(true);
+    expect(
+      isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, captureId: 2, rect }, token),
+    ).toBe(true);
+    expect(
+      isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, rect }, token),
+    ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token: 'old-token', rect },
+        { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token: 'old-token', captureId: 2, rect },
         token,
       ),
     ).toBe(false);
@@ -108,7 +130,7 @@ describe('snapshot shield protocol', () => {
       expect(isSnapshotShieldRegionRect(invalidRect)).toBe(false);
       expect(
         isSnapshotShieldPortMessage(
-          { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, rect: invalidRect },
+          { type: SNAPSHOT_SHIELD_REGION_CAPTURE, token, captureId: 2, rect: invalidRect },
           token,
         ),
       ).toBe(false);
@@ -125,8 +147,18 @@ describe('snapshot shield protocol', () => {
       ),
     ).toBe(true);
     expect(
-      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, selection }, token),
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, captureId: 5, selection }, token),
     ).toBe(true);
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, captureId: 5, selection: null },
+        token,
+      ),
+    ).toBe(true);
+    // Completions must echo the capture generation they settle.
+    expect(
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, selection }, token),
+    ).toBe(false);
     expect(isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_COMMIT, token, selection }, token)).toBe(true);
     expect(
       isSnapshotShieldFrameMessage(
@@ -196,5 +228,18 @@ describe('snapshot shield protocol', () => {
     expect(
       isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CANDIDATES, token: 'old', anchors: [] }, token),
     ).toBe(false);
+  });
+
+  it('builds namespaced storage keys for shield init tokens', () => {
+    expect(buildShieldTokenStorageKey('frame-1')).toBe(`${SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX}frame-1`);
+  });
+
+  it('validates shield init token records fetched from extension storage', () => {
+    expect(isSnapshotShieldTokenRecord({ token: 'secret', createdAt: 123 })).toBe(true);
+    expect(isSnapshotShieldTokenRecord(null)).toBe(false);
+    expect(isSnapshotShieldTokenRecord({ token: '', createdAt: 123 })).toBe(false);
+    expect(isSnapshotShieldTokenRecord({ token: 'x'.repeat(257), createdAt: 123 })).toBe(false);
+    expect(isSnapshotShieldTokenRecord({ token: 'secret', createdAt: Number.NaN })).toBe(false);
+    expect(isSnapshotShieldTokenRecord({ token: 42, createdAt: 123 })).toBe(false);
   });
 });

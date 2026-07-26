@@ -53,6 +53,9 @@ export interface SnapshotShieldReadyMessage {
 export interface SnapshotShieldPointerDownMessage {
   type: typeof SNAPSHOT_SHIELD_POINTER_DOWN;
   token: string;
+  /** Shield-local capture generation. Echoed on CAPTURE_COMPLETE so a reply
+   * that outlived its local timeout can never settle a newer capture. */
+  captureId: number;
   clientX: number;
   clientY: number;
   candidateOffset: number;
@@ -70,6 +73,8 @@ export interface SnapshotShieldPointerMoveMessage {
 export interface SnapshotShieldRegionCaptureMessage {
   type: typeof SNAPSHOT_SHIELD_REGION_CAPTURE;
   token: string;
+  /** See SnapshotShieldPointerDownMessage.captureId. */
+  captureId: number;
   rect: SnapshotShieldRect;
 }
 
@@ -84,6 +89,8 @@ export interface SnapshotShieldPreviewMessage {
 export interface SnapshotShieldCaptureCompleteMessage {
   type: typeof SNAPSHOT_SHIELD_CAPTURE_COMPLETE;
   token: string;
+  /** Echo of the originating capture's captureId. */
+  captureId: number;
   selection: (SnapshotShieldSelection & { id: number }) | null;
 }
 
@@ -200,6 +207,39 @@ function isSelection(value: unknown): value is SnapshotShieldSelection & { id: n
   );
 }
 
+/**
+ * The shield's init token must never travel in the iframe URL: the host page
+ * can read frame URLs through resource timing and would win the init race.
+ * Instead the creator parks the token in extension storage under a public
+ * per-frame key; only extension contexts can read it, so the extension-origin
+ * shield page retrieves (and immediately consumes) it while page scripts
+ * cannot.
+ */
+export const SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX = 'frametrail:shieldToken:';
+/** Stale token records are swept opportunistically after this age. */
+export const SNAPSHOT_SHIELD_TOKEN_TTL_MS = 60_000;
+const SNAPSHOT_SHIELD_TOKEN_LIMIT = 256;
+
+export interface SnapshotShieldTokenRecord {
+  token: string;
+  createdAt: number;
+}
+
+export function buildShieldTokenStorageKey(frameKey: string): string {
+  return `${SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX}${frameKey}`;
+}
+
+export function isSnapshotShieldTokenRecord(value: unknown): value is SnapshotShieldTokenRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<SnapshotShieldTokenRecord>;
+  return (
+    typeof record.token === 'string' &&
+    record.token.length > 0 &&
+    record.token.length <= SNAPSHOT_SHIELD_TOKEN_LIMIT &&
+    Number.isFinite(record.createdAt)
+  );
+}
+
 export function isSnapshotShieldInitMessage(value: unknown, token: string): value is SnapshotShieldInitMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Partial<SnapshotShieldInitMessage>;
@@ -212,6 +252,7 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     type?: SnapshotShieldPortMessage['type'];
     token?: string;
     requestId?: number;
+    captureId?: number;
     clientX?: number;
     clientY?: number;
     candidateOffset?: number;
@@ -222,7 +263,7 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
   if (message.token !== token) return false;
   if (message.type === SNAPSHOT_SHIELD_READY) return true;
   if (message.type === SNAPSHOT_SHIELD_REGION_CAPTURE) {
-    return isSnapshotShieldRegionRect(message.rect);
+    return isRequestId(message.captureId) && isSnapshotShieldRegionRect(message.rect);
   }
   if (message.type === SNAPSHOT_SHIELD_CONTROL) {
     return (
@@ -247,7 +288,7 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     message.clientX! >= 0 &&
     message.clientY! >= 0;
   if (message.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
-    return hasPoint && isCandidateOffset(message.candidateOffset);
+    return hasPoint && isRequestId(message.captureId) && isCandidateOffset(message.candidateOffset);
   }
   return (
     message.type === SNAPSHOT_SHIELD_POINTER_MOVE &&
@@ -263,6 +304,7 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     type?: SnapshotShieldFrameMessage['type'];
     token?: string;
     requestId?: number;
+    captureId?: number;
     rect?: SnapshotShieldRect | null;
     candidateOffset?: number;
     selection?: (SnapshotShieldSelection & { id: number }) | null;
@@ -292,7 +334,7 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     );
   }
   if (message.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
-    return message.selection === null || isSelection(message.selection);
+    return isRequestId(message.captureId) && (message.selection === null || isSelection(message.selection));
   }
   if (message.type === SNAPSHOT_SHIELD_COMMIT) return isSelection(message.selection);
   if (message.type === SNAPSHOT_SHIELD_UNDO) return true;

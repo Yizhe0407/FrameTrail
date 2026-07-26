@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import {
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
   SNAPSHOT_SHIELD_COMMIT,
@@ -10,11 +11,32 @@ import {
   SNAPSHOT_SHIELD_REGION_CAPTURE,
 } from '@/lib/recording/snapshot-shield-protocol';
 
-const mocks = vi.hoisted(() => ({
-  getURL: vi.fn((path: string) => `https://extension.test${path}`),
-}));
+const mocks = vi.hoisted(() => {
+  const stored = new Map<string, unknown>();
+  return {
+    getURL: vi.fn((path: string) => `https://extension.test${path}`),
+    stored,
+    storageGet: vi.fn(async (key: string | null) => {
+      if (key === null) return Object.fromEntries(stored);
+      return stored.has(key) ? { [key]: stored.get(key) } : {};
+    }),
+    storageSet: vi.fn(async (items: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(items)) stored.set(key, value);
+    }),
+    storageRemove: vi.fn(async (keys: string | string[]) => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) stored.delete(key);
+    }),
+  };
+});
 
-vi.mock('wxt/browser', () => ({ browser: { runtime: { getURL: mocks.getURL } } }));
+vi.mock('wxt/browser', () => ({
+  browser: {
+    runtime: { getURL: mocks.getURL },
+    storage: {
+      local: { get: mocks.storageGet, set: mocks.storageSet, remove: mocks.storageRemove },
+    },
+  },
+}));
 
 import { createSnapshotShield } from '@/lib/recording/snapshot-shield';
 
@@ -53,6 +75,9 @@ describe('createSnapshotShield', () => {
     const frame = shadowRoot!.querySelector('iframe')!;
     const focusFrame = vi.spyOn(frame, 'focus');
 
+    // Token provisioning assigns src asynchronously; the load handler
+    // ignores load events fired before src is set (about:blank guard).
+    await vi.waitFor(() => expect(frame.src).not.toBe(''));
     frame.dispatchEvent(new Event('load'));
     const [initMessage, , transfer] = postMessage.mock.calls[0] as unknown as [
       { token: string },
@@ -105,6 +130,7 @@ describe('createSnapshotShield', () => {
     framePort.postMessage({
       type: SNAPSHOT_SHIELD_POINTER_DOWN,
       token: initMessage.token,
+      captureId: 1,
       clientX: 50,
       clientY: 70,
       candidateOffset: 1,
@@ -123,6 +149,7 @@ describe('createSnapshotShield', () => {
     framePort.postMessage({
       type: SNAPSHOT_SHIELD_REGION_CAPTURE,
       token: initMessage.token,
+      captureId: 2,
       rect: { x: 12, y: 18, width: 7, height: 60 },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -131,6 +158,7 @@ describe('createSnapshotShield', () => {
     framePort.postMessage({
       type: SNAPSHOT_SHIELD_REGION_CAPTURE,
       token: initMessage.token,
+      captureId: 3,
       rect: regionSelection.rect,
     });
     await vi.waitFor(() => expect(onRegion).toHaveBeenCalledOnce());
@@ -159,6 +187,9 @@ describe('createSnapshotShield', () => {
     onPoint.mockClear();
     host.remove();
     await vi.waitFor(() => expect(host.isConnected).toBe(true));
+    // Token provisioning assigns src asynchronously; the load handler
+    // ignores load events fired before src is set (about:blank guard).
+    await vi.waitFor(() => expect(frame.src).not.toBe(''));
     frame.dispatchEvent(new Event('load'));
     const [, , replacementTransfer] = postMessage.mock.calls[1] as unknown as [
       { token: string },
@@ -181,6 +212,7 @@ describe('createSnapshotShield', () => {
     replacementPort.postMessage({
       type: SNAPSHOT_SHIELD_POINTER_DOWN,
       token: initMessage.token,
+      captureId: 4,
       clientX: 90,
       clientY: 110,
       candidateOffset: 0,
@@ -192,6 +224,7 @@ describe('createSnapshotShield', () => {
     framePort.postMessage({
       type: SNAPSHOT_SHIELD_POINTER_DOWN,
       token: initMessage.token,
+      captureId: 5,
       clientX: 50,
       clientY: 70,
       candidateOffset: 0,
@@ -204,6 +237,7 @@ describe('createSnapshotShield', () => {
   });
 
   it('removes the shield and reports a runtime channel failure after READY', async () => {
+    silenceIntentionalErrorLogs();
     let shadowRoot: ShadowRoot | null = null;
     const originalAttachShadow = Element.prototype.attachShadow;
     vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(function (this: Element, init) {
@@ -216,6 +250,9 @@ describe('createSnapshotShield', () => {
     const shield = createSnapshotShield(vi.fn(), undefined, undefined, undefined, onFailure);
     const frame = shadowRoot!.querySelector('iframe')!;
 
+    // Token provisioning assigns src asynchronously; the load handler
+    // ignores load events fired before src is set (about:blank guard).
+    await vi.waitFor(() => expect(frame.src).not.toBe(''));
     frame.dispatchEvent(new Event('load'));
     const [initMessage, , transfer] = postMessage.mock.calls[0] as unknown as [
       { token: string },

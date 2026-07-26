@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import {
+  buildShieldTokenStorageKey,
   isSnapshotShieldPortMessage,
   SNAPSHOT_SHIELD_CANDIDATES,
   SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
@@ -12,6 +13,8 @@ import {
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
   SNAPSHOT_SHIELD_REGION_CAPTURE,
+  SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX,
+  SNAPSHOT_SHIELD_TOKEN_TTL_MS,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
   type SnapshotShieldCaptureCompleteMessage,
@@ -28,6 +31,7 @@ import {
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldPreviewResult,
   type SnapshotShieldSelection,
+  type SnapshotShieldTokenRecord,
   type SnapshotShieldToolbarStateMessage,
   type SnapshotShieldUndoMessage,
 } from './snapshot-shield-protocol';
@@ -189,6 +193,21 @@ function hardenFrame(frame: HTMLIFrameElement): void {
   for (const [property, value] of Object.entries(declarations)) setImportantStyle(frame, property, value);
 }
 
+/** Removes shield token records orphaned by a crashed creator (best effort).
+ * The active shield's own record is never touched. */
+async function sweepStaleShieldTokens(activeKey: string): Promise<void> {
+  const all = await browser.storage.local.get(null);
+  const cutoff = Date.now() - SNAPSHOT_SHIELD_TOKEN_TTL_MS;
+  const stale = Object.entries(all)
+    .filter(([key, value]) => {
+      if (!key.startsWith(SNAPSHOT_SHIELD_TOKEN_STORAGE_PREFIX) || key === activeKey) return false;
+      const createdAt = (value as { createdAt?: unknown } | null)?.createdAt;
+      return typeof createdAt !== 'number' || createdAt <= cutoff;
+    })
+    .map(([key]) => key);
+  if (stale.length > 0) await browser.storage.local.remove(stale);
+}
+
 /**
  * Mounts an extension-origin browsing context over the page. Pointer events
  * terminate inside the iframe instead of traversing the host page's window,
@@ -202,6 +221,11 @@ export function createSnapshotShield(
   onFailure?: FailureHandler,
 ): SnapshotShield {
   const token = crypto.randomUUID();
+  // Public identifier only. The secret token is parked in extension storage
+  // under this key so the host page can never recover it from the frame URL
+  // (resource timing exposes URLs) and race the init handshake.
+  const frameKey = crypto.randomUUID();
+  const tokenStorageKey = buildShieldTokenStorageKey(frameKey);
   const host = document.createElement('div');
   host.setAttribute('data-frametrail-snapshot-shield', '');
   host.setAttribute('popover', 'manual');
@@ -216,8 +240,7 @@ export function createSnapshotShield(
   hardenFrame(frame);
 
   const frameUrl = new URL(browser.runtime.getURL(SHIELD_PAGE));
-  frameUrl.searchParams.set('token', token);
-  frame.src = frameUrl.href;
+  frameUrl.searchParams.set('frame', frameKey);
   shadowRoot.append(frame);
 
   let removed = false;
@@ -236,6 +259,8 @@ export function createSnapshotShield(
     rejectReady = reject;
   });
 
+  // Assigned below, but referenced by closures defined above it.
+  // eslint-disable-next-line prefer-const
   let reportFailure!: (message: string, cause?: unknown) => void;
   const postToFrame = (message: SnapshotShieldFrameMessage): void => {
     if (removed || !port) return;
@@ -270,6 +295,7 @@ export function createSnapshotShield(
   const completeSelection = (
     selection: SnapshotShieldSelection | null,
     generation: number,
+    captureId: number,
   ): void => {
     if (removed) return;
     const committed = selection ? { ...selection, id: nextSelectionId++ } : null;
@@ -282,6 +308,7 @@ export function createSnapshotShield(
       const completeMessage: SnapshotShieldCaptureCompleteMessage = {
         type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE,
         token,
+        captureId,
         selection: committed,
       };
       postToFrame(completeMessage);
@@ -302,7 +329,7 @@ export function createSnapshotShield(
     } catch (error) {
       console.error('[frametrail] failed to handle snapshot shield pointer', error);
     }
-    completeSelection(selection, generation);
+    completeSelection(selection, generation, message.captureId);
   };
 
   const handleRegion = async (message: SnapshotShieldRegionCaptureMessage, generation: number): Promise<void> => {
@@ -312,7 +339,7 @@ export function createSnapshotShield(
     } catch (error) {
       console.error('[frametrail] failed to handle snapshot shield region', error);
     }
-    completeSelection(selection, generation);
+    completeSelection(selection, generation, message.captureId);
   };
 
   const handleControl = async (message: SnapshotShieldControlMessage, generation: number): Promise<void> => {
@@ -385,17 +412,32 @@ export function createSnapshotShield(
     return modalDialogs.length === 1 ? modalDialogs[0] : document.documentElement;
   };
 
-  const observer = new MutationObserver((records) => {
+  // querySelector('dialog') per node is O(subtree); the element/child
+  // pre-filter skips it for text nodes and childless elements, and coalescing
+  // record processing to one animation frame keeps churny pages from paying
+  // that cost once per microtask.
+  const touchesDialogTree = (node: Node): boolean => {
+    if (!(node instanceof Element)) return false;
+    if (isDialogElement(node)) return true;
+    return node.firstElementChild !== null && node.querySelector('dialog') !== null;
+  };
+  let pendingRemountRecords: MutationRecord[] = [];
+  let pendingRemountFrame: number | null = null;
+  const flushRemountCheck = () => {
+    pendingRemountFrame = null;
+    const records = pendingRemountRecords;
+    pendingRemountRecords = [];
     if (removed) return;
     const modalTreeChanged = records.some((record) => {
       if (record.type === 'attributes') return isDialogElement(record.target);
-      return [...record.addedNodes, ...record.removedNodes].some(
-        (node) =>
-          isDialogElement(node) ||
-          (node instanceof Element && node.querySelector('dialog') !== null),
-      );
+      return [...record.addedNodes, ...record.removedNodes].some(touchesDialogTree);
     });
     if (!host.isConnected || modalTreeChanged) mountHost();
+  };
+  const observer = new MutationObserver((records) => {
+    if (removed) return;
+    pendingRemountRecords.push(...records);
+    if (pendingRemountFrame === null) pendingRemountFrame = requestAnimationFrame(flushRemountCheck);
   });
 
   const mountHost = () => {
@@ -428,6 +470,12 @@ export function createSnapshotShield(
     removed = true;
     clearTimeout(readyTimeout);
     observer.disconnect();
+    if (pendingRemountFrame !== null) cancelAnimationFrame(pendingRemountFrame);
+    pendingRemountFrame = null;
+    pendingRemountRecords = [];
+    void browser.storage.local.remove(tokenStorageKey).catch(() => {
+      // The shield page may already have consumed (and removed) the record.
+    });
     try {
       port?.close();
     } catch {
@@ -456,10 +504,32 @@ export function createSnapshotShield(
     SHIELD_READY_TIMEOUT_MS,
   );
 
+  // Park the secret in extension storage, then load the frame. Page scripts
+  // cannot read extension storage, so only the extension-origin shield page
+  // can recover the expected init token; the existing READY timeout above
+  // still tears everything down if provisioning or the handshake stalls.
+  void (async () => {
+    try {
+      const record: SnapshotShieldTokenRecord = { token, createdAt: Date.now() };
+      await browser.storage.local.set({ [tokenStorageKey]: record });
+      if (removed) {
+        await browser.storage.local.remove(tokenStorageKey);
+        return;
+      }
+      frame.src = frameUrl.href;
+    } catch (error) {
+      reportFailure('snapshot input shield token provisioning failed', error);
+    }
+  })();
+  void sweepStaleShieldTokens(tokenStorageKey).catch(() => undefined);
+
   frame.addEventListener(
     'load',
     () => {
-      if (removed || !frame.contentWindow) return;
+      // The frame mounts before token provisioning assigns src, so the
+      // initial about:blank document (page origin) can fire load first;
+      // posting the init there would neuter the transferred port.
+      if (removed || !frame.contentWindow || !frame.src) return;
       const generation = ++channelGeneration;
       port?.close();
       const channel = new MessageChannel();

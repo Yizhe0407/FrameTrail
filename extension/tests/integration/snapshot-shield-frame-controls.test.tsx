@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import {
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
@@ -8,12 +9,23 @@ import {
   type SnapshotShieldFrameMessage,
 } from '@/lib/recording/snapshot-shield-protocol';
 
-const mocks = vi.hoisted(() => ({ render: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  render: vi.fn(),
+  storageGet: vi.fn(async (key: string) => ({
+    [key]: { token: 'test-token', createdAt: Date.now() },
+  })),
+  storageRemove: vi.fn(async () => undefined),
+}));
 
 vi.mock('react-dom/client', () => ({
   createRoot: () => ({ render: mocks.render }),
 }));
 vi.mock('@/components/recording/RecordingToolbar', () => ({ default: () => null }));
+vi.mock('wxt/browser', () => ({
+  browser: {
+    storage: { local: { get: mocks.storageGet, remove: mocks.storageRemove } },
+  },
+}));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -23,8 +35,11 @@ afterEach(() => {
 
 describe('snapshot shield frame controls', () => {
   it('releases timed-out captures and settles failed toolbar commands', async () => {
+    silenceIntentionalErrorLogs();
     vi.useFakeTimers();
-    window.history.replaceState({}, '', '/snapshot-shield.html?token=test-token');
+    // The URL only carries the public frame key; the secret init token is
+    // served from (mocked) extension storage and consumed on read.
+    window.history.replaceState({}, '', '/snapshot-shield.html?frame=frame-1');
     const port = {
       onmessage: null as ((event: MessageEvent<SnapshotShieldFrameMessage>) => void) | null,
       onmessageerror: null as (() => void) | null,
@@ -33,6 +48,8 @@ describe('snapshot shield frame controls', () => {
     };
 
     await import('@/entrypoints/snapshot-shield/main');
+    // Init may arrive before the storage read resolves; the shield buffers it
+    // and replays it once the expected token is known.
     window.dispatchEvent(
       new MessageEvent('message', {
         source: window,
@@ -40,6 +57,9 @@ describe('snapshot shield frame controls', () => {
         ports: [port as unknown as MessagePort],
       }),
     );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.storageRemove).toHaveBeenCalledOnce();
+    expect(port.start).toHaveBeenCalledOnce();
 
     port.onmessage?.({
       data: {

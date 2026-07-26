@@ -48,7 +48,7 @@ function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remo
     'gap:12px',
     'padding:10px 12px',
     'border:1px solid rgba(255,255,255,.18)',
-    'border-radius:12px',
+    'border-radius:8px',
     'background:#111827',
     'box-shadow:0 12px 32px rgba(0,0,0,.35)',
     'color:#f9fafb',
@@ -85,11 +85,15 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
   let busy = false;
   let removed = false;
   let hoverVersion = 0;
+  let lastObservedPhase: string | null = null;
 
   const preview = createStepPreview();
   const keepAlive = startKeepAlive(browser.runtime, {
     name: CONTENT_KEEPALIVE_PORT_NAME,
     intervalMs: CONTENT_KEEPALIVE_INTERVAL_MS,
+    // The background rejected this recorder (or is unreachable for good):
+    // tear down the injected UI instead of reconnecting forever.
+    onRejected: () => cleanup(),
   });
 
   const cancelWorkflow = () => {
@@ -223,11 +227,19 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
   unsubscribe = onRecordingStateChange((state) => {
     if (state.operation !== 'recapture' || state.recapture?.runId !== runId) cleanup();
     else {
-      active = state.recapture.phase === 'awaiting-target';
+      const phase = state.recapture.phase;
+      const reenteredAwaitingTarget = phase === 'awaiting-target' && lastObservedPhase !== 'awaiting-target';
+      lastObservedPhase = phase;
+      active = phase === 'awaiting-target';
       if (!active) {
         hoverVersion += 1;
         hoverProbe.clearPending();
         preview.hide();
+      } else if (reenteredAwaitingTarget) {
+        // The background re-armed target selection (it owns 'failed' and
+        // 'cancelled' outcomes, not just 'rejected'): a locally stuck busy
+        // flag must never outlive that authoritative transition.
+        busy = false;
       }
     }
   });
@@ -262,4 +274,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
   // the change event fired before the listener was installed.
   const latest = await getRecordingState();
   active = latest.operation === 'recapture' && latest.recapture?.runId === runId && latest.recapture.phase === 'awaiting-target';
+  if (latest.operation === 'recapture' && latest.recapture?.runId === runId) {
+    lastObservedPhase = latest.recapture.phase;
+  }
 }
