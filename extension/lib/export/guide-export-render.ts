@@ -97,37 +97,55 @@ export async function* renderEntryImages(
   let declaredImageBytes = 0;
   let actualImageBytes = 0;
 
-  // Deliberately sequential: a large guide never holds decoded canvases for
-  // multiple screenshots while an image is being composited.
-  for (const [index, entry] of entries.entries()) {
-    throwIfAborted(signal);
-    // This is the single rasterization path used by previews/image exports.
-    // In particular, it refuses redaction-review-required entries fail-closed.
-    const image = await compositeStepEntry(entry, IMAGE_MIME_TYPE);
-    throwIfAborted(signal);
-    const ordinal = index + 1;
+  // Pipelined with a lookahead of exactly one: entry N+1's composite (decode →
+  // draw → encode, largely off the JS thread) runs while entry N's bytes are
+  // budget-checked, copied, and consumed (zip CRC/append or base64 encode).
+  // The next composite only starts after the previous one has resolved, so at
+  // most ONE decoded canvas exists at any moment — the memory ceiling the old
+  // strictly sequential loop enforced is preserved; the only extra retention
+  // is one encoded image blob, already bounded by the per-image budget.
+  throwIfAborted(signal);
+  let index = 0;
+  // This is the single rasterization path used by previews/image exports.
+  // In particular, it refuses redaction-review-required entries fail-closed.
+  let pending = entries.length > 0 ? compositeStepEntry(entries[0], IMAGE_MIME_TYPE) : undefined;
+  try {
+    while (pending) {
+      const image = await pending;
+      pending = undefined;
+      throwIfAborted(signal);
+      const entry = entries[index];
+      const ordinal = index + 1;
+      index += 1;
+      if (index < entries.length) pending = compositeStepEntry(entries[index], IMAGE_MIME_TYPE);
 
-    // Blob.size is available without allocating another full copy, so reject
-    // oversized output before arrayBuffer() and base64's ~4/3 expansion.
-    assertEntryImageBudget(budget, image.size, declaredImageBytes, ordinal);
-    declaredImageBytes += image.size;
-    const bytes = new Uint8Array(await image.arrayBuffer());
-    throwIfAborted(signal);
-    // Recheck the owned buffer as defense-in-depth for non-native Blob-like
-    // implementations used by tests or future adapters.
-    assertEntryImageBudget(budget, bytes.byteLength, actualImageBytes, ordinal);
-    actualImageBytes += bytes.byteLength;
+      // Blob.size is available without allocating another full copy, so reject
+      // oversized output before arrayBuffer() and base64's ~4/3 expansion.
+      assertEntryImageBudget(budget, image.size, declaredImageBytes, ordinal);
+      declaredImageBytes += image.size;
+      const bytes = new Uint8Array(await image.arrayBuffer());
+      throwIfAborted(signal);
+      // Recheck the owned buffer as defense-in-depth for non-native Blob-like
+      // implementations used by tests or future adapters.
+      assertEntryImageBudget(budget, bytes.byteLength, actualImageBytes, ordinal);
+      actualImageBytes += bytes.byteLength;
 
-    const owner = entryOwner(entry);
-    yield {
-      content: {
-        entryId: owner.id,
-        ordinal,
-        description: textValue(owner.description),
-        annotations: sortedAnnotations(entry),
-      },
-      imageBytes: bytes,
-    };
+      const owner = entryOwner(entry);
+      yield {
+        content: {
+          entryId: owner.id,
+          ordinal,
+          description: textValue(owner.description),
+          annotations: sortedAnnotations(entry),
+        },
+        imageBytes: bytes,
+      };
+    }
+  } finally {
+    // A budget/abort throw or an abandoned generator can leave the lookahead
+    // composite in flight; observe it so a late rejection (e.g. a compositing
+    // failure racing a cancellation) is never reported as unhandled.
+    pending?.catch(() => {});
   }
 }
 

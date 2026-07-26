@@ -1,6 +1,8 @@
 import { Zip, ZipPassThrough } from 'fflate';
 
-/** Adds one fully-buffered, stored (uncompressed) file to the archive. */
+/** Adds one fully-buffered, stored (uncompressed) file to the archive. The
+ * archive takes ownership of `bytes`: the caller must not mutate the array
+ * afterwards (the bytes are referenced, not copied, until the Blob is built). */
 export type ZipFileWriter = (filename: string, bytes: Uint8Array) => void;
 
 /**
@@ -13,7 +15,11 @@ export type ZipFileWriter = (filename: string, bytes: Uint8Array) => void;
  * path can leak an unhandled rejection or a live deflate stream.
  */
 export async function buildZipBlob(build: (addFile: ZipFileWriter) => Promise<void> | void): Promise<Blob> {
-  const chunks: ArrayBuffer[] = [];
+  const chunks: BlobPart[] = [];
+  // Arrays handed to addFile. ZipPassThrough forwards each one through to the
+  // output callback unchanged, so they can be retained as-is (addFile's
+  // documented ownership transfer) instead of copied.
+  const callerOwned = new Set<Uint8Array>();
   let resolveZip!: (value: Blob) => void;
   let rejectZip!: (reason: unknown) => void;
   const result = new Promise<Blob>((resolve, reject) => {
@@ -26,18 +32,26 @@ export async function buildZipBlob(build: (addFile: ZipFileWriter) => Promise<vo
       rejectZip(error);
       return;
     }
-    // fflate may reuse its output buffer after this callback. Keep one owned
-    // copy per emitted chunk, but avoid a final contiguous copy that would
-    // temporarily double the entire archive in memory.
-    const owned = new Uint8Array(chunk.byteLength);
-    owned.set(chunk);
-    chunks.push(owned.buffer);
+    if (callerOwned.delete(chunk)) {
+      // File data we already own: retaining the view avoids duplicating every
+      // image in memory for the lifetime of the chunk list.
+      chunks.push(chunk as Uint8Array<ArrayBuffer>);
+    } else {
+      // Chunks fflate generated itself (headers, data descriptors, central
+      // directory). Defensively keep one owned copy in case fflate ever
+      // reuses an output buffer, but avoid a final contiguous copy that
+      // would temporarily double the entire archive in memory.
+      const owned = new Uint8Array(chunk.byteLength);
+      owned.set(chunk);
+      chunks.push(owned);
+    }
     if (final) resolveZip(new Blob(chunks, { type: 'application/zip' }));
   });
 
   const addFile: ZipFileWriter = (filename, bytes) => {
     const file = new ZipPassThrough(filename);
     archive.add(file);
+    callerOwned.add(bytes);
     file.push(bytes, true);
   };
 

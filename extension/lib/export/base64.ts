@@ -4,8 +4,42 @@ import { throwIfAborted } from '../shared/abort';
 export const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const OUTPUT_CHUNK_SIZE = 32_768;
 
-/** Encodes bytes without creating one array entry per output character. */
+/** Multiple of three, so every native chunk encodes without padding and the
+ * concatenation of chunk outputs is byte-identical to one whole-input encode.
+ * Three MB keeps the abort signal polled a few hundred times per second even
+ * on slow hardware. */
+const NATIVE_INPUT_CHUNK_BYTES = 3 * 1024 * 1024;
+
+/** `Uint8Array.prototype.toBase64` (Chrome 140+); TS 5.9 lacks the lib type. */
+const nativeToBase64: ((this: Uint8Array) => string) | undefined = (
+  Uint8Array.prototype as Uint8Array & { toBase64?: (this: Uint8Array) => string }
+).toBase64;
+
+/**
+ * Encodes bytes to standard base64 with padding.
+ *
+ * Prefers the native `Uint8Array.prototype.toBase64` (about three orders of
+ * magnitude faster than any JS loop for multi-MB screenshots — this dominated
+ * archive export wall-clock time), chunked so large inputs still poll the
+ * abort signal. Falls back to the chunked JS encoder on runtimes without it.
+ */
 export function encodeBase64(bytes: Uint8Array, signal?: AbortSignal): string {
+  throwIfAborted(signal);
+  if (nativeToBase64) {
+    if (bytes.length <= NATIVE_INPUT_CHUNK_BYTES) return nativeToBase64.call(bytes);
+    const chunks: string[] = [];
+    for (let index = 0; index < bytes.length; index += NATIVE_INPUT_CHUNK_BYTES) {
+      throwIfAborted(signal);
+      chunks.push(nativeToBase64.call(bytes.subarray(index, index + NATIVE_INPUT_CHUNK_BYTES)));
+    }
+    return chunks.join('');
+  }
+  return encodeBase64Fallback(bytes, signal);
+}
+
+/** Pure-JS path for runtimes without `toBase64`, avoiding one array entry per
+ * output character. Exported so tests cover it on runtimes that never take it. */
+export function encodeBase64Fallback(bytes: Uint8Array, signal?: AbortSignal): string {
   const chunks: string[] = [];
   let chunk = '';
 

@@ -539,6 +539,58 @@ describe('raster redactions', () => {
     }
   });
 
+  it('passes an untouched screenshot through without decoding when nothing must be drawn', async () => {
+    // No canvas globals are stubbed here: reaching createImageBitmap or
+    // OffscreenCanvas would throw, so success proves the decode/encode round
+    // trip was skipped entirely.
+    const screenshot = new Blob(['source'], { type: 'image/png' });
+
+    const result = await compositeHighlight(screenshot, null, 2, 'image/png');
+
+    expect(result).toBe(screenshot);
+  });
+
+  it('still composites when a redaction, privacy block, or format conversion applies', async () => {
+    const context = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      drawImage: vi.fn(),
+      fillRect: vi.fn(),
+    };
+    class FakeOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+      getContext() {
+        return context;
+      }
+      convertToBlob() {
+        return Promise.resolve(new Blob(['rendered'], { type: 'image/png' }));
+      }
+    }
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 200, height: 100, close: vi.fn() })));
+
+    try {
+      const screenshot = new Blob(['source'], { type: 'image/png' });
+      const masked = await compositeHighlight(screenshot, null, 2, 'image/png', [
+        { id: 'mask', kind: 'solid', bounds: { x: 10, y: 10, width: 20, height: 10 } },
+      ]);
+      expect(masked).not.toBe(screenshot);
+      expect(context.fillRect).toHaveBeenCalled();
+
+      // Privacy review must stay fail-closed even with nothing else to draw.
+      const blocked = await compositeHighlight(screenshot, null, 2, 'image/png', [], true);
+      expect(blocked).not.toBe(screenshot);
+
+      // The validated media type (mocked as image/png) differs from the
+      // requested format, so the screenshot must be transcoded, not reused.
+      const transcoded = await compositeHighlight(screenshot, null, 2, 'image/jpeg');
+      expect(transcoded).not.toBe(screenshot);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('skips stroking a degenerate frame clamped to the viewport edge', async () => {
     const calls: string[] = [];
     const context = {

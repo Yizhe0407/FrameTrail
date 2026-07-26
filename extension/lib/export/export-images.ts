@@ -70,10 +70,11 @@ export async function exportImagesAsZip(
   }
   let done = 0;
 
-  // renderEntryImages is deliberately sequential (one decoded canvas at a
-  // time) and composites through the shared rasterization path, which refuses
-  // redaction-review-required entries fail-closed. The ZIP stream can release
-  // each annotated JPEG as soon as it has emitted the corresponding chunks.
+  // renderEntryImages pipelines with a lookahead of one but still holds at
+  // most one decoded canvas at a time, and it composites through the shared
+  // rasterization path, which refuses redaction-review-required entries
+  // fail-closed. The ZIP stream references each annotated JPEG's bytes
+  // without copying them again (addFile takes ownership).
   const blob = await buildZipBlob(async (addFile) => {
     for await (const rendered of renderEntryImages(entries, signal, IMAGE_ZIP_ENTRY_BUDGET)) {
       addFile(`${paddedZipOrdinal(rendered.content.ordinal, entries.length)}.jpg`, rendered.imageBytes);

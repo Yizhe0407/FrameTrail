@@ -149,23 +149,38 @@ function drawRedactions(
 
 type RasterFormat = 'image/jpeg' | 'image/png';
 
+/** High enough that annotation strokes and text stay artifact-free while a
+ * typical screenshot re-encodes to roughly half the bytes of quality 1. */
+const JPEG_EXPORT_QUALITY = 0.95;
+
 /** Draws source pixels, annotations, then privacy masks in that strict order.
  * Keeping this low-level pipeline shared prevents clipboard and ZIP rendering
- * from drifting in their final redaction treatment. */
+ * from drifting in their final redaction treatment.
+ *
+ * `drawAnnotations: null` declares that the caller has nothing to draw. When
+ * additionally no redactions apply, no privacy block is required, and the
+ * validated source already has the requested media type, the original blob is
+ * returned as-is: re-encoding an untouched screenshot would only cost a full
+ * decode/encode round trip plus a JPEG generation loss. */
 async function compositeRaster(
   screenshot: Blob,
   screenshotScale: number,
   redactions: readonly Redaction[],
   privacyBlockRequired: boolean,
   format: RasterFormat,
-  drawAnnotations: (
-    ctx: OffscreenCanvasRenderingContext2D,
-    dpr: number,
-    viewportWidth: number,
-    viewportHeight: number,
-  ) => void,
+  drawAnnotations:
+    | ((
+        ctx: OffscreenCanvasRenderingContext2D,
+        dpr: number,
+        viewportWidth: number,
+        viewportHeight: number,
+      ) => void)
+    | null,
 ): Promise<Blob> {
-  await validateRasterImageBlob(screenshot);
+  const { mediaType } = await validateRasterImageBlob(screenshot);
+  if (drawAnnotations === null && redactions.length === 0 && !privacyBlockRequired && mediaType === format) {
+    return screenshot;
+  }
   const bitmap = await createImageBitmap(screenshot);
   let bitmapClosed = false;
   const closeBitmap = () => {
@@ -186,7 +201,7 @@ async function compositeRaster(
     const dpr = getValidScreenshotScale(screenshotScale);
     const viewportWidth = width / dpr;
     const viewportHeight = height / dpr;
-    drawAnnotations(ctx, dpr, viewportWidth, viewportHeight);
+    drawAnnotations?.(ctx, dpr, viewportWidth, viewportHeight);
     // Must remain last: a redaction is privacy-critical and intentionally
     // covers highlight strokes, callouts, markers, and badges beneath it.
     drawRedactions(ctx, redactions, viewportWidth, viewportHeight, dpr);
@@ -195,16 +210,17 @@ async function compositeRaster(
       ctx.fillRect(0, 0, width, height);
     }
 
-    return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: 0.95 } : { type: format });
+    return canvas.convertToBlob(format === 'image/jpeg' ? { type: format, quality: JPEG_EXPORT_QUALITY } : { type: format });
   } finally {
     closeBitmap();
   }
 }
 
 /**
- * Composites the red highlight box onto a raw screenshot and returns a new
- * image blob. If bounds is null (legacy step), the screenshot is retained and
- * any privacy redactions are still rendered.
+ * Composites the red highlight box onto a raw screenshot and returns an image
+ * blob. If bounds is null (legacy step), no box is drawn and any privacy
+ * redactions are still rendered; with nothing at all to draw the validated
+ * source blob may be returned unchanged instead of re-encoded.
  */
 export async function compositeHighlight(
   screenshot: Blob,
@@ -214,9 +230,12 @@ export async function compositeHighlight(
   redactions: readonly Redaction[] = [],
   privacyBlockRequired = false,
 ): Promise<Blob> {
-  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
-    if (bounds) strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
-  });
+  const drawHighlight = bounds
+    ? (ctx: OffscreenCanvasRenderingContext2D, dpr: number, viewportWidth: number, viewportHeight: number) => {
+        strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
+      }
+    : null;
+  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, drawHighlight);
 }
 
 /**
@@ -233,6 +252,9 @@ export async function compositeMultiHighlight(
   redactions: readonly Redaction[] = [],
   privacyBlockRequired = false,
 ): Promise<Blob> {
+  if (annotations.length === 0) {
+    return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, null);
+  }
   return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
     const layouts = layoutAnnotations(annotations, viewportWidth, viewportHeight);
     for (const layout of layouts) {
