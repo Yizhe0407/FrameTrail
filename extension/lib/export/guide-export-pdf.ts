@@ -166,7 +166,7 @@ const PDF_COLOR_SECONDARY = GUIDE_EXPORT_THEME.secondaryText;
 const PDF_COLOR_MUTED = GUIDE_EXPORT_THEME.mutedText;
 const PDF_COLOR_ACCENT = GUIDE_EXPORT_THEME.accent;
 const PDF_COLOR_RULE = GUIDE_EXPORT_THEME.rule;
-const PDF_COLOR_IMAGE_BORDER = '#d6dae1';
+const PDF_COLOR_IMAGE_BORDER = GUIDE_EXPORT_THEME.imageBorder;
 
 type PdfTextStyle = {
   fontSize: number;

@@ -144,11 +144,8 @@ export function ensureSelectedGuide(): Promise<Guide> {
 
 export async function openSelectedGuideInEditor(guideId: string): Promise<void> {
   const guide = await selectGuide(guideId);
-  // Keep the payload structural so this remains source-compatible while the
-  // shared message/background contract is rolled out by the primary agent.
-  const message = { type: 'OPEN_EDITOR', sessionId: guide.id } as const;
   const result = requireRuntimeMessageResult<OpenEditorResult>(
-    await browser.runtime.sendMessage(message),
+    await browser.runtime.sendMessage({ type: 'OPEN_EDITOR', sessionId: guide.id }),
     isOpenEditorResult,
     '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
   );

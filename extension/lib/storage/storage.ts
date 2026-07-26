@@ -1,7 +1,11 @@
 import { browser, type Browser } from 'wxt/browser';
+import { isBoundedString, isFiniteWithin, isSafeId } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import {
+  RECAPTURE_PHASES,
+  RECORDING_PHASES,
   RECORDING_STATE_KEY,
+  STEP_RECAPTURE_RESULT_STATUSES,
   createDefaultRecordingState,
   type RecoverableRecordingError,
   type RecordingState,
@@ -44,24 +48,18 @@ const MAX_STATE_MESSAGE_LENGTH = 10_000;
 const MAX_VIEWPORT_MAGNITUDE = 10_000_000;
 const MAX_DEVICE_PIXEL_RATIO = 32;
 
-function isNonEmptyString(value: unknown, maximumLength = MAX_STATE_VALUE_LENGTH): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= maximumLength;
-}
+// Accept lists derived from the canonical const arrays so a newly added
+// phase/status can never silently normalize a stored run back to idle.
+const VALID_RECORDING_PHASES: ReadonlySet<unknown> = new Set(RECORDING_PHASES);
+const VALID_RECAPTURE_PHASES: ReadonlySet<unknown> = new Set(RECAPTURE_PHASES);
+const VALID_RECAPTURE_RESULT_STATUSES: ReadonlySet<unknown> = new Set(STEP_RECAPTURE_RESULT_STATUSES);
 
 function normalizeNullableString(value: unknown, maximumLength = MAX_STATE_VALUE_LENGTH): string | null {
-  return isNonEmptyString(value, maximumLength) ? value : null;
-}
-
-function isSafeBrowserId(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function isTimestamp(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
+  return isBoundedString(value, maximumLength) ? value : null;
 }
 
 function normalizeSourceUrl(value: unknown): string | null {
-  if (!isNonEmptyString(value, 8_192) || /[\u0000-\u001f\u007f]/u.test(value)) return null;
+  if (!isBoundedString(value, 8_192) || /[\u0000-\u001f\u007f]/u.test(value)) return null;
   try {
     const url = new URL(value);
     if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname || url.username || url.password) {
@@ -76,7 +74,7 @@ function normalizeSourceUrl(value: unknown): string | null {
 function normalizeRecoverableError(value: unknown): RecoverableRecordingError | null {
   if (!value || typeof value !== 'object') return null;
   const error = value as Partial<RecoverableRecordingError>;
-  if (!isNonEmptyString(error.code) || !isNonEmptyString(error.message, MAX_STATE_MESSAGE_LENGTH)) return null;
+  if (!isBoundedString(error.code, MAX_STATE_VALUE_LENGTH) || !isBoundedString(error.message, MAX_STATE_MESSAGE_LENGTH)) return null;
   return { code: error.code, message: error.message };
 }
 
@@ -84,7 +82,7 @@ function normalizeViewport(value: unknown): RecordingState['snapshotViewport'] {
   if (!value || typeof value !== 'object') return null;
   const viewport = value as Record<string, unknown>;
   const finiteWithinLimit = (candidate: unknown) =>
-    typeof candidate === 'number' && Number.isFinite(candidate) && Math.abs(candidate) <= MAX_VIEWPORT_MAGNITUDE;
+    isFiniteWithin(candidate, -MAX_VIEWPORT_MAGNITUDE, MAX_VIEWPORT_MAGNITUDE);
   if (
     !finiteWithinLimit(viewport.width) ||
     !finiteWithinLimit(viewport.height) ||
@@ -106,13 +104,13 @@ function normalizeViewport(value: unknown): RecordingState['snapshotViewport'] {
 function normalizeRecaptureTarget(value: unknown): StepRecaptureTarget | null {
   if (!value || typeof value !== 'object') return null;
   const target = value as Partial<StepRecaptureTarget> & Record<string, unknown>;
-  if (target.kind === 'single' && isNonEmptyString(target.stepId, MAX_STATE_ID_LENGTH)) {
+  if (target.kind === 'single' && isBoundedString(target.stepId, MAX_STATE_ID_LENGTH)) {
     return { kind: 'single', stepId: target.stepId };
   }
   if (
     target.kind === 'snapshot-singleton' &&
-    isNonEmptyString(target.anchorId, MAX_STATE_ID_LENGTH) &&
-    isNonEmptyString(target.annotationId, MAX_STATE_ID_LENGTH) &&
+    isBoundedString(target.anchorId, MAX_STATE_ID_LENGTH) &&
+    isBoundedString(target.annotationId, MAX_STATE_ID_LENGTH) &&
     target.anchorId !== target.annotationId
   ) {
     return {
@@ -130,17 +128,17 @@ function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null 
   const target = normalizeRecaptureTarget(context.target);
   if (
     !target ||
-    !isNonEmptyString(context.runId, MAX_STATE_ID_LENGTH) ||
-    !isNonEmptyString(context.sessionId, MAX_STATE_ID_LENGTH) ||
-    !isNonEmptyString(context.entryId, MAX_STATE_ID_LENGTH) ||
-    !['starting', 'awaiting-target', 'capturing'].includes(context.phase ?? '') ||
-    !isSafeBrowserId(context.editorTabId) ||
-    (context.editorWindowId !== null && !isSafeBrowserId(context.editorWindowId)) ||
-    !isSafeBrowserId(context.sourceTabId) ||
-    !isSafeBrowserId(context.sourceWindowId) ||
+    !isBoundedString(context.runId, MAX_STATE_ID_LENGTH) ||
+    !isBoundedString(context.sessionId, MAX_STATE_ID_LENGTH) ||
+    !isBoundedString(context.entryId, MAX_STATE_ID_LENGTH) ||
+    !VALID_RECAPTURE_PHASES.has(context.phase) ||
+    !isSafeId(context.editorTabId) ||
+    (context.editorWindowId !== null && !isSafeId(context.editorWindowId)) ||
+    !isSafeId(context.sourceTabId) ||
+    !isSafeId(context.sourceWindowId) ||
     !normalizeSourceUrl(context.sourceUrl) ||
     typeof context.sourceTabCreated !== 'boolean' ||
-    !isTimestamp(context.startedAt)
+    !isSafeId(context.startedAt)
   ) {
     return null;
   }
@@ -164,13 +162,13 @@ function normalizeRecaptureResult(value: unknown): StepRecaptureResult | null {
   if (!value || typeof value !== 'object') return null;
   const result = value as Partial<StepRecaptureResult>;
   if (
-    !isNonEmptyString(result.runId, MAX_STATE_ID_LENGTH) ||
-    !['replaced', 'cancelled', 'failed'].includes(result.status ?? '') ||
-    !isNonEmptyString(result.sessionId, MAX_STATE_ID_LENGTH) ||
-    !isNonEmptyString(result.entryId, MAX_STATE_ID_LENGTH) ||
-    !isTimestamp(result.completedAt) ||
-    (result.errorCode !== undefined && !isNonEmptyString(result.errorCode, MAX_STATE_VALUE_LENGTH)) ||
-    (result.message !== undefined && !isNonEmptyString(result.message, MAX_STATE_MESSAGE_LENGTH))
+    !isBoundedString(result.runId, MAX_STATE_ID_LENGTH) ||
+    !VALID_RECAPTURE_RESULT_STATUSES.has(result.status) ||
+    !isBoundedString(result.sessionId, MAX_STATE_ID_LENGTH) ||
+    !isBoundedString(result.entryId, MAX_STATE_ID_LENGTH) ||
+    !isSafeId(result.completedAt) ||
+    (result.errorCode !== undefined && !isBoundedString(result.errorCode, MAX_STATE_VALUE_LENGTH)) ||
+    (result.message !== undefined && !isBoundedString(result.message, MAX_STATE_MESSAGE_LENGTH))
   ) {
     return null;
   }
@@ -188,21 +186,11 @@ function normalizeRecaptureResult(value: unknown): StepRecaptureResult | null {
 export function normalizeRecordingState(stored: Partial<RecordingState> | undefined): RecordingState {
   const raw = stored && typeof stored === 'object' ? stored as Record<string, unknown> : {};
   const mode = raw.mode === 'steps' || raw.mode === 'snapshot' ? raw.mode : DEFAULT_STATE.mode;
-  const validPhases = new Set<RecordingState['phase']>([
-    'idle',
-    'starting',
-    'recording',
-    'paused',
-    'preparing-next',
-    'invalidated',
-    'finishing',
-    'error',
-  ]);
   const requestedRecording = raw.operation === 'recording' || (raw.operation == null && raw.isRecording === true);
   const requestedRecapture = raw.operation === 'recapture';
   const recapture = normalizeRecaptureContext(raw.recapture);
   const sessionId = normalizeNullableString(raw.sessionId, MAX_STATE_ID_LENGTH);
-  const tabId = isSafeBrowserId(raw.tabId) ? raw.tabId : null;
+  const tabId = isSafeId(raw.tabId) ? raw.tabId : null;
   const runId = normalizeNullableString(raw.runId, MAX_STATE_ID_LENGTH);
   const hasValidItemCount =
     raw.itemCount == null ||
@@ -218,7 +206,7 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
       ? 'recording'
       : null;
   const isRecording = operation === 'recording' && raw.isRecording === true;
-  const candidatePhase = validPhases.has(raw.phase as RecordingState['phase'])
+  const candidatePhase = VALID_RECORDING_PHASES.has(raw.phase)
     ? raw.phase as RecordingState['phase']
     : isRecording
       ? 'recording'

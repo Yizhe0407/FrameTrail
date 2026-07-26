@@ -49,6 +49,10 @@ export const GUIDE_EXPORT_THEME = Object.freeze({
   mutedText: '#6d7585',
   accent: '#3e63c4',
   rule: '#e2e5ea',
+  /** Frame around exported screenshots in both documents. Deliberately the
+   * PDF's slightly darker #d6dae1 rather than `rule`: an image edge must read
+   * against near-white screenshot content, where the hairline value washes out. */
+  imageBorder: '#d6dae1',
   /** zh-Hant-first system font stack shared by HTML text and PDF canvas rasterization. */
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif',
@@ -56,11 +60,14 @@ export const GUIDE_EXPORT_THEME = Object.freeze({
 
 /** Derived from the persisted-step limits so every guide accepted by storage
  * remains exportable; PDF budgets carry headroom (spill pages beyond one per
- * step, page rasters on top of the screenshot payload). */
+ * step, page rasters on top of the screenshot payload). The image total allows
+ * twice the persisted screenshot payload — the same re-encode headroom as the
+ * image-ZIP export, because both feed the renderEntryImages pipeline whose
+ * annotated re-encodes can exceed their raw sources. */
 export const GUIDE_EXPORT_LIMITS = Object.freeze({
   maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
   maxImageBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
-  maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes,
+  maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
   maxPdfPages: PERSISTED_STEP_LIMITS.maxStepsPerGuide * 2,
   maxPdfBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });

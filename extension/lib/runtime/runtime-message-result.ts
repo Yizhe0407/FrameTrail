@@ -19,6 +19,7 @@ import {
   RECAPTURE_START_ERROR_CODES,
 } from './messages';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
+import { isBoundedString, isRecord } from '../shared/validation';
 
 export type RuntimeMessageResultGuard<T> = (value: unknown) => value is T;
 
@@ -26,21 +27,9 @@ const RUNTIME_ERROR_LIMIT = 4_096;
 const RUNTIME_PERMISSION_PATTERN_LIMIT = 8_192;
 const MAX_GUIDE_ITEMS = PERSISTED_STEP_LIMITS.maxStepsPerGuide;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]): boolean {
   const allowed = new Set(allowedKeys);
   return Object.keys(value).every((key) => allowed.has(key));
-}
-
-function isBoundedString(value: unknown, maxLength: number, allowEmpty = false): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length <= maxLength &&
-    (allowEmpty || value.length > 0)
-  );
 }
 
 function isId(value: unknown): value is string {

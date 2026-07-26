@@ -2,10 +2,11 @@ import {
   GUIDE_SECTION_LIMITS,
   sanitizeGuideSectionTitle,
   type GuideSection,
-} from '../guide/guide-section-model';
-import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '../guide/guide-tag-model';
+} from './guide-section-model';
+import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from './guide-tag-model';
+import { isRecord } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
-export type { GuideSection } from '../guide/guide-section-model';
+export type { GuideSection } from './guide-section-model';
 
 export interface Bounds {
   x: number;
@@ -204,12 +205,17 @@ function sanitizeGuideText(value: unknown, maximum: number): string {
     : '';
 }
 
+/** Base display name shared by every untitled guide; defaultGuideTitle
+ * composes the timestamped placeholder from it, and UI copy that talks about
+ * unnamed guides derives from the same constant. */
+export const UNTITLED_GUIDE_BASE = '未命名教學';
+
 export function defaultGuideTitle(createdAt: number): string {
   const date = new Date(createdAt);
   const stamp = Number.isFinite(date.getTime())
     ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
     : '';
-  return stamp ? `未命名教學 · ${stamp}` : '未命名教學';
+  return stamp ? `${UNTITLED_GUIDE_BASE} · ${stamp}` : UNTITLED_GUIDE_BASE;
 }
 
 function nonNegativeInteger(value: unknown): number {
@@ -312,7 +318,7 @@ export function getEntryImageOwner(entry: StepEntry): ScreenshotStep {
 }
 
 function isValidRedaction(value: unknown): value is Redaction {
-  if (!value || typeof value !== 'object') return false;
+  if (!isRecord(value)) return false;
   const redaction = value as Partial<Redaction>;
   return (
     typeof redaction.id === 'string' &&
@@ -594,7 +600,7 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
   return entries;
 }
 
-export function entrySteps(entry: StepEntry): Step[] {
+function entrySteps(entry: StepEntry): Step[] {
   return entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations];
 }
 

@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   addStep as addStepToDatabase,
+  addSteps,
   buildStepEntries,
   closeDatabase,
   createGuideFromSteps,
@@ -240,6 +241,32 @@ describe('step storage boundaries', () => {
 });
 
 describe('step persistence', () => {
+  it('persists a batch in one transaction with a single summary refresh', async () => {
+    const sessionId = crypto.randomUUID();
+    const guide = await ensureGuide(sessionId);
+    const steps = [0, 1, 2].map((order) => makeStep({ sessionId, order, timestamp: 100 + order }));
+
+    await addSteps(steps);
+
+    const persisted = await getSteps(sessionId);
+    expect(persisted.map((step) => step.order)).toEqual([0, 1, 2]);
+    const updated = await getGuide(sessionId);
+    expect(updated?.stepCount).toBe(3);
+    // One refresh for the whole batch — not one contentRevision per row.
+    expect(updated?.contentRevision).toBe(guide.contentRevision + 1);
+  });
+
+  it('rejects a cross-guide batch atomically', async () => {
+    const sessionId = crypto.randomUUID();
+    await ensureGuide(sessionId);
+    const foreign = makeStep({ order: 1 });
+
+    await expect(addSteps([makeStep({ sessionId, order: 0 }), foreign])).rejects.toThrow(
+      /belongs to another guide/,
+    );
+    expect(await getSteps(sessionId)).toHaveLength(0);
+  });
+
   it('does not persist duplicate screenshot blobs on snapshot annotations', async () => {
     const sessionId = crypto.randomUUID();
     const anchorId = crypto.randomUUID();

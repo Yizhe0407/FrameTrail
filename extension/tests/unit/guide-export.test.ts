@@ -121,7 +121,10 @@ describe('guide export', () => {
     expect(GUIDE_EXPORT_LIMITS).toEqual({
       maxEntries: 2_000,
       maxImageBytes: 16 * 1024 * 1024,
-      maxTotalImageBytes: 64 * 1024 * 1024,
+      // Same ×2 re-encode headroom as the image-ZIP export: both feed the
+      // renderEntryImages pipeline, so a guide that ZIP-exports must not fail
+      // its HTML/PDF export on the identical payload.
+      maxTotalImageBytes: 128 * 1024 * 1024,
       maxPdfPages: 4_000,
       maxPdfBytes: 128 * 1024 * 1024,
     });
@@ -451,11 +454,13 @@ describe('guide export', () => {
       size: GUIDE_EXPORT_LIMITS.maxImageBytes,
       arrayBuffer,
     } as unknown as Blob);
-    const entries = Array.from({ length: 5 }, (_, index) => entry({ id: `step-${index}`, order: index }));
+    // Eight max-size images fill the ×2 headroom budget exactly; the ninth
+    // must be rejected before its bytes are converted.
+    const entries = Array.from({ length: 9 }, (_, index) => entry({ id: `step-${index}`, order: index }));
 
     await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
-    expect(mocks.composite).toHaveBeenCalledTimes(5);
-    expect(arrayBuffer).toHaveBeenCalledTimes(4);
+    expect(mocks.composite).toHaveBeenCalledTimes(9);
+    expect(arrayBuffer).toHaveBeenCalledTimes(8);
   });
 
   it('starts the lookahead composite before the consumer drains the current image', async () => {

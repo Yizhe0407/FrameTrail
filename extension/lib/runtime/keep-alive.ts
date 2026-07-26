@@ -1,10 +1,14 @@
+/** Canonical name of the recorder's keep-alive port. The background accepts
+ * only ports carrying this exact name; both sides import it from here. */
+export const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
+
 /** Posted by the background on a keep-alive port it refuses to serve, right
  * before disconnecting it. It authoritatively tells the client its capture job
  * no longer exists, unlike a bare disconnect which may just be a transient
  * service-worker restart. */
 export const KEEPALIVE_REJECTED_MESSAGE_TYPE = 'frametrail-keepalive-rejected';
 
-export function isKeepAliveRejectionMessage(message: unknown): boolean {
+function isKeepAliveRejectionMessage(message: unknown): boolean {
   return (
     typeof message === 'object' &&
     message !== null &&

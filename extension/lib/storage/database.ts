@@ -181,7 +181,7 @@ export async function refreshGuideSummary(
   return updated;
 }
 
-export async function abortTransaction(tx: GuideStepsTransaction, error: unknown): Promise<never> {
+async function abortTransaction(tx: GuideStepsTransaction, error: unknown): Promise<never> {
   try {
     tx.abort();
   } catch {
@@ -196,7 +196,7 @@ export async function abortTransaction(tx: GuideStepsTransaction, error: unknown
 let databasePromise: Promise<IDBPDatabase<FrameTrailDB>> | undefined;
 let databaseConnection: IDBPDatabase<FrameTrailDB> | undefined;
 
-export function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
+function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
   if (databasePromise) return databasePromise;
   databasePromise = openDB<FrameTrailDB>('scribe', 4, {
     async upgrade(db, oldVersion, _newVersion, transaction) {

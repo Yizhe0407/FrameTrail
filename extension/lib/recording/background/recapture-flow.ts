@@ -1,5 +1,4 @@
 import { browser, type Browser } from 'wxt/browser';
-import { RecorderReadyGate } from '../recorder-ready';
 import { StaleCaptureError, waitForQueuedClicks } from '../background-queues';
 import { getRecordingState } from '../../storage/storage';
 import {
@@ -8,6 +7,7 @@ import {
   getSteps,
   replaceStepCaptureAtomically,
   StepRecaptureError,
+  stepRole,
   type StepRecaptureTarget as DbStepRecaptureTarget,
 } from '../../storage/db';
 import { isTrustedRecaptureSourceSender } from '../../capture/recapture-guards';
@@ -20,7 +20,14 @@ import {
   sourcePermissionPreflightSuccess,
   withUncommittedSourceTab,
 } from './source-tab';
-import { RECORDER_READY_TIMEOUT_MS, type ControlPlane } from './control-plane';
+import {
+  assertCaptureNotCancelled,
+  cancelCapture,
+  isCaptureCommitting,
+  markCaptureCommitting,
+  releaseCapture,
+} from './capture-registry';
+import type { ControlPlane } from './control-plane';
 import type { RecorderRuntime } from './recorder-runtime';
 import type {
   AckStepRecaptureResultMessage,
@@ -116,16 +123,16 @@ async function validateRecaptureTarget(
     throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的快照。');
   }
   if (
-    anchor.groupId !== anchor.id ||
+    stepRole(anchor) !== 'anchor' ||
     annotation.groupId !== anchor.id ||
-    annotation.id === anchor.id ||
+    stepRole(annotation) !== 'annotation' ||
     !anchor.screenshotBlob ||
     !getEffectiveBounds(annotation)
   ) {
     throw new StepRecaptureStartError('TARGET_CHANGED', '快照結構已變更，請重新整理編輯器後再試一次。');
   }
   const annotations = steps.filter(
-    (step) => step.groupId === anchor.id && step.id !== anchor.id && getEffectiveBounds(step),
+    (step) => step.groupId === anchor.id && stepRole(step) === 'annotation' && getEffectiveBounds(step),
   );
   if (annotations.length !== 1 || annotations[0].id !== annotation.id) {
     throw new StepRecaptureStartError(
@@ -180,21 +187,14 @@ export interface RecaptureFlowDeps {
   control: ControlPlane;
   runtime: RecorderRuntime;
   /** The serialized, presentation-aware screenshot pipeline shared with step
-   * capture; the flow supplies its own recapture context assertion. */
+   * capture; the flow supplies its own recapture context assertion. The
+   * cancellation/commit markers both flows share live in capture-registry. */
   captureScreenshotWithGuard(
     message: Pick<ClickCapture, 'viewport' | 'devicePixelRatio' | 'captureId'>,
     tabId: number,
     windowId: number,
     assertContext: () => Promise<void>,
   ): Promise<{ blob: Blob; scale: number }>;
-  /** Marks a capture id cancelled unless it is already committing. */
-  cancelCapture(captureId: string): void;
-  assertCaptureNotCancelled(captureId: string): void;
-  isCaptureCommitting(captureId: string): boolean;
-  /** Synchronous commit marker (see the transaction comments at the call sites). */
-  markCaptureCommitting(captureId: string): void;
-  /** Clears both the commit marker and any cancellation record. */
-  releaseCapture(captureId: string): void;
 }
 
 /**
@@ -276,7 +276,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     expectedControlVersion: number,
   ): Promise<boolean> {
     if (expectedControlVersion !== control.controlVersion) return Promise.resolve(false);
-    if (activeRecaptureCaptureId) deps.cancelCapture(activeRecaptureCaptureId);
+    if (activeRecaptureCaptureId) cancelCapture(activeRecaptureCaptureId);
     const version = control.claimControl({ cancelRecaptureGate: true });
     return settleStepRecapture(runId, 'failed', version, errorCode, message);
   }
@@ -304,7 +304,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
         'failed',
         version,
         'SOURCE_TAB_CLOSED',
-        '補拍已停止，因為原始分頁已關閉或已變更。原內容未變更。',
+        '補拍已停止，因為原始分頁已關閉或已變更。原本內容未變更。',
       );
       return;
     }
@@ -320,8 +320,64 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       'failed',
       version,
       'WORKER_RESTARTED',
-      '補拍流程曾中斷，原內容未變更；請重新補拍。',
+      '補拍流程曾中斷，原本內容未變更；請重新補拍。',
     );
+  }
+
+  /**
+   * Recapture leg of the tabs.onUpdated listener (which stays wired in the
+   * background entrypoint, mirroring follow-mode's listener/logic split).
+   * Returns true when the update belonged to this flow's source tab — handled
+   * or deliberately ignored — so the listener skips its recording legs.
+   */
+  async function handleSourceTabUpdated(
+    tabId: number,
+    changeInfo: { status?: string; url?: string },
+  ): Promise<boolean> {
+    const expectedControlVersion = control.controlVersion;
+    const state = await getRecordingState();
+    if (
+      expectedControlVersion !== control.controlVersion ||
+      state.operation !== 'recapture' ||
+      state.recapture?.sourceTabId !== tabId
+    ) {
+      return false;
+    }
+    const context = state.recapture;
+    // Startup intentionally waits for the initial document to finish. Once
+    // selection is enabled, any navigation invalidates this one-shot job.
+    if (
+      context.phase !== 'starting' &&
+      (changeInfo.status === 'loading' || (changeInfo.url != null && changeInfo.url !== context.sourceUrl))
+    ) {
+      await failStepRecapture(
+        context.runId,
+        'SOURCE_NAVIGATED',
+        '補拍已停止，因為原始頁面在選取期間發生導覽。原本內容未變更。',
+        expectedControlVersion,
+      );
+    }
+    return true;
+  }
+
+  /** Recapture leg of tabs.onRemoved; same contract as handleSourceTabUpdated. */
+  async function handleSourceTabRemoved(tabId: number): Promise<boolean> {
+    const expectedControlVersion = control.controlVersion;
+    const state = await getRecordingState();
+    if (
+      expectedControlVersion !== control.controlVersion ||
+      state.operation !== 'recapture' ||
+      state.recapture?.sourceTabId !== tabId
+    ) {
+      return false;
+    }
+    await failStepRecapture(
+      state.recapture.runId,
+      'SOURCE_TAB_CLOSED',
+      '補拍已停止，因為原始分頁已關閉。原本內容未變更。',
+      expectedControlVersion,
+    );
+    return true;
   }
 
   async function handleRecaptureReady(
@@ -465,38 +521,36 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       // settle through failStepRecapture, which closes a created tab itself.
       commit();
 
-      const readyGate = new RecorderReadyGate(
-        { runId, tabId: sourceTab.id, controlVersion: version },
-        RECORDER_READY_TIMEOUT_MS,
-      );
-      control.pendingRecaptureReady = readyGate;
       try {
-        const [, ready] = await Promise.all([runtime.injectRecorder(sourceTab.id, true), readyGate.promise]);
-        if (!ready) throw new Error('Recapture recorder did not become ready before timeout.');
-        const activated = await control.writeStateIf(
-          version,
-          (state) =>
-            state.operation === 'recapture' &&
-            state.recapture?.runId === runId &&
-            state.recapture.phase === 'starting',
-          (state) => ({
-            ...state,
-            recapture: { ...state.recapture!, phase: 'awaiting-target' },
-          }),
-        );
-        if (!activated) throw new StaleCaptureError('Recapture changed during startup.');
-        control.acceptingClicks = true;
-        await focusTab(sourceTab.id, sourceTab.windowId);
-        return { ok: true, runId, tabId: sourceTab.id, reusedTab: source.reused };
+        return await control.withRecorderReadyGate({
+          slot: 'pendingRecaptureReady',
+          identity: { runId, tabId: sourceTab.id, controlVersion: version },
+          inject: () => runtime.injectRecorder(sourceTab.id!, true),
+          notReadyError: () => new Error('Recapture recorder did not become ready before timeout.'),
+          ready: async () => {
+            const activated = await control.writeStateIf(
+              version,
+              (state) =>
+                state.operation === 'recapture' &&
+                state.recapture?.runId === runId &&
+                state.recapture.phase === 'starting',
+              (state) => ({
+                ...state,
+                recapture: { ...state.recapture!, phase: 'awaiting-target' },
+              }),
+            );
+            if (!activated) throw new StaleCaptureError('Recapture changed during startup.');
+            control.acceptingClicks = true;
+            await focusTab(sourceTab.id!, sourceTab.windowId);
+            return { ok: true as const, runId, tabId: sourceTab.id!, reusedTab: source.reused };
+          },
+        });
       } catch (error) {
         console.error('[frametrail] failed to start recapture recorder', error);
         if (version === control.controlVersion) {
           await failStepRecapture(runId, 'INJECTION_FAILED', '無法在原始頁面啟動補拍。', version);
         }
         return recaptureFailure('INJECTION_FAILED', '無法在原始頁面啟動補拍。');
-      } finally {
-        if (control.pendingRecaptureReady === readyGate) control.pendingRecaptureReady = null;
-        readyGate.cancel();
       }
     });
   }
@@ -540,11 +594,11 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       return { ok: false, error: '無效的補拍來源。' };
     }
     const captureId = activeRecaptureCaptureId;
-    if (captureId && deps.isCaptureCommitting(captureId)) {
+    if (captureId && isCaptureCommitting(captureId)) {
       await waitForQueuedClicks();
       return { ok: true, status: 'already-completed' };
     }
-    if (captureId) deps.cancelCapture(captureId);
+    if (captureId) cancelCapture(captureId);
     const version = control.claimControl({ cancelRecaptureGate: true });
     await waitForQueuedClicks();
     // 原本內容 (not 原內容) matches the editor's own recapture wording.
@@ -671,7 +725,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
             context.sourceUrl,
           ),
       );
-      deps.assertCaptureNotCancelled(message.captureId);
+      assertCaptureNotCancelled(message.captureId);
       const current = await getRecordingState();
       if (
         expectedControlVersion !== control.controlVersion ||
@@ -684,7 +738,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
 
       // Synchronous commit marker: cancellation after this point waits for the
       // atomic IndexedDB replacement and reports the completed result.
-      deps.markCaptureCommitting(message.captureId);
+      markCaptureCommitting(message.captureId);
       await replaceStepCaptureAtomically(
         context.sessionId,
         context.target,
@@ -718,7 +772,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       }
       return reject('failed', errorMessage);
     } finally {
-      deps.releaseCapture(message.captureId);
+      releaseCapture(message.captureId);
       if (activeRecaptureCaptureId === message.captureId) activeRecaptureCaptureId = null;
     }
   }
@@ -734,6 +788,8 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     focusStepRecaptureSource,
     handleRecaptureReady,
     handleRecaptureTarget,
+    handleSourceTabUpdated,
+    handleSourceTabRemoved,
     failStepRecapture,
     recoverInterruptedRecapture,
   };

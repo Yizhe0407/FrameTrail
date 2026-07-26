@@ -1,8 +1,8 @@
 import { BASE64_ALPHABET } from './base64';
 import type { Bounds, Redaction, Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
-import { GUIDE_SECTION_LIMITS, type GuideSection } from '../guide/guide-section-model';
-import { GUIDE_TAG_LIMITS } from '../guide/guide-tag-model';
+import { GUIDE_SECTION_LIMITS, type GuideSection } from '../storage/guide-section-model';
+import { GUIDE_TAG_LIMITS } from '../storage/guide-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'frametrail-project';
 export const PROJECT_ARCHIVE_LEGACY_VERSION = 1;

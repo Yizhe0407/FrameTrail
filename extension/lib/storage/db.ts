@@ -8,6 +8,7 @@ export {
   GuideStructureIntegrityError,
   STEP_STORAGE_LIMITS,
   StepStorageValidationError,
+  UNTITLED_GUIDE_BASE,
   buildStepEntries,
   entryId,
   flattenEntries,
@@ -31,6 +32,7 @@ export {
   type StepEntry,
 } from './models';
 export { closeDatabase, isPristineGuide } from './database';
+export { PERSISTED_STEP_LIMITS } from './persistence-limits';
 export {
   createGuide,
   createGuideFromSteps,
@@ -71,6 +73,7 @@ export {
   StepRecaptureError,
   StepUpdateConflictError,
   addStep,
+  addSteps,
   deleteStep,
   deleteStepsAndReorder,
   deleteStepsForRun,

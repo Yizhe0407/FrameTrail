@@ -1,13 +1,13 @@
 import { throwIfAborted } from '../shared/abort';
 import { isRecord } from '../shared/validation';
-import { buildStepEntries, type Bounds, type Redaction, type Step } from '../storage/models';
+import { buildStepEntries, stepRole, type Bounds, type Redaction, type Step } from '../storage/models';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
   repairGuideSections,
   sanitizeGuideSectionTitle,
   type GuideSection,
 } from '../guide/guide-sections';
-import { sanitizeGuideTag } from '../guide/guide-tag-model';
+import { sanitizeGuideTag } from '../storage/guide-tag-model';
 import {
   BASE64_VALUES,
   BOUNDS_KEYS,
@@ -218,7 +218,7 @@ export function validateGroups(steps: readonly Step[]): void {
   for (const step of steps) {
     if (step.groupId === undefined) continue;
     const anchor = byId.get(step.groupId);
-    if (!anchor || anchor.groupId !== anchor.id || anchor.sessionId !== step.sessionId) {
+    if (!anchor || stepRole(anchor) !== 'anchor' || anchor.sessionId !== step.sessionId) {
       fail('BROKEN_GROUP_REFERENCE', `Step ${JSON.stringify(step.id)} has a broken group reference.`);
     }
     if (!anchor.screenshotBlob || anchor.bounds !== null) {

@@ -10,15 +10,21 @@
  * selection in the session is annotated onto one shared screenshot instead. */
 export type RecordingMode = 'steps' | 'snapshot';
 
-export type RecordingPhase =
-  | 'idle'
-  | 'starting'
-  | 'recording'
-  | 'paused'
-  | 'preparing-next'
-  | 'invalidated'
-  | 'finishing'
-  | 'error';
+/** Canonical phase vocabularies as const arrays: the types derive from them,
+ * and persisted-state normalization builds its accept lists from the same
+ * source, so adding a phase can never silently normalize stored runs to idle. */
+export const RECORDING_PHASES = [
+  'idle',
+  'starting',
+  'recording',
+  'paused',
+  'preparing-next',
+  'invalidated',
+  'finishing',
+  'error',
+] as const;
+
+export type RecordingPhase = (typeof RECORDING_PHASES)[number];
 
 export interface RecoverableRecordingError {
   code: string;
@@ -34,7 +40,9 @@ export interface Viewport {
 }
 
 export type ActiveOperation = 'recording' | 'recapture' | null;
-export type RecapturePhase = 'starting' | 'awaiting-target' | 'capturing';
+
+export const RECAPTURE_PHASES = ['starting', 'awaiting-target', 'capturing'] as const;
+export type RecapturePhase = (typeof RECAPTURE_PHASES)[number];
 
 export type StepRecaptureTarget =
   | { kind: 'single'; stepId: string }
@@ -56,7 +64,8 @@ export interface StepRecaptureContext {
   startedAt: number;
 }
 
-export type StepRecaptureResultStatus = 'replaced' | 'cancelled' | 'failed';
+export const STEP_RECAPTURE_RESULT_STATUSES = ['replaced', 'cancelled', 'failed'] as const;
+type StepRecaptureResultStatus = (typeof STEP_RECAPTURE_RESULT_STATUSES)[number];
 
 export interface StepRecaptureResult {
   runId: string;

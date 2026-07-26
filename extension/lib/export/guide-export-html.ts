@@ -159,6 +159,7 @@ const BASE_STYLE = `
   --text-muted: ${GUIDE_EXPORT_THEME.mutedText};
   --line: ${GUIDE_EXPORT_THEME.rule};
   --line-soft: #eceef2;
+  --image-border: ${GUIDE_EXPORT_THEME.imageBorder};
   --accent: ${GUIDE_EXPORT_THEME.accent};
   --accent-contrast: #ffffff;
   --card-shadow: 0 1px 2px rgb(23 26 31 / 0.04), 0 8px 24px rgb(23 26 31 / 0.05);
@@ -174,6 +175,7 @@ const BASE_STYLE = `
     --text-muted: #8f97a6;
     --line: #2b303b;
     --line-soft: #252a33;
+    --image-border: #2b303b;
     --accent: #7c9aea;
     --accent-contrast: #10141d;
     --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.3);
@@ -286,7 +288,7 @@ img {
   height: auto;
   margin-inline: auto;
   background: var(--surface-muted);
-  border: 1px solid var(--line);
+  border: 1px solid var(--image-border);
   border-radius: 10px;
 }
 .annotation-list {
@@ -317,6 +319,7 @@ img {
     --text-muted: ${PRINT_TEXT_MUTED};
     --line: ${PRINT_LINE};
     --line-soft: ${PRINT_LINE_SOFT};
+    --image-border: ${PRINT_LINE};
     --accent: ${PRINT_ACCENT};
     --accent-contrast: #ffffff;
     --card-shadow: none;

@@ -17,10 +17,25 @@ import {
 import { resetGuide } from './guide-repository';
 
 export async function addStep(step: Step): Promise<void> {
+  await addSteps([step]);
+}
+
+/** Persists freshly captured same-guide rows in one transaction with a single
+ * summary refresh — the batched pattern guide cloning already uses. Callers
+ * with steps from several guides must split per guide themselves. */
+export async function addSteps(steps: readonly Step[]): Promise<void> {
+  if (steps.length === 0) return;
+  assertMutationItems(steps, 'Added steps');
+  const sessionId = steps[0].sessionId;
+  let latestTimestamp = steps[0].timestamp;
   await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, step.sessionId);
-    await tx.objectStore('steps').add(sanitizeStepForStorage(step));
-    await refreshGuideSummary(tx, guide, step.timestamp);
+    const guide = await requireWritableGuide(tx, sessionId);
+    for (const step of steps) {
+      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another guide.`);
+      latestTimestamp = Math.max(latestTimestamp, step.timestamp);
+      await tx.objectStore('steps').add(sanitizeStepForStorage(step));
+    }
+    await refreshGuideSummary(tx, guide, latestTimestamp);
   });
 }
 

@@ -34,6 +34,7 @@ vi.mock('@/lib/capture/step-preview', () => ({
   createStepPreview: () => mocks.preview,
 }));
 vi.mock('@/lib/runtime/keep-alive', () => ({
+  KEEPALIVE_PORT_NAME: 'frametrail-keepalive',
   startKeepAlive: vi.fn(() => ({ stop: mocks.keepAliveStop })),
 }));
 vi.mock('@/lib/storage/storage', () => ({

@@ -1,3 +1,4 @@
+import type { IDBPTransaction } from 'idb';
 import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
 import {
   buildCompleteStepEntries,
@@ -17,6 +18,7 @@ import {
   runGuideStepsWrite,
   runWithDatabase,
   summarizeSteps,
+  type FrameTrailDB,
   type GuideStepsTransaction,
 } from './database';
 import { clearActiveGuideId } from './storage';
@@ -57,18 +59,28 @@ export async function getGuide(id: string): Promise<Guide | undefined> {
   return guide ? sanitizeGuide(guide) : undefined;
 }
 
+type GuideOnlyTransaction = IDBPTransaction<FrameTrailDB, ['guides'], 'readwrite'>;
+
+/** Loads a guide row inside a guides-only readwrite transaction, aborting the
+ * transaction when the row is gone so the thrown error can never leave a
+ * partial write behind. Returns the raw row; callers sanitize on write. */
+async function requireGuideInTx(tx: GuideOnlyTransaction, id: string): Promise<Guide> {
+  const existing = await tx.store.get(id);
+  if (!existing) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw new Error('Guide not found.');
+  }
+  return existing;
+}
+
 export async function updateGuide(
   id: string,
   changes: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
 ): Promise<Guide> {
   return runWithDatabase(async (db) => {
     const tx = db.transaction('guides', 'readwrite');
-    const existing = await tx.store.get(id);
-    if (!existing) {
-      tx.abort();
-      await tx.done.catch(() => undefined);
-      throw new Error('Guide not found.');
-    }
+    const existing = await requireGuideInTx(tx, id);
     const patch: Partial<Guide> = {};
     if (changes.title !== undefined) patch.title = changes.title;
     if (changes.description !== undefined) patch.description = changes.description;
@@ -84,12 +96,7 @@ export async function updateGuide(
 export async function touchGuide(id: string, timestamp = Date.now()): Promise<void> {
   await runWithDatabase(async (db) => {
     const tx = db.transaction('guides', 'readwrite');
-    const existing = await tx.store.get(id);
-    if (!existing) {
-      tx.abort();
-      await tx.done.catch(() => undefined);
-      throw new Error('Guide not found.');
-    }
+    const existing = await requireGuideInTx(tx, id);
     await tx.store.put(sanitizeGuide({
       ...existing,
       updatedAt: Math.max(existing.updatedAt, timestamp),

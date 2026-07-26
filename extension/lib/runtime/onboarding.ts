@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { RecordingMode } from '@/lib/storage/recording-state';
-import { createVersionedMarkerStore } from './versioned-marker-store';
+import { createVersionedMarkerStore, type VersionedMarkerState } from './versioned-marker-store';
 
 /**
  * Increment this when returning users should see a materially changed
@@ -18,11 +18,11 @@ const store = createVersionedMarkerStore({
 
 export const ONBOARDING_STORAGE_KEY = store.storageKey;
 
-export interface OnboardingState {
-  version: typeof ONBOARDING_VERSION;
-  completed: true;
-  completedAt: number;
-}
+export type OnboardingState = VersionedMarkerState<
+  typeof ONBOARDING_VERSION,
+  'completed',
+  'completedAt'
+>;
 
 /** Returns a valid marker, or null for missing, stale, or malformed data. */
 export function normalizeOnboardingState(value: unknown): OnboardingState | null {

@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { isRecord } from '../shared/validation';
 
 /**
  * A versioned one-way boolean marker persisted in extension-local storage:
@@ -48,8 +49,8 @@ export function createVersionedMarkerStore<
     ({ version, [flagField]: true, [atField]: at }) as State;
 
   const normalize = (value: unknown): State | null => {
-    if (!value || typeof value !== 'object') return null;
-    const state = value as Record<string, unknown>;
+    if (!isRecord(value)) return null;
+    const state = value;
     const at = state[atField];
     if (
       state.version !== version ||

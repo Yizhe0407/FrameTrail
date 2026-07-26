@@ -1,18 +1,17 @@
 import { stepRole, type StepEntry } from '../storage/models';
+import { isRecord } from '../shared/validation';
 import {
   GUIDE_SECTION_LIMITS,
   sanitizeGuideSectionTitle,
   type GuideSection,
-} from './guide-section-model';
+} from '../storage/guide-section-model';
 export {
   GUIDE_SECTION_LIMITS,
   sanitizeGuideSectionTitle,
   type GuideSection,
-} from './guide-section-model';
+} from '../storage/guide-section-model';
 
 const IDENTIFIER_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
-
-type UnknownRecord = Record<string, unknown>;
 
 /**
  * Repairs untrusted or stale section metadata against the current renderable
@@ -56,10 +55,6 @@ export function repairGuideSections(
 
   repaired.sort((left, right) => left.timelineIndex - right.timelineIndex || left.inputIndex - right.inputIndex);
   return repaired.map(({ id, title, startEntryId }) => ({ id, title, startEntryId }));
-}
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function validIdentifier(value: unknown): string | null {

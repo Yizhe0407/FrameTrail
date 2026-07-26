@@ -1,4 +1,4 @@
-import { createVersionedMarkerStore } from './versioned-marker-store';
+import { createVersionedMarkerStore, type VersionedMarkerState } from './versioned-marker-store';
 
 /**
  * Increment this when the cross-tab permission ask changes enough that users
@@ -16,16 +16,11 @@ const store = createVersionedMarkerStore({
 
 export const CROSS_TAB_DECLINE_STORAGE_KEY = store.storageKey;
 
-export interface CrossTabDeclineState {
-  version: typeof CROSS_TAB_DECLINE_VERSION;
-  declined: true;
-  declinedAt: number;
-}
-
-/** Returns a valid marker, or null for missing, stale, or malformed data. */
-export function normalizeCrossTabDeclineState(value: unknown): CrossTabDeclineState | null {
-  return store.normalize(value);
-}
+export type CrossTabDeclineState = VersionedMarkerState<
+  typeof CROSS_TAB_DECLINE_VERSION,
+  'declined',
+  'declinedAt'
+>;
 
 /**
  * Whether the user has already declined the <all_urls> ask at a steps-recording

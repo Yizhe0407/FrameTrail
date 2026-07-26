@@ -4,28 +4,7 @@ import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
 import type { Step } from '@/lib/storage/db';
 
-const mocks = vi.hoisted(() => ({
-  messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
-  getGuide: vi.fn(),
-  getStep: vi.fn(),
-  getSteps: vi.fn(),
-  addStep: vi.fn(),
-  deleteStep: vi.fn(),
-  getRecordingState: vi.fn(),
-  setRecordingState: vi.fn(),
-  permissionsContains: vi.fn(),
-  tabsQuery: vi.fn(),
-  tabsCreate: vi.fn(),
-  tabsGet: vi.fn(),
-  tabsUpdate: vi.fn(),
-  tabsRemove: vi.fn(),
-  tabsSendMessage: vi.fn(),
-  windowsUpdate: vi.fn(),
-  executeScript: vi.fn(),
-  savePendingUndoRecord: vi.fn(),
-  readPendingUndoRecord: vi.fn(),
-  clearPendingUndoRecord: vi.fn(),
-}));
+const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 
 vi.mock('wxt/browser', async () => {
   const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
@@ -55,6 +34,11 @@ vi.mock('@/lib/storage/db', async (importOriginal) => {
     getStep: mocks.getStep,
     getSteps: mocks.getSteps,
     addStep: mocks.addStep,
+    // Background persists captures through the batched write; route it to the
+    // same per-step mock so existing addStep assertions keep observing rows.
+    addSteps: async (steps: readonly unknown[]) => {
+      for (const step of steps) await mocks.addStep(step);
+    },
     deleteStep: mocks.deleteStep,
   };
 });

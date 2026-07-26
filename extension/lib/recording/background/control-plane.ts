@@ -1,4 +1,4 @@
-import type { RecorderReadyGate } from '../recorder-ready';
+import { RecorderReadyGate, type RecorderIdentity } from '../recorder-ready';
 import { queueStateMutation } from '../background-queues';
 import { getRecordingState, setRecordingState } from '../../storage/storage';
 import type { BackgroundMessage } from '../../runtime/messages';
@@ -28,6 +28,19 @@ export interface ClaimControlOptions {
 }
 
 export type ConditionalStateWrite = { previous: RecordingState; next: RecordingState };
+
+export interface RecorderReadyStartup<T> {
+  /** Which pending-gate slot this startup owns. */
+  slot: 'pendingRecorderReady' | 'pendingRecaptureReady';
+  identity: RecorderIdentity;
+  /** Injection racing the gate; both must settle before `ready` runs. */
+  inject(): Promise<unknown>;
+  /** Error thrown when the recorder never reported READY before the timeout. */
+  notReadyError(): Error;
+  /** Post-handshake body. For recorder startups it runs while the pending
+   * snapshot context delivered by the handshake is still available. */
+  ready(): Promise<T>;
+}
 
 export interface ControlPlaneHooks {
   /** Invalidates the undo window synchronously; the plane never touches the
@@ -75,6 +88,29 @@ export function createControlPlane(hooks: ControlPlaneHooks) {
       if (options.clearSnapshotContext) plane.pendingSnapshotContext = undefined;
       if (options.discardUndo) hooks.discardPendingUndo();
       return options.bumpVersion === false ? plane.controlVersion : plane.bumpVersion();
+    },
+
+    /**
+     * The shared recorder-startup ritual: publishes a fresh ready gate in the
+     * named slot, awaits the injection and the READY handshake together,
+     * throws the caller's error when the recorder never became ready, and
+     * runs `ready` while the gate is still live. The finally leg always
+     * retires the gate — the slot is cleared only while this gate still owns
+     * it, a recorder startup drops the pending snapshot context its handshake
+     * delivered, and the gate's timer is cancelled.
+     */
+    async withRecorderReadyGate<T>(startup: RecorderReadyStartup<T>): Promise<T> {
+      const readyGate = new RecorderReadyGate(startup.identity, RECORDER_READY_TIMEOUT_MS);
+      plane[startup.slot] = readyGate;
+      try {
+        const [, recorderReady] = await Promise.all([startup.inject(), readyGate.promise]);
+        if (!recorderReady) throw startup.notReadyError();
+        return await startup.ready();
+      } finally {
+        if (plane[startup.slot] === readyGate) plane[startup.slot] = null;
+        if (startup.slot === 'pendingRecorderReady') plane.pendingSnapshotContext = undefined;
+        readyGate.cancel();
+      }
     },
 
     /**

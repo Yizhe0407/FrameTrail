@@ -2,7 +2,15 @@
 
 import type { RecordingMode, StepRecaptureTarget, Viewport } from '../storage/recording-state';
 
-export type CaptureIntent = 'click' | 'mark';
+type CaptureIntent = 'click' | 'mark';
+
+/** Clicked element rect in CSS px, relative to the viewport at capture time. */
+interface CaptureRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface ClickCapture {
   type: 'FRAME_TRAIL_CLICK';
@@ -12,7 +20,7 @@ export interface ClickCapture {
   captureId: string;
   /** Identifies the exact recording run that injected the sender. */
   runId: string;
-  rect: { x: number; y: number; width: number; height: number };
+  rect: CaptureRect;
   devicePixelRatio: number;
   /** CSS viewport occupied by the screenshot, used to derive its real pixel scale. */
   viewport: Viewport;
@@ -102,7 +110,7 @@ export interface RecordingControlMessage {
 export interface SnapshotInvalidatedMessage {
   type: 'SNAPSHOT_INVALIDATED';
   runId: string;
-  viewport: ClickCapture['viewport'];
+  viewport: Viewport;
   devicePixelRatio: number;
 }
 
@@ -151,7 +159,7 @@ export interface ClickCaptureResult {
   ok: boolean;
 }
 
-export interface CancelCaptureMessage {
+interface CancelCaptureMessage {
   type: 'FRAME_TRAIL_CANCEL_CAPTURE';
   runId: string;
   captureId: string;
@@ -163,7 +171,7 @@ export interface RecorderReadyMessage {
   /** Snapshot mode captures its clean base image during START, before the
    * user can create any live annotations. */
   snapshotContext?: {
-    viewport: ClickCapture['viewport'];
+    viewport: Viewport;
     devicePixelRatio: number;
     url: string;
     timestamp: number;
@@ -229,7 +237,7 @@ export const RECAPTURE_START_ERROR_CODES = [
   'INJECTION_FAILED',
 ] as const;
 
-export type StartStepRecaptureErrorCode = (typeof RECAPTURE_START_ERROR_CODES)[number];
+type StartStepRecaptureErrorCode = (typeof RECAPTURE_START_ERROR_CODES)[number];
 
 export type StartStepRecaptureResult =
   | { ok: true; runId: string; tabId: number; reusedTab: boolean }
@@ -245,8 +253,8 @@ export interface FrameTrailRecaptureTargetMessage {
   type: 'FRAME_TRAIL_RECAPTURE_TARGET';
   runId: string;
   captureId: string;
-  rect: ClickCapture['rect'];
-  viewport: ClickCapture['viewport'];
+  rect: CaptureRect;
+  viewport: Viewport;
   devicePixelRatio: number;
   url: string;
   timestamp: number;
