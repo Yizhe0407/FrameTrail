@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { useRecordingSession } from '@/lib/recording/useRecordingSession';
+import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
 import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
 import {
   entryId,
-  getGuideStructureSnapshot,
   updateGuide,
-  type Guide,
+  type GuideStructureSnapshot,
   type StepEntry,
 } from '@/lib/storage/db';
 import { DraftConfirmationRequiredError, EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
@@ -50,7 +49,6 @@ function EditorApp() {
     canonicalSnapshot,
     guideLoadState,
     reload,
-    adoptSnapshot,
     adoptGuide,
   } = useEditorGuideData(sessionId, steps);
   const operationBelongsToViewedGuide = Boolean(sessionId && recording.sessionId === sessionId);
@@ -212,7 +210,7 @@ function EditorApp() {
 
   // Load/fallback semantics live in useEditorGuideData; this only prepends the
   // recording-session refresh so steps and structure move together.
-  async function refreshEditorData(): Promise<Guide | null> {
+  async function refreshEditorData(): Promise<GuideStructureSnapshot | null> {
     await refresh();
     return reload();
   }
@@ -277,9 +275,9 @@ function EditorApp() {
     try {
       await flushDescriptions();
       throwIfAborted(signal);
-      const snapshot = await getGuideStructureSnapshot(sessionId);
+      const snapshot = await reload();
+      if (!snapshot) throw new Error('找不到要發佈的教學。');
       throwIfAborted(signal);
-      adoptSnapshot(snapshot);
       return {
         entries: snapshot.entries,
         metadata: {

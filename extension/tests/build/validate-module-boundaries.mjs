@@ -24,32 +24,58 @@ function normalized(file) {
   return path.relative(root, file).split(path.sep).join('/');
 }
 
+// Pure schema/constants modules (zero imports) that storage/models may depend on as peers.
+const storageModelModules = new Set([
+  'lib/storage/models.ts',
+  'lib/storage/guide-section-model.ts',
+  'lib/storage/guide-tag-model.ts',
+  'lib/storage/persistence-limits.ts',
+]);
+
 function classify(file) {
   const relative = normalized(file);
   if (relative.startsWith('lib/shared/')) return 'shared-lib';
   if (relative.startsWith('components/ui/')) return 'ui-component';
-  if (relative === 'lib/storage/models.ts') return 'storage-models';
+  if (storageModelModules.has(relative)) return 'storage-models';
   if (relative.startsWith('lib/')) return 'domain-lib';
+  if (relative.startsWith('entrypoints/')) return 'entrypoint';
   return 'other';
 }
 
-function boundaryViolation(from, specifier) {
-  if (!specifier.startsWith('@/')) return null;
-  const target = specifier.slice(2);
+/**
+ * Repo-relative target path for a specifier, so relative imports are held to
+ * the same rules as @/ aliases. Bare package specifiers return null.
+ */
+function targetOf(from, specifier) {
+  if (specifier.startsWith('@/')) return specifier.slice(2);
+  if (specifier.startsWith('.')) return normalized(path.resolve(path.dirname(from), specifier));
+  return null;
+}
+
+function entrypointName(target) {
+  return target.split('/')[1]?.replace(/\.(ts|tsx)$/, '') ?? '';
+}
+
+function boundaryViolation(from, target) {
   switch (classify(from)) {
     case 'shared-lib':
-      return target.startsWith('lib/shared/') ? null : 'lib/shared may only import lib/shared modules via @/ aliases';
+      return target.startsWith('lib/shared/') ? null : 'lib/shared may only import lib/shared modules';
     case 'ui-component':
       return target.startsWith('components/ui/') || target.startsWith('components/shared/') || target.startsWith('lib/shared/')
         ? null
         : 'components/ui may not depend on feature components or lib domains';
     case 'storage-models':
-      return target.startsWith('lib/storage/') || target.startsWith('lib/guide/')
+      return (target.startsWith('lib/storage/') || target.startsWith('lib/guide/'))
+        && !storageModelModules.has(target) && !storageModelModules.has(`${target}.ts`)
         ? 'storage/models must stay independent of repositories, database, and guide services'
         : null;
     case 'domain-lib':
       return target.startsWith('components/')
         ? 'lib modules must not depend on components; keep UI local to lib or lift the dependency into the component layer'
+        : null;
+    case 'entrypoint':
+      return target.startsWith('entrypoints/') && entrypointName(target) !== entrypointName(normalized(from))
+        ? 'entrypoints must stay isolated from each other; share code through lib or components instead'
         : null;
     default:
       return null;
@@ -58,9 +84,11 @@ function boundaryViolation(from, specifier) {
 
 const files = (await Promise.all(sourceRoots.map((directory) => collectFiles(path.join(root, directory))))).flat();
 const knownFiles = new Set(files);
-function resolveAlias(specifier) {
-  if (!specifier.startsWith('@/')) return null;
-  const base = path.join(root, specifier.slice(2));
+function resolveModule(from, specifier) {
+  let base;
+  if (specifier.startsWith('@/')) base = path.join(root, specifier.slice(2));
+  else if (specifier.startsWith('.')) base = path.resolve(path.dirname(from), specifier);
+  else return null;
   return [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]
     .find((candidate) => knownFiles.has(candidate)) ?? null;
 }
@@ -71,9 +99,12 @@ for (const file of files) {
   const source = await readFile(file, 'utf8');
   for (const match of source.matchAll(importPattern)) {
     const specifier = match[1];
-    const violation = boundaryViolation(file, specifier);
-    if (violation) violations.push(`${normalized(file)} -> ${specifier}: ${violation}`);
-    const resolved = resolveAlias(specifier);
+    const resolved = resolveModule(file, specifier);
+    const target = resolved ? normalized(resolved) : targetOf(file, specifier);
+    if (target) {
+      const violation = boundaryViolation(file, target);
+      if (violation) violations.push(`${normalized(file)} -> ${specifier}: ${violation}`);
+    }
     if (resolved) graph.get(file).push(resolved);
   }
 }

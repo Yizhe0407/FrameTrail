@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installThumbnailDomStubs, stubImageMetrics, type ThumbnailDomStubs } from '../setup/thumbnail-dom';
 
 const annotateMocks = vi.hoisted(() => ({
   layoutAnnotations: vi.fn(),
@@ -13,35 +14,11 @@ vi.mock('@/lib/media/annotate', async (importOriginal) => ({
 
 import MultiHighlightThumbnail from '@/components/editor/MultiHighlightThumbnail';
 
-type ResizeCallback = ResizeObserverCallback;
-
 describe('MultiHighlightThumbnail', () => {
-  let resizeCallback: ResizeCallback;
-  let animationFrames: Map<number, FrameRequestCallback>;
-  let nextFrame: number;
+  let stubs: ThumbnailDomStubs;
 
   beforeEach(() => {
-    animationFrames = new Map();
-    nextFrame = 1;
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: ResizeCallback) {
-          resizeCallback = callback;
-        }
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      },
-    );
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      const id = nextFrame++;
-      animationFrames.set(id, callback);
-      return id;
-    });
-    vi.stubGlobal('cancelAnimationFrame', (id: number) => animationFrames.delete(id));
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:thumbnail');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    stubs = installThumbnailDomStubs();
     annotateMocks.layoutAnnotations.mockReturnValue([
       {
         order: 1,
@@ -60,12 +37,6 @@ describe('MultiHighlightThumbnail', () => {
     vi.unstubAllGlobals();
   });
 
-  const flushAnimationFrames = () => {
-    const callbacks = [...animationFrames.values()];
-    animationFrames.clear();
-    callbacks.forEach((callback) => callback(performance.now()));
-  };
-
   it('memoizes image-space layout and coalesces resize mapping into one animation frame', () => {
     let renderedWidth = 400;
     const view = render(
@@ -79,35 +50,30 @@ describe('MultiHighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 800 },
-      naturalHeight: { configurable: true, value: 600 },
-      offsetLeft: { configurable: true, value: 0 },
-      offsetTop: { configurable: true, value: 0 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: renderedWidth, bottom: 300, width: renderedWidth, height: 300 }),
-      },
+    stubImageMetrics(image, {
+      naturalWidth: 800,
+      naturalHeight: 600,
+      rendered: () => ({ width: renderedWidth, height: 300 }),
     });
 
     act(() => fireEvent.load(image));
     expect(annotateMocks.layoutAnnotations).toHaveBeenCalledOnce();
     expect(annotateMocks.layoutAnnotations).toHaveBeenCalledWith(expect.any(Array), 400, 300);
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
 
     const frame = view.container.querySelector<HTMLElement>('[data-frametrail-annotation-frame="1"]')!;
     expect(frame.style.left).toBe('10px');
 
     renderedWidth = 200;
     act(() => {
-      resizeCallback([], {} as ResizeObserver);
-      resizeCallback([], {} as ResizeObserver);
-      resizeCallback([], {} as ResizeObserver);
+      stubs.triggerResize();
+      stubs.triggerResize();
+      stubs.triggerResize();
     });
-    expect(animationFrames.size).toBe(1);
+    expect(stubs.animationFrames.size).toBe(1);
     expect(annotateMocks.layoutAnnotations).toHaveBeenCalledOnce();
 
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
     expect(frame.style.left).toBe('5px');
     expect(annotateMocks.layoutAnnotations).toHaveBeenCalledOnce();
   });
@@ -125,19 +91,16 @@ describe('MultiHighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 10 },
-      offsetTop: { configurable: true, value: 20 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }),
-      },
+    stubImageMetrics(image, {
+      naturalWidth: 200,
+      naturalHeight: 100,
+      offsetLeft: 10,
+      offsetTop: 20,
+      rendered: { width: 100, height: 100 },
     });
 
     act(() => fireEvent.load(image));
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
 
     const contentFrame = view.container.querySelector<HTMLElement>('[data-frametrail-image-content-frame]')!;
     expect(contentFrame.style.left).toBe('10px');
@@ -210,19 +173,10 @@ describe('MultiHighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 0 },
-      offsetTop: { configurable: true, value: 0 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
-      },
-    });
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
 
     act(() => fireEvent.load(image));
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
 
     const expectElementInsideThumbnail = (element: HTMLElement) => {
       const left = Number.parseFloat(element.style.left) + Number.parseFloat(element.style.marginLeft || '0');
@@ -262,27 +216,18 @@ describe('MultiHighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 0 },
-      offsetTop: { configurable: true, value: 0 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
-      },
-    });
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
 
     expect(image.style.visibility).toBe('hidden');
     expect(view.container.firstElementChild?.className).toContain('bg-black');
 
     act(() => fireEvent.load(image));
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
     expect(image.style.visibility).toBe('');
 
-    act(() => resizeCallback([], {} as ResizeObserver));
+    act(() => stubs.triggerResize());
     expect(image.style.visibility).toBe('hidden');
-    act(flushAnimationFrames);
+    act(() => stubs.flushAnimationFrames());
     expect(image.style.visibility).toBe('');
 
     const frame = view.container.querySelector<HTMLElement>('[data-frametrail-annotation-frame="1"]')!;

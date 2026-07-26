@@ -8,6 +8,8 @@ import {
 } from '@/lib/editor/continuation-tabs';
 import { MULTI_ANNOTATION_RECAPTURE_BLOCKED } from '@/lib/editor/editor-messages';
 import { isRecordableTab } from '@/lib/shared/restricted-urls';
+import { focusTab } from '@/lib/runtime/navigation';
+import { reportError } from '@/components/shared/report-error';
 import { entryId, type StepEntry } from '@/lib/storage/db';
 import type {
   PreflightGuideContinuationSourcePermissionResult,
@@ -137,6 +139,14 @@ export function usePermissionFlow({
     return prepared;
   }
 
+  /** Shared failure leg of every flow catch: log under `label`, then surface
+   * the (already localized) error message — or `fallback` — unless the flow
+   * has been superseded meanwhile. */
+  function failFlow(flow: FlowToken, label: string, error: unknown, fallback: string): void {
+    const message = reportError(label, error, fallback);
+    if (flow.isCurrent()) setOperationError(message);
+  }
+
   /** Flushes pending descriptions before starting a run. Returns false when
    * the flush failed or the flow went stale while flushing. */
   async function flushOrBail(flow: FlowToken): Promise<boolean> {
@@ -187,15 +197,18 @@ export function usePermissionFlow({
     const prepared = currentPreparedFlow('origin');
     if (!prepared || prepared.source.kind !== 'origin' || !sessionId) return;
 
-    if (prepared.entryId) requireSelectedEntry(prepared.entryId);
-    validatePreparedPermissionSource(prepared.source.sourceOrigin, prepared.source.permissionPattern);
     const flow = currentFlowToken();
     setPermissionPending(true);
     setOperationError(null);
 
     try {
-      // This must remain the first asynchronous browser API in this explicit
-      // confirmation click so Chromium preserves transient user activation.
+      // Callers void this promise, so guard throws must stay inside the try
+      // to surface through setOperationError instead of an unhandled rejection.
+      if (prepared.entryId) requireSelectedEntry(prepared.entryId);
+      validatePreparedPermissionSource(prepared.source.sourceOrigin, prepared.source.permissionPattern);
+      // The synchronous guards above are fine, but this must remain the first
+      // asynchronous browser API in this explicit confirmation click so
+      // Chromium preserves transient user activation.
       const granted = await browser.permissions.request({ origins: [prepared.source.permissionPattern] });
       if (!flow.isCurrent()) return;
       if (!granted) throw new Error('需要允許存取來源網站，才能回到該頁面錄製。');
@@ -220,14 +233,7 @@ export function usePermissionFlow({
       );
       if (!result.ok) throw new Error(result.error);
     } catch (permissionError) {
-      console.error('授權並啟動來源錄製失敗', permissionError);
-      if (flow.isCurrent()) {
-        setOperationError(
-          permissionError instanceof Error
-            ? permissionError.message
-            : '無法啟動來源錄製；現有內容未變更，請再試一次。',
-        );
-      }
+      failFlow(flow, '授權並啟動來源錄製失敗', permissionError, '無法啟動來源錄製；現有內容未變更，請再試一次。');
     } finally {
       if (flow.isCurrent()) clearPreparedPermission();
     }
@@ -293,12 +299,14 @@ export function usePermissionFlow({
       if (!(await flushOrBail(flow))) return;
 
       // The background resolves a plain start against the active tab of the
-      // last focused window, so focus the target window and tab first, then
-      // confirm the switch actually took before sending the message.
+      // last focused window, so activate the target tab and focus its window
+      // first, then confirm the switch actually took before sending the
+      // message. Ordering within focusTab does not matter here: only the
+      // combined end state (tab active in its now-focused window) does, and
+      // tabs.get re-checks it either way.
       let confirmed: Browser.tabs.Tab;
       try {
-        await browser.windows.update(target.windowId, { focused: true });
-        await browser.tabs.update(target.id, { active: true });
+        await focusTab(target.id, target.windowId);
         confirmed = await browser.tabs.get(target.id);
       } catch (switchError) {
         // The picked tab closed while the dialog was open. Refresh the list in
@@ -322,14 +330,7 @@ export function usePermissionFlow({
         mode: 'steps',
       });
     } catch (continueError) {
-      console.error('改在其他頁面接續錄製失敗', continueError);
-      if (flow.isCurrent()) {
-        setOperationError(
-          continueError instanceof Error
-            ? continueError.message
-            : '無法在其他頁面接續錄製；現有內容未變更，請再試一次。',
-        );
-      }
+      failFlow(flow, '改在其他頁面接續錄製失敗', continueError, '無法在其他頁面接續錄製；現有內容未變更，請再試一次。');
     } finally {
       if (flow.isCurrent() && !keepDialogOpen) clearPreparedPermission();
     }
@@ -376,14 +377,7 @@ export function usePermissionFlow({
         action: { kind: 'recapture', target },
       };
     } catch (recaptureError) {
-      console.error('檢查補拍來源失敗', recaptureError);
-      if (flow.isCurrent()) {
-        setOperationError(
-          recaptureError instanceof Error
-            ? recaptureError.message
-            : '無法安全確認補拍來源；原本內容未變更。',
-        );
-      }
+      failFlow(flow, '檢查補拍來源失敗', recaptureError, '無法安全確認補拍來源；原本內容未變更。');
     } finally {
       finishPermissionPreflight(flow, prepared);
     }
@@ -429,14 +423,7 @@ export function usePermissionFlow({
         };
       }
     } catch (continuationError) {
-      console.error('檢查接續錄製來源失敗', continuationError);
-      if (flow.isCurrent()) {
-        setOperationError(
-          continuationError instanceof Error
-            ? continuationError.message
-            : '無法安全確認接續錄製的來源；現有內容未變更。',
-        );
-      }
+      failFlow(flow, '檢查接續錄製來源失敗', continuationError, '無法安全確認接續錄製的來源；現有內容未變更。');
     } finally {
       finishPermissionPreflight(flow, prepared);
     }

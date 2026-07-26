@@ -4,38 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
-const database = vi.hoisted(() => {
-  class GuideContentConflictError extends Error {}
+const database = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeEditorDatabaseMocks());
 
-  const entryId = (entry: any) => entry.kind === 'single' ? entry.step.id : entry.anchor.id;
-
-  return {
-    GuideContentConflictError,
-    buildStepEntries: vi.fn((steps: any[]) => steps),
-    deleteGuideAnnotationAtomically: vi.fn(),
-    deleteGuideEntriesAtomically: vi.fn(),
-    deleteGuideSectionAtomically: vi.fn(),
-    deleteStepsAndReorder: vi.fn(),
-    entryId,
-    flattenEntries: vi.fn((entries: any[]) => entries.flatMap((entry) => (
-      entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations]
-    ))),
-    getGuide: vi.fn(),
-    getGuideStructureSnapshot: vi.fn(),
-    getSteps: vi.fn(),
-    renameGuideSectionAtomically: vi.fn(),
-    reorderGuideAnnotationsAtomically: vi.fn(),
-    reorderGuideEntriesAtomically: vi.fn(),
-    reorderSteps: vi.fn(),
-    restoreGuideAnnotationAtomically: vi.fn(),
-    restoreGuideEntriesAtomically: vi.fn(),
-    restoreStepsAndReorder: vi.fn(),
-    setGuideEntriesNumberedAtomically: vi.fn(),
-    updateGuide: vi.fn(),
-    updateStepsAtomically: vi.fn(),
-  };
-});
-
+const recordingSession = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeRecordingSessionMocks());
 
 const browserApi = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -44,11 +15,6 @@ const browserApi = vi.hoisted(() => ({
   tabsGet: vi.fn(),
   tabsUpdate: vi.fn(),
   windowsUpdate: vi.fn(),
-}));
-
-const recordingSession = vi.hoisted(() => ({
-  useRecordingSession: vi.fn(),
-  refresh: vi.fn(),
 }));
 
 const editorSave = vi.hoisted(() => ({
@@ -79,7 +45,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 vi.mock('@/lib/storage/db', () => database);
-vi.mock('@/lib/recording/useRecordingSession', () => ({
+vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
 }));
 vi.mock('@/lib/editor/editor-autosave', () => ({

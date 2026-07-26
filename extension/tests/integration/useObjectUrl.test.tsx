@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useObjectUrl } from '@/lib/editor/useObjectUrl';
+import { useObjectUrl } from '@/lib/editor/use-object-url';
 
 function Consumer({ blob }: { blob: Blob }) {
   return <span>{useObjectUrl(blob)}</span>;

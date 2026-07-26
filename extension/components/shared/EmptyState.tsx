@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ExternalLink, Loader2, MousePointerClick } from 'lucide-react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
+import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { byMostRecentlyAccessed } from '@/lib/editor/continuation-tabs';
 import { focusTab } from '@/lib/runtime/navigation';
@@ -57,7 +58,7 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
           {pending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
           {pending ? '正在開啟' : isRecording ? '回到錄製分頁' : '回到網頁開始錄製'}
         </Button>
-        {actionError && <p role="alert" className="text-xs text-destructive">{actionError}</p>}
+        {actionError && <InlineAlert className="text-left">{actionError}</InlineAlert>}
       </div>
     </main>
   );

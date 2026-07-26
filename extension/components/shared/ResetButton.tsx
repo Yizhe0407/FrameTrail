@@ -1,4 +1,5 @@
 import { Loader2, RotateCcw } from 'lucide-react';
+import { reportError } from '@/components/shared/report-error';
 import { resetSession } from '@/lib/runtime/actions';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/shared/utils';
@@ -37,10 +38,9 @@ export default function ResetButton({
       await onReset?.();
       setConfirmationOpen(false);
     } catch (err) {
-      console.error('重置錄製失敗', err);
       // The background reports actionable reasons (for example a reset refused
       // mid-recording); surface them instead of flattening to a generic retry.
-      const reason = err instanceof Error && err.message ? err.message : null;
+      const reason = reportError('重置錄製失敗', err, '');
       setResetError(reason ? `重置失敗：${reason}` : '重置失敗，請再試一次。');
     } finally {
       setResetting(false);
@@ -73,7 +73,7 @@ export default function ResetButton({
       <ConfirmationDialog
         open={confirmationOpen}
         title="重置目前錄製？"
-        description="所有步驟與標注都會永久刪除，這項操作無法復原。"
+        description="所有步驟與標註都會永久刪除，這項操作無法復原。"
         confirmLabel="重置"
         pending={resetting}
         // Failure keeps the dialog open for a retry, so the message must live

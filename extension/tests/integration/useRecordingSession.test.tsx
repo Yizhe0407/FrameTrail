@@ -32,7 +32,8 @@ import {
   RECORDING_RECONCILE_INTERVAL_MS,
   reconcileSteps,
   useRecordingSession,
-} from '@/lib/recording/useRecordingSession';
+} from '@/lib/recording/use-recording-session';
+import { makeRecordingState } from '../setup/recording-state';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -43,18 +44,7 @@ function deferred<T>() {
 }
 
 function state(sessionId: string) {
-  return {
-    isRecording: true,
-    phase: 'recording',
-    sessionId,
-    tabId: 1,
-    error: null,
-    recoverableError: null,
-    mode: 'steps',
-    itemCount: 0,
-    numbered: true,
-    groupAnchorId: null,
-  };
+  return makeRecordingState({ isRecording: true, phase: 'recording', sessionId, tabId: 1 });
 }
 
 beforeEach(() => {

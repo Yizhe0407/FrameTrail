@@ -1,9 +1,13 @@
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 
-const METADATA_PREFIX = 'frametrail:editor-description-draft:v2:meta:';
-const CHUNK_PREFIX = 'frametrail:editor-description-draft:v2:chunk:';
-const LEGACY_PREFIX = 'frametrail:editor-description-draft:v1:';
-const WRITER_SESSION_KEY = 'frametrail:editor-description-draft:writer:v1';
+/** Common localStorage key prefix for every draft-journal record. Exported so
+ * cross-tab `storage` listeners can filter on it without hardcoding a copy. */
+export const DESCRIPTION_DRAFT_KEY_PREFIX = 'frametrail:editor-description-draft:';
+
+const METADATA_PREFIX = `${DESCRIPTION_DRAFT_KEY_PREFIX}v2:meta:`;
+const CHUNK_PREFIX = `${DESCRIPTION_DRAFT_KEY_PREFIX}v2:chunk:`;
+const LEGACY_PREFIX = `${DESCRIPTION_DRAFT_KEY_PREFIX}v1:`;
+const WRITER_SESSION_KEY = `${DESCRIPTION_DRAFT_KEY_PREFIX}writer:v1`;
 const JOURNAL_VERSION = 2;
 const CHUNK_CODE_UNITS = 4_096;
 const MAX_DRAFT_RECORDS = 32;
@@ -465,6 +469,34 @@ export function writeDescriptionDraft(
   return true;
 }
 
+type StepDraftRecord =
+  | { kind: 'v2'; key: string; metadata: PersistedDescriptionDraftMetadata }
+  | { kind: 'legacy'; key: string; legacy: LegacyDescriptionDraft | null };
+
+/** One scan over everything journaled for a step — each matching v2 metadata
+ * record, then the single legacy-key slot (its `legacy` is null when the
+ * payload no longer parses) — shared by the read and clear paths so their
+ * key-matching rules cannot drift apart. Storage failures propagate to the
+ * caller, which owns the fail-soft policy. */
+function forEachStepDraftRecord(
+  storage: Storage,
+  step: Pick<DraftStepIdentity, 'id' | 'sessionId'>,
+  callback: (record: StepDraftRecord) => void,
+): void {
+  const keys = storageKeys(storage);
+  if (!keys) return;
+  const stepPrefix = `${METADATA_PREFIX}${encodedStepKey(step)}:`;
+  for (const key of keys) {
+    if (!key.startsWith(stepPrefix)) continue;
+    const metadata = parseMetadata(storage.getItem(key));
+    if (!metadata || metadata.stepId !== step.id || metadata.sessionId !== step.sessionId) continue;
+    callback({ kind: 'v2', key, metadata });
+  }
+  const oldKey = legacyKey(step);
+  const rawLegacy = storage.getItem(oldKey);
+  if (rawLegacy !== null) callback({ kind: 'legacy', key: oldKey, legacy: parseLegacy(rawLegacy) });
+}
+
 /**
  * Returns all independently journaled versions for one step.
  *
@@ -483,49 +515,42 @@ export function readDescriptionDrafts(
   if (!storage || !isValidIdentifier(step.id) || !isValidIdentifier(step.sessionId) || !isValidDescription(step.description)) return [];
   const usage = scanUsage(storage, now);
   if (!usage) return [];
-  const keys = storageKeys(storage);
-  if (!keys) return [];
   const candidates: RestoredDescriptionDraft[] = [];
-  const stepPrefix = `${METADATA_PREFIX}${encodedStepKey(step)}:`;
 
   try {
-    for (const key of keys) {
-      if (!key.startsWith(stepPrefix)) continue;
-      const metadata = parseMetadata(storage.getItem(key));
-      if (!metadata || metadata.stepId !== step.id || metadata.sessionId !== step.sessionId) continue;
-      const values = readMetadataValues(storage, metadata);
-      if (!values) {
-        removeMetadataRecord(storage, key, metadata);
-        continue;
+    forEachStepDraftRecord(storage, step, (record) => {
+      if (record.kind === 'v2') {
+        const values = readMetadataValues(storage, record.metadata);
+        if (!values || values.description === step.description) {
+          removeMetadataRecord(storage, record.key, record.metadata);
+          return;
+        }
+        candidates.push({
+          writerId: record.metadata.writerId,
+          description: values.description,
+          updatedAt: record.metadata.updatedAt,
+          belongsToCurrentWriter: record.metadata.writerId === currentWriterId,
+          conflictsWithPersistedValue: values.baseDescription !== step.description,
+        });
+        return;
       }
-      if (values.description === step.description) {
-        removeMetadataRecord(storage, key, metadata);
-        continue;
+      const { legacy } = record;
+      if (!legacy || legacy.stepId !== step.id || legacy.sessionId !== step.sessionId || isExpired(legacy.updatedAt, now)) {
+        removeSafely(storage, record.key);
+        return;
+      }
+      if (legacy.description === step.description) {
+        removeSafely(storage, record.key);
+        return;
       }
       candidates.push({
-        writerId: metadata.writerId,
-        description: values.description,
-        updatedAt: metadata.updatedAt,
-        belongsToCurrentWriter: metadata.writerId === currentWriterId,
-        conflictsWithPersistedValue: values.baseDescription !== step.description,
+        writerId: LEGACY_WRITER_ID,
+        description: legacy.description,
+        updatedAt: legacy.updatedAt,
+        belongsToCurrentWriter: false,
+        conflictsWithPersistedValue: legacy.baseDescription !== step.description,
       });
-    }
-
-    const oldKey = legacyKey(step);
-    const rawLegacy = storage.getItem(oldKey);
-    const legacy = parseLegacy(rawLegacy);
-    if (legacy && legacy.stepId === step.id && legacy.sessionId === step.sessionId && !isExpired(legacy.updatedAt, now)) {
-      if (legacy.description === step.description) removeSafely(storage, oldKey);
-      else {
-        candidates.push({
-          writerId: LEGACY_WRITER_ID,
-          description: legacy.description,
-          updatedAt: legacy.updatedAt,
-          belongsToCurrentWriter: false,
-          conflictsWithPersistedValue: legacy.baseDescription !== step.description,
-        });
-      }
-    } else if (rawLegacy !== null) removeSafely(storage, oldKey);
+    });
   } catch {
     return [];
   }
@@ -582,21 +607,16 @@ export function clearMatchingCommittedDescriptionDrafts(
 ): void {
   const storage = resolveStorage(storageOverride);
   if (!storage) return;
-  const keys = storageKeys(storage);
-  if (!keys) return;
-  const stepPrefix = `${METADATA_PREFIX}${encodedStepKey(step)}:`;
   try {
-    for (const key of keys) {
-      if (!key.startsWith(stepPrefix)) continue;
-      const metadata = parseMetadata(storage.getItem(key));
-      if (!metadata || metadata.stepId !== step.id || metadata.sessionId !== step.sessionId) continue;
-      if (readMetadataValues(storage, metadata)?.description === committedDescription) {
-        removeMetadataRecord(storage, key, metadata);
+    forEachStepDraftRecord(storage, step, (record) => {
+      if (record.kind === 'v2') {
+        if (readMetadataValues(storage, record.metadata)?.description === committedDescription) {
+          removeMetadataRecord(storage, record.key, record.metadata);
+        }
+        return;
       }
-    }
-    const oldKey = legacyKey(step);
-    const legacy = parseLegacy(storage.getItem(oldKey));
-    if (legacy?.description === committedDescription) removeSafely(storage, oldKey);
+      if (record.legacy?.description === committedDescription) removeSafely(storage, record.key);
+    });
   } catch {
     // Best effort cleanup only; stale matching drafts are harmless and bounded.
   }

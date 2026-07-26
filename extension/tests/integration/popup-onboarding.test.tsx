@@ -24,7 +24,7 @@ vi.mock('@/lib/guide/guide-actions', () => ({
 vi.mock('@/lib/storage/db', () => ({
   getGuide: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/lib/recording/useRecordingSession', () => ({
+vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: () => ({
     recording: { phase: 'idle' },
     sessionId: 'guide-current',

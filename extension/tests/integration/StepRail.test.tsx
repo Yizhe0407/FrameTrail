@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
 import type { StepEntry } from '@/lib/storage/db';
 import type { GuideSection } from '@/lib/guide/guide-sections';
@@ -23,31 +24,9 @@ function makeGroupEntry(id: string, annotationCount: number): StepEntry {
 }
 
 describe('StepRail keyboard navigation', () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      },
-    );
-    vi.stubGlobal('matchMedia', () => ({
-      matches: true,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }));
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:step-rail');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
-  });
+  beforeEach(installStepRailDomStubs);
 
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
-  });
+  afterEach(removeStepRailDomStubs);
 
   it('只為選取或接近 viewport 的步驟建立圖片 URL', async () => {
     const observers: Array<{ callback: IntersectionObserverCallback; target?: Element }> = [];

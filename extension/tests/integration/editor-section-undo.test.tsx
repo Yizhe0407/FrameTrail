@@ -4,34 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
-const database = vi.hoisted(() => {
-  class GuideContentConflictError extends Error {}
+const database = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeEditorDatabaseMocks());
 
-  const entryId = (entry: any) => entry.kind === 'single' ? entry.step.id : entry.anchor.id;
-
-  return {
-    GuideContentConflictError,
-    addGuideSectionAtomically: vi.fn(),
-    deleteGuideAnnotationAtomically: vi.fn(),
-    deleteGuideEntriesAtomically: vi.fn(),
-    deleteGuideSectionAtomically: vi.fn(),
-    entryId,
-    getGuide: vi.fn(),
-    getGuideStructureSnapshot: vi.fn(),
-    renameGuideSectionAtomically: vi.fn(),
-    reorderGuideAnnotationsAtomically: vi.fn(),
-    reorderGuideEntriesAtomically: vi.fn(),
-    restoreGuideAnnotationAtomically: vi.fn(),
-    restoreGuideEntriesAtomically: vi.fn(),
-    setGuideEntriesNumberedAtomically: vi.fn(),
-    updateGuide: vi.fn(),
-  };
-});
-
-const recordingSession = vi.hoisted(() => ({
-  useRecordingSession: vi.fn(),
-  refresh: vi.fn(),
-}));
+const recordingSession = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeRecordingSessionMocks());
 
 vi.mock('wxt/browser', () => ({
   browser: {
@@ -44,7 +19,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 vi.mock('@/lib/storage/db', () => database);
-vi.mock('@/lib/recording/useRecordingSession', () => ({
+vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
 }));
 vi.mock('@/lib/editor/editor-autosave', () => ({

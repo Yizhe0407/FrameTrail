@@ -31,6 +31,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
+import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
 import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
 import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive';
@@ -132,8 +133,7 @@ export default function App() {
         if (options.refreshAfter !== false) await refresh({ showLoading: false });
         return true;
       } catch (operationError) {
-        console.error('[frametrail] library operation failed', operationError);
-        setError(operationError instanceof Error ? operationError.message : '操作失敗，請再試一次。');
+        setError(reportError('[frametrail] library operation failed', operationError, '操作失敗，請再試一次。'));
         return false;
       }
     });

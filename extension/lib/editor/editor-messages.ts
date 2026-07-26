@@ -1,3 +1,5 @@
+import { UNTITLED_GUIDE_BASE } from '../storage/db';
+
 /**
  * Load-bearing user-facing strings that more than one editor surface renders.
  * Each of these used to be duplicated inline and had already started to drift
@@ -26,5 +28,7 @@ export const PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED =
  * sentences by the continuation dialog and the rail's 接續錄製 button. */
 export const NEW_STEPS_APPEND_NOTE = '新步驟會接在最後';
 
-/** Display fallback for a Guide whose title is empty. */
-export const UNTITLED_GUIDE_TITLE = '未命名教學';
+/** Display fallback for a Guide whose title is empty. Re-exported under the
+ * name editor surfaces already import; the storage layer's base string is the
+ * single source so display and persistence can never drift. */
+export const UNTITLED_GUIDE_TITLE = UNTITLED_GUIDE_BASE;

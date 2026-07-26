@@ -11,7 +11,7 @@ import {
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
-export function useSortableSensors() {
+function useSortableSensors() {
   return useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -26,7 +26,7 @@ export function useSortableSensors() {
  * @param itemNoun what one row is called, e.g. 步驟
  * @param positionOf 1-based display position of an id, or 0 when it is unknown
  */
-export function createSortableAccessibility(
+function createSortableAccessibility(
   itemNoun: string,
   positionOf: (id: UniqueIdentifier) => number,
 ): { announcements: Announcements; screenReaderInstructions: ScreenReaderInstructions } {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { AlertCircle, Library, Loader2, PencilLine } from 'lucide-react';
-import { useRecordingSession } from '@/lib/recording/useRecordingSession';
+import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import RecordControls from '@/components/popup/RecordControls';
 import ResetButton from '@/components/shared/ResetButton';
@@ -13,8 +13,10 @@ import { openLibrary } from '@/lib/runtime/navigation';
 import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { getGuide } from '@/lib/storage/db';
 import OnboardingDialog from '@/components/popup/OnboardingDialog';
+import { reportError } from '@/components/shared/report-error';
 import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/runtime/onboarding';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
+import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 
 function App() {
   // The popup renders state fields only, so it opts out of step reads: the
@@ -141,9 +143,8 @@ function App() {
       }
       window.close();
     } catch (openError) {
-      console.error('[frametrail] failed to request editor navigation', openError);
       setEditorOpenError(
-        openError instanceof Error ? openError.message : '無法開啟編輯器，請再試一次。',
+        reportError('[frametrail] failed to request editor navigation', openError, EDITOR_OPEN_FAILED_MESSAGE),
       );
     } finally {
       setOpeningEditor(false);

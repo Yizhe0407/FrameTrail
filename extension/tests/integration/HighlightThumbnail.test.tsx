@@ -2,34 +2,13 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import HighlightThumbnail from '@/components/editor/HighlightThumbnail';
+import { installThumbnailDomStubs, stubImageMetrics, type ThumbnailDomStubs } from '../setup/thumbnail-dom';
 
 describe('HighlightThumbnail', () => {
-  let resizeCallback: ResizeObserverCallback;
-  let animationFrames: Map<number, FrameRequestCallback>;
-  let nextFrame: number;
+  let stubs: ThumbnailDomStubs;
 
   beforeEach(() => {
-    animationFrames = new Map();
-    nextFrame = 1;
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: ResizeObserverCallback) {
-          resizeCallback = callback;
-        }
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      },
-    );
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      const id = nextFrame++;
-      animationFrames.set(id, callback);
-      return id;
-    });
-    vi.stubGlobal('cancelAnimationFrame', (id: number) => animationFrames.delete(id));
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:highlight-thumbnail');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    stubs = installThumbnailDomStubs();
   });
 
   afterEach(() => {
@@ -78,16 +57,7 @@ describe('HighlightThumbnail', () => {
         />,
       );
       const image = view.container.querySelector<HTMLImageElement>('img')!;
-      Object.defineProperties(image, {
-        naturalWidth: { configurable: true, value: 200 },
-        naturalHeight: { configurable: true, value: 100 },
-        offsetLeft: { configurable: true, value: 0 },
-        offsetTop: { configurable: true, value: 0 },
-        getBoundingClientRect: {
-          configurable: true,
-          value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
-        },
-      });
+      stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
 
       act(() => fireEvent.load(image));
 
@@ -122,15 +92,12 @@ describe('HighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 10 },
-      offsetTop: { configurable: true, value: 20 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 }),
-      },
+    stubImageMetrics(image, {
+      naturalWidth: 200,
+      naturalHeight: 100,
+      offsetLeft: 10,
+      offsetTop: 20,
+      rendered: { width: 100, height: 100 },
     });
 
     act(() => fireEvent.load(image));
@@ -157,16 +124,7 @@ describe('HighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 0 },
-      offsetTop: { configurable: true, value: 0 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
-      },
-    });
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
 
     expect(image.style.visibility).toBe('hidden');
     expect(view.container.firstElementChild?.className).toContain('bg-black');
@@ -184,6 +142,7 @@ describe('HighlightThumbnail', () => {
     expect(redaction.className).toContain('z-10');
     expect(highlight.compareDocumentPosition(redaction) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
+
   it('hides source pixels while a resize remaps a redaction overlay', () => {
     const view = render(
       <HighlightThumbnail
@@ -196,26 +155,13 @@ describe('HighlightThumbnail', () => {
       />,
     );
     const image = view.container.querySelector<HTMLImageElement>('img')!;
-    Object.defineProperties(image, {
-      naturalWidth: { configurable: true, value: 200 },
-      naturalHeight: { configurable: true, value: 100 },
-      offsetLeft: { configurable: true, value: 0 },
-      offsetTop: { configurable: true, value: 0 },
-      getBoundingClientRect: {
-        configurable: true,
-        value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 50, width: 100, height: 50 }),
-      },
-    });
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
 
     act(() => fireEvent.load(image));
     expect(image.style.visibility).toBe('');
-    act(() => resizeCallback([], {} as ResizeObserver));
+    act(() => stubs.triggerResize());
     expect(image.style.visibility).toBe('hidden');
-    act(() => {
-      const frame = [...animationFrames.values()][0];
-      frame?.(performance.now());
-    });
+    act(() => stubs.flushAnimationFrames());
     expect(image.style.visibility).toBe('');
   });
-
 });

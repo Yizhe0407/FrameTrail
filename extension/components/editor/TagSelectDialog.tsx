@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
-import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/guide/guide-tag-model';
+import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-model';
 
 const PRESET_TAGS = ['入門', '團隊', '專案', '整合', '報表', '行動', '教學', '設定'];
 

@@ -6,7 +6,7 @@ import {
   HIGHLIGHT_RADIUS,
   fitHighlightFrame,
 } from '@/lib/media/annotate';
-import { useObjectUrl } from '@/lib/editor/useObjectUrl';
+import { useObjectUrl } from '@/lib/editor/use-object-url';
 import type { Bounds, Redaction } from '@/lib/storage/db';
 import ThumbnailSurface from './ThumbnailSurface';
 import {

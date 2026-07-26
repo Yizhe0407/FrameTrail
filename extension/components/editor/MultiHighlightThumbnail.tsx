@@ -14,7 +14,7 @@ import {
   layoutAnnotations,
   type Annotation,
 } from '@/lib/media/annotate';
-import { useObjectUrl } from '@/lib/editor/useObjectUrl';
+import { useObjectUrl } from '@/lib/editor/use-object-url';
 import type { Redaction } from '@/lib/storage/db';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import ThumbnailSurface from './ThumbnailSurface';

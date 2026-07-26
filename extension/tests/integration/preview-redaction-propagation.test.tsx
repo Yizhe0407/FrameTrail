@@ -39,11 +39,9 @@ vi.mock('@dnd-kit/sortable', () => ({
   verticalListSortingStrategy: {},
 }));
 vi.mock('@/lib/editor/dnd', () => ({
-  createSortableAccessibility: () => ({ announcements: {}, screenReaderInstructions: { draggable: '' } }),
   reorderById: () => null,
   restrictToHorizontalAxis: () => null,
   restrictToVerticalAxis: () => null,
-  useSortableSensors: () => [],
   useSortableReorder: (items: unknown[], getId: (item: unknown) => unknown) => ({
     sensors: [],
     accessibility: { announcements: {}, screenReaderInstructions: { draggable: '' } },

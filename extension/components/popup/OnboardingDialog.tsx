@@ -9,6 +9,7 @@ import {
   PencilLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import InlineAlert from '@/components/shared/InlineAlert';
 import { usePendingAction } from '@/components/shared/use-pending-action';
 import {
   Dialog,
@@ -178,11 +179,7 @@ export default function OnboardingDialog({
             </div>
           </section>
 
-          {actionError && (
-            <p role="alert" className="border-l-2 border-destructive pl-3 text-sm text-destructive">
-              {actionError}
-            </p>
-          )}
+          {actionError && <InlineAlert>{actionError}</InlineAlert>}
         </div>
 
         <DialogFooter className="border-t border-border px-6 py-4 sm:px-8">

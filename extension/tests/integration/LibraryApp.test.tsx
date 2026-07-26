@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const database = vi.hoisted(() => ({
+  UNTITLED_GUIDE_BASE: '未命名教學',
   createGuideFromSteps: vi.fn(),
   deleteGuidePermanently: vi.fn(),
   duplicateGuide: vi.fn(),

@@ -13,7 +13,7 @@ export type EditorGuideLoadState = 'loading' | 'ready' | 'missing' | 'invalid';
  * the mount-time load, explicit reloads, and the shared fallback that
  * downgrades to 'invalid'/'missing' when the structure cannot be read all
  * live here once. Mutations remain in the editor controller, which publishes
- * their results through `adoptSnapshot`/`adoptGuide` instead of raw setters.
+ * their results through `reload`/`adoptGuide` instead of raw setters.
  */
 export function useEditorGuideData(sessionId: string | null, steps: readonly unknown[]) {
   const [guide, setGuide] = useState<Guide | null>(null);
@@ -54,10 +54,12 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
     setGuideLoadState('missing');
   }, []);
 
-  /** Re-reads the canonical snapshot. Unlike the mount-time load it rethrows
-   * the structure-read failure (after downgrading the state) so callers can
+  /** Re-reads and adopts the canonical snapshot, returning it so callers that
+   * need the fresh structure (e.g. publication) never re-implement the
+   * read-then-adopt pair. Unlike the mount-time load it rethrows the
+   * structure-read failure (after downgrading the state) so callers can
    * report the reload that went wrong. */
-  const reload = useCallback(async (): Promise<Guide | null> => {
+  const reload = useCallback(async (): Promise<GuideStructureSnapshot | null> => {
     if (!sessionId) {
       clear();
       return null;
@@ -65,7 +67,7 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
     try {
       const snapshot = await getGuideStructureSnapshot(sessionId);
       adoptSnapshot(snapshot);
-      return snapshot.guide;
+      return snapshot;
     } catch (reloadError) {
       await applyLoadFailure(sessionId);
       throw reloadError;
@@ -95,7 +97,6 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
     canonicalSnapshot,
     guideLoadState,
     reload,
-    adoptSnapshot,
     adoptGuide,
   };
 }

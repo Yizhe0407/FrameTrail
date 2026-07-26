@@ -1,39 +1,18 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
 import { makeEntry } from '../setup/step-entries';
 
 const ENTRIES = [makeEntry('step-1', 0), makeEntry('step-2', 1), makeEntry('step-3', 2)];
 
 describe('StepRail arrow-key listener stability', () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        disconnect() {}
-        unobserve() {}
-      },
-    );
-    vi.stubGlobal('matchMedia', () => ({
-      matches: true,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }));
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:step-rail');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
-  });
+  beforeEach(installStepRailDomStubs);
 
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
-  });
+  afterEach(removeStepRailDomStubs);
 
   it('registers the window keydown listener once despite parent re-renders', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');

@@ -14,6 +14,7 @@ import {
 } from '../storage/db';
 import {
   clearMatchingCommittedDescriptionDrafts,
+  DESCRIPTION_DRAFT_KEY_PREFIX,
   discardDescriptionDraft,
   getDescriptionDraftWriterId,
   readDescriptionDrafts,
@@ -319,7 +320,7 @@ export function useStepDescriptionAutosave(
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.storageArea === localStorage && event.key?.startsWith('frametrail:editor-description-draft:')) {
+      if (event.storageArea === localStorage && event.key?.startsWith(DESCRIPTION_DRAFT_KEY_PREFIX)) {
         refreshRecoveries();
       }
     };

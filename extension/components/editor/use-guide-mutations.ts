@@ -33,7 +33,7 @@ interface UseGuideMutationsOptions {
   endDataOperation: () => void;
   setOptimisticEntries: (entries: StepEntry[] | null) => void;
   flushDescriptions: () => Promise<void>;
-  refreshEditorData: () => Promise<Guide | null>;
+  refreshEditorData: () => Promise<GuideStructureSnapshot | null>;
   /** Publishes the fresh Guide a successful compare-and-swap returned. */
   adoptGuide: (guide: Guide | null) => void;
   requireSelectedEntry: (expectedEntryId?: string) => StepEntry;
@@ -109,22 +109,34 @@ export function useGuideMutations({
     setOperationError(null);
     if (optimistic) setOptimisticEntries(optimistic.next);
     try {
-      await flushDescriptions();
-      const snapshot = await getGuideStructureSnapshot(sessionId);
-      const undo = await mutate(snapshot, sessionId);
-      await refreshEditorData();
-      if (undo) offerUndo(undo, sessionId);
-    } catch (mutationError) {
-      if (optimistic) setOptimisticEntries(optimistic.previous);
-      showStructureMutationError(errorLabel, mutationError);
+      let undo: PendingUndoAction | void;
+      try {
+        await flushDescriptions();
+        const snapshot = await getGuideStructureSnapshot(sessionId);
+        undo = await mutate(snapshot, sessionId);
+      } catch (mutationError) {
+        if (optimistic) setOptimisticEntries(optimistic.previous);
+        showStructureMutationError(errorLabel, mutationError);
+        try {
+          await refreshEditorData();
+        } catch (refreshError) {
+          console.error(`${errorLabel}失敗後重新載入資料失敗`, refreshError);
+        } finally {
+          if (!optimistic) setOptimisticEntries(null);
+        }
+        if (rethrow) throw mutationError;
+        return;
+      }
+      // The compare-and-swap committed, so a failed follow-up reload must not
+      // roll back the (now accurate) optimistic entries or report the
+      // operation itself as failed — only that the screen may be stale.
       try {
         await refreshEditorData();
-      } catch (refreshError) {
-        console.error(`${errorLabel}失敗後重新載入資料失敗`, refreshError);
-      } finally {
-        if (!optimistic) setOptimisticEntries(null);
+      } catch (reloadError) {
+        console.error(`${errorLabel}成功後重新載入資料失敗`, reloadError);
+        setOperationError('已儲存，但重新載入畫面失敗，請重新整理。');
       }
-      if (rethrow) throw mutationError;
+      if (undo) offerUndo(undo, sessionId);
     } finally {
       endDataOperation();
     }
