@@ -23,12 +23,13 @@ import {
   GUIDE_EXPORT_LIMITS,
   GuideExportLimitError,
   generateGuideHtml,
-  generateGuideMarkdown,
   generateGuideMarkdownArchive,
   generateGuidePdf,
   guideExportFilename,
+  type GuideExportMetadata,
 } from '@/lib/export/guide-export';
 import { renderEntryImages } from '@/lib/export/guide-export-render';
+import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
 
 function entry(overrides: Record<string, unknown> = {}): StepEntry {
   return {
@@ -90,6 +91,13 @@ function groupEntry(): StepEntry {
   } as StepEntry;
 }
 
+/** Renders the guide's Markdown archive and returns its Markdown document. */
+async function archiveMarkdown(entries: StepEntry[], metadata: GuideExportMetadata = {}): Promise<string> {
+  const archive = await generateGuideMarkdownArchive(entries, metadata);
+  const files = unzipSync(new Uint8Array(await archive.blob.arrayBuffer()));
+  return strFromU8(files[archive.markdownFilename]);
+}
+
 /**
  * Stubs OffscreenCanvas with a 14px-per-code-point measurer (content width
  * 1072px, so 76 code points fit per line; step headings are indented by the
@@ -146,6 +154,20 @@ beforeEach(() => {
 });
 
 describe('guide export', () => {
+  it('keeps the persisted-limit-derived export budgets at their established values', () => {
+    expect(GUIDE_EXPORT_LIMITS).toEqual({
+      maxEntries: 2_000,
+      maxImageBytes: 16 * 1024 * 1024,
+      maxTotalImageBytes: 64 * 1024 * 1024,
+      maxPdfPages: 4_000,
+      maxPdfBytes: 128 * 1024 * 1024,
+    });
+    // The derivation source itself must not drift either.
+    expect(PERSISTED_STEP_LIMITS.maxStepsPerGuide).toBe(2_000);
+    expect(PERSISTED_STEP_LIMITS.maxScreenshotBytes).toBe(16 * 1024 * 1024);
+    expect(PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes).toBe(64 * 1024 * 1024);
+  });
+
   it('uses deterministic, traversal-safe filenames', () => {
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown')).toBe('my-guide.md');
     expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown-archive')).toBe('my-guide.zip');
@@ -279,8 +301,8 @@ describe('guide export', () => {
     expect(markdown).not.toContain('data:image/');
   });
 
-  it('builds safe self-contained Markdown through the shared composite renderer', async () => {
-    const markdown = await generateGuideMarkdown(
+  it('builds safe Markdown through the shared composite renderer', async () => {
+    const markdown = await archiveMarkdown(
       [entry({ description: '<script>alert(1)</script> [link](javascript:alert(1))' })],
       {
         title: '# unsafe',
@@ -292,7 +314,6 @@ describe('guide export', () => {
     expect(markdown).toContain('# \\# unsafe');
     expect(markdown).toContain('A \\<b\\>description\\</b\\>');
     expect(markdown).toContain('\\<script\\>alert\\(1\\)\\</script\\>');
-    expect(markdown).toContain('data:image/jpeg;base64,YW5ub3RhdGVk');
     expect(markdown).not.toContain('Source:');
     expect(markdown).not.toContain('https://example.com/settings');
 
@@ -322,7 +343,7 @@ describe('guide export', () => {
   });
 
   it('escapes ordered-list markers and setext underlines in Markdown text', async () => {
-    const markdown = await generateGuideMarkdown(
+    const markdown = await archiveMarkdown(
       [entry({ description: '1. 點擊按鈕\n10. 完成設定' })],
       { title: '版本說明', description: '總覽\n====' },
     );
@@ -335,7 +356,7 @@ describe('guide export', () => {
   });
 
   it('renders repaired section headings in timeline order and escapes Markdown text', async () => {
-    const markdown = await generateGuideMarkdown(
+    const markdown = await archiveMarkdown(
       [entry({ id: 'first', order: 1 }), groupEntry()],
       {
         title: 'Sectioned guide',
@@ -421,7 +442,7 @@ describe('guide export', () => {
     const privacyError = new Error('Sensitive-information masks must be reviewed before export.');
     mocks.composite.mockRejectedValueOnce(privacyError);
 
-    await expect(generateGuideMarkdown([entry()])).rejects.toBe(privacyError);
+    await expect(generateGuideMarkdownArchive([entry()])).rejects.toBe(privacyError);
     expect(mocks.composite).toHaveBeenCalledTimes(1);
   });
 
@@ -432,7 +453,9 @@ describe('guide export', () => {
       return new Blob(['annotated'], { type: 'image/jpeg' });
     });
 
-    await expect(generateGuideHtml([entry(), entry({ id: 'step-2', order: 2 })], {}, controller.signal)).rejects.toMatchObject({
+    await expect(
+      generateGuideHtml([entry(), entry({ id: 'step-2', order: 2 })], {}, { signal: controller.signal }),
+    ).rejects.toMatchObject({
       name: 'AbortError',
     });
     expect(mocks.composite).toHaveBeenCalledTimes(1);
@@ -455,7 +478,7 @@ describe('guide export', () => {
       arrayBuffer,
     } as unknown as Blob);
 
-    await expect(generateGuideMarkdown([entry()])).rejects.toBeInstanceOf(GuideExportLimitError);
+    await expect(generateGuideMarkdownArchive([entry()])).rejects.toBeInstanceOf(GuideExportLimitError);
     expect(arrayBuffer).not.toHaveBeenCalled();
   });
 

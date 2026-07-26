@@ -1,13 +1,6 @@
 import { browser } from 'wxt/browser';
 import { throwIfAborted } from '../shared/abort';
 
-export interface DownloadBlobOptions {
-  signal?: AbortSignal;
-  document?: Document;
-}
-
-const DOWNLOAD_URL_REVOKE_DELAY_MS = 60_000;
-
 type DownloadChangeListener = Parameters<typeof browser.downloads.onChanged.addListener>[0];
 
 // Generous upper bound for a save-as dialog plus the transfer itself. It only
@@ -20,7 +13,7 @@ const DOWNLOAD_SETTLE_TIMEOUT_MS = 10 * 60_000;
  * there can abort a file that is still being written to disk. Every
  * downloads-API caller must route its URL through here.
  */
-export function revokeWhenDownloadSettles(downloadId: number, url: string): void {
+function revokeWhenDownloadSettles(downloadId: number, url: string): void {
   const changes = browser.downloads.onChanged;
   // Runtimes without the event give no way to observe the transfer; the
   // previous best-effort behaviour is still better than never revoking.
@@ -75,43 +68,5 @@ export async function downloadBlobViaBrowser(
     // Nothing was queued, so no consumer is left holding the URL.
     URL.revokeObjectURL(url);
     throw downloadError;
-  }
-}
-
-/**
- * Anchor-based fallback for documents without access to the downloads API.
- * It starts a browser download without retaining the object URL or a detached
- * anchor, but resolving at click() means an interrupted or never-started
- * transfer is unobservable — prefer downloadBlobViaBrowser in extension pages.
- * The signal is checked until the irreversible click is dispatched.
- */
-export async function downloadBlob(
-  blob: Blob,
-  filename: string,
-  { signal, document: ownerDocument = globalThis.document }: DownloadBlobOptions = {},
-): Promise<void> {
-  throwIfAborted(signal);
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = ownerDocument.createElement('a');
-
-  let clickDispatched = false;
-  try {
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    anchor.hidden = true;
-    ownerDocument.body.append(anchor);
-    throwIfAborted(signal);
-    anchor.click();
-    clickDispatched = true;
-  } finally {
-    anchor.remove();
-    if (clickDispatched) {
-      // Firefox may not consume an anchor-backed Blob URL until after the
-      // current task. Keep a bounded lease instead of revoking immediately.
-      const timer = setTimeout(() => URL.revokeObjectURL(objectUrl), DOWNLOAD_URL_REVOKE_DELAY_MS);
-      (timer as unknown as { unref?: () => void }).unref?.();
-    } else {
-      URL.revokeObjectURL(objectUrl);
-    }
   }
 }

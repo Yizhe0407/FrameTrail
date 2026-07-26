@@ -27,29 +27,6 @@ import {
   PointSpatialIndex,
 } from './annotation-callouts';
 
-export {
-  BADGE_FONT_FAMILY,
-  BADGE_FONT_RATIO,
-  BADGE_RADIUS,
-  BADGE_TEXT_COLOR,
-  HIGHLIGHT_COLOR,
-  HIGHLIGHT_FILL_COLOR,
-  HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_PADDING,
-  HIGHLIGHT_PREVIEW_FILL_COLOR,
-  HIGHLIGHT_RADIUS,
-  LEADER_LINE_WIDTH,
-  MARKER_INNER_RADIUS,
-  MARKER_RADIUS,
-  MARKER_RING_WIDTH,
-  REDACTION_COLOR,
-  REDACTION_EXPANSION,
-  type Annotation,
-  type AnnotationLayout,
-  type AnnotationPoint,
-} from './annotation-contract';
-export { fitHighlightFrame, getBadgeFontSize } from './annotation-geometry';
-
 const CALLOUT_GAP = 14;
 const ANCHOR_TIE_EPSILON = 8;
 const LANE_NUDGE_ATTEMPTS = 3;

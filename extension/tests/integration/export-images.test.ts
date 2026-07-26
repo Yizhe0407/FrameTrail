@@ -42,6 +42,14 @@ function step(order: number): Step {
   };
 }
 
+it('keeps the persisted-limit-derived ZIP export budgets at their established values', () => {
+  expect(IMAGE_ZIP_EXPORT_LIMITS).toEqual({
+    maxEntries: 2_000,
+    maxImageBytes: 16 * 1024 * 1024,
+    maxTotalImageBytes: 128 * 1024 * 1024,
+  });
+});
+
 beforeEach(() => {
   mocks.active = 0;
   mocks.maxActive = 0;

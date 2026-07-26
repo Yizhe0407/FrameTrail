@@ -7,38 +7,19 @@ import {
   DEFAULT_IMAGE_ALT,
   DEFAULT_TITLE,
   escapeGuideMarkdown,
-  getSignal,
   guideExportFilename,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportControl,
   type GuideExportMetadata,
+  type GuideExportOptions,
   type GuideMarkdownArchive,
 } from './guide-export-contract';
 import {
-  renderEntries,
   renderEntryImages,
   type RenderedEntryContent,
   type RenderedMarkdownEntry,
 } from './guide-export-render';
-
-/**
- * Generates a self-contained Markdown publication. Every image is embedded as
- * a composited JPEG data URI, so the file remains usable without a server or a
- * sibling asset directory.
- */
-export async function generateGuideMarkdown(
-  entries: readonly StepEntry[],
-  metadata: GuideExportMetadata = {},
-  control?: GuideExportControl,
-): Promise<string> {
-  const signal = getSignal(control);
-  const renderedEntries = await renderEntries(entries, signal);
-  throwIfAborted(signal);
-
-  return renderGuideMarkdown(renderedEntries, entries, metadata, (entry) => entry.imageDataUri);
-}
 
 /**
  * Builds a portable Markdown ZIP containing one Markdown document and every
@@ -48,9 +29,9 @@ export async function generateGuideMarkdown(
 export async function generateGuideMarkdownArchive(
   entries: readonly StepEntry[],
   metadata: GuideExportMetadata = {},
-  control?: GuideExportControl,
+  options: GuideExportOptions = {},
 ): Promise<GuideMarkdownArchive> {
-  const signal = getSignal(control);
+  const { signal } = options;
   const markdownEntries: RenderedMarkdownEntry[] = [];
   const markdownFilename = guideExportFilename(metadata, 'markdown');
 

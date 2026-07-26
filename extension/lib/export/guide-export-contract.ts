@@ -1,5 +1,6 @@
 import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
 import type { StepEntry } from '../storage/db';
+import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 
 /** Metadata that is rendered into a local publication export. */
 export interface GuideExportMetadata {
@@ -24,8 +25,6 @@ export interface GuideExportOptions {
 
 export type GuideExportFormat = 'markdown' | 'markdown-archive' | 'html' | 'pdf';
 
-export type GuideExportControl = GuideExportOptions | AbortSignal | undefined;
-
 export interface GuideMarkdownArchive {
   blob: Blob;
   markdownFilename: string;
@@ -38,12 +37,32 @@ export const DEFAULT_IMAGE_ALT = '步驟截圖';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
+/**
+ * Shared visual identity for styled guide publications: the HTML stylesheet's
+ * screen palette and the PDF raster renderer draw from this single source so
+ * the two documents cannot drift apart. The HTML print palette intentionally
+ * uses separate ink-friendly values and stays with the stylesheet.
+ */
+export const GUIDE_EXPORT_THEME = Object.freeze({
+  text: '#1d2129',
+  secondaryText: '#454d59',
+  mutedText: '#6d7585',
+  accent: '#3e63c4',
+  rule: '#e2e5ea',
+  /** zh-Hant-first system font stack shared by HTML text and PDF canvas rasterization. */
+  fontFamily:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif',
+});
+
+/** Derived from the persisted-step limits so every guide accepted by storage
+ * remains exportable; PDF budgets carry headroom (spill pages beyond one per
+ * step, page rasters on top of the screenshot payload). */
 export const GUIDE_EXPORT_LIMITS = Object.freeze({
-  maxEntries: 2_000,
-  maxImageBytes: 16 * 1024 * 1024,
-  maxTotalImageBytes: 64 * 1024 * 1024,
-  maxPdfPages: 4_000,
-  maxPdfBytes: 128 * 1024 * 1024,
+  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxImageBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
+  maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes,
+  maxPdfPages: PERSISTED_STEP_LIMITS.maxStepsPerGuide * 2,
+  maxPdfBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });
 
 export class GuideExportLimitError extends Error {
@@ -129,11 +148,6 @@ export function formatGuideCreatedAt(timestamp: unknown): string {
   } catch {
     return date.toISOString().slice(0, 10);
   }
-}
-
-export function getSignal(control: GuideExportControl): AbortSignal | undefined {
-  if (!control) return undefined;
-  return 'aborted' in control ? control : control.signal;
 }
 
 export function textValue(value: unknown): string {

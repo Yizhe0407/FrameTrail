@@ -6,6 +6,7 @@ import {
   PROJECT_ARCHIVE_LIMITS,
   PROJECT_ARCHIVE_MIME_TYPE,
   PROJECT_ARCHIVE_VERSION,
+  STEP_KEYS,
   type ArchiveBlobV1,
   type ArchiveEnvelopeV2,
   type ArchiveStepV1,
@@ -20,28 +21,20 @@ import {
   validateScreenshotRaster,
 } from './project-archive-validation';
 
+/**
+ * Serialization is key-driven off STEP_KEYS — the same list the archive
+ * validator enforces — so the serialized and validated shapes stay symmetric
+ * structurally: a field added to STEP_KEYS round-trips automatically instead
+ * of being silently dropped here. screenshotBlobId is the one synthesized
+ * field; the Blob itself is serialized separately into the blobs array.
+ */
 function archiveStepFromRuntime(step: Step, screenshotBlobId?: string): ArchiveStepV1 {
-  const archived: ArchiveStepV1 = {
-    id: step.id,
-    sessionId: step.sessionId,
-    order: step.order,
-    bounds: step.bounds,
-    devicePixelRatio: step.devicePixelRatio,
-    description: step.description,
-    url: step.url,
-    timestamp: step.timestamp,
-  };
-  if (step.runId !== undefined) archived.runId = step.runId;
-  if (screenshotBlobId !== undefined) archived.screenshotBlobId = screenshotBlobId;
-  if (step.manualBounds !== undefined) archived.manualBounds = step.manualBounds;
-  if (step.redactions !== undefined) archived.redactions = step.redactions;
-  if (step.redactionReviewRequired !== undefined) archived.redactionReviewRequired = step.redactionReviewRequired;
-  if (step.screenshotScale !== undefined) archived.screenshotScale = step.screenshotScale;
-  if (step.captureRevision !== undefined) archived.captureRevision = step.captureRevision;
-  if (step.lastCaptureRunId !== undefined) archived.lastCaptureRunId = step.lastCaptureRunId;
-  if (step.groupId !== undefined) archived.groupId = step.groupId;
-  if (step.numbered !== undefined) archived.numbered = step.numbered;
-  return archived;
+  const archived: Partial<Record<(typeof STEP_KEYS)[number], unknown>> = {};
+  for (const key of STEP_KEYS) {
+    const value = key === 'screenshotBlobId' ? screenshotBlobId : step[key];
+    if (value !== undefined) archived[key] = value;
+  }
+  return archived as ArchiveStepV1;
 }
 
 /**

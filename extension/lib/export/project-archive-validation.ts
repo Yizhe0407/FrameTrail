@@ -1,4 +1,5 @@
 import { throwIfAborted } from '../shared/abort';
+import { isRecord } from '../shared/validation';
 import { buildStepEntries, type Bounds, type Redaction, type Step } from '../storage/models';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
@@ -26,10 +27,6 @@ import {
 
 export function fail(code: ProjectArchiveErrorCode, message: string): never {
   throw new ProjectArchiveError(code, message);
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function expectRecord(value: unknown, path: string): JsonRecord {

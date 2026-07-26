@@ -15,19 +15,17 @@ import {
   MARKER_RING_WIDTH,
   REDACTION_COLOR,
   REDACTION_EXPANSION,
-  fitHighlightFrame,
-  getBadgeFontSize,
-  layoutAnnotations,
+  isDrawableHighlightFrame,
   type Annotation,
   type AnnotationPoint,
-} from './annotation-layout';
+} from './annotation-contract';
+import { fitHighlightFrame, getBadgeFontSize } from './annotation-geometry';
+import { layoutAnnotations } from './annotation-layout';
 
 function strokeBox(ctx: OffscreenCanvasRenderingContext2D, bounds: Bounds, dpr: number) {
-  // fitBoundsInViewport legitimately clamps out-of-viewport bounds to a zero
-  // or sliver-sized frame at the screenshot edge. Stroking those paints a
-  // stray red hairline, and frames narrower than the stroke would give the
-  // inner roundRect negative dimensions — skip anything below drawable size.
-  if (bounds.width < HIGHLIGHT_LINE_WIDTH || bounds.height < HIGHLIGHT_LINE_WIDTH) return;
+  // Same structural guard as the live thumbnail overlay, so preview and
+  // export skip exactly the same clamped-to-edge degenerate frames.
+  if (!isDrawableHighlightFrame(bounds)) return;
   const lineWidth = HIGHLIGHT_LINE_WIDTH * dpr;
   const outerX = bounds.x * dpr;
   const outerY = bounds.y * dpr;

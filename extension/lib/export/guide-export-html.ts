@@ -5,14 +5,14 @@ import {
   DEFAULT_DESCRIPTION,
   DEFAULT_IMAGE_ALT,
   DEFAULT_TITLE,
+  GUIDE_EXPORT_THEME,
   escapeGuideHtml,
   formatGuideCreatedAt,
-  getSignal,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportControl,
   type GuideExportMetadata,
+  type GuideExportOptions,
 } from './guide-export-contract';
 import { renderEntries, type RenderedEntry } from './guide-export-render';
 
@@ -24,9 +24,9 @@ import { renderEntries, type RenderedEntry } from './guide-export-render';
 export async function generateGuideHtml(
   entries: readonly StepEntry[],
   metadata: GuideExportMetadata = {},
-  control?: GuideExportControl,
+  options: GuideExportOptions = {},
 ): Promise<string> {
-  return generateGuideHtmlDocument(entries, metadata, getSignal(control));
+  return generateGuideHtmlDocument(entries, metadata, options.signal);
 }
 
 async function generateGuideHtmlDocument(
@@ -132,6 +132,18 @@ function htmlText(value: string): string {
 }
 
 /**
+ * Ink-friendly print palette. Deliberately separate from GUIDE_EXPORT_THEME:
+ * near-black text and a darker accent keep contrast on paper, and hairlines
+ * darken so they survive low-resolution printing.
+ */
+const PRINT_TEXT = '#111111';
+const PRINT_TEXT_SECONDARY = '#333333';
+const PRINT_TEXT_MUTED = '#555555';
+const PRINT_LINE = '#c8c8c8';
+const PRINT_LINE_SOFT = '#dcdcdc';
+const PRINT_ACCENT = '#2f4d9e';
+
+/**
  * Document stylesheet tuned for zh-Hant step guides: system CJK font stack,
  * >=1.7 body leading, a comfortable centered reading column, numbered step
  * cards, light/dark schemes, and an ink-friendly A4 print layout.
@@ -142,12 +154,12 @@ const BASE_STYLE = `
   --canvas: #f5f6f8;
   --surface: #ffffff;
   --surface-muted: #f2f4f7;
-  --text: #1d2129;
-  --text-secondary: #454d59;
-  --text-muted: #6d7585;
-  --line: #e2e5ea;
+  --text: ${GUIDE_EXPORT_THEME.text};
+  --text-secondary: ${GUIDE_EXPORT_THEME.secondaryText};
+  --text-muted: ${GUIDE_EXPORT_THEME.mutedText};
+  --line: ${GUIDE_EXPORT_THEME.rule};
   --line-soft: #eceef2;
-  --accent: #3e63c4;
+  --accent: ${GUIDE_EXPORT_THEME.accent};
   --accent-contrast: #ffffff;
   --card-shadow: 0 1px 2px rgb(23 26 31 / 0.04), 0 8px 24px rgb(23 26 31 / 0.05);
 }
@@ -173,7 +185,7 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif;
+  font-family: ${GUIDE_EXPORT_THEME.fontFamily};
   font-size: 16px;
   line-height: 1.75;
   -webkit-font-smoothing: antialiased;
@@ -300,12 +312,12 @@ img {
     --canvas: #ffffff;
     --surface: #ffffff;
     --surface-muted: #ffffff;
-    --text: #111111;
-    --text-secondary: #333333;
-    --text-muted: #555555;
-    --line: #c8c8c8;
-    --line-soft: #dcdcdc;
-    --accent: #2f4d9e;
+    --text: ${PRINT_TEXT};
+    --text-secondary: ${PRINT_TEXT_SECONDARY};
+    --text-muted: ${PRINT_TEXT_MUTED};
+    --line: ${PRINT_LINE};
+    --line-soft: ${PRINT_LINE_SOFT};
+    --accent: ${PRINT_ACCENT};
     --accent-contrast: #ffffff;
     --card-shadow: none;
   }
@@ -316,7 +328,7 @@ img {
     margin-bottom: 18pt;
     padding: 0 0 12pt;
     border: 0;
-    border-bottom: 2pt solid #111111;
+    border-bottom: 2pt solid ${PRINT_TEXT};
     border-radius: 0;
   }
   .guide-section-heading { break-after: avoid; page-break-after: avoid; }

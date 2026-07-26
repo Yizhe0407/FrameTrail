@@ -4,17 +4,17 @@ import {
   DEFAULT_DESCRIPTION,
   DEFAULT_TITLE,
   GUIDE_EXPORT_LIMITS,
+  GUIDE_EXPORT_THEME,
   GuideExportLimitError,
   IMAGE_MIME_TYPE,
   formatGuideCreatedAt,
-  getSignal,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportControl,
   type GuideExportMetadata,
+  type GuideExportOptions,
 } from './guide-export-contract';
-import { renderEntryImages, type RenderedEntryContent } from './guide-export-render';
+import { renderEntryImages } from './guide-export-render';
 
 /**
  * Generates a local PDF using a hybrid raster pipeline: text and decorations
@@ -32,28 +32,18 @@ import { renderEntryImages, type RenderedEntryContent } from './guide-export-ren
 export async function generateGuidePdf(
   entries: readonly StepEntry[],
   metadata: GuideExportMetadata = {},
-  control?: GuideExportControl,
+  options: GuideExportOptions = {},
 ): Promise<Blob> {
-  const signal = getSignal(control);
+  const { signal } = options;
   throwIfAborted(signal);
   const { PDFDocument } = await import('pdf-lib');
   throwIfAborted(signal);
   const document = await PDFDocument.create();
-  let pageCount = 0;
-  let pageImageBytes = 0;
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
+  // Pure embed callback: page/byte accounting and limit checks live in the
+  // paginator, which verifies the budget before handing a page over.
   const paginator = new GuidePdfPaginator(async (jpegBytes, screenshots) => {
     throwIfAborted(signal);
-    pageCount += 1;
-    pageImageBytes += jpegBytes.byteLength;
-    for (const screenshot of screenshots) pageImageBytes += screenshot.bytes.byteLength;
-    if (pageCount > GUIDE_EXPORT_LIMITS.maxPdfPages) {
-      throw new GuideExportLimitError('Guide PDF exceeds the page limit.');
-    }
-    if (pageImageBytes > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
-      throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
-    }
-
     const embedded = await document.embedJpg(jpegBytes);
     const page = document.addPage([PDF_PAGE_WIDTH_POINTS, PDF_PAGE_HEIGHT_POINTS]);
     page.drawImage(embedded, {
@@ -76,7 +66,7 @@ export async function generateGuidePdf(
     }
   }, title, signal);
 
-  await paginator.addRule(0, 26, 8, PDF_COLOR_ACCENT, 120);
+  await paginator.addRule(0, PDF_KICKER_GAP_AFTER, PDF_KICKER_THICKNESS, PDF_COLOR_ACCENT, PDF_KICKER_WIDTH);
   await paginator.addParagraph(title, PDF_TITLE_TEXT);
   const guideDescription = textValue(metadata.description);
   if (guideDescription) await paginator.addParagraph(guideDescription, PDF_GUIDE_DESCRIPTION_TEXT);
@@ -84,7 +74,7 @@ export async function generateGuidePdf(
   const createdAt = formatGuideCreatedAt(metadata.createdAt);
   if (createdAt) metaParts.push(`建立於 ${createdAt}`);
   await paginator.addParagraph(metaParts.join(' · '), PDF_META_TEXT);
-  await paginator.addRule(0, 34, 2, PDF_COLOR_RULE);
+  await paginator.addRule(0, PDF_HEADER_RULE_GAP_AFTER, PDF_HEADER_RULE_THICKNESS, PDF_COLOR_RULE);
 
   const sections = sectionsByStartEntry(metadata.sections, entries);
   let renderedCount = 0;
@@ -97,7 +87,11 @@ export async function generateGuidePdf(
       textOrDefault(rendered.content.description, DEFAULT_DESCRIPTION),
     );
     await paginator.addImage(rendered.imageBytes);
-    await addPdfAnnotations(paginator, rendered.content);
+    // The entry description is already the step heading; only group
+    // annotations remain to be listed under the screenshot.
+    for (const [index, annotation] of rendered.content.annotations.entries()) {
+      await paginator.addNumberedParagraph(index + 1, annotation.description);
+    }
     renderedCount += 1;
   }
   await paginator.finish();
@@ -131,6 +125,8 @@ const PDF_POINTS_PER_PIXEL_Y = PDF_PAGE_HEIGHT_POINTS / PDF_PAGE_HEIGHT;
  * composited JPEG bytes untouched, so no re-encode happens at all.
  */
 const PDF_SCREENSHOT_JPEG_QUALITY = 0.92;
+/** Page rasters carry text and hairlines only; 0.9 keeps them artifact-free. */
+const PDF_PAGE_RASTER_JPEG_QUALITY = 0.9;
 const PDF_MARGIN = 84;
 const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
 /** Content stops above the footer zone so steps never collide with it. */
@@ -139,13 +135,37 @@ const PDF_FOOTER_RULE_Y = PDF_PAGE_HEIGHT - 112;
 const PDF_FOOTER_TEXT_Y = PDF_PAGE_HEIGHT - 92;
 const PDF_STEP_BADGE_SIZE = 56;
 const PDF_STEP_BADGE_GAP = 24;
-const PDF_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+/** Digit size inside the step badge; independent of the title's text style. */
+const PDF_STEP_BADGE_FONT_SIZE = 26;
+/** Accent kicker above the title: a short thick rule acting as the brand mark. */
+const PDF_KICKER_WIDTH = 120;
+const PDF_KICKER_THICKNESS = 8;
+const PDF_KICKER_GAP_AFTER = 26;
+/** Hairline closing the title block before the first step. */
+const PDF_HEADER_RULE_THICKNESS = 2;
+const PDF_HEADER_RULE_GAP_AFTER = 34;
+/** Minimum room left on the page before a screenshot moves to the next one. */
+const PDF_IMAGE_MIN_SPACE = 360;
+/** A screenshot may always claim at least this much height after the break check. */
+const PDF_IMAGE_MIN_HEIGHT = 320;
+/** Cap so a tall capture never swallows the whole page. */
+const PDF_IMAGE_MAX_HEIGHT = 1_040;
+/** Clearance kept between the screenshot block and the content bottom. */
+const PDF_IMAGE_BOTTOM_CLEARANCE = 8;
+/** Vertical gap between the screenshot border and whatever follows it. */
+const PDF_IMAGE_GAP_AFTER = 30;
+const PDF_IMAGE_BORDER_WIDTH = 2;
+const PDF_FOOTER_FONT_SIZE = 22;
+const PDF_FOOTER_RULE_THICKNESS = 2;
+/** Minimum gap between the footer title and the right-aligned page number. */
+const PDF_FOOTER_TITLE_GAP = 40;
+const PDF_FONT_FAMILY = GUIDE_EXPORT_THEME.fontFamily;
 
-const PDF_COLOR_TEXT = '#1d2129';
-const PDF_COLOR_SECONDARY = '#454d59';
-const PDF_COLOR_MUTED = '#6d7585';
-const PDF_COLOR_ACCENT = '#3e63c4';
-const PDF_COLOR_RULE = '#e2e5ea';
+const PDF_COLOR_TEXT = GUIDE_EXPORT_THEME.text;
+const PDF_COLOR_SECONDARY = GUIDE_EXPORT_THEME.secondaryText;
+const PDF_COLOR_MUTED = GUIDE_EXPORT_THEME.mutedText;
+const PDF_COLOR_ACCENT = GUIDE_EXPORT_THEME.accent;
+const PDF_COLOR_RULE = GUIDE_EXPORT_THEME.rule;
 const PDF_COLOR_IMAGE_BORDER = '#d6dae1';
 
 type PdfTextStyle = {
@@ -226,7 +246,9 @@ class GuidePdfPaginator {
   private hasContent = false;
   private pageNumber = 0;
   private pageScreenshots: PdfPageScreenshot[] = [];
-  /** Bytes already handed to emitPage (page rasters plus embedded screenshots). */
+  /** Bytes already committed to the document (page rasters plus embedded
+   * screenshots). Together with pageNumber this is the single place the
+   * document's size and page budgets are tracked and enforced. */
   private committedBytes = 0;
 
   constructor(
@@ -245,10 +267,11 @@ class GuidePdfPaginator {
   }
 
   async addParagraph(text: string, style: PdfTextStyle): Promise<void> {
-    const normalized = textValue(text).replace(/\r\n?/g, '\n');
-    if (!normalized) return;
+    const content = textValue(text);
+    if (!content) return;
     this.applyTextStyle(style);
-    const lines = wrapPdfText(this.context, normalized, PDF_CONTENT_WIDTH, this.signal);
+    // Line-break normalization happens once, inside wrapPdfText.
+    const lines = wrapPdfText(this.context, content, PDF_CONTENT_WIDTH, this.signal);
     let pendingGap = style.gapBefore;
 
     for (const line of lines) {
@@ -349,11 +372,14 @@ class GuidePdfPaginator {
     const bitmap = await createImageBitmap(new Blob([imageBytes as Uint8Array<ArrayBuffer>], { type: IMAGE_MIME_TYPE }));
     try {
       throwIfAborted(this.signal);
-      if (PDF_CONTENT_BOTTOM - this.cursorY < 360) await this.startNewPage();
-      const availableHeight = Math.max(320, PDF_CONTENT_BOTTOM - this.cursorY - 8);
+      if (PDF_CONTENT_BOTTOM - this.cursorY < PDF_IMAGE_MIN_SPACE) await this.startNewPage();
+      const availableHeight = Math.max(
+        PDF_IMAGE_MIN_HEIGHT,
+        PDF_CONTENT_BOTTOM - this.cursorY - PDF_IMAGE_BOTTOM_CLEARANCE,
+      );
       const scale = Math.min(
         PDF_CONTENT_WIDTH / Math.max(1, bitmap.width),
-        Math.min(1_040, availableHeight) / Math.max(1, bitmap.height),
+        Math.min(PDF_IMAGE_MAX_HEIGHT, availableHeight) / Math.max(1, bitmap.height),
         1,
       );
       const width = Math.max(1, bitmap.width * scale);
@@ -370,9 +396,15 @@ class GuidePdfPaginator {
         this.context.drawImage(bitmap, x, y, width, height);
       }
       this.context.strokeStyle = PDF_COLOR_IMAGE_BORDER;
-      this.context.lineWidth = 2;
-      this.context.strokeRect(x - 1, y - 1, width + 2, height + 2);
-      this.cursorY += height + 30;
+      this.context.lineWidth = PDF_IMAGE_BORDER_WIDTH;
+      // The border straddles the image edge: offset by half its width outward.
+      this.context.strokeRect(
+        x - PDF_IMAGE_BORDER_WIDTH / 2,
+        y - PDF_IMAGE_BORDER_WIDTH / 2,
+        width + PDF_IMAGE_BORDER_WIDTH,
+        height + PDF_IMAGE_BORDER_WIDTH,
+      );
+      this.cursorY += height + PDF_IMAGE_GAP_AFTER;
       this.hasContent = true;
     } finally {
       bitmap.close();
@@ -445,7 +477,7 @@ class GuidePdfPaginator {
     context.arc(centerX, centerY, radius, 0, Math.PI * 2);
     context.fillStyle = PDF_COLOR_ACCENT;
     context.fill();
-    context.font = `700 26px ${PDF_FONT_FAMILY}`;
+    context.font = `700 ${PDF_STEP_BADGE_FONT_SIZE}px ${PDF_FONT_FAMILY}`;
     context.fillStyle = '#ffffff';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -458,14 +490,14 @@ class GuidePdfPaginator {
   private drawFooter(): void {
     const context = this.context;
     context.fillStyle = PDF_COLOR_RULE;
-    context.fillRect(PDF_MARGIN, PDF_FOOTER_RULE_Y, PDF_CONTENT_WIDTH, 2);
-    context.font = `400 22px ${PDF_FONT_FAMILY}`;
+    context.fillRect(PDF_MARGIN, PDF_FOOTER_RULE_Y, PDF_CONTENT_WIDTH, PDF_FOOTER_RULE_THICKNESS);
+    context.font = `400 ${PDF_FOOTER_FONT_SIZE}px ${PDF_FONT_FAMILY}`;
     context.fillStyle = PDF_COLOR_MUTED;
     context.textBaseline = 'top';
     context.textAlign = 'left';
     const pageLabel = `第 ${this.pageNumber} 頁`;
     const pageLabelWidth = context.measureText(pageLabel).width;
-    const maxTitleWidth = Math.max(0, PDF_CONTENT_WIDTH - pageLabelWidth - 40);
+    const maxTitleWidth = Math.max(0, PDF_CONTENT_WIDTH - pageLabelWidth - PDF_FOOTER_TITLE_GAP);
     context.fillText(truncatePdfText(context, this.footerTitle, maxTitleWidth), PDF_MARGIN, PDF_FOOTER_TEXT_Y);
     context.fillText(pageLabel, PDF_PAGE_WIDTH - PDF_MARGIN - pageLabelWidth, PDF_FOOTER_TEXT_Y);
   }
@@ -474,16 +506,29 @@ class GuidePdfPaginator {
     throwIfAborted(this.signal);
     this.pageNumber += 1;
     this.drawFooter();
-    const blob = await this.canvas.convertToBlob({ type: IMAGE_MIME_TYPE, quality: 0.9 });
+    const blob = await this.canvas.convertToBlob({ type: IMAGE_MIME_TYPE, quality: PDF_PAGE_RASTER_JPEG_QUALITY });
     throwIfAborted(this.signal);
     const pageBytes = new Uint8Array(await blob.arrayBuffer());
     const screenshots = this.pageScreenshots;
     this.committedBytes += pageBytes.byteLength;
     for (const screenshot of screenshots) this.committedBytes += screenshot.bytes.byteLength;
     this.pageScreenshots = [];
+    this.assertWithinBudget();
     await this.emitPage(pageBytes, screenshots);
     throwIfAborted(this.signal);
     this.resetPage();
+  }
+
+  /** Single enforcement point for the document budgets: every finished page's
+   * raster and screenshot bytes are committed before this check, so no code
+   * path can hand bytes to the document without passing it. */
+  private assertWithinBudget(): void {
+    if (this.pageNumber > GUIDE_EXPORT_LIMITS.maxPdfPages) {
+      throw new GuideExportLimitError('Guide PDF exceeds the page limit.');
+    }
+    if (this.committedBytes > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
+      throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
+    }
   }
 
   private resetPage(): void {
@@ -498,17 +543,6 @@ class GuidePdfPaginator {
     this.context.fillRect(0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT);
     this.cursorY = PDF_MARGIN;
     this.hasContent = false;
-  }
-}
-
-async function addPdfAnnotations(
-  paginator: GuidePdfPaginator,
-  entry: RenderedEntryContent,
-): Promise<void> {
-  // The entry description is already rendered as the step heading; only group
-  // annotations remain to be listed under the screenshot.
-  for (const [index, annotation] of entry.annotations.entries()) {
-    await paginator.addNumberedParagraph(index + 1, annotation.description);
   }
 }
 

@@ -1,6 +1,7 @@
 /**
- * Public annotation API. Layout and raster composition stay in separate modules
- * so browser preview geometry and export rendering can evolve independently.
+ * Public annotation API. Contract constants, geometry, layout, and raster
+ * composition stay in separate modules so browser preview geometry and export
+ * rendering can evolve independently.
  */
 export {
   BADGE_FONT_FAMILY,
@@ -19,13 +20,13 @@ export {
   MARKER_RING_WIDTH,
   REDACTION_COLOR,
   REDACTION_EXPANSION,
-  fitHighlightFrame,
-  getBadgeFontSize,
-  layoutAnnotations,
+  isDrawableHighlightFrame,
   type Annotation,
   type AnnotationLayout,
   type AnnotationPoint,
-} from './annotation-layout';
+} from './annotation-contract';
+export { fitHighlightFrame, getBadgeFontSize } from './annotation-geometry';
+export { layoutAnnotations } from './annotation-layout';
 export {
   compositeHighlight,
   compositeMultiHighlight,

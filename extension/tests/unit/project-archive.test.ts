@@ -12,6 +12,7 @@ import {
   importProjectArchive,
   serializeProjectArchive,
 } from '@/lib/export/project-archive';
+import { STEP_KEYS } from '@/lib/export/project-archive-contract';
 
 function pngBlob(width = 2, height = 2): Blob {
   const bytes = new Uint8Array(24);
@@ -124,6 +125,38 @@ describe('project archive', () => {
     }
     expect(restored[0].description).toContain('onerror=');
     expect((globalThis as { executed?: boolean }).executed).toBeUndefined();
+  });
+
+  it('serializes every field declared in STEP_KEYS instead of silently dropping it', async () => {
+    // Between the three steps, every archivable field is populated:
+    // screenshotBlobId on blob owners, group fields on the snapshot pair, and
+    // every optional scalar on the ordinary step.
+    const full = makeStep({
+      id: 'full',
+      runId: 'run-1',
+      manualBounds: { x: 1, y: 2, width: 3, height: 4 },
+      redactions: [{ id: 'mask-1', kind: 'solid', bounds: { x: 2, y: 3, width: 4, height: 5 } }],
+      redactionReviewRequired: false,
+      screenshotScale: 1.5,
+      captureRevision: 3,
+      lastCaptureRunId: 'capture-run-3',
+    });
+    const anchor = makeStep({ id: 'anchor', order: 1, bounds: null, groupId: 'anchor', numbered: true });
+    const annotation = makeStep({
+      id: 'annotation',
+      order: 2,
+      screenshotBlob: undefined,
+      groupId: 'anchor',
+      numbered: true,
+    });
+
+    const archive = await archiveObject([full, anchor, annotation]);
+    const serializedKeys = new Set<string>(
+      archive.manifest.steps.flatMap((step: Record<string, unknown>) => Object.keys(step)),
+    );
+
+    // A serializer that silently drops a STEP_KEYS field would fail here.
+    expect([...serializedKeys].sort()).toEqual([...STEP_KEYS].sort());
   });
 
   it('produces deterministic canonical JSON regardless of input step order', async () => {

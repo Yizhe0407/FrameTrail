@@ -1,13 +1,17 @@
 import { downloadBlobViaBrowser } from './download-utils';
 import { throwIfAborted } from '../shared/abort';
 import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/db';
+import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { renderEntryImages, type EntryImageBudget } from './guide-export-render';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 
+/** Derived from the persisted-step limits so every stored guide stays
+ * exportable; the total allows twice the persisted screenshot payload because
+ * annotated re-encodes can exceed their raw sources. */
 export const IMAGE_ZIP_EXPORT_LIMITS = Object.freeze({
-  maxEntries: 2_000,
-  maxImageBytes: 16 * 1024 * 1024,
-  maxTotalImageBytes: 128 * 1024 * 1024,
+  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxImageBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
+  maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });
 
 export class ImageZipExportLimitError extends Error {
