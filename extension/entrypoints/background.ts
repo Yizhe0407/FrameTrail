@@ -910,8 +910,9 @@ function isFollowableTab(tab: Browser.tabs.Tab): boolean {
  * Follow-the-user recording: while a steps run is live and the user activates
  * a different eligible tab, the run moves there instead of silently dropping
  * every click. Snapshot mode never follows (its coordinates belong to one
- * frozen document), and without the <all_urls> grant (the popup's 跨頁錄製
- * toggle) the run keeps its original single-tab behavior. An ineligible tab
+ * frozen document), and without the <all_urls> grant (asked once at the first
+ * steps start, or opted into later via the popup's 「啟用跨分頁錄製」 link)
+ * the run keeps its original single-tab behavior. An ineligible tab
  * (restricted/extension page) moves nothing: the recording stays on the
  * previous tab, toolbar and all, until an eligible tab is activated.
  */

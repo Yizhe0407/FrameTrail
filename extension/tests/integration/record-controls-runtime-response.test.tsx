@@ -17,9 +17,10 @@ vi.mock('wxt/browser', () => ({
     },
     tabs: { query: mocks.query },
     permissions: {
-      contains: vi.fn(),
+      contains: vi.fn().mockResolvedValue(true),
       request: vi.fn(),
     },
+    storage: { local: { get: vi.fn().mockResolvedValue({}), set: vi.fn(), remove: vi.fn() } },
   },
 }));
 vi.mock('@/lib/guide/guide-actions', () => ({ ensureSelectedGuide: mocks.ensureSelectedGuide }));

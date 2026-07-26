@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { AlertCircle, ExternalLink, Info, Loader2, PencilLine } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, PencilLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/shared/utils';
 import type { RecordingMode, RecordingState, StartRecordingResult } from '@/lib/runtime/messages';
 import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import { isStartRecordingResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import {
+  clearCrossTabRecordingDecline,
+  hasDeclinedCrossTabRecording,
+  markCrossTabRecordingDeclined,
+} from '@/lib/runtime/cross-tab-recording';
 
 interface Props {
   recording: RecordingState;
@@ -41,10 +45,12 @@ export default function RecordControls({
   className,
 }: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
-  const [crossPage, setCrossPage] = useState(false);
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
-  const [permissionNotice, setPermissionNotice] = useState<string | null>(null);
+  // null until the mount probe resolves, so the single-tab hint never flashes
+  // for users who already granted <all_urls>.
+  const [crossTabGranted, setCrossTabGranted] = useState<boolean | null>(null);
+  const [crossTabDeclined, setCrossTabDeclined] = useState(false);
   const [restrictedPage, setRestrictedPage] = useState(false);
 
   useEffect(() => {
@@ -68,17 +74,25 @@ export default function RecordControls({
     };
   }, []);
 
-  // The toggle mirrors the persisted <all_urls> grant: the background reads
-  // host permissions directly, so starting `false` while the grant exists
-  // would only make the control lie about what the next run can reach.
+  // Pre-load both facts the start handler needs, because it must decide
+  // synchronously: the background reads the persisted <all_urls> grant
+  // directly at runtime, and Firefox only honours permissions.request as the
+  // first await of a direct user-input handler — no room to probe there.
   useEffect(() => {
     let disposed = false;
     void (async () => {
       try {
-        const granted = await browser.permissions.contains({ origins: ['<all_urls>'] });
-        if (!disposed && granted) setCrossPage(true);
+        const [granted, declined] = await Promise.all([
+          browser.permissions.contains({ origins: ['<all_urls>'] }),
+          hasDeclinedCrossTabRecording(),
+        ]);
+        if (!disposed) {
+          setCrossTabGranted(granted);
+          setCrossTabDeclined(declined);
+        }
       } catch (error) {
-        console.warn('讀取跨頁錄製權限失敗', error);
+        console.warn('讀取跨分頁錄製權限失敗', error);
+        if (!disposed) setCrossTabGranted(false);
       }
     })();
     return () => {
@@ -86,33 +100,24 @@ export default function RecordControls({
     };
   }, []);
 
-  async function requestCrossPagePermission(): Promise<boolean> {
+  /**
+   * Must stay the first await of the calling user-input handler: Firefox only
+   * honours permissions.request inside the direct handler. The decline flag is
+   * persisted so an automatic ask happens at most once; a later grant clears
+   * it so a revoked-then-reconsidered user gets the automatic ask again.
+   */
+  async function requestCrossTabPermission(): Promise<boolean> {
     try {
       const granted = await browser.permissions.request({ origins: ['<all_urls>'] });
-      if (!granted) {
-        setCrossPage(false);
-        setPermissionNotice('仍可錄製目前頁面');
-      } else {
-        setPermissionNotice(null);
-      }
+      setCrossTabGranted(granted);
+      setCrossTabDeclined(!granted);
+      if (granted) await clearCrossTabRecordingDecline();
+      else await markCrossTabRecordingDeclined();
       return granted;
     } catch (error) {
-      console.warn('請求跨頁錄製權限失敗', error);
-      setCrossPage(false);
-      setPermissionNotice('仍可錄製目前頁面');
+      console.warn('請求跨分頁錄製權限失敗', error);
       return false;
     }
-  }
-
-  async function handleCrossPageChange(checked: boolean) {
-    if (!checked) {
-      setCrossPage(false);
-      setPermissionNotice(null);
-      return;
-    }
-    setControlError(null);
-    const granted = await requestCrossPagePermission();
-    setCrossPage(granted);
   }
 
   async function start() {
@@ -120,12 +125,14 @@ export default function RecordControls({
     setPending(true);
     setControlError(null);
     try {
-      // The grant itself is what widens the run's reach; the background reads
-      // host permissions directly, so no scope flag travels with the message.
-      // Requesting resolves without a prompt when the grant already exists,
-      // and it must be the first await here: Firefox only honours
-      // permissions.request inside the direct user-input handler.
-      if (crossPage) await requestCrossPagePermission();
+      // One-time ask at the first steps start: the grant itself is what widens
+      // the run's reach (the background reads host permissions directly, so no
+      // scope flag travels with the message). A decline is remembered and the
+      // run simply continues single-tab. This must be the first await here —
+      // see requestCrossTabPermission.
+      if (mode === 'steps' && crossTabGranted !== true && !crossTabDeclined) {
+        await requestCrossTabPermission();
+      }
       const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (isRestrictedUrl(activeTab?.url)) {
         setRestrictedPage(true);
@@ -248,12 +255,6 @@ export default function RecordControls({
 
   return (
     <div className={cn('flex flex-col gap-[18px]', className)}>
-      {permissionNotice && (
-        <p role="status" className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs leading-[18px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-          <Info className="mt-0.5 size-4 shrink-0" />
-          <span>{permissionNotice}</span>
-        </p>
-      )}
       {controlError && (
         <p role="alert" className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs leading-[18px] text-destructive">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
@@ -289,16 +290,22 @@ export default function RecordControls({
         <p className="mt-[10px] mx-[2px] mb-0 text-[11.5px] leading-[1.7] text-muted-foreground/80 dark:text-white/45">
           {activeMode.description}
         </p>
-      </div>
-
-      <div className="rounded-md border border-border/80 px-3 dark:border-white/10">
-        <label className="flex min-h-11 items-center justify-between gap-3 py-2 text-xs font-medium text-foreground dark:text-white">
-          <span className="min-w-0">
-            <span className="block">跨頁錄製</span>
-            <span className="block text-[11px] font-normal text-muted-foreground">錄製會跟著你切換的分頁</span>
-          </span>
-          <Switch checked={crossPage} onCheckedChange={(checked) => void handleCrossPageChange(checked)} disabled={pending} />
-        </label>
+        {/* Passive affordance, never a nag: shown whenever the grant is absent
+            (even after a remembered decline), and the request runs directly in
+            the click handler so the browser accepts it as a user gesture. */}
+        {mode === 'steps' && crossTabGranted === false && (
+          <p className="mt-[6px] mx-[2px] mb-0 text-[11px] leading-[1.7] text-muted-foreground/60 dark:text-white/35">
+            目前僅錄製單一分頁。
+            <button
+              type="button"
+              onClick={() => void requestCrossTabPermission()}
+              disabled={pending}
+              className="ml-[2px] rounded-sm underline underline-offset-2 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none dark:hover:text-white"
+            >
+              啟用跨分頁錄製
+            </button>
+          </p>
+        )}
       </div>
 
       {restrictedPage && (

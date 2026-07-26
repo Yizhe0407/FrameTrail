@@ -2,13 +2,14 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), permissionsContains: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), permissionsContains: vi.fn(), storageGet: vi.fn() }));
 
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { getURL: (path: string) => `chrome-extension://frame${path}` },
     tabs: { query: mocks.query },
     permissions: { contains: mocks.permissionsContains, request: vi.fn() },
+    storage: { local: { get: mocks.storageGet, set: vi.fn(), remove: vi.fn() } },
   },
 }));
 
@@ -41,6 +42,8 @@ beforeEach(() => {
   mocks.query.mockResolvedValue([{ id: 1, url: 'https://example.com' }]);
   mocks.permissionsContains.mockReset();
   mocks.permissionsContains.mockResolvedValue(false);
+  mocks.storageGet.mockReset();
+  mocks.storageGet.mockResolvedValue({});
 });
 
 afterEach(cleanup);
