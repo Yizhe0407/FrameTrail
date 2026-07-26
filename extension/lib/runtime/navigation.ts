@@ -13,6 +13,18 @@ export function getEditorSessionIdFromUrl(url: string | URL): string | null {
   }
 }
 
+/**
+ * Brings a tab to the foreground: activates it, then focuses its window when
+ * one is known. Activating first is the safe ordering — if the window focus
+ * call fails (window closed mid-flight), the tab is still selected inside its
+ * window. Callers without a windowId simply skip the window focus rather than
+ * passing a guessed one.
+ */
+export async function focusTab(tabId: number, windowId?: number | null): Promise<void> {
+  await browser.tabs.update(tabId, { active: true });
+  if (windowId != null) await browser.windows.update(windowId, { focused: true });
+}
+
 async function openOrFocusExtensionPage(path: '/library.html'): Promise<void> {
   const url = browser.runtime.getURL(path);
   // Prefix match, like openOrFocusEditor: an exact-URL comparison misses tabs
@@ -20,8 +32,7 @@ async function openOrFocusExtensionPage(path: '/library.html'): Promise<void> {
   const tabs = await browser.tabs.query({ url: `${url}*` });
   const existing = tabs.find((tab) => tab.id != null);
   if (existing?.id != null) {
-    await browser.tabs.update(existing.id, { active: true });
-    if (existing.windowId != null) await browser.windows.update(existing.windowId, { focused: true });
+    await focusTab(existing.id, existing.windowId);
     return;
   }
   await browser.tabs.create({ url });

@@ -2,9 +2,11 @@ import {
   assertMutationItems,
   getEffectiveBounds,
   sanitizeStepForStorage,
+  stepRole,
   type Bounds,
   type Step,
 } from './models';
+import type { StepRecaptureTarget } from '../runtime/messages';
 import {
   refreshGuideSummary,
   requireWritableGuide,
@@ -45,9 +47,11 @@ export interface CaptureReplacement {
   timestamp: number;
 }
 
-export type StepRecaptureTarget =
-  | { kind: 'single'; stepId: string }
-  | { kind: 'snapshot-singleton'; anchorId: string; annotationId: string };
+// Canonical home is the shared message contract: the same target shape rides
+// the recapture runtime messages end to end. lib/storage already depends on
+// lib/runtime/messages (see storage.ts), so re-exporting keeps the db facade
+// stable without a second declaration that could drift.
+export type { StepRecaptureTarget } from '../runtime/messages';
 
 export class StepRecaptureError extends Error {
   constructor(
@@ -149,7 +153,7 @@ export async function replaceStepCaptureAtomically(
       if (!step || step.sessionId !== sessionId) {
         throw new StepRecaptureError('TARGET_NOT_FOUND', 'The step no longer exists.');
       }
-      if (step.groupId) {
+      if (stepRole(step) !== 'ordinary') {
         throw new StepRecaptureError('TARGET_CHANGED', 'The step is no longer an ordinary step.');
       }
       const captureRevision = (step.captureRevision ?? 0) + 1;
@@ -172,16 +176,16 @@ export async function replaceStepCaptureAtomically(
       throw new StepRecaptureError('TARGET_NOT_FOUND', 'The snapshot no longer exists.');
     }
     if (
-      anchor.groupId !== anchor.id ||
+      stepRole(anchor) !== 'anchor' ||
       annotation.groupId !== anchor.id ||
-      annotation.id === anchor.id ||
+      stepRole(annotation) !== 'annotation' ||
       !anchor.screenshotBlob
     ) {
       throw new StepRecaptureError('TARGET_CHANGED', 'The snapshot structure changed before recapture.');
     }
     const sessionSteps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
     const annotations = sessionSteps.filter(
-      (step) => step.groupId === anchor.id && step.id !== anchor.id && getEffectiveBounds(step),
+      (step) => step.groupId === anchor.id && stepRole(step) === 'annotation' && getEffectiveBounds(step),
     );
     if (annotations.length !== 1 || annotations[0].id !== annotation.id) {
       throw new StepRecaptureError(

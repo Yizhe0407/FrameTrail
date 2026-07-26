@@ -229,12 +229,18 @@ export interface PreflightStepRecaptureSourcePermissionMessage {
   target: StepRecaptureTarget;
 }
 
+/** Single source of truth for the recapture-preflight failure codes; the
+ * result guard in runtime-message-result.ts validates against this same array. */
+export const RECAPTURE_PREFLIGHT_ERROR_CODES = [
+  'INVALID_EDITOR',
+  'TARGET_NOT_FOUND',
+  'TARGET_CHANGED',
+  'UNSUPPORTED_SNAPSHOT_GROUP',
+  'RESTRICTED_SOURCE',
+] as const;
+
 export type PreflightStepRecaptureSourcePermissionErrorCode =
-  | 'INVALID_EDITOR'
-  | 'TARGET_NOT_FOUND'
-  | 'TARGET_CHANGED'
-  | 'UNSUPPORTED_SNAPSHOT_GROUP'
-  | 'RESTRICTED_SOURCE';
+  (typeof RECAPTURE_PREFLIGHT_ERROR_CODES)[number];
 
 export type PreflightStepRecaptureSourcePermissionResult =
   | SourcePermissionPreflightSuccess
@@ -245,10 +251,14 @@ export interface PreflightGuideContinuationSourcePermissionMessage {
   sessionId: string;
 }
 
+export const CONTINUATION_PREFLIGHT_ERROR_CODES = [
+  'INVALID_EDITOR',
+  'SOURCE_NOT_FOUND',
+  'RESTRICTED_SOURCE',
+] as const;
+
 export type PreflightGuideContinuationSourcePermissionErrorCode =
-  | 'INVALID_EDITOR'
-  | 'SOURCE_NOT_FOUND'
-  | 'RESTRICTED_SOURCE';
+  (typeof CONTINUATION_PREFLIGHT_ERROR_CODES)[number];
 
 export type PreflightGuideContinuationSourcePermissionResult =
   | SourcePermissionPreflightSuccess
@@ -262,16 +272,17 @@ export interface StartStepRecaptureMessage {
   preferredTabId?: number;
 }
 
-export type StartStepRecaptureErrorCode =
-  | 'ACTIVE_OPERATION'
-  | 'INVALID_EDITOR'
-  | 'TARGET_NOT_FOUND'
-  | 'TARGET_CHANGED'
-  | 'UNSUPPORTED_SNAPSHOT_GROUP'
-  | 'RESTRICTED_SOURCE'
-  | 'HOST_PERMISSION_REQUIRED'
-  | 'SOURCE_TAB_FAILED'
-  | 'INJECTION_FAILED';
+/** Superset of the preflight codes: START re-runs the preflight and adds the
+ * failure modes of actually taking over a source tab. */
+export const RECAPTURE_START_ERROR_CODES = [
+  'ACTIVE_OPERATION',
+  ...RECAPTURE_PREFLIGHT_ERROR_CODES,
+  'HOST_PERMISSION_REQUIRED',
+  'SOURCE_TAB_FAILED',
+  'INJECTION_FAILED',
+] as const;
+
+export type StartStepRecaptureErrorCode = (typeof RECAPTURE_START_ERROR_CODES)[number];
 
 export type StartStepRecaptureResult =
   | { ok: true; runId: string; tabId: number; reusedTab: boolean }

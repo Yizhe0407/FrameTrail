@@ -21,6 +21,20 @@ export const MARKER_RADIUS = 6;
 export const MARKER_RING_WIDTH = 2;
 export const MARKER_INNER_RADIUS = MARKER_RADIUS * 0.4;
 
+/**
+ * Whether a highlight frame is worth stroking at all. fitBoundsInViewport
+ * legitimately clamps out-of-viewport bounds to a zero or sliver-sized frame
+ * at the screenshot edge; stroking those paints a stray red hairline, and
+ * frames narrower than the stroke would give the inner roundRect negative
+ * dimensions. Real frames are always well above this after highlight padding
+ * inflation, so only clamped-to-edge degenerates are skipped — the raster
+ * compositor and the live thumbnail overlay must apply this same guard so
+ * preview and export stay consistent.
+ */
+export function isDrawableHighlightFrame(frame: { width: number; height: number }): boolean {
+  return frame.width >= HIGHLIGHT_LINE_WIDTH && frame.height >= HIGHLIGHT_LINE_WIDTH;
+}
+
 export interface AnnotationPoint {
   x: number;
   y: number;

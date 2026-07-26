@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   addStep: vi.fn(),
   deleteStep: vi.fn(),
   deleteStepsForRun: vi.fn(),
-  discardUntouchedGuide: vi.fn(),
+  discardPristineGuide: vi.fn(),
   getRecordingState: vi.fn(),
   setRecordingState: vi.fn(),
   permissionsContains: vi.fn(),
@@ -71,6 +71,7 @@ vi.mock('@/lib/storage/db', async (importOriginal) => {
     addStep: mocks.addStep,
     deleteStep: mocks.deleteStep,
     deleteStepsForRun: mocks.deleteStepsForRun,
+    discardPristineGuide: mocks.discardPristineGuide,
   };
 });
 
@@ -83,12 +84,9 @@ vi.mock('@/lib/storage/storage', async (importOriginal) => {
   };
 });
 
-// The reclaim guard itself (only untouched shells are deleted) is covered by
-// tests/unit/guide-actions.test.ts; here only the routing matters: which run
-// endings hand the guide to it and which never do.
-vi.mock('@/lib/guide/guide-actions', () => ({
-  discardUntouchedGuide: mocks.discardUntouchedGuide,
-}));
+// The reclaim guard itself (only pristine shells are deleted) is covered by
+// tests/integration/db-pristine-guide.test.ts; here only the routing matters:
+// which run endings hand the guide to it and which never do.
 
 vi.mock('@/lib/recording/background/pending-undo-store', () => ({
   savePendingUndoRecord: mocks.savePendingUndoRecord,
@@ -161,7 +159,7 @@ beforeEach(() => {
   mocks.permissionsContains.mockResolvedValue(true);
   mocks.getSteps.mockResolvedValue([]);
   mocks.deleteStepsForRun.mockResolvedValue(undefined);
-  mocks.discardUntouchedGuide.mockResolvedValue(true);
+  mocks.discardPristineGuide.mockResolvedValue(true);
   mocks.tabsGet.mockResolvedValue(RECORDED_TAB);
   mocks.tabsQuery.mockResolvedValue([]);
   mocks.tabsCreate.mockResolvedValue({ id: 77, windowId: 1 });
@@ -183,7 +181,7 @@ describe('empty auto-created guide reclamation at run end', () => {
 
     await dispatch({ type: 'STOP_RECORDING' });
 
-    expect(mocks.discardUntouchedGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
+    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
     expect(storedState.isRecording).toBe(false);
     expect(storedState.autoCreatedGuideId).toBeNull();
   });
@@ -195,7 +193,7 @@ describe('empty auto-created guide reclamation at run end', () => {
     await dispatch({ type: 'STOP_RECORDING' });
 
     expect(storedState.isRecording).toBe(false);
-    expect(mocks.discardUntouchedGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
   it('ignores a flag that does not match the run\'s own guide', async () => {
@@ -205,7 +203,7 @@ describe('empty auto-created guide reclamation at run end', () => {
 
     await dispatch({ type: 'STOP_RECORDING' });
 
-    expect(mocks.discardUntouchedGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
   it('reclaims after 放棄 (DISCARD) removed the run\'s steps', async () => {
@@ -217,7 +215,7 @@ describe('empty auto-created guide reclamation at run end', () => {
 
     expect(result).toEqual({ ok: true });
     expect(mocks.deleteStepsForRun).toHaveBeenCalledWith('guide-a', 'run-1');
-    expect(mocks.discardUntouchedGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
+    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
   });
 
   it('keeps the guide on FINISH even at zero items: the editor is about to open it', async () => {
@@ -232,6 +230,6 @@ describe('empty auto-created guide reclamation at run end', () => {
     expect(mocks.tabsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ url: expect.stringContaining('sessionId=guide-a') }),
     );
-    expect(mocks.discardUntouchedGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 });

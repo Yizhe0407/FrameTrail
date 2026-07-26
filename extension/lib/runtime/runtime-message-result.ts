@@ -11,6 +11,13 @@ import type {
   StartStepRecaptureResult,
   StepRecaptureTargetResult,
 } from './messages';
+// Error-code arrays live beside their result types in messages.ts so the
+// guard can never drift from the declared unions.
+import {
+  CONTINUATION_PREFLIGHT_ERROR_CODES,
+  RECAPTURE_PREFLIGHT_ERROR_CODES,
+  RECAPTURE_START_ERROR_CODES,
+} from './messages';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 
 export type RuntimeMessageResultGuard<T> = (value: unknown) => value is T;
@@ -68,37 +75,17 @@ function isSourcePermissionPreflightSuccess(
   );
 }
 
-
-const RECAPTURE_PREFLIGHT_ERROR_CODES = [
-  'INVALID_EDITOR',
-  'TARGET_NOT_FOUND',
-  'TARGET_CHANGED',
-  'UNSUPPORTED_SNAPSHOT_GROUP',
-  'RESTRICTED_SOURCE',
-] as const;
-
-
-const CONTINUATION_PREFLIGHT_ERROR_CODES = [
-  'INVALID_EDITOR',
-  'SOURCE_NOT_FOUND',
-  'RESTRICTED_SOURCE',
-] as const;
-
-
-const RECAPTURE_START_ERROR_CODES = [
-  'ACTIVE_OPERATION',
-  ...RECAPTURE_PREFLIGHT_ERROR_CODES,
-  'HOST_PERMISSION_REQUIRED',
-  'SOURCE_TAB_FAILED',
-  'INJECTION_FAILED',
-] as const;
+/** The shared `{ ok: false, error }` failure envelope, with no extra keys. */
+function isFailureResult(value: Record<string, unknown>): value is { ok: false; error: string } {
+  return value.ok === false && hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
+}
 
 export function isStartRecordingResult(value: unknown): value is StartRecordingResult {
   if (!isRecord(value)) return false;
   if (value.ok === true) {
     return hasOnlyKeys(value, ['ok', 'sessionId', 'runId']) && isId(value.sessionId) && isId(value.runId);
   }
-  return value.ok === false && hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
+  return isFailureResult(value);
 }
 
 export function isResetGuideResult(value: unknown): value is ResetGuideResult {
@@ -109,13 +96,13 @@ export function isResetGuideResult(value: unknown): value is ResetGuideResult {
       (value.contentRevision === undefined || isSafeNonNegativeInteger(value.contentRevision))
     );
   }
-  return value.ok === false && hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
+  return isFailureResult(value);
 }
 
 export function isOpenEditorResult(value: unknown): value is OpenEditorResult {
   if (!isRecord(value)) return false;
   if (value.ok === true) return hasOnlyKeys(value, ['ok']);
-  return value.ok === false && hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
+  return isFailureResult(value);
 }
 
 function isFinishResult(value: unknown): boolean {
@@ -130,9 +117,7 @@ function isFinishResult(value: unknown): boolean {
 
 export function isRecordingControlResult(value: unknown): value is RecordingControlResult {
   if (!isRecord(value)) return false;
-  if (value.ok === false) {
-    return hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
-  }
+  if (value.ok === false) return isFailureResult(value);
   return (
     value.ok === true &&
     hasOnlyKeys(value, ['ok', 'undoToken', 'removedItemNumber', 'finish']) &&
@@ -202,7 +187,7 @@ export function isCancelStepRecaptureResult(value: unknown): value is CancelStep
       isOneOf(value.status, ['cancelled', 'already-completed'] as const)
     );
   }
-  return value.ok === false && hasOnlyKeys(value, ['ok', 'error']) && isErrorMessage(value.error);
+  return isFailureResult(value);
 }
 
 export function isClickCaptureResult(value: unknown): value is ClickCaptureResult {

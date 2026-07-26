@@ -33,6 +33,32 @@ export function createDefaultRecordingState(): RecordingState {
   return { ...DEFAULT_STATE };
 }
 
+/**
+ * Ends the current run by returning every run-scoped field to its idle
+ * default while preserving durable, non-run state: sessionId (the Guide the
+ * UI still targets), mode, numbered, and the recapture handoff fields
+ * (recapture/recaptureResult), which have their own lifecycle. This is the
+ * clean-stop shape; error stops differ deliberately (phase 'error' plus a
+ * message) and must keep hand-writing their fields.
+ */
+export function resetRunStateToIdle(current: RecordingState): RecordingState {
+  return {
+    ...current,
+    operation: null,
+    isRecording: false,
+    phase: 'idle',
+    tabId: null,
+    error: null,
+    recoverableError: null,
+    itemCount: 0,
+    groupAnchorId: null,
+    runId: null,
+    autoCreatedGuideId: null,
+    snapshotViewport: null,
+    snapshotDevicePixelRatio: null,
+  };
+}
+
 const MAX_STATE_ID_LENGTH = PERSISTED_STEP_LIMITS.maxIdLength;
 const MAX_STATE_VALUE_LENGTH = 512;
 const MAX_STATE_MESSAGE_LENGTH = 10_000;

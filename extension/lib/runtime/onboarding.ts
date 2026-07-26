@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { RecordingMode } from '@/lib/runtime/messages';
+import { createVersionedMarkerStore } from './versioned-marker-store';
 
 /**
  * Increment this when returning users should see a materially changed
@@ -7,7 +8,15 @@ import type { RecordingMode } from '@/lib/runtime/messages';
  * completion marker never suppresses a newer onboarding experience.
  */
 export const ONBOARDING_VERSION = 1 as const;
-export const ONBOARDING_STORAGE_KEY = `frametrail:onboarding:v${ONBOARDING_VERSION}`;
+
+const store = createVersionedMarkerStore({
+  name: 'onboarding',
+  version: ONBOARDING_VERSION,
+  flagField: 'completed',
+  atField: 'completedAt',
+});
+
+export const ONBOARDING_STORAGE_KEY = store.storageKey;
 
 export interface OnboardingState {
   version: typeof ONBOARDING_VERSION;
@@ -17,32 +26,15 @@ export interface OnboardingState {
 
 /** Returns a valid marker, or null for missing, stale, or malformed data. */
 export function normalizeOnboardingState(value: unknown): OnboardingState | null {
-  if (!value || typeof value !== 'object') return null;
-
-  const state = value as Partial<OnboardingState>;
-  if (
-    state.version !== ONBOARDING_VERSION ||
-    state.completed !== true ||
-    !Number.isFinite(state.completedAt) ||
-    state.completedAt! < 0
-  ) {
-    return null;
-  }
-
-  return {
-    version: ONBOARDING_VERSION,
-    completed: true,
-    completedAt: state.completedAt!,
-  };
+  return store.normalize(value);
 }
 
 export async function getOnboardingState(): Promise<OnboardingState | null> {
-  const stored = await browser.storage.local.get(ONBOARDING_STORAGE_KEY);
-  return normalizeOnboardingState(stored[ONBOARDING_STORAGE_KEY]);
+  return store.get();
 }
 
 export async function hasCompletedOnboarding(): Promise<boolean> {
-  return (await getOnboardingState()) !== null;
+  return store.isMarked();
 }
 
 export async function shouldShowOnboarding(): Promise<boolean> {
@@ -50,18 +42,8 @@ export async function shouldShowOnboarding(): Promise<boolean> {
 }
 
 /** Persists completion in extension-local browser storage only. */
-export async function markOnboardingComplete(completedAt = Date.now()): Promise<OnboardingState> {
-  if (!Number.isFinite(completedAt) || completedAt < 0) {
-    throw new RangeError('completedAt must be a non-negative finite timestamp');
-  }
-
-  const state: OnboardingState = {
-    version: ONBOARDING_VERSION,
-    completed: true,
-    completedAt,
-  };
-  await browser.storage.local.set({ [ONBOARDING_STORAGE_KEY]: state });
-  return state;
+export function markOnboardingComplete(completedAt = Date.now()): Promise<OnboardingState> {
+  return store.mark(completedAt);
 }
 
 

@@ -45,7 +45,7 @@ import {
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
 import { isTrustedEditorSenderForSession, isTrustedRecaptureSourceSender } from '@/lib/capture/recapture-guards';
-import { discardUntouchedGuide } from '@/lib/guide/guide-actions';
+import { discardPristineGuide } from '@/lib/storage/db';
 import { RecorderReadyGate } from '@/lib/recording/recorder-ready';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
 import {
@@ -1714,7 +1714,7 @@ async function handleStopRecording(version: number): Promise<void> {
  * the selection so aborted runs cannot pile unnamed empty guides up in 作品庫.
  *
  * Deliberately conservative: only guides that are still completely untouched
- * are deleted (discardUntouchedGuide re-verifies zero steps and empty
+ * are deleted (discardPristineGuide re-verifies zero steps and empty
  * metadata at delete time), and only runs started with the popup's
  * autoCreatedGuide flag qualify — 作品庫 新增教學 and the editor's 接續錄製
  * never set it, so user-created guides are never touched. Two run endings
@@ -1725,7 +1725,7 @@ async function handleStopRecording(version: number): Promise<void> {
 async function reclaimAbandonedAutoCreatedGuide(state: RecordingState): Promise<void> {
   if (!state.autoCreatedGuideId || state.autoCreatedGuideId !== state.sessionId) return;
   try {
-    await discardUntouchedGuide(state.autoCreatedGuideId);
+    await discardPristineGuide(state.autoCreatedGuideId);
   } catch (error) {
     console.error(
       '[frametrail] failed to reclaim the abandoned auto-created guide:',

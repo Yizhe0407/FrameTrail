@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { createGuide, defaultGuideTitle, deleteGuidePermanently, getGuide, type Guide } from '../storage/db';
+import { createGuide, discardPristineGuide, getGuide, type Guide } from '../storage/db';
 import {
   clearActiveGuideId,
   getActiveGuideId,
@@ -47,45 +47,24 @@ export async function getSelectedGuide(): Promise<Guide | null> {
   return (await getGuide(selectedId)) ?? null;
 }
 
-/** True while the Guide is still exactly the empty shell createGuide
- * produces: nothing recorded and no user-entered metadata. The moment a user
- * names, tags, or records into it, it stops being reclaimable. sanitizeGuide
- * substitutes the timestamped 未命名教學 placeholder for an empty title, so
- * "unnamed" means either an empty title or the exact placeholder derived from
- * createdAt — any user-typed title differs from both. contentRevision is
- * deliberately not consulted: transient rows such as a snapshot run's deleted
- * empty anchor bump it without leaving any user content behind. */
-function isUntouchedGuide(guide: Guide): boolean {
-  const title = guide.title.trim();
-  return (
-    guide.stepCount === 0 &&
-    guide.entryCount === 0 &&
-    (title === '' || title === defaultGuideTitle(guide.createdAt)) &&
-    guide.description.trim() === '' &&
-    guide.tags.length === 0 &&
-    guide.sections.length === 0
-  );
-}
-
 /**
- * Reclaims a Guide that was auto-created for a recording run which never
- * produced anything: deletes it and clears the matching selection, but only
- * while it is still an untouched empty shell (see isUntouchedGuide), so a
- * guide the user has meanwhile named or filled is never destroyed. Callers
- * must only pass ids they themselves auto-created — an explicitly created
- * 作品庫 guide shares the same empty shape and must never reach this.
- * restorePreviousGuideId re-selects the pre-start selection after a failed
- * start, making the aborted attempt invisible. Returns whether it deleted.
+ * UI-flow wrapper over the storage-side discardPristineGuide: reclaims a Guide
+ * that was auto-created for a recording run which never produced anything.
+ * The pristine guard and compare-and-clear of the selection live in
+ * lib/storage; this wrapper only adds selection-queue ordering and the
+ * restorePreviousGuideId behavior, which re-selects the pre-start selection
+ * after a failed start so the aborted attempt is invisible. Callers must only
+ * pass ids they themselves auto-created — an explicitly created 作品庫 guide
+ * shares the same empty shape and must never reach this. Returns whether it
+ * deleted.
  */
 export function discardUntouchedGuide(
   guideId: string,
   restorePreviousGuideId: string | null = null,
 ): Promise<boolean> {
   return queueSelectionAction(async () => {
-    const guide = await getGuide(guideId);
-    if (!guide || !isUntouchedGuide(guide)) return false;
-    await deleteGuidePermanently(guideId);
-    await clearActiveGuideId(guideId);
+    const deleted = await discardPristineGuide(guideId);
+    if (!deleted) return false;
     if (restorePreviousGuideId && restorePreviousGuideId !== guideId) {
       const previous = await getGuide(restorePreviousGuideId);
       if (previous) await setActiveGuideId(previous.id);

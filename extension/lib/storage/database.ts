@@ -5,6 +5,7 @@ import {
   getEffectiveBounds,
   requireStorageIdentifier,
   sanitizeGuide,
+  stepRole,
   storageError,
   type Guide,
   type Step,
@@ -44,24 +45,27 @@ function createSummaryAccumulator(): SummaryAccumulator {
 }
 
 function addStepToSummary(summary: SummaryAccumulator, step: Step): void {
-  if (!step.groupId || step.id !== step.groupId) summary.stepCount += 1;
+  const role = stepRole(step);
+  // Anchors are shared base images, not user-visible steps.
+  if (role !== 'anchor') summary.stepCount += 1;
   summary.storageBytes = Math.min(
     Number.MAX_SAFE_INTEGER,
     summary.storageBytes + (step.screenshotBlob?.size ?? 0),
   );
 
-  if (!step.groupId) {
+  if (role === 'ordinary') {
     if (step.screenshotBlob) summary.ordinaryEntryCount += 1;
     return;
   }
 
-  let group = summary.groups.get(step.groupId);
+  const groupId = step.groupId!; // anchors and annotations always carry one
+  let group = summary.groups.get(groupId);
   if (!group) {
     group = { hasAnchorImage: false, validAnnotationCount: 0, fallbackImageCount: 0 };
-    summary.groups.set(step.groupId, group);
+    summary.groups.set(groupId, group);
   }
-  if (step.id === step.groupId && step.screenshotBlob) group.hasAnchorImage = true;
-  if (step.id !== step.groupId && getEffectiveBounds(step)) group.validAnnotationCount += 1;
+  if (role === 'anchor' && step.screenshotBlob) group.hasAnchorImage = true;
+  if (role === 'annotation' && getEffectiveBounds(step)) group.validAnnotationCount += 1;
   if (step.screenshotBlob) group.fallbackImageCount += 1;
 }
 
@@ -125,6 +129,27 @@ export function newGuide(
     contentRevision,
     ...summary,
   });
+}
+
+/**
+ * True while a (sanitized) Guide is still exactly the empty shell newGuide
+ * leaves behind with no initial metadata: nothing recorded, and no
+ * user-entered title, description, tags, or sections. sanitizeGuide always
+ * substitutes the timestamped 未命名教學 placeholder for an empty title, so on
+ * a sanitized guide "unnamed" is exactly the placeholder derived from
+ * createdAt — any user-typed title differs from it. contentRevision is
+ * deliberately not consulted: transient rows such as a snapshot run's deleted
+ * empty anchor bump it without leaving any user content behind.
+ */
+export function isPristineGuide(guide: Guide): boolean {
+  return (
+    guide.stepCount === 0 &&
+    guide.entryCount === 0 &&
+    guide.title === defaultGuideTitle(guide.createdAt) &&
+    guide.description === '' &&
+    guide.tags.length === 0 &&
+    guide.sections.length === 0
+  );
 }
 
 export async function requireWritableGuide(tx: GuideStepsTransaction, id: string): Promise<Guide> {

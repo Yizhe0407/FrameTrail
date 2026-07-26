@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   createGuide: vi.fn(),
   getGuide: vi.fn(),
-  deleteGuidePermanently: vi.fn(),
+  discardPristineGuide: vi.fn(),
   getActiveGuideId: vi.fn(),
   setActiveGuideId: vi.fn(),
   clearActiveGuideId: vi.fn(),
@@ -11,13 +11,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('wxt/browser', () => ({ browser: { runtime: { sendMessage: mocks.sendMessage } } }));
-vi.mock('@/lib/storage/db', async (importOriginal) => ({
-  // Real defaultGuideTitle: the untouched check must recognise the exact
-  // placeholder sanitizeGuide stamps onto unnamed guides.
-  defaultGuideTitle: (await importOriginal<typeof import('@/lib/storage/db')>()).defaultGuideTitle,
+vi.mock('@/lib/storage/db', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
-  deleteGuidePermanently: mocks.deleteGuidePermanently,
+  discardPristineGuide: mocks.discardPristineGuide,
 }));
 vi.mock('@/lib/storage/storage', () => ({
   getActiveGuideId: mocks.getActiveGuideId,
@@ -33,7 +30,6 @@ import {
   openSelectedGuideInEditor,
   selectGuide,
 } from '@/lib/guide/guide-actions';
-import { defaultGuideTitle } from '@/lib/storage/db';
 
 function guide(id: string) {
   return {
@@ -42,24 +38,6 @@ function guide(id: string) {
     description: '',
     createdAt: 1,
     updatedAt: 1,
-  };
-}
-
-/** The exact shape createGuide leaves behind before anyone touches it:
- * sanitizeGuide replaces the empty title with the timestamped placeholder. */
-function untouchedGuide(id: string, createdAt = 1) {
-  return {
-    id,
-    title: defaultGuideTitle(createdAt),
-    description: '',
-    tags: [],
-    sections: [],
-    stepCount: 0,
-    entryCount: 0,
-    storageBytes: 0,
-    contentRevision: 0,
-    createdAt,
-    updatedAt: createdAt,
   };
 }
 
@@ -151,46 +129,44 @@ describe('Guide UI selection', () => {
   });
 });
 
+// The pristine guard itself (only untouched shells are deleted, selection is
+// compare-and-cleared) lives in lib/storage and is covered by
+// tests/integration/db-pristine-guide.test.ts. Here only the UI-flow wrapper
+// matters: delegation, and restoring the pre-start selection.
 describe('auto-created Guide reclamation', () => {
-  it('deletes a still-untouched Guide, clears it, and restores the previous selection', async () => {
-    mocks.getGuide.mockImplementation(async (id: string) =>
-      id === 'guide-fresh' ? untouchedGuide('guide-fresh') : guide(id),
-    );
+  it('delegates deletion to storage and restores the previous selection', async () => {
+    mocks.discardPristineGuide.mockResolvedValue(true);
+    mocks.getGuide.mockImplementation(async (id: string) => guide(id));
 
     await expect(discardUntouchedGuide('guide-fresh', 'guide-old')).resolves.toBe(true);
 
-    expect(mocks.deleteGuidePermanently).toHaveBeenCalledExactlyOnceWith('guide-fresh');
-    expect(mocks.clearActiveGuideId).toHaveBeenCalledWith('guide-fresh');
+    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-fresh');
     expect(mocks.setActiveGuideId).toHaveBeenCalledWith('guide-old');
   });
 
-  it('never deletes a Guide the user has meanwhile named or recorded into', async () => {
-    mocks.getGuide.mockResolvedValueOnce({ ...untouchedGuide('guide-fresh'), stepCount: 2, entryCount: 2 });
-    await expect(discardUntouchedGuide('guide-fresh')).resolves.toBe(false);
+  it('does not restore anything when storage declined to delete', async () => {
+    mocks.discardPristineGuide.mockResolvedValue(false);
 
-    mocks.getGuide.mockResolvedValueOnce({ ...untouchedGuide('guide-named'), title: '我的教學' });
-    await expect(discardUntouchedGuide('guide-named')).resolves.toBe(false);
+    await expect(discardUntouchedGuide('guide-touched', 'guide-old')).resolves.toBe(false);
 
-    expect(mocks.deleteGuidePermanently).not.toHaveBeenCalled();
-    expect(mocks.clearActiveGuideId).not.toHaveBeenCalled();
-  });
-
-  it('skips restoring a previous selection that no longer exists', async () => {
-    mocks.getGuide.mockImplementation(async (id: string) =>
-      id === 'guide-fresh' ? untouchedGuide('guide-fresh') : undefined,
-    );
-
-    await expect(discardUntouchedGuide('guide-fresh', 'guide-gone')).resolves.toBe(true);
-
-    expect(mocks.deleteGuidePermanently).toHaveBeenCalledExactlyOnceWith('guide-fresh');
     expect(mocks.setActiveGuideId).not.toHaveBeenCalled();
   });
 
-  it('treats an already-deleted Guide as a no-op', async () => {
+  it('skips restoring a previous selection that no longer exists', async () => {
+    mocks.discardPristineGuide.mockResolvedValue(true);
     mocks.getGuide.mockResolvedValue(undefined);
 
-    await expect(discardUntouchedGuide('guide-gone')).resolves.toBe(false);
+    await expect(discardUntouchedGuide('guide-fresh', 'guide-gone')).resolves.toBe(true);
 
-    expect(mocks.deleteGuidePermanently).not.toHaveBeenCalled();
+    expect(mocks.setActiveGuideId).not.toHaveBeenCalled();
+  });
+
+  it('never re-selects the guide it just discarded', async () => {
+    mocks.discardPristineGuide.mockResolvedValue(true);
+    mocks.getGuide.mockImplementation(async (id: string) => guide(id));
+
+    await expect(discardUntouchedGuide('guide-fresh', 'guide-fresh')).resolves.toBe(true);
+
+    expect(mocks.setActiveGuideId).not.toHaveBeenCalled();
   });
 });

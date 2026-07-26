@@ -9,7 +9,6 @@ export {
   STEP_STORAGE_LIMITS,
   StepStorageValidationError,
   buildStepEntries,
-  defaultGuideTitle,
   entryId,
   flattenEntries,
   getEffectiveBounds,
@@ -18,6 +17,8 @@ export {
   getEntryRedactions,
   getOrderedAnnotations,
   isValidBounds,
+  stepRole,
+  type StepRole,
   type Bounds,
   type EntryPrivacyState,
   type Guide,
@@ -29,11 +30,12 @@ export {
   type Step,
   type StepEntry,
 } from './models';
-export { closeDatabase } from './database';
+export { closeDatabase, isPristineGuide } from './database';
 export {
   createGuide,
   createGuideFromSteps,
   deleteGuidePermanently,
+  discardPristineGuide,
   duplicateGuide,
   ensureGuide,
   getGuide,

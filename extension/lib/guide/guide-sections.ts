@@ -1,4 +1,4 @@
-import type { StepEntry } from '../storage/models';
+import { stepRole, type StepEntry } from '../storage/models';
 import {
   GUIDE_SECTION_LIMITS,
   sanitizeGuideSectionTitle,
@@ -95,9 +95,11 @@ function completeEntryBoundaryId(entry: StepEntry): string | null {
   if (
     !anchorId ||
     !(entry.anchor.screenshotBlob instanceof Blob) ||
-    entry.anchor.groupId !== anchorId ||
+    stepRole(entry.anchor) !== 'anchor' ||
     entry.annotations.length === 0 ||
-    entry.annotations.some((annotation) => annotation.id === anchorId || annotation.groupId !== anchorId)
+    // Every member must be an annotation of this exact group — a row whose
+    // groupId points elsewhere is invalid even if it is an annotation.
+    entry.annotations.some((annotation) => annotation.groupId !== anchorId || stepRole(annotation) !== 'annotation')
   ) {
     return null;
   }

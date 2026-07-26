@@ -283,6 +283,25 @@ export type StepEntry =
   | { kind: 'single'; step: ScreenshotStep }
   | { kind: 'group'; anchor: ScreenshotStep; annotations: Step[] };
 
+export type StepRole = 'ordinary' | 'anchor' | 'annotation';
+
+/**
+ * Structural role of a persisted step row, the single source of the id/groupId
+ * rules every storage layer hand-enforced separately:
+ * - 'ordinary': no groupId — a per-click step that owns its own screenshot.
+ * - 'anchor': id === groupId (self-reference) — a snapshot group's shared base
+ *   image row; its own bounds are null and it holds the group's screenshot.
+ * - 'annotation': member of a group (groupId set, id !== groupId) — a click
+ *   box drawn on the anchor's image; it owns no image data of its own.
+ * The classifier is purely structural: validity requirements layered on top
+ * (an anchor must actually carry a Blob, an annotation must have effective
+ * bounds) remain with each call site because they differ by context.
+ */
+export function stepRole(step: Pick<Step, 'id' | 'groupId'>): StepRole {
+  if (!step.groupId) return 'ordinary';
+  return step.id === step.groupId ? 'anchor' : 'annotation';
+}
+
 export function getEffectiveBounds(step: Pick<Step, 'bounds' | 'manualBounds'>): Bounds | null {
   if (step.manualBounds && isValidBounds(step.manualBounds)) return step.manualBounds;
   return step.bounds && isValidBounds(step.bounds) ? step.bounds : null;
@@ -352,7 +371,7 @@ export function sanitizeStepForStorage(step: Step): Step {
   const groupId = step.groupId === undefined
     ? undefined
     : requireStorageIdentifier(step.groupId, 'Step group id');
-  const isSnapshotAnnotation = groupId !== undefined && id !== groupId;
+  const isSnapshotAnnotation = stepRole({ id, groupId }) === 'annotation';
 
   if (step.screenshotBlob !== undefined && !(step.screenshotBlob instanceof Blob)) {
     storageError('Step screenshot must be a Blob.');
@@ -452,7 +471,7 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
     const groupSteps = groups.get(step.groupId) ?? [];
     const anchor = groupSteps.find(
       (candidate): candidate is ScreenshotStep =>
-        candidate.id === step.groupId && candidate.screenshotBlob !== undefined,
+        stepRole(candidate) === 'anchor' && candidate.screenshotBlob !== undefined,
     );
 
     if (anchor) {
@@ -461,7 +480,7 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
       // mistaken for a current annotation; deletion and stop cleanup remove
       // the rows, while this also sanitizes legacy empty groups on read.
       const annotations = groupSteps.filter(
-        (candidate) => candidate.id !== step.groupId && getEffectiveBounds(candidate) !== null,
+        (candidate) => stepRole(candidate) === 'annotation' && getEffectiveBounds(candidate) !== null,
       );
       if (annotations.length === 0) continue;
       entries.push({
@@ -540,7 +559,7 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
     }
 
     const groupId = step.groupId;
-    if (seenGroups.has(groupId) || step.id !== groupId || !(step.screenshotBlob instanceof Blob)) {
+    if (seenGroups.has(groupId) || stepRole(step) !== 'anchor' || !(step.screenshotBlob instanceof Blob)) {
       throw new GuideStructureIntegrityError('A snapshot group is missing its leading image anchor.');
     }
     seenGroups.add(groupId);
@@ -549,7 +568,9 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
     index += 1;
     while (index < sorted.length && sorted[index].groupId === groupId) {
       const annotation = sorted[index];
-      if (seenIds.has(annotation.id) || annotation.id === groupId || !getEffectiveBounds(annotation)) {
+      // The loop condition pins annotation.groupId === groupId, so the role
+      // check is exactly the old `annotation.id === groupId` anchor test.
+      if (seenIds.has(annotation.id) || stepRole(annotation) !== 'annotation' || !getEffectiveBounds(annotation)) {
         throw new GuideStructureIntegrityError('A snapshot group contains an invalid annotation.');
       }
       if (expectedSessionId && annotation.sessionId !== expectedSessionId) {

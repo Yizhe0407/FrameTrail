@@ -11,6 +11,7 @@ import {
 } from './models';
 import {
   assertGuideStorageLimits,
+  isPristineGuide,
   newGuide,
   requireWritableGuide,
   runGuideStepsWrite,
@@ -18,6 +19,7 @@ import {
   summarizeSteps,
   type GuideStepsTransaction,
 } from './database';
+import { clearActiveGuideId } from './storage';
 
 export async function createGuide(initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>): Promise<Guide> {
   const guide = newGuide(crypto.randomUUID(), Date.now(), initial);
@@ -188,6 +190,23 @@ export async function duplicateGuide(sourceId: string, title?: string): Promise<
     await storePreparedGuide(tx, prepared);
     return prepared.guide;
   });
+}
+
+/**
+ * Reclaims a Guide that was auto-created for a run which never produced
+ * anything: deletes it and compare-and-clears the matching UI selection, but
+ * only while it is still a pristine empty shell (see isPristineGuide), so a
+ * guide the user has meanwhile named or filled is never destroyed. Callers
+ * must only pass ids they themselves auto-created — an explicitly created
+ * 作品庫 guide shares the same empty shape and must never reach this.
+ * Returns whether it deleted.
+ */
+export async function discardPristineGuide(guideId: string): Promise<boolean> {
+  const guide = await getGuide(guideId);
+  if (!guide || !isPristineGuide(guide)) return false;
+  await deleteGuidePermanently(guideId);
+  await clearActiveGuideId(guideId);
+  return true;
 }
 
 export async function deleteGuidePermanently(id: string): Promise<void> {
