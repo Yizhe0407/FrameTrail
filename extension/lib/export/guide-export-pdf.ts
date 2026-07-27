@@ -15,6 +15,7 @@ import {
   type GuideExportOptions,
 } from './guide-export-contract';
 import { renderEntryImages } from './guide-export-render';
+import { pdfLineMiddleOffset, truncatePdfText, wrapPdfText } from './pdf-text-layout';
 
 /**
  * Generates a local PDF using a hybrid raster pipeline: text and decorations
@@ -544,109 +545,4 @@ class GuidePdfPaginator {
     this.cursorY = PDF_MARGIN;
     this.hasContent = false;
   }
-}
-
-type TextSegmenter = { segment(input: string): Iterable<{ segment: string }> };
-
-const pdfSegmenters: { word?: TextSegmenter; grapheme?: TextSegmenter } =
-  typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
-    ? {
-        word: new Intl.Segmenter(undefined, { granularity: 'word' }),
-        grapheme: new Intl.Segmenter(undefined, { granularity: 'grapheme' }),
-      }
-    : {};
-
-function segmentPdfText(text: string, granularity: 'word' | 'grapheme'): string[] {
-  const segmenter = pdfSegmenters[granularity];
-  if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
-  // Per-code-point fallback for runtimes without Intl.Segmenter.
-  return Array.from(text);
-}
-
-/**
- * Distance from a text line's top edge (textBaseline 'top') down to its
- * optical middle, used to center the step badge on the first title line. Uses
- * the measured glyph bounding box when the canvas reports one; otherwise it
- * approximates the cap-height middle — baseline (≈0.8em below the top) minus
- * half a cap height (≈0.7em), i.e. 0.45em — which also suits CJK squares.
- */
-function pdfLineMiddleOffset(context: PdfCanvasContext, line: string, fontSize: number): number {
-  // Whitespace-only lines have an empty bounding box; measure a representative
-  // full-height glyph instead so the badge still lands on the text band.
-  const metrics = context.measureText(line.trim() || '中');
-  // With textBaseline 'top' both values are measured from the line's top edge:
-  // the glyph box spans [-ascent, +descent] below it.
-  const { actualBoundingBoxAscent: ascent, actualBoundingBoxDescent: descent } = metrics;
-  if (Number.isFinite(ascent) && Number.isFinite(descent) && descent - ascent > 0) {
-    return (descent - ascent) / 2;
-  }
-  return fontSize * 0.45;
-}
-
-/** Shortens footer text with an ellipsis, never splitting a grapheme cluster. */
-function truncatePdfText(context: PdfCanvasContext, text: string, maxWidth: number): string {
-  if (context.measureText(text).width <= maxWidth) return text;
-  const ellipsis = '…';
-  let result = '';
-  for (const grapheme of segmentPdfText(text, 'grapheme')) {
-    if (context.measureText(result + grapheme + ellipsis).width > maxWidth) break;
-    result += grapheme;
-  }
-  return result + ellipsis;
-}
-
-/**
- * Greedy line wrapping against measured widths. Breaks at word boundaries
- * first (Intl.Segmenter also dictionary-segments CJK), and only splits a
- * segment wider than a whole line at grapheme-cluster boundaries, so English
- * words are not chopped mid-word and emoji/combining sequences never split
- * into broken glyphs.
- */
-function wrapPdfText(
-  context: PdfCanvasContext,
-  text: string,
-  maxWidth: number,
-  signal?: AbortSignal,
-): string[] {
-  const lines: string[] = [];
-  let steps = 0;
-  const poll = () => {
-    if ((steps++ & 255) === 0) throwIfAborted(signal);
-  };
-
-  for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
-    if (!paragraph) {
-      lines.push('');
-      continue;
-    }
-
-    let line = '';
-    for (const word of segmentPdfText(paragraph, 'word')) {
-      poll();
-      const candidate = `${line}${word}`;
-      if (context.measureText(candidate).width <= maxWidth) {
-        line = candidate;
-        continue;
-      }
-      const wrapped = word.trimStart();
-      if (line && context.measureText(wrapped).width <= maxWidth) {
-        lines.push(line.trimEnd());
-        line = wrapped;
-        continue;
-      }
-      // Wider than a whole line: split it, but never inside a grapheme cluster.
-      for (const grapheme of segmentPdfText(word, 'grapheme')) {
-        poll();
-        const graphemeCandidate = `${line}${grapheme}`;
-        if (line && context.measureText(graphemeCandidate).width > maxWidth) {
-          lines.push(line.trimEnd());
-          line = grapheme.trimStart();
-        } else {
-          line = graphemeCandidate;
-        }
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-  return lines.length > 0 ? lines : [''];
 }

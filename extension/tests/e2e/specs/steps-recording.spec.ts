@@ -10,6 +10,7 @@ import {
   resetExtensionData,
   sendRecordingControl,
   startRecording,
+  startStepsRunWithFirstStep,
   stopRecording,
 } from '../support/harness';
 
@@ -283,9 +284,7 @@ test.describe('step recording', () => {
     browserErrors: _browserErrors,
   }) => {
     // The E2E build grants <all_urls>, so follow mode is armed for steps runs.
-    await startRecording(appPage, popupPage, 'steps');
-    await clickTarget(appPage, '#plain-text');
-    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await startStepsRunWithFirstStep(appPage, popupPage);
     const firstTabId = (await readRecordingState(popupPage)).tabId as number;
 
     // Activate a second normal tab: the run must move with the user instead of

@@ -6,5 +6,17 @@
   "extDescription": {
     "message": "記錄點擊操作，自動產生逐步的圖解教學",
     "description": "Extension description shown in the browser and store listing."
+  },
+  "cmdTogglePause": {
+    "message": "錄製：暫停或繼續",
+    "description": "Keyboard command description: toggle pause/resume during recording."
+  },
+  "cmdUndoLastCapture": {
+    "message": "錄製：復原上一個",
+    "description": "Keyboard command description: undo the last capture during recording."
+  },
+  "cmdFinishRecording": {
+    "message": "錄製：完成",
+    "description": "Keyboard command description: finish the current recording."
   }
 }

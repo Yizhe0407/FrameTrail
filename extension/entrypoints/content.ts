@@ -71,6 +71,7 @@ import {
 } from '@/lib/runtime/runtime-message-result';
 import { installRecaptureRecorder } from '@/lib/recording/recapture-recorder';
 import {
+  CAPTURE_FAILSAFE_MS,
   CLEANUP_EVENT,
   RECORDING_CHANNEL_LOST_MESSAGE,
   RECORDING_CONTROL_TIMEOUT_MS,
@@ -92,9 +93,6 @@ import type {
 import type { RecordingState } from '@/lib/storage/recording-state';
 
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
-// Only a genuinely hung capture should hit this; normal-latency captures (even
-// throttled) settle well under it, so they never lose the race to the replay.
-const CAPTURE_FAILSAFE_MS = 2_000;
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',

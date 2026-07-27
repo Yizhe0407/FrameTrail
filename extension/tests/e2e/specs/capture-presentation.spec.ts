@@ -112,7 +112,19 @@ async function neutralProbeBounds(page: Parameters<typeof startRecording>[0]) {
 }
 
 test.describe('screenshot presentation', () => {
-  test.beforeEach(async ({ popupPage }) => {
+  test.beforeEach(async ({ appPage, popupPage }) => {
+    // These pixel tests need classic (space-taking) scrollbars. On macOS with
+    // 「顯示捲軸列：自動」 and no mouse attached, Chromium inherits overlay
+    // scrollbars (innerWidth === clientWidth) and no flag can force classic
+    // ones, so the precondition is unsatisfiable locally. CI runs Linux where
+    // classic scrollbars always paint, so coverage is still enforced there.
+    const scrollbarWidth = await appPage.evaluate(
+      () => window.innerWidth - document.documentElement.clientWidth,
+    );
+    test.skip(
+      scrollbarWidth === 0,
+      'Environment paints overlay scrollbars (macOS automatic mode without a mouse); classic-scrollbar pixels cannot be exercised here.',
+    );
     await resetExtensionData(popupPage);
   });
 

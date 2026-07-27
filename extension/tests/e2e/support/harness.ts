@@ -1,5 +1,43 @@
 import { expect, type Frame, type Page } from '@playwright/test';
 import { inflateSync } from 'node:zlib';
+// Type-only import: erased at runtime, so the Playwright process never loads
+// extension code, but the guide template below cannot drift from the model.
+import type { Guide } from '../../../lib/storage/models';
+
+/**
+ * Single in-file source for the extension's persistence contract. page.evaluate
+ * bodies run inside the browser and cannot share Node imports, so the literals
+ * are declared once here and passed in as evaluate args. Authoritative
+ * contract (keep in sync on schema changes):
+ * - lib/storage/database.ts — DB name/version, object stores, indexes
+ * - lib/storage/recording-state.ts — RECORDING_STATE_KEY
+ * - lib/storage/storage.ts — ACTIVE_GUIDE_ID_KEY
+ * - lib/runtime/onboarding.ts — ONBOARDING_STORAGE_KEY
+ */
+const SCRIBE_DB = { name: 'scribe', version: 4 } as const;
+// `as const` keeps the literal types non-widening so the typed
+// chrome.storage.local.get overloads still apply inside evaluate bodies.
+const RECORDING_STATE_KEY = 'scribe:recordingState' as const;
+const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId' as const;
+const ONBOARDING_STORAGE_KEY = 'frametrail:onboarding:v1' as const;
+
+/**
+ * Pristine guide row seeded by resetExtensionData. The authoritative shape is
+ * newGuide (lib/storage/database.ts) via createGuide; `satisfies` fails the
+ * typecheck as soon as the Guide model gains or renames a field.
+ */
+const E2E_GUIDE_TEMPLATE = {
+  title: 'E2E 測試教學',
+  description: '',
+  sections: [],
+  tags: [],
+  createdAt: 0,
+  updatedAt: 0,
+  contentRevision: 0,
+  stepCount: 0,
+  entryCount: 0,
+  storageBytes: 0,
+} satisfies Omit<Guide, 'id'>;
 
 declare const chrome: {
   runtime: {
@@ -120,14 +158,14 @@ export interface StoredStep {
 }
 
 export async function resetExtensionData(popup: Page): Promise<void> {
-  await popup.evaluate(async () => {
+  await popup.evaluate(async ({ scribeDb, recordingStateKey, activeGuideIdKey, onboardingKey, guideTemplate }) => {
     const guideId = crypto.randomUUID();
-    const state = await chrome.storage.local.get('scribe:recordingState');
-    if (state['scribe:recordingState']?.isRecording) {
+    const state = await chrome.storage.local.get(recordingStateKey);
+    if (state[recordingStateKey]?.isRecording) {
       await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
     }
     await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 4);
+      const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
       request.onblocked = () => reject(new Error('FrameTrail IndexedDB reset was blocked.'));
       request.onupgradeneeded = () => {
@@ -146,23 +184,12 @@ export async function resetExtensionData(popup: Page): Promise<void> {
         const storeNames = ['guides', 'steps'].filter((name) => db.objectStoreNames.contains(name));
         if (storeNames.length !== 2) {
           db.close();
-          reject(new Error('FrameTrail IndexedDB v4 stores are incomplete.'));
+          reject(new Error(`FrameTrail IndexedDB v${scribeDb.version} stores are incomplete.`));
           return;
         }
         const tx = db.transaction(storeNames, 'readwrite');
         for (const storeName of storeNames) tx.objectStore(storeName).clear();
-        tx.objectStore('guides').add({
-          id: guideId,
-          title: 'E2E 測試教學',
-          description: '',
-          sections: [],
-          createdAt: 0,
-          updatedAt: 0,
-          contentRevision: 0,
-          stepCount: 0,
-          entryCount: 0,
-          storageBytes: 0,
-        });
+        tx.objectStore('guides').add({ id: guideId, ...guideTemplate });
         tx.oncomplete = () => {
           db.close();
           resolve();
@@ -173,24 +200,30 @@ export async function resetExtensionData(popup: Page): Promise<void> {
     });
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
-      'frametrail:onboarding:v1': { version: 1, completed: true, completedAt: 0 },
-      'frametrail:activeGuideId': guideId,
+      [onboardingKey]: { version: 1, completed: true, completedAt: 0 },
+      [activeGuideIdKey]: guideId,
     });
+  }, {
+    scribeDb: SCRIBE_DB,
+    recordingStateKey: RECORDING_STATE_KEY,
+    activeGuideIdKey: ACTIVE_GUIDE_ID_KEY,
+    onboardingKey: ONBOARDING_STORAGE_KEY,
+    guideTemplate: E2E_GUIDE_TEMPLATE,
   });
   await popup.reload({ waitUntil: 'domcontentloaded' });
 }
 
 export async function readRecordingState(popup: Page): Promise<Record<string, unknown>> {
-  return popup.evaluate(async () => {
-    const result = await chrome.storage.local.get('scribe:recordingState');
-    return (result['scribe:recordingState'] ?? {}) as Record<string, unknown>;
-  });
+  return popup.evaluate(async (recordingStateKey) => {
+    const result = await chrome.storage.local.get(recordingStateKey);
+    return (result[recordingStateKey] ?? {}) as Record<string, unknown>;
+  }, RECORDING_STATE_KEY);
 }
 
 export async function readSteps(popup: Page): Promise<StoredStep[]> {
-  return popup.evaluate(async () => {
+  return popup.evaluate(async (scribeDb) => {
     return await new Promise<StoredStep[]>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 4);
+      const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -215,7 +248,7 @@ export async function readSteps(popup: Page): Promise<StoredStep[]> {
         };
       };
     });
-  });
+  }, SCRIBE_DB);
 }
 
 export async function readLatestDownload(popup: Page): Promise<{
@@ -234,9 +267,9 @@ export async function rawScreenshotRosePixels(
   stepId: string,
   boundsOverride?: { x: number; y: number; width: number; height: number },
 ): Promise<number> {
-  return popup.evaluate(async ({ id, boundsOverride }) => {
+  return popup.evaluate(async ({ id, boundsOverride, scribeDb }) => {
     return await new Promise<number>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 4);
+      const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
       request.onsuccess = async () => {
         const db = request.result;
@@ -274,7 +307,7 @@ export async function rawScreenshotRosePixels(
         };
       };
     });
-  }, { id: stepId, boundsOverride });
+  }, { id: stepId, boundsOverride, scribeDb: SCRIBE_DB });
 }
 
 export async function readScreenshotScrollbarStats(popup: Page, stepId: string): Promise<{
@@ -283,14 +316,14 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
   rootSentinelPixels: number;
   nestedSentinelPixels: number;
 }> {
-  return popup.evaluate(async (id) => {
+  return popup.evaluate(async ({ id, scribeDb }) => {
     return await new Promise<{
       width: number;
       height: number;
       rootSentinelPixels: number;
       nestedSentinelPixels: number;
     }>((resolve, reject) => {
-      const request = indexedDB.open('scribe', 4);
+      const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
@@ -339,15 +372,15 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
         };
       };
     });
-  }, stepId);
+  }, { id: stepId, scribeDb: SCRIBE_DB });
 }
 
 export async function startRecording(appPage: Page, popup: Page, mode: RecordingMode): Promise<void> {
   await appPage.bringToFront();
-  await popup.evaluate(async (mode) => {
+  await popup.evaluate(async ({ mode, activeGuideIdKey }) => {
     try {
-      const stored = await chrome.storage.local.get('frametrail:activeGuideId');
-      const sessionId = stored['frametrail:activeGuideId'];
+      const stored = await chrome.storage.local.get(activeGuideIdKey);
+      const sessionId = stored[activeGuideIdKey];
       if (typeof sessionId !== 'string' || sessionId.length === 0) {
         throw new Error('No active E2E Guide was initialized.');
       }
@@ -367,7 +400,7 @@ export async function startRecording(appPage: Page, popup: Page, mode: Recording
           : `START_RECORDING rejected: ${String(error)}`,
       );
     }
-  }, mode);
+  }, { mode, activeGuideIdKey: ACTIVE_GUIDE_ID_KEY });
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   if (mode === 'steps') {
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
@@ -384,19 +417,60 @@ export async function stopRecording(popup: Page): Promise<void> {
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(false);
 }
 
+/** Polls until the store holds exactly `expected` persisted steps. */
+export async function expectStepCount(popup: Page, expected: number): Promise<void> {
+  await expect.poll(async () => (await readSteps(popup)).length).toBe(expected);
+}
+
+/**
+ * Starts a steps run and captures its first step on the fixture page's
+ * plain-text target, returning once the step has committed.
+ */
+export async function startStepsRunWithFirstStep(appPage: Page, popup: Page): Promise<void> {
+  await startRecording(appPage, popup, 'steps');
+  await clickTarget(appPage, '#plain-text');
+  await expectStepCount(popup, 1);
+}
+
+/**
+ * Starts a steps run and clicks the fixture's genuine <a href> link: the step
+ * must commit (screenshot of the OLD page) before the replayed click is
+ * allowed to navigate to navigated.html.
+ */
+export async function captureNavLinkClickStep(appPage: Page, popup: Page): Promise<void> {
+  await startRecording(appPage, popup, 'steps');
+  await clickTarget(appPage, '#nav-link');
+  await appPage.waitForURL('**/navigated.html');
+  await expectStepCount(popup, 1);
+}
+
+/**
+ * Asserts the run survived a top-level navigation — still recording, recorder
+ * re-injected on the new document — then captures the navigated page's
+ * heading. Step-count expectations stay with the caller.
+ */
+export async function captureNavigatedHeadingStep(appPage: Page, popup: Page): Promise<void> {
+  await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
+  await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+  const heading = appPage.getByRole('heading', { name: '已導覽到新文件' });
+  const box = await heading.boundingBox();
+  if (!box) throw new Error('Navigated heading has no box');
+  await appPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 export async function sendRecordingControl(
   page: Page,
   type: string,
   undoToken?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  return page.evaluate(async ({ type, undoToken }) => {
-    const result = await chrome.storage.local.get('scribe:recordingState');
-    const runId = (result['scribe:recordingState'] as { runId?: string } | undefined)?.runId;
+  return page.evaluate(async ({ type, undoToken, recordingStateKey }) => {
+    const result = await chrome.storage.local.get(recordingStateKey);
+    const runId = (result[recordingStateKey] as { runId?: string } | undefined)?.runId;
     return chrome.runtime.sendMessage({ type, runId, ...(undoToken ? { undoToken } : {}) }) as Promise<{
       ok: boolean;
       error?: string;
     }>;
-  }, { type, undoToken });
+  }, { type, undoToken, recordingStateKey: RECORDING_STATE_KEY });
 }
 
 /**

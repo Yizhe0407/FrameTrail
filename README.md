@@ -106,6 +106,7 @@ pnpm test
 pnpm test:e2e
 pnpm test:all
 pnpm compile
+pnpm lint
 pnpm validate
 pnpm build
 pnpm build:firefox
@@ -161,4 +162,4 @@ Chromium E2E 覆蓋：
 - 原始截圖會留在本機 IndexedDB；敏感資訊遮罩是輸出保護，不是安全刪除或加密儲存。若裝置或瀏覽器 profile 本身遭到入侵，FrameTrail 無法保護本機原始資料。
 - 大量 4K/8K 步驟目前只使用 `loading=lazy`、`decoding=async` 與共享 Blob URL，尚未導入完整 list virtualization 或專用低解析 thumbnail；大量長錄製仍可能有記憶體與解碼壓力。
 - 真實 Chrome MV3 worker 重啟、權限提示、clipboard、4K/8K ZIP、fractional DPR、320×480、鍵盤／螢幕閱讀器與高對比模式仍需實機驗收。
-- 無帳號、雲端儲存、分享連結、多人協作、全頁拼接、PDF 匯出與 AI 描述；互動步驟使用 `點擊 <元素文字>`，一般元素步驟與快照標記使用 `標記 <元素文字>`。
+- 無帳號、雲端儲存、分享連結、多人協作、全頁拼接與 AI 描述；互動步驟使用 `點擊 <元素文字>`，一般元素步驟與快照標記使用 `標記 <元素文字>`。

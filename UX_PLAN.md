@@ -119,6 +119,12 @@
 
 ## 5. 整體資訊架構
 
+> **狀態（2026-07-27）：本節流程已被後續實作取代。** Popup 的 `開始` 現在一律建立新 Guide
+> 並開始新錄製；「接續既有 Guide」改由 Editor 的 `接續錄製` 承擔，包含 `改在其他頁面接續`
+> 的分頁選擇器（`extension/components/editor/ContinuationTabPicker.tsx`、
+> `extension/lib/editor/continuation-tabs.ts`），跨分頁跟隨錄製也已實作
+> （`extension/lib/recording/background/follow-mode.ts`）。以下內容保留作為歷史設計紀錄。
+
 ```text
 擴充功能圖示
   └─ Popup：選擇工作目的與錄製範圍
@@ -139,6 +145,11 @@
 - Editor：依情境為 `匯出`，其餘編輯自動儲存
 
 ## 6. Popup 詳細規格
+
+> **狀態（2026-07-27）：本節規格已部分被取代。** 實作中的 Popup 每次錄製一律建立新 Guide，
+> 不提供接續既有 Guide 的選項；接續由 Editor 的 `接續錄製`（含 `改在其他頁面接續` 分頁選擇器）
+> 提供，跨頁權限則搭配跟隨模式（`extension/lib/recording/background/follow-mode.ts`）在導覽與
+> 換分頁後繼續錄製。以下細節保留作為歷史設計紀錄。
 
 ### 6.1 待命狀態
 
@@ -581,6 +592,13 @@ interface FinishResult {
 由背景程序尋找或建立 Editor tab，透過 query string 或 runtime message 定位。若瀏覽器阻擋建立分頁，資料仍算完成，控制器顯示 `已儲存` 並提供 `開啟編輯器`。
 
 ## 15. 對應現有程式模組
+
+> **狀態（2026-07-27）：本節模組對應已過時。** `extension/lib/recording/useRecordingSession.ts`
+> 已更名為 `use-recording-session.ts`；建議新增清單中的 `components/recording/RecordingToolbar.tsx`、
+> `components/recording/RecordingStatus.tsx`、`lib/recording/recording-ui-state.ts` 與
+> `lib/editor/editor-navigation.ts` 最終以不同形式落在 `extension/lib/recording/`
+> （`recording-toolbar.tsx`、`recording-toolbar-host.tsx`、`use-toolbar-position.ts` 等）
+> 與 `extension/lib/editor/`。以下表列保留作為歷史紀錄。
 
 | 模組 | 計畫變更 |
 | --- | --- |

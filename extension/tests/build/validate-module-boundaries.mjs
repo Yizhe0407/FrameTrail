@@ -4,9 +4,12 @@ import process from 'node:process';
 
 const root = process.cwd();
 const sourceRoots = ['components', 'entrypoints', 'lib'];
-const sourceExtensions = new Set(['.ts', '.tsx']);
+const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const ignoredDirectories = new Set(['node_modules', '.output', 'test-results']);
 const importPattern = /(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+// Dynamic imports (`import('...')`) cross module boundaries just as statically
+// imported code does, so they are held to the same rules.
+const dynamicImportPattern = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 async function collectFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -25,6 +28,8 @@ function normalized(file) {
 }
 
 // Pure schema/constants modules (zero imports) that storage/models may depend on as peers.
+// Renaming any of these files MUST update this list; the existence check after
+// the scan fails loudly on a rename so the exemption can never silently rot.
 const storageModelModules = new Set([
   'lib/storage/models.ts',
   'lib/storage/guide-section-model.ts',
@@ -89,15 +94,24 @@ function resolveModule(from, specifier) {
   if (specifier.startsWith('@/')) base = path.join(root, specifier.slice(2));
   else if (specifier.startsWith('.')) base = path.resolve(path.dirname(from), specifier);
   else return null;
-  return [base, `${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]
+  return [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.mjs`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]
     .find((candidate) => knownFiles.has(candidate)) ?? null;
+}
+
+const knownRelativePaths = new Set(files.map(normalized));
+const missingStorageModelModules = [...storageModelModules].filter((module) => !knownRelativePaths.has(module));
+if (missingStorageModelModules.length > 0) {
+  throw new Error(
+    'storageModelModules lists files that no longer exist (renamed or removed?); update the list:\n' +
+    missingStorageModelModules.map((module) => `- ${module}`).join('\n'),
+  );
 }
 
 const graph = new Map(files.map((file) => [file, []]));
 const violations = [];
 for (const file of files) {
   const source = await readFile(file, 'utf8');
-  for (const match of source.matchAll(importPattern)) {
+  for (const match of [...source.matchAll(importPattern), ...source.matchAll(dynamicImportPattern)]) {
     const specifier = match[1];
     const resolved = resolveModule(file, specifier);
     const target = resolved ? normalized(resolved) : targetOf(file, specifier);

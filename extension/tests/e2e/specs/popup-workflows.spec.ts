@@ -1,10 +1,10 @@
 import { test, expect } from '../support/fixture';
 import {
   clickTarget,
+  expectStepCount,
   readRecordingState,
-  readSteps,
   resetExtensionData,
-  startRecording,
+  startStepsRunWithFirstStep,
   stopRecording,
 } from '../support/harness';
 
@@ -174,11 +174,9 @@ test.describe('popup workflows', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'steps');
-    await clickTarget(appPage, '#plain-text');
-    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await startStepsRunWithFirstStep(appPage, popupPage);
     await clickTarget(appPage, '#visual-container strong');
-    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await expectStepCount(popupPage, 2);
     await stopRecording(popupPage);
 
     const editorOpened = extensionContext.waitForEvent('page');
@@ -199,9 +197,7 @@ test.describe('popup workflows', () => {
     extensionContext,
     browserErrors: _browserErrors,
   }) => {
-    await startRecording(appPage, popupPage, 'steps');
-    await clickTarget(appPage, '#plain-text');
-    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    await startStepsRunWithFirstStep(appPage, popupPage);
 
     await appPage.close();
 

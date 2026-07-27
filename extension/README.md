@@ -34,12 +34,11 @@ pnpm dev:firefox
 
 - `components/editor/`：Editor 畫面與編輯工作流元件。
 - `components/popup/`：Popup 專用的錄製、匯出與 onboarding 元件。
-- `components/recording/`：注入頁面或 snapshot shield 使用的錄製 UI。
 - `components/shared/`：跨入口共用元件；`components/ui/` 保留無領域狀態的 UI primitives。
 - `lib/capture/`：DOM 候選、座標、frame probe 與擷取流程。
 - `lib/editor/`、`lib/export/`、`lib/guide/`：各功能領域的純邏輯與 hooks。
 - `lib/media/`：annotation layout、圖片標註與 screenshot 工具；`annotate.ts` 僅保留公開 facade。
-- `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting，以及瀏覽器訊息／導覽邊界。
+- `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting、注入頁面與 snapshot shield 使用的錄製 UI（`recording-toolbar*.tsx` 等），以及瀏覽器訊息／導覽邊界。
 - `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema／migration／transaction 基礎，`*-repository.ts` 與 `guide-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
 - `lib/shared/`：僅放真正無領域狀態的工具。
 
@@ -52,6 +51,7 @@ pnpm test
 pnpm test:e2e
 pnpm test:all
 pnpm compile
+pnpm lint
 pnpm validate
 pnpm validate:architecture
 pnpm build
@@ -64,7 +64,8 @@ pnpm build:firefox
 - `pnpm test:e2e`：建立 Chrome MV3 production 版本並執行目前設定的 Playwright Chromium E2E 測試套件。
 - `pnpm test:all`：依序執行 Vitest 與 Chromium E2E。
 - `pnpm compile`：執行 TypeScript `tsc --noEmit`。
-- `pnpm validate`：依序執行型別、架構、完整 Vitest、Chrome／Firefox production build、產物與 Firefox lint 檢查。
+- `pnpm lint`：以 ESLint（`--max-warnings 0`）檢查整個原始碼樹；CI 在 compile 後也會執行。
+- `pnpm validate`：依序執行型別、ESLint、架構、完整 Vitest、Chrome／Firefox production build、產物與 Firefox lint 檢查。
 - `pnpm validate:architecture`：檢查 alias import cycle 與 `shared`、`ui`、storage model 的依賴邊界；CI 在 compile 後也會執行這個檢查。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。

@@ -8,7 +8,19 @@ import { vi } from 'vitest';
  * callers stub globals, so pair with `vi.unstubAllGlobals()`.
  */
 export function stubPdfCanvas(
-  options: { pageBlob?: Blob; bitmap?: { width: number; height: number } } = {},
+  options: {
+    pageBlob?: Blob;
+    bitmap?: { width: number; height: number };
+    /**
+     * Overrides the encoded output per convertToBlob call (receives the canvas
+     * size and encode options, e.g. the JPEG quality), so budget tests can
+     * make the page raster and a screenshot re-encode produce different bytes.
+     */
+    convertToBlob?: (
+      canvas: { width: number; height: number },
+      encodeOptions?: { type?: string; quality?: number },
+    ) => Blob;
+  } = {},
 ) {
   const pageBlob = options.pageBlob ?? new Blob(['jpeg-page'], { type: 'image/jpeg' });
   const bitmap = options.bitmap ?? { width: 1_600, height: 900 };
@@ -37,8 +49,8 @@ export function stubPdfCanvas(
     getContext() {
       return context;
     }
-    async convertToBlob() {
-      return pageBlob;
+    async convertToBlob(encodeOptions?: { type?: string; quality?: number }) {
+      return options.convertToBlob?.(this, encodeOptions) ?? pageBlob;
     }
   }
   vi.stubGlobal('OffscreenCanvas', OffscreenCanvasStub);

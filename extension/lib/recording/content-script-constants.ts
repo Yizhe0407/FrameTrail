@@ -25,6 +25,13 @@ export const STEP_FOLLOWUP_EVENTS = [
   'contextmenu',
 ] as const;
 
+/** Canonical budget for a hung step capture before the swallowed click is
+ * replayed anyway. Only a genuinely hung capture should hit this; normal
+ * latency captures (even throttled) settle well under it. The top frame times
+ * out at exactly this value, and every child frame in the relay chain derives
+ * its slightly larger local failsafe from it (see frame-relay.ts). */
+export const CAPTURE_FAILSAFE_MS = 2_000;
+
 /** Same-target debounce window shared by the top-frame step recorder and the
  * child-frame relay so a rapid double gesture dedups identically everywhere. */
 export const STEP_DEDUP_MS = 400;

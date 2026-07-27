@@ -25,6 +25,7 @@ import {
 } from './recording-guards';
 import { onRecordingStateChange } from '../storage/storage';
 import {
+  CAPTURE_FAILSAFE_MS,
   CLEANUP_EVENT,
   SNAPSHOT_FREEZE_EVENTS,
   STEP_DEDUP_MS,
@@ -50,10 +51,10 @@ import type { FrameTrailStopMessage } from '../runtime/messages';
 const STEP_FRAME_TEXT_LIMIT = 200;
 const STEP_FRAME_TAG_LIMIT = 100;
 const STEP_FRAME_COORDINATE_LIMIT = 1_000_000;
-/** Slightly above the top frame's CAPTURE_FAILSAFE_MS (2s) so a healthy
- * capture always beats this local budget; when the relay chain is broken the
- * click is replayed anyway to keep the page usable. */
-const STEP_FRAME_CLICK_FAILSAFE_MS = 2_500;
+/** Slightly above the top frame's CAPTURE_FAILSAFE_MS so a healthy capture
+ * always beats this local budget; when the relay chain is broken the click is
+ * replayed anyway to keep the page usable. */
+const STEP_FRAME_CLICK_FAILSAFE_MS = CAPTURE_FAILSAFE_MS + 500;
 const STEP_FRAME_RELAY_MAX_CONCURRENT = 8;
 const STEP_FRAME_RELAY_MAX_REQUESTS_PER_WINDOW = 90;
 const STEP_FRAME_RELAY_RATE_WINDOW_MS = 10_000;

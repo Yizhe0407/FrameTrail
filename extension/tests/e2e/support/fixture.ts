@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { chromium, expect, test as base, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, expect, test as base, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import { preparedExtensionPath } from './paths';
 
 export const FIXTURE_URL = 'http://127.0.0.1:4175/';
@@ -32,8 +32,9 @@ export const test = base.extend<Fixtures>({
         `--load-extension=${preparedExtensionPath}`,
         '--window-size=1280,900',
         '--force-device-scale-factor=1',
-        // Playwright adds --hide-scrollbars in headless mode. Chromium's
-        // explicit override keeps native scrollbars paintable for pixel tests.
+        // Native scrollbars are restored by the ignoreDefaultArgs entry above,
+        // which strips the --hide-scrollbars switch Chromium injects in
+        // headless mode; this flag is only belt-and-braces for headed runs.
         ...(requiresNativeScrollbars || process.env.PW_HEADED === '1' ? ['--show-scrollbars'] : []),
         '--no-first-run',
         '--no-default-browser-check',
@@ -85,11 +86,15 @@ export const test = base.extend<Fixtures>({
     };
     for (const page of extensionContext.pages()) attachPage(page);
     extensionContext.on('page', attachPage);
-    for (const worker of extensionContext.serviceWorkers()) {
+    const attachWorker = (worker: Worker) => {
       worker.on('console', (message) => {
         if (message.type() === 'error') errors.push(`worker: ${message.text()}`);
       });
-    }
+    };
+    for (const worker of extensionContext.serviceWorkers()) attachWorker(worker);
+    // MV3 service workers restart at will; hook the replacements too so errors
+    // from a respawned background are never silently dropped.
+    extensionContext.on('serviceworker', attachWorker);
     await use(errors);
     if (errors.length > 0) {
       await testInfo.attach('browser-errors.json', {

@@ -50,12 +50,21 @@ function findUnsafeHtmlOperations(file, source) {
     ) {
       report(node, 'uses dangerouslySetInnerHTML');
     }
-    if (
-      ts.isBinaryExpression(node) &&
-      isAssignmentOperator(node.operatorToken.kind) &&
-      propertyName(node.left) === 'innerHTML'
-    ) {
-      report(node, 'assigns innerHTML');
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+      const assigned = propertyName(node.left);
+      if (assigned === 'innerHTML') report(node, 'assigns innerHTML');
+      if (assigned === 'outerHTML') report(node, 'assigns outerHTML');
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = propertyName(node.expression);
+      if (callee === 'insertAdjacentHTML') report(node, 'calls insertAdjacentHTML');
+      if (callee === 'createContextualFragment') report(node, 'calls createContextualFragment');
+      if (callee === 'write' || callee === 'writeln') {
+        const receiver = node.expression.expression?.getText(sourceFile) ?? '';
+        if (receiver === 'document' || receiver.endsWith('.document')) {
+          report(node, `calls document.${callee}`);
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };
