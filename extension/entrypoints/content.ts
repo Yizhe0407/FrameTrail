@@ -46,6 +46,7 @@ import {
   isPointInAnyScrollGutter,
 } from '@/lib/recording/recording-guards';
 import {
+  NO_CANDIDATE_CYCLING,
   snapshotRectKey,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
@@ -273,7 +274,7 @@ export default defineContentScript({
     ): Promise<SnapshotShieldPreviewResult> => {
       const shield = snapshotShield;
       if (!shield || !snapshotInteractionsActive) {
-        return { rect: null, candidateOffset: point.candidateOffset };
+        return { rect: null, candidateOffset: point.candidateOffset, offsetRange: NO_CANDIDATE_CYCLING };
       }
       const target = await shield.runWithoutShield(() =>
         resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
@@ -282,9 +283,10 @@ export default defineContentScript({
         return {
           rect: null,
           candidateOffset: target?.candidateOffset ?? point.candidateOffset,
+          offsetRange: target?.offsetRange ?? NO_CANDIDATE_CYCLING,
         };
       }
-      return { rect: target.rect, candidateOffset: target.candidateOffset };
+      return { rect: target.rect, candidateOffset: target.candidateOffset, offsetRange: target.offsetRange };
     };
 
     const onSnapshotPoint = async (
@@ -321,6 +323,7 @@ export default defineContentScript({
         text: '',
         tagName: 'region',
         candidateOffset: 0,
+        offsetRange: NO_CANDIDATE_CYCLING,
       };
       const label = await commitSnapshotAnnotation(message.rect, target, 'region', Date.now());
       if (label === null) return null;

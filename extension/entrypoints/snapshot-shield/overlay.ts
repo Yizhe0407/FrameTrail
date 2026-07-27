@@ -16,6 +16,15 @@ import {
   layoutAnnotations,
 } from '@/lib/media/annotate';
 
+/** Names only the keys that would change the current box, so the hint never
+ * points at a dead end. */
+function cycleHintLabel(cycle: PreviewCycleHint | undefined): string | null {
+  if (cycle?.canWiden && cycle.canNarrow) return '↑↓ 調整選取範圍';
+  if (cycle?.canWiden) return '↑ 選取更大範圍';
+  if (cycle?.canNarrow) return '↓ 選取更小範圍';
+  return null;
+}
+
 function positionBox(element: HTMLElement, rect: SnapshotShieldRect): void {
   const frame = fitHighlightFrame(rect, window.innerWidth, window.innerHeight);
   element.style.left = `${frame.x}px`;
@@ -24,8 +33,15 @@ function positionBox(element: HTMLElement, rect: SnapshotShieldRect): void {
   element.style.height = `${frame.height}px`;
 }
 
+/** Which way the hovered point can still be cycled, so the hint only ever
+ * offers a key that would actually change the box. */
+export interface PreviewCycleHint {
+  canWiden: boolean;
+  canNarrow: boolean;
+}
+
 export interface SnapshotOverlay {
-  preview(rect: SnapshotShieldRect | null): void;
+  preview(rect: SnapshotShieldRect | null, cycle?: PreviewCycleHint): void;
   commit(selection: SnapshotShieldSelection & { id: number }): void;
   undo(): void;
   relayout(): void;
@@ -45,8 +61,27 @@ export function createOverlay(): SnapshotOverlay {
   const preview = document.createElement('div');
   preview.className = 'snapshot-box snapshot-box--preview';
   preview.hidden = true;
-  root.append(committedLayer, preview);
+  // The shortcut is otherwise invisible: nothing on screen says the box can be
+  // resized. The hint rides the preview so it appears exactly where the user
+  // is already looking, and only when this point has another box to offer.
+  const cycleHint = document.createElement('div');
+  cycleHint.className = 'snapshot-cycle-hint';
+  cycleHint.hidden = true;
+  root.append(committedLayer, preview, cycleHint);
   document.body.append(root);
+
+  const positionCycleHint = (rect: SnapshotShieldRect, label: string): void => {
+    cycleHint.textContent = label;
+    cycleHint.hidden = false;
+    const frame = fitHighlightFrame(rect, window.innerWidth, window.innerHeight);
+    const { width, height } = cycleHint.getBoundingClientRect();
+    // Above the box by default; flipped inside when the box starts at the top
+    // edge, and clamped horizontally so the hint never leaves the viewport.
+    const gap = 6;
+    const above = frame.y - height - gap;
+    cycleHint.style.top = `${above >= 0 ? above : Math.min(frame.y + gap, window.innerHeight - height)}px`;
+    cycleHint.style.left = `${Math.max(0, Math.min(frame.x, window.innerWidth - width))}px`;
+  };
 
   const committedIds = new Set<number>();
   const committedSelections: Array<SnapshotShieldSelection & { id: number }> = [];
@@ -192,10 +227,13 @@ export function createOverlay(): SnapshotOverlay {
   const isCommittedRect = (rect: SnapshotShieldRect) => committedRectKeys.has(snapshotRectKey(rect));
 
   return {
-    preview(rect: SnapshotShieldRect | null) {
+    preview(rect: SnapshotShieldRect | null, cycle?: PreviewCycleHint) {
       preview.hidden = !rect || isCommittedRect(rect);
       document.body.classList.toggle('has-preview-target', Boolean(rect));
       if (rect && !preview.hidden) positionBox(preview, rect);
+      const label = preview.hidden ? null : cycleHintLabel(cycle);
+      if (rect && label) positionCycleHint(rect, label);
+      else cycleHint.hidden = true;
     },
     commit(selection: SnapshotShieldSelection & { id: number }) {
       if (committedIds.has(selection.id)) return;

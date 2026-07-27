@@ -440,3 +440,39 @@ describe('buildSnapshotTargetIdentity', () => {
     expect(buildSnapshotTargetIdentity(replacement)).toBe(identity);
   });
 });
+
+describe('selectVisualTargetCandidate', () => {
+  it('reports the offsets a point can still be cycled to', () => {
+    const article = document.createElement('article');
+    const paragraph = document.createElement('p');
+    const text = document.createElement('span');
+    paragraph.append(text);
+    article.append(paragraph);
+    document.body.append(article);
+    makeVisible(article, { x: 10, y: 10, width: 300, height: 180 });
+    makeVisible(paragraph, { x: 20, y: 20, width: 240, height: 80 });
+    makeVisible(text, { x: 30, y: 30, width: 100, height: 24 });
+
+    const targets = findVisualTargetCandidatesAtPoint(text, 40, 40);
+
+    // Default is the deepest box, so only widening is available from there.
+    expect(selectVisualTargetCandidate(targets, 0)?.offsetRange).toEqual({ min: 0, max: 2 });
+    expect(selectVisualTargetCandidate(targets, 5)).toMatchObject({
+      candidateOffset: 2,
+      offsetRange: { min: 0, max: 2 },
+    });
+  });
+
+  it('reports an empty range when the chain offers a single box', () => {
+    const button = document.createElement('button');
+    const label = document.createElement('span');
+    button.append(label);
+    document.body.append(button);
+    makeVisible(button);
+    makeVisible(label);
+
+    const targets = findVisualTargetCandidatesAtPoint(label, 35, 30);
+
+    expect(selectVisualTargetCandidate(targets, 0)?.offsetRange).toEqual({ min: 0, max: 0 });
+  });
+});

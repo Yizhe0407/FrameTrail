@@ -10,6 +10,7 @@ import {
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
+  NO_CANDIDATE_CYCLING,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
   SNAPSHOT_SHIELD_REGION_CAPTURE,
@@ -267,6 +268,7 @@ export function createSnapshotShield(
     let preview: SnapshotShieldPreviewResult = {
       rect: null,
       candidateOffset: message.candidateOffset,
+      offsetRange: NO_CANDIDATE_CYCLING,
     };
     try {
       if (onHover) preview = await onHover(message);
@@ -278,6 +280,7 @@ export function createSnapshotShield(
       type: SNAPSHOT_SHIELD_PREVIEW,
       requestId: message.requestId,
       rect: preview.rect,
+      offsetRange: preview.offsetRange,
       candidateOffset: preview.candidateOffset,
     });
   };

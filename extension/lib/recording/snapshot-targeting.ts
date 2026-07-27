@@ -15,6 +15,9 @@ import {
   SNAPSHOT_KEYBOARD_LABEL_LIMIT,
   SNAPSHOT_REGION_COORDINATE_LIMIT,
   SNAPSHOT_TARGET_OFFSET_LIMIT,
+  NO_CANDIDATE_CYCLING,
+  isCandidateOffsetRange,
+  type SnapshotCandidateOffsetRange,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
 } from './snapshot-shield-protocol';
@@ -77,6 +80,10 @@ interface SnapshotProbeResult {
   text: string;
   tagName: string;
   candidateOffset: number;
+  /** See SelectedVisualTargetCandidate.offsetRange. Targets resolved without a
+   * candidate chain (an opaque child frame, an image-map area) report an empty
+   * range so the shield never advertises cycling that would do nothing. */
+  offsetRange: SnapshotCandidateOffsetRange;
 }
 
 export interface ResolvedSnapshotTarget extends SnapshotProbeResult {
@@ -97,6 +104,7 @@ function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
   const result = value as Partial<SnapshotProbeResult>;
   const candidateOffset = result.candidateOffset;
   return (
+    isCandidateOffsetRange(result.offsetRange) &&
     isFiniteRect(result.rect, { maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT }) &&
     typeof result.identity === 'string' &&
     result.identity.length > 0 &&
@@ -116,6 +124,7 @@ function resolvedElement(
   el: Element,
   rect: SnapshotShieldRect | null,
   candidateOffset = 0,
+  offsetRange: SnapshotCandidateOffsetRange = NO_CANDIDATE_CYCLING,
 ): ResolvedSnapshotTarget | null {
   if (!rect) return null;
   return {
@@ -125,6 +134,7 @@ function resolvedElement(
     text: describeElement(el),
     tagName: el.tagName.toLowerCase(),
     candidateOffset,
+    offsetRange,
   };
 }
 
@@ -290,6 +300,7 @@ async function probeChildFrame(
         text: child.text,
         tagName: child.tagName,
         candidateOffset: child.candidateOffset,
+        offsetRange: child.offsetRange,
       }
     : null;
 }
@@ -323,6 +334,7 @@ export async function resolveSnapshotTargetAtPoint(
         selected.element,
         getVisibleHighlightBounds(selected.element, clientX, clientY),
         selected.candidateOffset,
+        selected.offsetRange,
       )
     : null;
 }
@@ -387,6 +399,7 @@ export function installSnapshotFrameProbe(runId: string): void {
               text: target.text,
               tagName: target.tagName,
               candidateOffset: target.candidateOffset,
+              offsetRange: target.offsetRange,
             }
           : null;
       } catch (error) {

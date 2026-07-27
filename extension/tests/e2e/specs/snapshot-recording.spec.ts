@@ -400,6 +400,41 @@ test.describe('snapshot recording', () => {
     await stopRecording(popupPage);
   });
 
+  test('advertises candidate cycling only where another box exists', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot');
+    const shield = await getSnapshotFrame(appPage);
+    const hint = shield.locator('.snapshot-cycle-hint');
+
+    // Nested content: the span sits inside a card inside <main>, so the point
+    // has ancestors to widen into but nothing narrower than the default.
+    const nested = await targetCenter(appPage, '#plain-text');
+    await appPage.mouse.move(nested.x, nested.y);
+    await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
+    await expect(hint).toHaveText('↑ 選取更大範圍');
+
+    // After widening once, both directions are live.
+    await appPage.keyboard.press('ArrowUp');
+    await expect(hint).toHaveText('↑↓ 調整選取範圍');
+
+    const widened = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    await appPage.keyboard.press('ArrowDown');
+    await expect
+      .poll(() => shield.locator('.snapshot-box--preview').getAttribute('style'))
+      .not.toBe(widened);
+
+    // The hint is chrome, not content: committing must not bake it into the
+    // screenshot, and the committed annotation clears it.
+    await clickSnapshotTarget(appPage, nested);
+    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
+    await expect(hint).toBeHidden();
+
+    await stopRecording(popupPage);
+  });
+
   test('scrolling keys cannot move the frozen page out from under the snapshot', async ({
     appPage,
     popupPage,

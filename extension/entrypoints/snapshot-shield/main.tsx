@@ -446,7 +446,9 @@ function tryInitialize(event: MessageEvent): void {
       if (outcome === 'ignored') return;
       if (outcome === 'accepted') {
         lastPreviewRect = event.data.rect;
-        overlay.preview(event.data.rect);
+        const { min, max } = event.data.offsetRange;
+        const offset = event.data.candidateOffset;
+        overlay.preview(event.data.rect, { canWiden: offset < max, canNarrow: offset > min });
       }
       hover.schedule();
       return;

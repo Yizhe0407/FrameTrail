@@ -399,6 +399,10 @@ export interface VisualTargetCandidates {
 
 export interface SelectedVisualTargetCandidate extends VisualTargetCandidate {
   candidateOffset: number;
+  /** Offsets the point can still be cycled to, relative to the default
+   * candidate. `min === max` means this point offers no alternative box, which
+   * is what the shield needs to know before advertising the shortcut. */
+  offsetRange: { min: number; max: number };
 }
 
 function visualBoundsKey(bounds: Bounds): string {
@@ -529,11 +533,13 @@ export function selectVisualTargetCandidate(
   requestedOffset: number,
 ): SelectedVisualTargetCandidate | null {
   if (targets.candidates.length === 0) return null;
-  const minimumOffset = -targets.defaultIndex;
+  // `|| 0` keeps a default index of 0 from producing -0, which would travel
+  // through the shield channel and compare unequal under Object.is.
+  const minimumOffset = -targets.defaultIndex || 0;
   const maximumOffset = targets.candidates.length - 1 - targets.defaultIndex;
   const candidateOffset = Math.max(minimumOffset, Math.min(requestedOffset, maximumOffset));
   const candidate = targets.candidates[targets.defaultIndex + candidateOffset];
-  return { ...candidate, candidateOffset };
+  return { ...candidate, candidateOffset, offsetRange: { min: minimumOffset, max: maximumOffset } };
 }
 
 /** Hit-tests a viewport point and resolves the default (offset 0) visual

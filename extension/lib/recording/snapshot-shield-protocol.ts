@@ -51,6 +51,7 @@ export type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : n
 export interface SnapshotShieldPreviewResult {
   rect: SnapshotShieldRect | null;
   candidateOffset: number;
+  offsetRange: SnapshotCandidateOffsetRange;
 }
 
 export interface SnapshotShieldInitMessage {
@@ -91,12 +92,24 @@ export interface SnapshotShieldRegionCaptureMessage {
   rect: SnapshotShieldRect;
 }
 
+/** Offsets a hovered point can be cycled to, relative to its default
+ * candidate. An empty range (min === max) means the point has no alternative
+ * box, so the shield must not advertise candidate cycling for it. */
+export interface SnapshotCandidateOffsetRange {
+  min: number;
+  max: number;
+}
+
+/** The range a target with no alternative boxes reports. */
+export const NO_CANDIDATE_CYCLING: SnapshotCandidateOffsetRange = { min: 0, max: 0 };
+
 export interface SnapshotShieldPreviewMessage {
   type: typeof SNAPSHOT_SHIELD_PREVIEW;
   token: string;
   requestId: number;
   rect: SnapshotShieldRect | null;
   candidateOffset: number;
+  offsetRange: SnapshotCandidateOffsetRange;
 }
 
 export interface SnapshotShieldCaptureCompleteMessage {
@@ -181,6 +194,12 @@ function isRequestId(value: unknown): value is number {
 
 function isCandidateOffset(value: unknown): value is number {
   return Number.isSafeInteger(value) && Math.abs(value as number) <= SNAPSHOT_TARGET_OFFSET_LIMIT;
+}
+
+export function isCandidateOffsetRange(value: unknown): value is SnapshotCandidateOffsetRange {
+  if (!value || typeof value !== 'object') return false;
+  const { min, max } = value as Partial<SnapshotCandidateOffsetRange>;
+  return isCandidateOffset(min) && isCandidateOffset(max) && min <= max;
 }
 
 function isRect(value: unknown): value is SnapshotShieldRect {
@@ -320,6 +339,7 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     captureId?: number;
     rect?: SnapshotShieldRect | null;
     candidateOffset?: number;
+    offsetRange?: SnapshotCandidateOffsetRange;
     selection?: (SnapshotShieldSelection & { id: number }) | null;
     state?: SnapshotShieldToolbarStateMessage['state'];
     result?: RecordingControlResult;
@@ -343,6 +363,7 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     return (
       isRequestId(message.requestId) &&
       isCandidateOffset(message.candidateOffset) &&
+      isCandidateOffsetRange(message.offsetRange) &&
       (message.rect === null || isRect(message.rect))
     );
   }

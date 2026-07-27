@@ -142,10 +142,24 @@ describe('snapshot shield protocol', () => {
     const selection = { id: 1, rect, label: 2 };
     expect(
       isSnapshotShieldFrameMessage(
-        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 2 },
+        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 2, offsetRange: { min: -1, max: 3 } },
         token,
       ),
     ).toBe(true);
+    // The offset range drives the shield's cycling hint, so a preview without
+    // one (or with an inverted one) is not a usable message.
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 2 },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldFrameMessage(
+        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 0, offsetRange: { min: 2, max: 1 } },
+        token,
+      ),
+    ).toBe(false);
     expect(
       isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, captureId: 5, selection }, token),
     ).toBe(true);
@@ -174,6 +188,7 @@ describe('snapshot shield protocol', () => {
           requestId: 3,
           rect: { ...rect, width: -1 },
           candidateOffset: 0,
+          offsetRange: { min: 0, max: 0 },
         },
         token,
       ),
