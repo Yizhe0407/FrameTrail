@@ -1,4 +1,5 @@
 import type { Bounds } from '../storage/db';
+import { getOpenOrClosedShadowRoot } from './shadow-dom';
 
 const INTERACTIVE_TAGS = new Set([
   'button',
@@ -9,8 +10,52 @@ const INTERACTIVE_TAGS = new Set([
   'textarea',
   'label',
   'summary',
+  'details',
   'option',
+  'object',
+  'embed',
 ]);
+/**
+ * Attributes that bind a click through a delegation library or framework
+ * template. Handlers registered with addEventListener are invisible to a
+ * content script — the DevTools-only getEventListeners is not available to
+ * extensions — so these markers are the practical evidence that a plain
+ * div/span is a control. Without them a jsaction-driven page (all of Google's
+ * products) reads as inert text.
+ */
+const DELEGATED_CLICK_ATTRIBUTES = [
+  'jsaction',
+  'data-action',
+  'ng-click',
+  'data-ng-click',
+  'x-ng-click',
+  'v-on:click',
+  '@click',
+  'wire:click',
+  'hx-get',
+  'hx-post',
+  'hx-put',
+  'hx-patch',
+  'hx-delete',
+] as const;
+/** Attributes whose separator-prefixed values name the bound event type. */
+const EVENT_QUALIFIED_ATTRIBUTES: Record<string, string> = { jsaction: ':', 'data-action': '->' };
+const INLINE_POINTER_HANDLER_ATTRIBUTES = [
+  'onclick',
+  'onmousedown',
+  'onmouseup',
+  'onpointerdown',
+  'onpointerup',
+] as const;
+/** ARIA state that only a widget carries; the element answers to activation
+ * even when its role is implicit or supplied by an ancestor. */
+const ARIA_WIDGET_STATE_ATTRIBUTES = [
+  'aria-expanded',
+  'aria-pressed',
+  'aria-checked',
+  'aria-selected',
+] as const;
+const POINTER_CURSORS = new Set(['pointer', 'zoom-in', 'zoom-out']);
 const INTERACTIVE_ROLES = new Set([
   'button',
   'link',
@@ -117,6 +162,41 @@ export function isElementUnavailable(el: Element): boolean {
   return isElementInteractionDisabled(el) || isElementVisuallyUnavailable(el);
 }
 
+/**
+ * Decides whether an event-qualified binding covers click. `jsaction` entries
+ * read `eventType:namespace.action` and Stimulus `data-action` entries read
+ * `event->controller#method`; in both, an entry without the separator defaults
+ * to click, so `jsaction="menu.toggle"` and `data-action="menu#toggle"` count.
+ */
+function declaresClickBinding(value: string, separator: string): boolean {
+  return value
+    .split(';')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .some((entry) => {
+      const boundary = entry.indexOf(separator);
+      return boundary < 0 || entry.slice(0, boundary).trim() === 'click';
+    });
+}
+
+function hasDelegatedClickBinding(el: Element): boolean {
+  return DELEGATED_CLICK_ATTRIBUTES.some((attribute) => {
+    const value = el.getAttribute(attribute);
+    if (value === null) return false;
+    const separator = EVENT_QUALIFIED_ATTRIBUTES[attribute];
+    return separator === undefined || declaresClickBinding(value, separator);
+  });
+}
+
+function hasWidgetStateAttribute(el: Element): boolean {
+  // aria-haspopup="false" is the documented way to say "no popup"; every other
+  // state attribute stays meaningful at "false" because only a toggle has one.
+  return (
+    ARIA_WIDGET_STATE_ATTRIBUTES.some((attribute) => el.hasAttribute(attribute)) ||
+    (el.getAttribute('aria-haspopup')?.trim().toLowerCase() ?? 'false') !== 'false'
+  );
+}
+
 function interactionKind(el: Element, style?: CSSStyleDeclaration): InteractionKind | null {
   const tag = el.tagName.toLowerCase();
   const isNative =
@@ -134,8 +214,10 @@ function interactionKind(el: Element, style?: CSSStyleDeclaration): InteractionK
   const contentEditable = el.getAttribute('contenteditable')?.trim().toLowerCase();
   const assignedClick = (el as Element & { onclick?: unknown }).onclick;
   if (
-    el.hasAttribute('onclick') ||
+    INLINE_POINTER_HANDLER_ATTRIBUTES.some((attribute) => el.hasAttribute(attribute)) ||
     typeof assignedClick === 'function' ||
+    hasDelegatedClickBinding(el) ||
+    hasWidgetStateAttribute(el) ||
     contentEditable === '' ||
     contentEditable === 'true' ||
     contentEditable === 'plaintext-only'
@@ -146,7 +228,7 @@ function interactionKind(el: Element, style?: CSSStyleDeclaration): InteractionK
   const tabindex = el.getAttribute('tabindex');
   if (tabindex !== null && Number(tabindex) >= 0) return 'focusable';
 
-  return (style ?? getComputedStyle(el)).cursor === 'pointer' ? 'cursor' : null;
+  return POINTER_CURSORS.has((style ?? getComputedStyle(el)).cursor) ? 'cursor' : null;
 }
 
 export function isInteractiveElement(el: Element): boolean {
@@ -273,20 +355,25 @@ function findInteractiveTargetFromEntries(entries: AnalyzedElement[]): Element |
   return best?.entry.element ?? null;
 }
 
-export function deepElementFromPoint(clientX: number, clientY: number): Element | null {
-  let root: Document | ShadowRoot = document;
-  let target: Element | null = null;
+/** Walks a hit element down through every shadow root it hosts, open or
+ * closed, to the innermost element actually under the point. */
+function descendShadowRoots(start: Element, clientX: number, clientY: number): Element {
+  let target = start;
   const visited = new Set<ShadowRoot>();
 
   while (true) {
-    const next: Element | null = root.elementFromPoint(clientX, clientY);
-    if (!next) return target;
-    target = next;
-    const shadowRoot: ShadowRoot | null = next.shadowRoot;
+    const shadowRoot = getOpenOrClosedShadowRoot(target);
     if (!shadowRoot || visited.has(shadowRoot)) return target;
     visited.add(shadowRoot);
-    root = shadowRoot;
+    const next = shadowRoot.elementFromPoint(clientX, clientY);
+    if (!next) return target;
+    target = next;
   }
+}
+
+export function deepElementFromPoint(clientX: number, clientY: number): Element | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  return hit ? descendShadowRoots(hit, clientX, clientY) : null;
 }
 
 function elementAndComposedAncestors(target: Element): Element[] {
@@ -350,14 +437,16 @@ function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: numbe
   return (entry.highlightBounds = { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 }
 
+interface ChainAnalysis {
+  targets: VisualTargetCandidates;
+  /** The control the chain resolves to, or null when it holds none. */
+  interactive: Element | null;
+}
+
 /** Builds the visually distinct target chain under a point, from the deepest
  * rendered element toward its composed ancestors. Semantic controls remain
  * the default even when the pointer lands on a nested label or icon. */
-export function findVisualTargetCandidates(
-  hit: Element,
-  clientX: number,
-  clientY: number,
-): VisualTargetCandidates {
+function analyzeChain(hit: Element, clientX: number, clientY: number): ChainAnalysis {
   const entries = analyzeElements(elementAndComposedAncestors(hit));
   const interactive = findInteractiveTargetFromEntries(entries);
   const candidates: VisualTargetCandidate[] = [];
@@ -382,7 +471,57 @@ export function findVisualTargetCandidates(
   const interactiveIndex = interactive
     ? candidates.findIndex((candidate) => candidate.element === interactive)
     : -1;
-  return { candidates, defaultIndex: interactiveIndex >= 0 ? interactiveIndex : 0 };
+  return {
+    targets: { candidates, defaultIndex: interactiveIndex >= 0 ? interactiveIndex : 0 },
+    interactive,
+  };
+}
+
+/** How far down the paint stack a blank occluder is searched past. */
+const OCCLUDER_STACK_LIMIT = 8;
+/** Share of the viewport a blank element must cover to read as an overlay. */
+const OCCLUDER_COVERAGE_RATIO = 0.6;
+
+/**
+ * A shim, drag layer or modal backdrop swallows the hit test while showing
+ * nothing of its own. Text content is the discriminator: a cookie banner or a
+ * hero section covering the viewport is real content and stays the target.
+ */
+function looksLikeBlankOccluder(el: Element, viewport: { width: number; height: number }): boolean {
+  if ((el.textContent ?? '').trim().length > 0) return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width * rect.height >= viewport.width * viewport.height * OCCLUDER_COVERAGE_RATIO;
+}
+
+/**
+ * Resolves the candidate chain for a point, looking past a blank overlay that
+ * covers the control the user is aiming at. The topmost chain wins whenever it
+ * holds a control of its own, so the extra paint-stack walk only runs for the
+ * hit tests that would otherwise return nothing actionable.
+ */
+export function findVisualTargetCandidatesAtPoint(
+  hit: Element,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number } = { width: window.innerWidth, height: window.innerHeight },
+): VisualTargetCandidates {
+  const top = analyzeChain(hit, clientX, clientY);
+  if (
+    top.interactive ||
+    typeof document.elementsFromPoint !== 'function' ||
+    !looksLikeBlankOccluder(hit, viewport)
+  ) {
+    return top.targets;
+  }
+
+  const analyzed = new Set(elementAndComposedAncestors(hit));
+  for (const occluded of document.elementsFromPoint(clientX, clientY).slice(0, OCCLUDER_STACK_LIMIT)) {
+    if (analyzed.has(occluded)) continue;
+    const deeper = analyzeChain(descendShadowRoots(occluded, clientX, clientY), clientX, clientY);
+    if (deeper.interactive) return deeper.targets;
+    for (const element of elementAndComposedAncestors(occluded)) analyzed.add(element);
+  }
+  return top.targets;
 }
 
 export function selectVisualTargetCandidate(
@@ -403,9 +542,30 @@ export function selectVisualTargetCandidate(
 export function resolvePrimaryVisualTarget(clientX: number, clientY: number): Element | null {
   const hit = deepElementFromPoint(clientX, clientY);
   return hit
-    ? selectVisualTargetCandidate(findVisualTargetCandidates(hit, clientX, clientY), 0)?.element ?? null
+    ? selectVisualTargetCandidate(findVisualTargetCandidatesAtPoint(hit, clientX, clientY), 0)?.element ?? null
     : null;
 }
+
+function attributeSelector(attribute: string): string {
+  return `[${attribute.replace(/[^\w-]/g, (character) => `\\${character}`)}]`;
+}
+
+/**
+ * Every marker that can make an element a control, as a CSS selector. It
+ * over-selects on purpose — `isInteractiveElement` is the authority, and this
+ * only has to avoid missing anything it would accept. Cursor-only controls
+ * cannot be expressed here and stay pointer-reachable.
+ */
+export const INTERACTIVE_CANDIDATE_SELECTOR = [
+  ...INTERACTIVE_TAGS,
+  '[role]',
+  '[tabindex]',
+  '[contenteditable]',
+  '[aria-haspopup]',
+  ...DELEGATED_CLICK_ATTRIBUTES.map(attributeSelector),
+  ...INLINE_POINTER_HANDLER_ATTRIBUTES.map(attributeSelector),
+  ...ARIA_WIDGET_STATE_ATTRIBUTES.map(attributeSelector),
+].join(',');
 
 /**
  * Returns the precise border-box fragment clicked by the user. A multiline

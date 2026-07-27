@@ -2,8 +2,9 @@ import { browser } from 'wxt/browser';
 import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
-  findVisualTargetCandidates,
+  findVisualTargetCandidatesAtPoint,
   getVisibleHighlightBounds,
+  INTERACTIVE_CANDIDATE_SELECTOR,
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
@@ -45,19 +46,6 @@ export function waitForNextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-const KEYBOARD_CANDIDATE_SELECTOR = [
-  'a[href]',
-  'button',
-  'input',
-  'select',
-  'textarea',
-  'summary',
-  'label',
-  '[role]',
-  '[tabindex]',
-  '[contenteditable]',
-].join(',');
-
 /**
  * Enumerates top-frame annotation candidates for keyboard traversal (§9.5).
  * The page is frozen while annotating, so this runs once. Ordering, dedup and
@@ -67,7 +55,7 @@ const KEYBOARD_CANDIDATE_SELECTOR = [
 export function collectKeyboardCandidateAnchors(): SnapshotShieldKeyboardAnchor[] {
   const raw: RawKeyboardCandidate[] = [];
   const seen = new Set<Element>();
-  for (const el of document.querySelectorAll(KEYBOARD_CANDIDATE_SELECTOR)) {
+  for (const el of document.querySelectorAll(INTERACTIVE_CANDIDATE_SELECTOR)) {
     if (seen.has(el) || !isInteractiveElement(el)) continue;
     seen.add(el);
     const rect = el.getBoundingClientRect();
@@ -328,7 +316,7 @@ export async function resolveSnapshotTargetAtPoint(
     if (area) return area;
   }
 
-  const targets = findVisualTargetCandidates(hit, clientX, clientY);
+  const targets = findVisualTargetCandidatesAtPoint(hit, clientX, clientY);
   const selected = selectVisualTargetCandidate(targets, candidateOffset);
   return selected
     ? resolvedElement(

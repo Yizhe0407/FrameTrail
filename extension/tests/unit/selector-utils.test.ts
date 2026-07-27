@@ -2,8 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSnapshotTargetIdentity,
-  findVisualTargetCandidates,
+  deepElementFromPoint,
+  findVisualTargetCandidatesAtPoint,
   getVisibleHighlightBounds,
+  INTERACTIVE_CANDIDATE_SELECTOR,
   isInteractiveElement,
   isElementVisuallyUnavailable,
   selectVisualTargetCandidate,
@@ -38,9 +40,10 @@ function makeVisible(element: Element, rect = { x: 20, y: 20, width: 120, height
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
-describe('findVisualTargetCandidates', () => {
+describe('findVisualTargetCandidatesAtPoint', () => {
   it('selects non-interactive content and cycles through distinct parent boxes', () => {
     const article = document.createElement('article');
     const paragraph = document.createElement('p');
@@ -52,7 +55,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(paragraph, { x: 20, y: 20, width: 240, height: 80 });
     makeVisible(text, { x: 30, y: 30, width: 100, height: 24 });
 
-    const targets = findVisualTargetCandidates(text, 40, 40);
+    const targets = findVisualTargetCandidatesAtPoint(text, 40, 40);
 
     expect(targets.candidates.map((candidate) => candidate.element)).toEqual([text, paragraph, article]);
     expect(selectVisualTargetCandidate(targets, 0)).toMatchObject({ element: text, candidateOffset: 0 });
@@ -68,7 +71,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
     makeVisible(icon, { x: 30, y: 25, width: 20, height: 20 });
 
-    const targets = findVisualTargetCandidates(icon, 35, 30);
+    const targets = findVisualTargetCandidatesAtPoint(icon, 35, 30);
 
     expect(selectVisualTargetCandidate(targets, 0)).toMatchObject({ element: button, candidateOffset: 0 });
     expect(selectVisualTargetCandidate(targets, -1)).toMatchObject({ element: icon, candidateOffset: -1 });
@@ -89,7 +92,7 @@ describe('findVisualTargetCandidates', () => {
     const rectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getBoundingClientRect'));
     const clientRectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getClientRects'));
 
-    expect(selectVisualTargetCandidate(findVisualTargetCandidates(icon, 36, 32), 0)?.element).toBe(button);
+    expect(selectVisualTargetCandidate(findVisualTargetCandidatesAtPoint(icon, 36, 32), 0)?.element).toBe(button);
 
     // body/html are part of the composed chain as well; no element is styled
     // more than once and candidate geometry is never recalculated for sorting.
@@ -110,7 +113,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(container, { x: 10, y: 10, width: 180, height: 80 });
     makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
 
-    const targets = findVisualTargetCandidates(button, 30, 30);
+    const targets = findVisualTargetCandidatesAtPoint(button, 30, 30);
 
     expect(isInteractiveElement(button)).toBe(false);
     expect(isElementVisuallyUnavailable(button)).toBe(false);
@@ -125,7 +128,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(button);
     makeVisible(label);
 
-    const targets = findVisualTargetCandidates(label, 35, 30);
+    const targets = findVisualTargetCandidatesAtPoint(label, 35, 30);
 
     expect(targets.candidates).toHaveLength(1);
     expect(targets.candidates[0].element).toBe(button);
@@ -140,7 +143,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(paragraph, { x: 20, y: 20, width: 160, height: 50 });
     makeVisible(hiddenText, { x: 30, y: 25, width: 80, height: 20 });
 
-    expect(findVisualTargetCandidates(hiddenText, 35, 30).candidates[0].element).toBe(paragraph);
+    expect(findVisualTargetCandidatesAtPoint(hiddenText, 35, 30).candidates[0].element).toBe(paragraph);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -149,10 +152,10 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(svg, { x: 20, y: 20, width: 40, height: 40 });
     makeVisible(path, { x: 25, y: 25, width: 20, height: 20 });
 
-    expect(findVisualTargetCandidates(path, 30, 30).candidates[0].element).toBe(svg);
+    expect(findVisualTargetCandidatesAtPoint(path, 30, 30).candidates[0].element).toBe(svg);
 
     path.setAttribute('role', 'button');
-    expect(findVisualTargetCandidates(path, 30, 30).candidates[0].element).toBe(path);
+    expect(findVisualTargetCandidatesAtPoint(path, 30, 30).candidates[0].element).toBe(path);
   });
 
   it('follows the composed tree through assigned slots', () => {
@@ -170,7 +173,7 @@ describe('findVisualTargetCandidates', () => {
     makeVisible(wrapper, { x: 20, y: 20, width: 180, height: 60 });
     makeVisible(slotted, { x: 30, y: 30, width: 80, height: 20 });
 
-    const targets = findVisualTargetCandidates(slotted, 40, 35);
+    const targets = findVisualTargetCandidatesAtPoint(slotted, 40, 35);
 
     expect(targets.candidates.map((candidate) => candidate.element)).toEqual([slotted, wrapper, host]);
   });
@@ -187,7 +190,7 @@ describe('findVisualTargetCandidates', () => {
       ],
     });
 
-    expect(findVisualTargetCandidates(text, 30, 60).candidates[0].bounds).toEqual({
+    expect(findVisualTargetCandidatesAtPoint(text, 30, 60).candidates[0].bounds).toEqual({
       x: 20,
       y: 50,
       width: 120,
@@ -294,6 +297,131 @@ describe('isInteractiveElement', () => {
     expect(isInteractiveElement(area)).toBe(false);
     area.href = '/details';
     expect(isInteractiveElement(area)).toBe(true);
+  });
+
+  it('recognizes delegated click bindings and rejects other event types', () => {
+    const element = document.createElement('div');
+    document.body.append(element);
+    makeVisible(element);
+
+    // jsaction and Stimulus data-action name the event before their separator;
+    // an entry without one defaults to click.
+    expect(isInteractiveElement(element)).toBe(false);
+    element.setAttribute('jsaction', 'keydown:menu.key');
+    expect(isInteractiveElement(element)).toBe(false);
+    element.setAttribute('jsaction', 'keydown:menu.key;click:menu.toggle');
+    expect(isInteractiveElement(element)).toBe(true);
+    element.setAttribute('jsaction', 'menu.toggle');
+    expect(isInteractiveElement(element)).toBe(true);
+
+    element.removeAttribute('jsaction');
+    element.setAttribute('data-action', 'mouseenter->menu#preview');
+    expect(isInteractiveElement(element)).toBe(false);
+    element.setAttribute('data-action', 'menu#toggle');
+    expect(isInteractiveElement(element)).toBe(true);
+
+    element.removeAttribute('data-action');
+    for (const attribute of ['ng-click', 'v-on:click', 'wire:click', 'hx-post', 'onpointerdown']) {
+      element.setAttribute(attribute, 'noop');
+      expect(isInteractiveElement(element), attribute).toBe(true);
+      element.removeAttribute(attribute);
+    }
+
+    // Vue's @click shorthand cannot go through setAttribute — jsdom enforces
+    // the XML Name production — but the HTML parser accepts it, which is how
+    // it reaches a real page.
+    const parsed = document.createElement('div');
+    parsed.innerHTML = '<span @click="submit()">送出</span>';
+    const shorthand = parsed.firstElementChild!;
+    document.body.append(parsed);
+    makeVisible(shorthand);
+    expect(shorthand.hasAttribute('@click')).toBe(true);
+    expect(isInteractiveElement(shorthand)).toBe(true);
+    expect(parsed.querySelectorAll(INTERACTIVE_CANDIDATE_SELECTOR)).toHaveLength(1);
+  });
+
+  it('treats widget state attributes as controls, except an explicit no-popup', () => {
+    const element = document.createElement('div');
+    document.body.append(element);
+    makeVisible(element);
+
+    element.setAttribute('aria-haspopup', 'false');
+    expect(isInteractiveElement(element)).toBe(false);
+    element.setAttribute('aria-haspopup', 'menu');
+    expect(isInteractiveElement(element)).toBe(true);
+
+    element.removeAttribute('aria-haspopup');
+    // A collapsed toggle is still a toggle, so "false" stays interactive here.
+    element.setAttribute('aria-expanded', 'false');
+    expect(isInteractiveElement(element)).toBe(true);
+  });
+
+  it('accepts natively actionable tags that carry no role or handler', () => {
+    for (const tag of ['details', 'object', 'embed']) {
+      const element = document.createElement(tag);
+      document.body.append(element);
+      makeVisible(element);
+      expect(isInteractiveElement(element), tag).toBe(true);
+    }
+  });
+});
+
+describe('shadow and occlusion aware hit testing', () => {
+  function stubElementFromPoint(root: Document | ShadowRoot, element: Element | null): void {
+    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => element });
+  }
+
+  it('descends into closed shadow roots through the extension accessor', () => {
+    const host = document.createElement('div');
+    const shadowRoot = host.attachShadow({ mode: 'closed' });
+    const button = document.createElement('button');
+    shadowRoot.append(button);
+    document.body.append(host);
+    stubElementFromPoint(document, host);
+    stubElementFromPoint(shadowRoot, button);
+
+    // Without the accessor a closed host is a dead end: host.shadowRoot is null.
+    expect(deepElementFromPoint(30, 30)).toBe(host);
+
+    vi.stubGlobal('chrome', { dom: { openOrClosedShadowRoot: () => shadowRoot } });
+    expect(deepElementFromPoint(30, 30)).toBe(button);
+  });
+
+  it('looks past a blank full-viewport overlay to the control underneath', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    button.textContent = '送出';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(button, { x: 10, y: 10, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, button, document.body],
+    });
+
+    const viewport = { width: 1024, height: 768 };
+    expect(findVisualTargetCandidatesAtPoint(overlay, 30, 30, viewport).candidates[0].element).toBe(button);
+
+    // A covering element that shows its own content is real content: it stays
+    // the target instead of being treated as a shim.
+    overlay.textContent = '請先同意條款';
+    expect(findVisualTargetCandidatesAtPoint(overlay, 30, 30, viewport).candidates[0].element).toBe(overlay);
+  });
+
+  it('keeps the topmost chain when the stack holds no control', () => {
+    const overlay = document.createElement('div');
+    const text = document.createElement('p');
+    document.body.append(overlay, text);
+    makeVisible(overlay, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(text, { x: 10, y: 10, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, text, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 });
+
+    expect(targets.candidates[0].element).toBe(overlay);
   });
 });
 
