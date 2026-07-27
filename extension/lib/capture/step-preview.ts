@@ -6,16 +6,13 @@ import {
   fitHighlightFrame,
 } from '../media/annotate';
 import type { Bounds } from '../storage/db';
+import { createViewportOverlayHost, setImportantStyle } from './viewport-overlay-host';
 
 export interface StepPreview {
   show(bounds: Bounds): void;
   hide(): void;
   prepareForCapture(): Promise<void>;
   remove(): void;
-}
-
-function setImportantStyle(element: HTMLElement, property: string, value: string): void {
-  element.style.setProperty(property, value, 'important');
 }
 
 function waitForNextPaint(): Promise<void> {
@@ -25,34 +22,23 @@ function waitForNextPaint(): Promise<void> {
 /** A click-through hover frame for step mode. It lives in a closed shadow root
  * so page CSS cannot alter it, and settles offscreen before capture. */
 export function createStepPreview(): StepPreview {
-  const host = document.createElement('div');
-  host.setAttribute('data-frametrail-step-preview', '');
+  const host = createViewportOverlayHost(
+    'data-frametrail-step-preview',
+    {
+      'box-sizing': 'border-box',
+      opacity: '1',
+      visibility: 'visible',
+      overflow: 'hidden',
+      contain: 'strict',
+      transform: 'none',
+      filter: 'none',
+      animation: 'none',
+      transition: 'none',
+      'pointer-events': 'none',
+    },
+    { popover: true },
+  );
   host.setAttribute('aria-hidden', 'true');
-  host.setAttribute('popover', 'manual');
-  const declarations: Record<string, string> = {
-    all: 'initial',
-    position: 'fixed',
-    inset: '0',
-    width: '100vw',
-    height: '100vh',
-    margin: '0',
-    padding: '0',
-    border: '0',
-    display: 'block',
-    'box-sizing': 'border-box',
-    background: 'transparent',
-    opacity: '1',
-    visibility: 'visible',
-    overflow: 'hidden',
-    contain: 'strict',
-    transform: 'none',
-    filter: 'none',
-    animation: 'none',
-    transition: 'none',
-    'pointer-events': 'none',
-    'z-index': '2147483647',
-  };
-  for (const [property, value] of Object.entries(declarations)) setImportantStyle(host, property, value);
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   const box = document.createElement('div');

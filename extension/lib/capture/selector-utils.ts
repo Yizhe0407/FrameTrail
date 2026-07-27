@@ -1,5 +1,6 @@
 import type { Bounds } from '../storage/db';
 import { getOpenOrClosedShadowRoot } from './shadow-dom';
+import type { CandidateOffsetRange } from './candidate-cycling';
 
 const INTERACTIVE_TAGS = new Set([
   'button',
@@ -402,7 +403,7 @@ export interface SelectedVisualTargetCandidate extends VisualTargetCandidate {
   /** Offsets the point can still be cycled to, relative to the default
    * candidate. `min === max` means this point offers no alternative box, which
    * is what the shield needs to know before advertising the shortcut. */
-  offsetRange: { min: number; max: number };
+  offsetRange: CandidateOffsetRange;
 }
 
 function visualBoundsKey(bounds: Bounds): string {
@@ -420,25 +421,14 @@ function isVisuallySelectableEntry(entry: AnalyzedElement): boolean {
   );
 }
 
+/** Memoized per hit-test so a candidate chain measures each element once. */
 function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: number): Bounds | null {
-  if (entry.highlightBounds !== undefined) return entry.highlightBounds;
-  const rects = Array.from(entry.element.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-  if (rects.length === 0) return (entry.highlightBounds = null);
-
-  let smallest = rects[0];
-  let smallestContaining: DOMRect | null = null;
-  for (const rect of rects) {
-    if (rect.width * rect.height < smallest.width * smallest.height) smallest = rect;
-    if (
-      clientX >= rect.left && clientX <= rect.right &&
-      clientY >= rect.top && clientY <= rect.bottom &&
-      (!smallestContaining || rect.width * rect.height < smallestContaining.width * smallestContaining.height)
-    ) {
-      smallestContaining = rect;
-    }
+  // Not `??=`: a cached null is a real answer (the element has no painted
+  // box), and recomputing it would re-measure on every lookup.
+  if (entry.highlightBounds === undefined) {
+    entry.highlightBounds = getHighlightBounds(entry.element, clientX, clientY);
   }
-  const rect = smallestContaining ?? smallest;
-  return (entry.highlightBounds = { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  return entry.highlightBounds;
 }
 
 interface ChainAnalysis {
@@ -542,14 +532,21 @@ export function selectVisualTargetCandidate(
   return { ...candidate, candidateOffset, offsetRange: { min: minimumOffset, max: maximumOffset } };
 }
 
-/** Hit-tests a viewport point and resolves the default (offset 0) visual
- * capture target for it. Shared by the top-frame step recorder and the
- * child-frame relay so both frames pick identical targets. */
-export function resolvePrimaryVisualTarget(clientX: number, clientY: number): Element | null {
+/** Hit-tests a viewport point and resolves the candidate `candidateOffset`
+ * selects there, clamped to what the point actually offers. Shared by the
+ * top-frame step recorder and the child-frame relay so both frames pick
+ * identical targets. */
+export function resolveVisualTargetAtPoint(
+  clientX: number,
+  clientY: number,
+  candidateOffset = 0,
+): SelectedVisualTargetCandidate | null {
   const hit = deepElementFromPoint(clientX, clientY);
-  return hit
-    ? selectVisualTargetCandidate(findVisualTargetCandidatesAtPoint(hit, clientX, clientY), 0)?.element ?? null
-    : null;
+  if (!hit) return null;
+  return selectVisualTargetCandidate(
+    findVisualTargetCandidatesAtPoint(hit, clientX, clientY),
+    candidateOffset,
+  );
 }
 
 function attributeSelector(attribute: string): string {

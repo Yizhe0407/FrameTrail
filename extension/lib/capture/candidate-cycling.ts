@@ -13,7 +13,7 @@ export interface CandidateOffsetRange {
   max: number;
 }
 
-export const SNAPSHOT_CYCLE_KEYS = '';
+/** Step mode's modifier; snapshot mode binds the bare arrows and passes none. */
 export const STEP_CYCLE_KEYS = 'Alt+';
 
 /**
@@ -24,7 +24,7 @@ export const STEP_CYCLE_KEYS = 'Alt+';
 export function cycleHintLabel(
   candidateOffset: number,
   range: CandidateOffsetRange,
-  modifier: string = SNAPSHOT_CYCLE_KEYS,
+  modifier = '',
 ): string | null {
   const canWiden = candidateOffset < range.max;
   const canNarrow = candidateOffset > range.min;

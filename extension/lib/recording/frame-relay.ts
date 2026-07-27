@@ -5,7 +5,7 @@ import {
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
-  resolvePrimaryVisualTarget,
+  resolveVisualTargetAtPoint,
 } from '../capture/selector-utils';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
@@ -235,7 +235,7 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     if (paused) return;
     if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
     if (isPointInAnyScrollGutter(event.clientX, event.clientY)) return;
-    const el = resolvePrimaryVisualTarget(event.clientX, event.clientY);
+    const el = resolveVisualTargetAtPoint(event.clientX, event.clientY)?.element ?? null;
     if (!el) return;
     if (gestureActive) {
       // A relayed capture is still in flight; swallow the gesture so it cannot

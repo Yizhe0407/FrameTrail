@@ -25,13 +25,17 @@ function isKeepAliveHeartbeat(message: unknown): boolean {
 }
 
 /** Background-side view of a runtime.onConnect port. */
-export interface KeepAliveServerPortLike<TSender = unknown> {
-  name: string;
-  sender?: TSender;
+/** The half of a runtime port both ends of the keep-alive use. */
+export interface KeepAlivePortLike {
   postMessage(message: unknown): void;
   disconnect(): void;
   onMessage: { addListener(listener: (message: unknown) => void): void };
   onDisconnect: { addListener(listener: () => void): void };
+}
+
+export interface KeepAliveServerPortLike<TSender = unknown> extends KeepAlivePortLike {
+  name: string;
+  sender?: TSender;
 }
 
 export interface KeepAlivePortHandlerDeps<TSender, TState> {
@@ -101,13 +105,6 @@ export function createKeepAlivePortHandler<TSender, TState>(
     });
     authorize();
   };
-}
-
-export interface KeepAlivePortLike {
-  postMessage(message: unknown): void;
-  disconnect(): void;
-  onMessage: { addListener(listener: (message: unknown) => void): void };
-  onDisconnect: { addListener(listener: () => void): void };
 }
 
 export interface KeepAliveRuntimeLike {

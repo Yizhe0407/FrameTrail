@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import RecordingToolbar, { type RecordingToolbarState } from './recording-toolbar';
+import { createViewportOverlayHost } from '../capture/viewport-overlay-host';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
 type ToolbarAction = RecordingControlMessage['type'];
@@ -25,15 +26,9 @@ export function mountRecordingToolbar(
   initialState: RecordingToolbarState,
   options: Options,
 ): MountedRecordingToolbar {
-  const host = document.createElement('div');
-  host.setAttribute('data-frametrail-recording-toolbar', '');
-  host.style.setProperty('all', 'initial', 'important');
-  host.style.setProperty('position', 'fixed', 'important');
-  host.style.setProperty('inset', '0', 'important');
-  host.style.setProperty('width', '100vw', 'important');
-  host.style.setProperty('height', '100vh', 'important');
-  host.style.setProperty('pointer-events', 'none', 'important');
-  host.style.setProperty('z-index', '2147483647', 'important');
+  // Not a popover: the toolbar is always shown, and the attribute would hide
+  // it until showPopover().
+  const host = createViewportOverlayHost('data-frametrail-recording-toolbar', { 'pointer-events': 'none' });
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   const container = document.createElement('div');

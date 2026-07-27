@@ -17,11 +17,11 @@ import {
   SNAPSHOT_TARGET_OFFSET_LIMIT,
   NO_CANDIDATE_CYCLING,
   isCandidateOffsetRange,
-  type SnapshotCandidateOffsetRange,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
 } from './snapshot-shield-protocol';
 import { orderKeyboardCandidates, type RawKeyboardCandidate } from '../capture/snapshot-candidates';
+import type { CandidateOffsetRange } from '../capture/candidate-cycling';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
   childFrameProbeTimeout,
@@ -83,7 +83,7 @@ interface SnapshotProbeResult {
   /** See SelectedVisualTargetCandidate.offsetRange. Targets resolved without a
    * candidate chain (an opaque child frame, an image-map area) report an empty
    * range so the shield never advertises cycling that would do nothing. */
-  offsetRange: SnapshotCandidateOffsetRange;
+  offsetRange: CandidateOffsetRange;
 }
 
 export interface ResolvedSnapshotTarget extends SnapshotProbeResult {
@@ -124,7 +124,7 @@ function resolvedElement(
   el: Element,
   rect: SnapshotShieldRect | null,
   candidateOffset = 0,
-  offsetRange: SnapshotCandidateOffsetRange = NO_CANDIDATE_CYCLING,
+  offsetRange: CandidateOffsetRange = NO_CANDIDATE_CYCLING,
 ): ResolvedSnapshotTarget | null {
   if (!rect) return null;
   return {

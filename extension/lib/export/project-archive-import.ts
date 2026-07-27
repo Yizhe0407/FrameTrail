@@ -18,6 +18,7 @@ import {
   type ProjectArchiveSource,
 } from './project-archive-contract';
 import {
+  assertUniqueStepIds,
   assertExactKeys,
   base64ToBytes,
   canonicalStepComparator,
@@ -190,11 +191,7 @@ export async function importProjectArchive(
     return parseArchiveStep(step, `manifest.steps[${index}]`, blobs, usedBlobs);
   });
 
-  const ids = new Set<string>();
-  for (const step of steps) {
-    if (ids.has(step.id)) fail('DUPLICATE_ID', `Duplicate step id ${JSON.stringify(step.id)}.`);
-    ids.add(step.id);
-  }
+  assertUniqueStepIds(steps);
   for (const blobId of blobs.keys()) {
     if (!usedBlobs.has(blobId)) fail('INVALID_BLOB', `Screenshot ${JSON.stringify(blobId)} is not referenced by a step.`);
   }

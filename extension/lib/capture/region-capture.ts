@@ -1,4 +1,5 @@
 import { BRAND_DANGER } from './brand-colors';
+import { createViewportOverlayHost } from './viewport-overlay-host';
 
 export const REGION_CAPTURE_MIN_SIZE = 8;
 
@@ -170,26 +171,9 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   const readViewport = options.viewport ?? (() => ({ width: window.innerWidth, height: window.innerHeight }));
   const minSize = options.minSize ?? REGION_CAPTURE_MIN_SIZE;
   const settleFrames = options.settleFrames ?? 2;
-  const host = document.createElement('div');
-  host.setAttribute('data-frametrail-region-capture', '');
-  host.setAttribute('popover', 'manual');
-  const declarations: Record<string, string> = {
-    all: 'initial',
-    position: 'fixed',
-    inset: '0',
-    width: '100vw',
-    height: '100vh',
-    margin: '0',
-    padding: '0',
-    border: '0',
-    display: 'block',
-    background: 'transparent',
-    'pointer-events': 'auto',
-    'z-index': '2147483647',
-  };
-  for (const [property, value] of Object.entries(declarations)) {
-    host.style.setProperty(property, value, 'important');
-  }
+  // Hit-testable on purpose: the transparent host swallows the drag so no page
+  // target receives it.
+  const host = createViewportOverlayHost('data-frametrail-region-capture', { 'pointer-events': 'auto' }, { popover: true });
 
   const root = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');

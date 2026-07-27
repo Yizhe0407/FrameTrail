@@ -1925,6 +1925,63 @@ export default defineBackground(() => {
   });
   browser.runtime.onConnect.addListener(handleKeepAlivePort);
 
+  /**
+   * Reads the run this tab event concerns, or null when it no longer concerns
+   * one: the control version moved (a newer command owns the run), the run
+   * ended, or the event belongs to a different tab. Every tab listener has to
+   * make this check before acting on a run it did not verify.
+   */
+  const readActiveRunForTab = async (
+    tabId: number,
+    expectedControlVersion: number,
+  ): Promise<{ state: RecordingState; runId: string } | null> => {
+    const state = await getRecordingState();
+    if (
+      expectedControlVersion !== control.controlVersion ||
+      !state.isRecording ||
+      state.operation !== 'recording' ||
+      state.tabId !== tabId ||
+      !state.runId
+    ) {
+      return null;
+    }
+    return { state, runId: state.runId };
+  };
+
+  /**
+   * Re-instruments a navigated tab. All-frames mirrors the START injection:
+   * step mode instruments every accessible child frame so iframe clicks keep
+   * being relayed to the top-frame recorder, not silently lost.
+   *
+   * A vanished tab always ends the run the same way, so that outcome is settled
+   * here; 'failed' hands the caller back control because the two navigation
+   * paths recover differently — a snapshot awaiting its next page only surfaces
+   * the error, while a live step run must stop.
+   */
+  const reinjectRecorder = async (
+    tabId: number,
+    runId: string,
+    expectedControlVersion: number,
+    failureLog: string,
+  ): Promise<'injected' | 'tab-closed' | 'failed'> => {
+    try {
+      await recorderRuntime.injectRecorder(tabId, true);
+      return 'injected';
+    } catch (err) {
+      if (isMissingTabError(err)) {
+        await stopRunWithError(
+          runId,
+          RECORDED_TAB_CLOSED_ERROR.message,
+          expectedControlVersion,
+          RECORDED_TAB_CLOSED_ERROR,
+        );
+        return 'tab-closed';
+      }
+      console.error(failureLog, describeBrowserError(err), err);
+      return 'failed';
+    }
+  };
+
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     void (async () => {
       if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete' && !changeInfo.url) return;
@@ -1932,17 +1989,9 @@ export default defineBackground(() => {
       // mirroring follow-mode's listener/logic split.
       if (await recaptureFlow.handleSourceTabUpdated(tabId, changeInfo)) return;
       const expectedControlVersion = control.controlVersion;
-      const state = await getRecordingState();
-      if (
-        expectedControlVersion !== control.controlVersion ||
-        !state.isRecording ||
-        state.operation !== 'recording' ||
-        state.tabId !== tabId ||
-        !state.runId
-      ) {
-        return;
-      }
-      const runId = state.runId;
+      const active = await readActiveRunForTab(tabId, expectedControlVersion);
+      if (!active) return;
+      const { state, runId } = active;
 
       if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
         if (changeInfo.status !== 'complete') return;
@@ -1950,23 +1999,13 @@ export default defineBackground(() => {
           await setRunError(runId, '此頁面無法建立快照；請返回一般網站或完成錄製。');
           return;
         }
-        try {
-          await recorderRuntime.injectRecorder(tabId, true);
-        } catch (err) {
-          if (isMissingTabError(err)) {
-            await stopRunWithError(
-              runId,
-              RECORDED_TAB_CLOSED_ERROR.message,
-              expectedControlVersion,
-              RECORDED_TAB_CLOSED_ERROR,
-            );
-            return;
-          }
-          console.error(
-            '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
-            describeBrowserError(err),
-            err,
-          );
+        const restored = await reinjectRecorder(
+          tabId,
+          runId,
+          expectedControlVersion,
+          '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
+        );
+        if (restored === 'failed') {
           await setRunError(runId, '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。');
         }
         return;
@@ -1990,26 +2029,13 @@ export default defineBackground(() => {
         );
         return;
       }
-      try {
-        // All-frames mirrors the START injection: step mode instruments every
-        // accessible child frame so iframe clicks keep being relayed to the
-        // top-frame recorder after a navigation, not silently lost.
-        await recorderRuntime.injectRecorder(tabId, true);
-      } catch (err) {
-        if (isMissingTabError(err)) {
-          await stopRunWithError(
-            runId,
-            RECORDED_TAB_CLOSED_ERROR.message,
-            expectedControlVersion,
-            RECORDED_TAB_CLOSED_ERROR,
-          );
-          return;
-        }
-        console.error(
-          '[frametrail] failed to re-inject recorder after navigation:',
-          describeBrowserError(err),
-          err,
-        );
+      const reinjected = await reinjectRecorder(
+        tabId,
+        runId,
+        expectedControlVersion,
+        '[frametrail] failed to re-inject recorder after navigation:',
+      );
+      if (reinjected === 'failed') {
         await stopRunWithError(
           runId,
           '錄製已停止，因為頁面切換後無法載入錄製工具。',
@@ -2040,18 +2066,10 @@ export default defineBackground(() => {
     void (async () => {
       if (await recaptureFlow.handleSourceTabRemoved(tabId)) return;
       const expectedControlVersion = control.controlVersion;
-      const state = await getRecordingState();
-      if (
-        expectedControlVersion !== control.controlVersion ||
-        !state.isRecording ||
-        state.operation !== 'recording' ||
-        state.tabId !== tabId ||
-        !state.runId
-      ) {
-        return;
-      }
+      const active = await readActiveRunForTab(tabId, expectedControlVersion);
+      if (!active) return;
       await stopRunWithError(
-        state.runId,
+        active.runId,
         RECORDED_TAB_CLOSED_ERROR.message,
         expectedControlVersion,
         RECORDED_TAB_CLOSED_ERROR,

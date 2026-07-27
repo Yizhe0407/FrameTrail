@@ -1,7 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import {
-  HIGHLIGHT_COLOR,
-  HIGHLIGHT_FILL_COLOR,
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_RADIUS,
   fitHighlightFrame,
@@ -9,6 +7,7 @@ import {
 import { useObjectUrl } from '@/lib/editor/use-object-url';
 import type { Bounds, Redaction } from '@/lib/storage/db';
 import ThumbnailSurface from './ThumbnailSurface';
+import HighlightFrame from './HighlightFrame';
 import {
   computeOverlayGeometry,
   isDrawableHighlightFrame,
@@ -133,20 +132,7 @@ export default function HighlightThumbnail({
       redactionBoxes={redactionBoxes}
       overlay={overlay}
     >
-      {box && (
-        <div
-          className="pointer-events-none absolute box-border"
-          style={{
-            left: box.left,
-            top: box.top,
-            width: box.width,
-            height: box.height,
-            border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
-            borderRadius: `${box.borderRadius}px`,
-            backgroundColor: HIGHLIGHT_FILL_COLOR,
-          }}
-        />
-      )}
+      {box && <HighlightFrame box={box} />}
     </ThumbnailSurface>
   );
 }

@@ -25,6 +25,17 @@ import {
   type ProjectArchiveMetadataInput,
 } from './project-archive-contract';
 
+/** Step ids address blobs and groups inside an archive, so a repeat makes the
+ * manifest ambiguous. Both the export and import paths check it on their own
+ * step shape. */
+export function assertUniqueStepIds(steps: readonly { id: string }[]): void {
+  const ids = new Set<string>();
+  for (const step of steps) {
+    if (ids.has(step.id)) fail('DUPLICATE_ID', `Duplicate step id ${JSON.stringify(step.id)}.`);
+    ids.add(step.id);
+  }
+}
+
 export function fail(code: ProjectArchiveErrorCode, message: string): never {
   throw new ProjectArchiveError(code, message);
 }

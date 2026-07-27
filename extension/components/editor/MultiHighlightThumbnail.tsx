@@ -3,7 +3,6 @@ import {
   BADGE_RADIUS,
   BADGE_TEXT_COLOR,
   HIGHLIGHT_COLOR,
-  HIGHLIGHT_FILL_COLOR,
   HIGHLIGHT_LINE_WIDTH,
   HIGHLIGHT_RADIUS,
   LEADER_LINE_WIDTH,
@@ -18,6 +17,7 @@ import { useObjectUrl } from '@/lib/editor/use-object-url';
 import type { Redaction } from '@/lib/storage/db';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import ThumbnailSurface from './ThumbnailSurface';
+import HighlightFrame from './HighlightFrame';
 import {
   computeOverlayGeometry,
   isDrawableHighlightFrame,
@@ -277,21 +277,7 @@ export default function MultiHighlightThumbnail({
                   }}
                 />
               </div>
-            ) : box.drawFrame && (
-              <div
-                data-frametrail-annotation-frame={box.order}
-                className="pointer-events-none absolute box-border"
-                style={{
-                  left: box.left,
-                  top: box.top,
-                  width: box.width,
-                  height: box.height,
-                  border: `${box.borderWidth}px solid ${HIGHLIGHT_COLOR}`,
-                  borderRadius: `${box.borderRadius}px`,
-                  backgroundColor: HIGHLIGHT_FILL_COLOR,
-                }}
-              />
-            )}
+            ) : box.drawFrame && <HighlightFrame box={box} order={box.order} />}
             {(numbered || box.calloutLeft) && (
               <div
                 className="pointer-events-none absolute flex items-center justify-center rounded-full font-semibold shadow"

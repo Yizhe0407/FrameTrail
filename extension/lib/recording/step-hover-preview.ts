@@ -1,10 +1,8 @@
 import { createStepPreview } from '../capture/step-preview';
 import {
-  deepElementFromPoint,
-  findVisualTargetCandidatesAtPoint,
   getComposedParent,
   getVisibleHighlightBounds,
-  selectVisualTargetCandidate,
+  resolveVisualTargetAtPoint,
 } from '../capture/selector-utils';
 import { cycleHintLabel, STEP_CYCLE_KEYS } from '../capture/candidate-cycling';
 import { isPointInsideViewport } from './recording-guards';
@@ -134,16 +132,6 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     options.onCycleHint?.(label);
   };
 
-  /** Resolves the candidate the current offset selects at a point. */
-  const resolveCandidate = (clientX: number, clientY: number) => {
-    const hit = deepElementFromPoint(clientX, clientY);
-    if (!hit) return null;
-    return selectVisualTargetCandidate(
-      findVisualTargetCandidatesAtPoint(hit, clientX, clientY),
-      candidateOffset,
-    );
-  };
-
   const render = () => {
     frame = null;
     if (options.isPaused() || !point || options.isGestureActive()) {
@@ -153,7 +141,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       return;
     }
     const { clientX, clientY } = point;
-    const selected = resolveCandidate(clientX, clientY);
+    const selected = resolveVisualTargetAtPoint(clientX, clientY, candidateOffset);
     const target = selected?.element ?? null;
     const bounds = target ? getVisibleHighlightBounds(target, clientX, clientY) : null;
     observeTarget(target);
@@ -230,7 +218,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     handlers: { onPointerMove, onPointerOut, onPointerLeave, onVisibilityChange },
     adjustCandidateOffset(delta) {
       if (!point || options.isPaused() || options.isGestureActive() || options.isRegionCaptureActive()) return false;
-      const selected = resolveCandidate(point.clientX, point.clientY);
+      const selected = resolveVisualTargetAtPoint(point.clientX, point.clientY, candidateOffset);
       if (!selected) return false;
       const next = Math.max(
         selected.offsetRange.min,
@@ -242,7 +230,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       return true;
     },
     resolveTargetAt(clientX, clientY) {
-      return resolveCandidate(clientX, clientY)?.element ?? null;
+      return resolveVisualTargetAtPoint(clientX, clientY, candidateOffset)?.element ?? null;
     },
     schedule,
     armFallback,

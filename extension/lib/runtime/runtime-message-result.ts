@@ -120,30 +120,32 @@ export function isRecordingControlResult(value: unknown): value is RecordingCont
 }
 
 
-export function isPreflightStepRecaptureSourcePermissionResult(
+/** Both preflights share one success shape and differ only in the error codes
+ * they may report, so the validator is parameterized by that code set. */
+function isSourcePermissionPreflightResult(
   value: unknown,
-): value is PreflightStepRecaptureSourcePermissionResult {
+  codes: readonly string[],
+): boolean {
   if (!isRecord(value)) return false;
   if (value.ok === true) return isSourcePermissionPreflightSuccess(value);
   return (
     value.ok === false &&
     hasOnlyKeys(value, ['ok', 'code', 'message']) &&
-    isOneOf(value.code, RECAPTURE_PREFLIGHT_ERROR_CODES) &&
+    isOneOf(value.code, codes) &&
     isErrorMessage(value.message)
   );
+}
+
+export function isPreflightStepRecaptureSourcePermissionResult(
+  value: unknown,
+): value is PreflightStepRecaptureSourcePermissionResult {
+  return isSourcePermissionPreflightResult(value, RECAPTURE_PREFLIGHT_ERROR_CODES);
 }
 
 export function isPreflightGuideContinuationSourcePermissionResult(
   value: unknown,
 ): value is PreflightGuideContinuationSourcePermissionResult {
-  if (!isRecord(value)) return false;
-  if (value.ok === true) return isSourcePermissionPreflightSuccess(value);
-  return (
-    value.ok === false &&
-    hasOnlyKeys(value, ['ok', 'code', 'message']) &&
-    isOneOf(value.code, CONTINUATION_PREFLIGHT_ERROR_CODES) &&
-    isErrorMessage(value.message)
-  );
+  return isSourcePermissionPreflightResult(value, CONTINUATION_PREFLIGHT_ERROR_CODES);
 }
 
 export function isStartStepRecaptureResult(value: unknown): value is StartStepRecaptureResult {

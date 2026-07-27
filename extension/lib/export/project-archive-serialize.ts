@@ -13,6 +13,7 @@ import {
   type ProjectArchiveOptions,
 } from './project-archive-contract';
 import {
+  assertUniqueStepIds,
   archiveMetadataFromInput,
   canonicalStepComparator,
   fail,
@@ -53,11 +54,7 @@ async function buildArchiveParts(stepsInput: readonly Step[], options: ProjectAr
   }
 
   const steps = stepsInput.map((step, index) => validateRuntimeStep(step, `steps[${index}]`));
-  const ids = new Set<string>();
-  for (const step of steps) {
-    if (ids.has(step.id)) fail('DUPLICATE_ID', `Duplicate step id ${JSON.stringify(step.id)}.`);
-    ids.add(step.id);
-  }
+  assertUniqueStepIds(steps);
   validateGroups(steps);
   steps.sort(canonicalStepComparator);
   const metadata = archiveMetadataFromInput(options.metadata, steps);
