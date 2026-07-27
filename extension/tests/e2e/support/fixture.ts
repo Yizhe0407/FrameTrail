@@ -14,20 +14,30 @@ type Fixtures = {
   browserErrors: string[];
 };
 
-export const test = base.extend<Fixtures>({
-  extensionContext: async ({}, use, testInfo) => {
+type Options = {
+  /**
+   * Opt a spec into scrollbars that paint and take layout space, via
+   * `test.use({ nativeScrollbars: true })`. Off by default so the rest of the
+   * suite keeps the scrollbar-free geometry Chromium's headless mode gives it.
+   */
+  nativeScrollbars: boolean;
+};
+
+export const test = base.extend<Fixtures & Options>({
+  nativeScrollbars: [false, { option: true }],
+
+  extensionContext: async ({ nativeScrollbars }, use, testInfo) => {
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'frametrail-playwright-'));
-    const requiresNativeScrollbars = testInfo.file.endsWith('capture-presentation.spec.ts');
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: process.env.PW_HEADED !== '1',
-      // Chromium normally adds --hide-scrollbars in headless mode. Only the
-      // presentation suite removes it, so CI exercises real scrollbar paint
-      // without changing geometry in unrelated E2E coverage. This is the sole
-      // switch that decides whether the fixture's scrollbar gutter exists: its
-      // ::-webkit-scrollbar rules make Blink paint custom scrollbars, which
-      // take layout space on every platform, macOS overlay preference included.
-      ignoreDefaultArgs: requiresNativeScrollbars ? ['--hide-scrollbars'] : undefined,
+      // --hide-scrollbars, which Chromium injects in headless mode, is the sole
+      // switch governing whether the fixture's scrollbar gutter exists: the
+      // fixture's ::-webkit-scrollbar rules make Blink paint custom scrollbars,
+      // and those take layout space on every platform, macOS overlay preference
+      // included. Specs that assert on scrollbar pixels strip it; the rest keep
+      // it so their geometry never shifts.
+      ignoreDefaultArgs: nativeScrollbars ? ['--hide-scrollbars'] : undefined,
       viewport: null,
       acceptDownloads: true,
       args: [
@@ -38,7 +48,7 @@ export const test = base.extend<Fixtures>({
         // Native scrollbars are restored by the ignoreDefaultArgs entry above,
         // which strips the --hide-scrollbars switch Chromium injects in
         // headless mode; this flag is only belt-and-braces for headed runs.
-        ...(requiresNativeScrollbars || process.env.PW_HEADED === '1' ? ['--show-scrollbars'] : []),
+        ...(nativeScrollbars || process.env.PW_HEADED === '1' ? ['--show-scrollbars'] : []),
         '--no-first-run',
         '--no-default-browser-check',
       ],
