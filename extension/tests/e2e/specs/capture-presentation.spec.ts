@@ -67,7 +67,15 @@ async function expectRealRootScrollbar(page: Parameters<typeof startRecording>[0
     return { color: thumb.backgroundColor, geometry };
   });
   expect(state.color).toBe('rgb(255, 0, 255)');
-  expect(state.geometry.innerWidth - state.geometry.clientWidth).toBeGreaterThan(0);
+  // The fixture styles ::-webkit-scrollbar, so Blink paints a custom (never
+  // overlay) scrollbar that takes layout space on every OS — including macOS
+  // in 「顯示捲軸列：自動」 mode. Only Chromium's --hide-scrollbars zeroes it,
+  // and the harness strips that switch for this suite. A zero gutter here is a
+  // real regression, never an environment quirk: do not skip on it.
+  expect(
+    state.geometry.innerWidth - state.geometry.clientWidth,
+    'root scrollbar gutter (is --hide-scrollbars still stripped in fixture.ts?)',
+  ).toBeGreaterThan(0);
   return state.geometry;
 }
 
@@ -112,19 +120,7 @@ async function neutralProbeBounds(page: Parameters<typeof startRecording>[0]) {
 }
 
 test.describe('screenshot presentation', () => {
-  test.beforeEach(async ({ appPage, popupPage }) => {
-    // These pixel tests need classic (space-taking) scrollbars. On macOS with
-    // 「顯示捲軸列：自動」 and no mouse attached, Chromium inherits overlay
-    // scrollbars (innerWidth === clientWidth) and no flag can force classic
-    // ones, so the precondition is unsatisfiable locally. CI runs Linux where
-    // classic scrollbars always paint, so coverage is still enforced there.
-    const scrollbarWidth = await appPage.evaluate(
-      () => window.innerWidth - document.documentElement.clientWidth,
-    );
-    test.skip(
-      scrollbarWidth === 0,
-      'Environment paints overlay scrollbars (macOS automatic mode without a mouse); classic-scrollbar pixels cannot be exercised here.',
-    );
+  test.beforeEach(async ({ popupPage }) => {
     await resetExtensionData(popupPage);
   });
 

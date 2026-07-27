@@ -23,7 +23,10 @@ export const test = base.extend<Fixtures>({
       headless: process.env.PW_HEADED !== '1',
       // Chromium normally adds --hide-scrollbars in headless mode. Only the
       // presentation suite removes it, so CI exercises real scrollbar paint
-      // without changing geometry in unrelated E2E coverage.
+      // without changing geometry in unrelated E2E coverage. This is the sole
+      // switch that decides whether the fixture's scrollbar gutter exists: its
+      // ::-webkit-scrollbar rules make Blink paint custom scrollbars, which
+      // take layout space on every platform, macOS overlay preference included.
       ignoreDefaultArgs: requiresNativeScrollbars ? ['--hide-scrollbars'] : undefined,
       viewport: null,
       acceptDownloads: true,
