@@ -33,6 +33,7 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
+import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
 
@@ -233,6 +234,13 @@ function tryInitialize(event: MessageEvent): void {
     ensureKeyboardFocus();
     if (!interactionsEnabled || capturing || event.button !== 0 || !event.isPrimary) return;
     commitAt(event.clientX, event.clientY, false);
+  };
+
+  const onScrollKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || !isDocumentScrollingKey(event.key, event.target)) return;
+    // Only the browser's scroll is cancelled; the event still reaches the
+    // toolbar and the candidate handler below.
+    event.preventDefault();
   };
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
@@ -519,6 +527,11 @@ function tryInitialize(event: MessageEvent): void {
     if (!event.relatedTarget) clearHover();
   }, { capture: true });
   window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: false });
+  // Registered ahead of every other key handler and deliberately blind to the
+  // toolbar exemption the handlers below apply: a scrolling key that reaches
+  // the browser scrolls the frozen page under this frame (the shield document
+  // itself has nothing to scroll), which invalidates the whole run.
+  window.addEventListener('keydown', onScrollKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onShieldKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
   for (const type of FREEZE_EVENTS) {

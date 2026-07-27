@@ -22,6 +22,29 @@ export function isInScrollbarGutter(
   return clientX < layout.clientLeft || clientX >= right || clientY < layout.clientTop || clientY >= bottom;
 }
 
+/** Keys with which the browser scrolls a document by default. */
+const DOCUMENT_SCROLLING_KEYS = new Set([
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End',
+]);
+/** Where a scrolling key means caret movement or text entry instead. */
+const TEXT_ENTRY_SELECTOR = 'input,textarea,select,[contenteditable=""],[contenteditable="true"]';
+
+/**
+ * True when a key press would scroll the document it is delivered to.
+ *
+ * The snapshot shield needs this because its own document never scrolls: the
+ * browser therefore chains the scroll out to the frozen page underneath, which
+ * moves every captured rect and invalidates the run ("畫面尺寸已改變"). Text
+ * entry keeps its native behaviour, and Space is only a scrolling key away
+ * from a control it would otherwise activate.
+ */
+export function isDocumentScrollingKey(key: string, target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null;
+  if (element?.closest(TEXT_ENTRY_SELECTOR)) return false;
+  if (DOCUMENT_SCROLLING_KEYS.has(key)) return true;
+  return key === ' ' && !element?.closest('button,a[href],summary,[role="button"]');
+}
+
 /** True when a point lands in a native scrollbar belonging to a nested
  * overflow element. The element's client box excludes its scrollbar gutter,
  * while its border box includes it; comparing the two preserves scrolling even

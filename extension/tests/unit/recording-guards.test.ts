@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeRecordingState } from '../setup/recording-state';
 import {
   getCaptureGuardFailure,
+  isDocumentScrollingKey,
   getRecordingTabUpdateAction,
   isInScrollableElementGutter,
   isInScrollbarGutter,
@@ -144,5 +145,41 @@ describe('getRecordingTabUpdateAction', () => {
   it('re-injects steps mode only after navigation completes', () => {
     expect(getRecordingTabUpdateAction('steps', { status: 'loading' })).toBe('ignore');
     expect(getRecordingTabUpdateAction('steps', { status: 'complete' })).toBe('reinject');
+  });
+});
+
+describe('isDocumentScrollingKey', () => {
+  function target(html: string): Element {
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    return host.firstElementChild!;
+  }
+
+  it('claims every key the browser scrolls with', () => {
+    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End']) {
+      expect(isDocumentScrollingKey(key, document.body), key).toBe(true);
+    }
+    expect(isDocumentScrollingKey(' ', document.body)).toBe(true);
+    expect(isDocumentScrollingKey('Enter', document.body)).toBe(false);
+    expect(isDocumentScrollingKey('a', document.body)).toBe(false);
+  });
+
+  it('leaves activation and caret movement to the browser', () => {
+    // Space activates a focused control; cancelling its default would break
+    // the shield's own toolbar.
+    expect(isDocumentScrollingKey(' ', target('<button type="button">完成</button>'))).toBe(false);
+    expect(isDocumentScrollingKey(' ', target('<a href="/x">連結</a>'))).toBe(false);
+    // Arrows still scroll from a button, so they stay claimed there.
+    expect(isDocumentScrollingKey('ArrowDown', target('<button type="button">完成</button>'))).toBe(true);
+
+    for (const html of ['<input />', '<textarea></textarea>', '<div contenteditable="true"></div>']) {
+      expect(isDocumentScrollingKey('ArrowDown', target(html)), html).toBe(false);
+      expect(isDocumentScrollingKey(' ', target(html)), html).toBe(false);
+    }
+  });
+
+  it('ignores targets that are not elements', () => {
+    expect(isDocumentScrollingKey('ArrowDown', null)).toBe(true);
+    expect(isDocumentScrollingKey(' ', null)).toBe(true);
   });
 });

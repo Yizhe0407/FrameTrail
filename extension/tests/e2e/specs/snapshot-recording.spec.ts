@@ -399,6 +399,32 @@ test.describe('snapshot recording', () => {
 
     await stopRecording(popupPage);
   });
+
+  test('scrolling keys cannot move the frozen page out from under the snapshot', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot');
+    await getSnapshotFrame(appPage);
+    // Focus lands on a shield toolbar button, which the candidate handler
+    // deliberately leaves alone. The shield document cannot scroll, so any key
+    // the browser still acts on chains its scroll to the frozen page and
+    // invalidates the run.
+    await appPage.mouse.move(400, 300);
+
+    for (const key of ['ArrowDown', 'ArrowUp', 'PageDown', 'End', 'Home', 'Space']) {
+      await appPage.keyboard.press(key);
+    }
+    await expectSteady(async () => (await readRecordingState(popupPage)).phase, 'recording');
+
+    expect(await appPage.evaluate(() => window.scrollY)).toBe(0);
+    const state = await readRecordingState(popupPage);
+    expect(state.phase).not.toBe('invalidated');
+    expect(state.recoverableError).toBeNull();
+
+    await stopRecording(popupPage);
+  });
 });
 
 declare global {
