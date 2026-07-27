@@ -33,6 +33,7 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
+import { cycleHintLabel } from '@/lib/capture/candidate-cycling';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
@@ -102,6 +103,16 @@ function tryInitialize(event: MessageEvent): void {
   let activeCaptureId = 0;
   let interactionsEnabled = false;
   let lastPreviewRect: SnapshotShieldRect | null = null;
+  // Rendered inside the toolbar rather than next to the box: the toolbar
+  // already occupies its pixels, so the affordance can never hide content the
+  // user is trying to annotate.
+  let cycleHint: string | null = null;
+
+  const setCycleHint = (next: string | null) => {
+    if (cycleHint === next) return;
+    cycleHint = next;
+    renderToolbar();
+  };
   let lastCommitViaKeyboard = false;
   let keyboardAnchors: SnapshotShieldKeyboardAnchor[] = [];
   let keyboardIndex = -1;
@@ -187,6 +198,7 @@ function tryInitialize(event: MessageEvent): void {
   const clearHover = () => {
     hover.clear();
     overlay.preview(null);
+    setCycleHint(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
@@ -298,6 +310,7 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
+          cycleHint={cycleHint}
         />
       ) : null,
     );
@@ -446,9 +459,10 @@ function tryInitialize(event: MessageEvent): void {
       if (outcome === 'ignored') return;
       if (outcome === 'accepted') {
         lastPreviewRect = event.data.rect;
-        const { min, max } = event.data.offsetRange;
-        const offset = event.data.candidateOffset;
-        overlay.preview(event.data.rect, { canWiden: offset < max, canNarrow: offset > min });
+        overlay.preview(event.data.rect);
+        setCycleHint(
+          event.data.rect ? cycleHintLabel(event.data.candidateOffset, event.data.offsetRange) : null,
+        );
       }
       hover.schedule();
       return;

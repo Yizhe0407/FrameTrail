@@ -407,7 +407,10 @@ test.describe('snapshot recording', () => {
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
-    const hint = shield.locator('.snapshot-cycle-hint');
+    // The hint lives inside the shield toolbar, which already occupies its own
+    // pixels: an affordance next to the box would cover the content the user
+    // is trying to annotate.
+    const hint = shield.locator('.ft-cycle-hint');
 
     // Nested content: the span sits inside a card inside <main>, so the point
     // has ancestors to widen into but nothing narrower than the default.

@@ -1,14 +1,20 @@
 import { createStepPreview } from '../capture/step-preview';
 import {
+  deepElementFromPoint,
+  findVisualTargetCandidatesAtPoint,
   getComposedParent,
   getVisibleHighlightBounds,
-  resolvePrimaryVisualTarget,
+  selectVisualTargetCandidate,
 } from '../capture/selector-utils';
+import { cycleHintLabel, STEP_CYCLE_KEYS } from '../capture/candidate-cycling';
 import { isPointInsideViewport } from './recording-guards';
 
 const STEP_PREVIEW_FALLBACK_MS = 750;
 
 export interface StepHoverPreviewOptions {
+  /** Receives the candidate-cycling copy for the recording toolbar, or null
+   * when the hovered point has no other box to offer. */
+  onCycleHint?(label: string | null): void;
   isPaused(): boolean;
   /** True while a step gesture's capture is in flight; the preview must stay
    * hidden until the screenshot lands. */
@@ -27,6 +33,13 @@ export interface StepHoverPreview {
   /** Event handlers the owner wires to window/document; kept explicit so the
    * recorder's lifecycle spine stays in charge of listener registration. */
   handlers: StepHoverPreviewHandlers;
+  /** Cycles the highlight through the candidate chain at the current point.
+   * Returns false when the point offers nothing in that direction, so the
+   * caller can leave the key to the page. */
+  adjustCandidateOffset(delta: number): boolean;
+  /** The element a capture at this point must use — the same candidate the
+   * highlight is showing, offset included. */
+  resolveTargetAt(clientX: number, clientY: number): Element | null;
   /** Coalesces a re-render of the hover highlight onto the next frame. */
   schedule(): void;
   /** Arms the periodic fallback re-render for pages that mutate without
@@ -50,6 +63,8 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
   const preview = createStepPreview();
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
+  let candidateOffset = 0;
+  let cycleHint: string | null = null;
   let observedTarget: Element | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   const observer = new MutationObserver(() => schedule());
@@ -113,19 +128,43 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     }, STEP_PREVIEW_FALLBACK_MS);
   };
 
+  const publishCycleHint = (label: string | null) => {
+    if (cycleHint === label) return;
+    cycleHint = label;
+    options.onCycleHint?.(label);
+  };
+
+  /** Resolves the candidate the current offset selects at a point. */
+  const resolveCandidate = (clientX: number, clientY: number) => {
+    const hit = deepElementFromPoint(clientX, clientY);
+    if (!hit) return null;
+    return selectVisualTargetCandidate(
+      findVisualTargetCandidatesAtPoint(hit, clientX, clientY),
+      candidateOffset,
+    );
+  };
+
   const render = () => {
     frame = null;
     if (options.isPaused() || !point || options.isGestureActive()) {
       disconnectObserver();
       preview.hide();
+      publishCycleHint(null);
       return;
     }
     const { clientX, clientY } = point;
-    const target = resolvePrimaryVisualTarget(clientX, clientY);
+    const selected = resolveCandidate(clientX, clientY);
+    const target = selected?.element ?? null;
     const bounds = target ? getVisibleHighlightBounds(target, clientX, clientY) : null;
     observeTarget(target);
     if (bounds) preview.show(bounds);
     else preview.hide();
+    // The offset is clamped by the selection, so it also reports what the keys
+    // can still reach from here.
+    if (selected) candidateOffset = selected.candidateOffset;
+    publishCycleHint(
+      selected && bounds ? cycleHintLabel(selected.candidateOffset, selected.offsetRange, STEP_CYCLE_KEYS) : null,
+    );
     armFallback();
   };
 
@@ -140,10 +179,14 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     disconnectObserver();
     stopFallback();
     preview.hide();
+    publishCycleHint(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
     if (options.isPaused() || options.isRegionCaptureActive()) return;
+    // A new point is a new chain; keeping the old offset would silently widen
+    // an unrelated target.
+    if (!point || point.clientX !== event.clientX || point.clientY !== event.clientY) candidateOffset = 0;
     point = { clientX: event.clientX, clientY: event.clientY };
     schedule();
     armFallback();
@@ -185,6 +228,22 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
 
   return {
     handlers: { onPointerMove, onPointerOut, onPointerLeave, onVisibilityChange },
+    adjustCandidateOffset(delta) {
+      if (!point || options.isPaused() || options.isGestureActive() || options.isRegionCaptureActive()) return false;
+      const selected = resolveCandidate(point.clientX, point.clientY);
+      if (!selected) return false;
+      const next = Math.max(
+        selected.offsetRange.min,
+        Math.min(selected.candidateOffset + delta, selected.offsetRange.max),
+      );
+      if (next === selected.candidateOffset) return false;
+      candidateOffset = next;
+      render();
+      return true;
+    },
+    resolveTargetAt(clientX, clientY) {
+      return resolveCandidate(clientX, clientY)?.element ?? null;
+    },
     schedule,
     armFallback,
     suspend,
@@ -194,6 +253,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       frame = null;
       disconnectObserver();
       stopFallback();
+      publishCycleHint(null);
       preview.remove();
     },
   };

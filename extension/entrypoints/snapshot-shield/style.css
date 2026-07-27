@@ -96,22 +96,6 @@ body.has-preview-target {
   box-shadow: none;
 }
 
-.snapshot-cycle-hint {
-  position: absolute;
-  z-index: 1;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgb(28 25 23 / 0.92);
-  color: #fafaf9;
-  font: 500 12px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.snapshot-cycle-hint[hidden] {
-  display: none;
-}
-
 /* #ff4747 mirrors BRAND_DANGER in lib/capture/brand-colors.ts (CSS cannot
  * import TS); change together. */
 .snapshot-annotation__leader {

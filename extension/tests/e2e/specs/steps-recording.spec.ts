@@ -12,6 +12,7 @@ import {
   startRecording,
   startStepsRunWithFirstStep,
   stopRecording,
+  targetCenter,
 } from '../support/harness';
 
 test.describe('step recording', () => {
@@ -43,6 +44,35 @@ test.describe('step recording', () => {
 
     await stopRecording(popupPage);
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(0);
+  });
+
+  test('cycles the highlight to an ancestor with Alt+arrows before capturing', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    const point = await targetCenter(appPage, '#plain-text');
+    const span = await appPage.locator('#plain-text').boundingBox();
+    const card = await appPage.locator('#plain-card').boundingBox();
+    await appPage.mouse.move(point.x, point.y);
+    await expect.poll(async () => (await getStepPreviewStyle(appPage)).hidden).toBe(false);
+
+    // Alt keeps plain arrows free for the live page; one step widens the
+    // highlight from the span to the card that contains it. The rendered box
+    // carries the highlight frame's padding, so the capture bounds below are
+    // what pins the exact target.
+    const narrowStyle = (await getStepPreviewStyle(appPage)).style;
+    await appPage.keyboard.press('Alt+ArrowUp');
+    await expect.poll(async () => (await getStepPreviewStyle(appPage)).style).not.toBe(narrowStyle);
+
+    await appPage.mouse.click(point.x, point.y);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    const [step] = await readSteps(popupPage);
+    expect(Math.round(step.bounds!.width)).toBe(Math.round(card!.width));
+    expect(Math.round(step.bounds!.width)).not.toBe(Math.round(span!.width));
+
+    await stopRecording(popupPage);
   });
 
   test('records interactive controls as clicks and replays the page handler once', async ({

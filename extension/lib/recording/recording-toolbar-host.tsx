@@ -15,6 +15,9 @@ export interface MountedRecordingToolbar {
   host: HTMLElement;
   update(state: RecordingToolbarState): void;
   setRegionCaptureActive(active: boolean): void;
+  /** Candidate-cycling copy, rendered inside the toolbar so the affordance
+   * never covers page content. */
+  setCycleHint(label: string | null): void;
   remove(): void;
 }
 
@@ -39,6 +42,7 @@ export function mountRecordingToolbar(
   let removed = false;
   let currentState = initialState;
   let regionCaptureActive = false;
+  let cycleHint: string | null = null;
 
   const render = (state: RecordingToolbarState = currentState) => {
     currentState = state;
@@ -51,6 +55,7 @@ export function mountRecordingToolbar(
         onRestoreApplied={options.onRestoreApplied}
         onStartRegionCapture={options.onStartRegionCapture}
         regionCaptureActive={regionCaptureActive}
+        cycleHint={cycleHint}
       />,
     );
   };
@@ -64,6 +69,11 @@ export function mountRecordingToolbar(
     setRegionCaptureActive(active) {
       if (removed || regionCaptureActive === active) return;
       regionCaptureActive = active;
+      render();
+    },
+    setCycleHint(label) {
+      if (removed || cycleHint === label) return;
+      cycleHint = label;
       render();
     },
     remove() {

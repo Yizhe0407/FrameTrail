@@ -42,6 +42,10 @@ interface Props {
   onRestoreApplied?: () => void;
   onStartRegionCapture?: () => void;
   regionCaptureActive?: boolean;
+  /** Copy for the candidate-cycling shortcut, or null when the hovered point
+   * offers no other box. It lives inside the toolbar so the affordance can
+   * never cover page content. */
+  cycleHint?: string | null;
 }
 
 export default function RecordingToolbar({
@@ -51,6 +55,7 @@ export default function RecordingToolbar({
   onRestoreApplied,
   onStartRegionCapture,
   regionCaptureActive = false,
+  cycleHint = null,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [pending, setPending] = useState<ToolbarAction | null>(null);
@@ -393,6 +398,10 @@ export default function RecordingToolbar({
                     </span>
                     <span className="ft-count-badge">{state.itemCount}</span>
                   </button>
+
+                  {cycleHint && !regionCaptureActive && (
+                    <span className="ft-cycle-hint" role="status">{cycleHint}</span>
+                  )}
 
                   <span className="ft-divider" aria-hidden="true" />
 

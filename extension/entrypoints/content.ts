@@ -21,7 +21,6 @@ import {
   getHighlightBounds,
   getVisibleHighlightBounds,
   isInteractiveElement,
-  resolvePrimaryVisualTarget,
 } from '@/lib/capture/selector-utils';
 import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
 import {
@@ -419,6 +418,7 @@ export default defineContentScript({
         isPaused: () => recorderPaused,
         isGestureActive: () => stepGesture !== null,
         isRegionCaptureActive: () => manualRegionCapture?.isActive() ?? false,
+        onCycleHint: (label) => recordingToolbar?.setCycleHint(label),
       });
       hoverPreview = preview;
 
@@ -617,7 +617,9 @@ export default defineContentScript({
         if (isInScrollbarGutter(pe.clientX, pe.clientY, document.documentElement)) return;
         if (isPointInAnyScrollGutter(pe.clientX, pe.clientY)) return;
 
-        const el = resolvePrimaryVisualTarget(pe.clientX, pe.clientY);
+        // The same candidate the highlight is showing, including any offset
+        // the user cycled to with Alt+arrows.
+        const el = preview.resolveTargetAt(pe.clientX, pe.clientY);
         if (!el) return;
         if (stepGesture) {
           // A capture is still in flight; swallow the gesture so it cannot mutate
@@ -716,6 +718,16 @@ export default defineContentScript({
         cancel: () => stepGesture?.cancel(),
       });
 
+      // Alt is the modifier because the page stays live in step mode: bare
+      // arrows must keep scrolling it and moving the caret in its fields.
+      const onCandidateKeyDown = (event: KeyboardEvent) => {
+        if (!event.altKey || event.ctrlKey || event.metaKey) return;
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        if (!preview.adjustCandidateOffset(event.key === 'ArrowUp' ? 1 : -1)) return;
+        event.preventDefault();
+      };
+
+      window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
       window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
       window.addEventListener('pointerout', preview.handlers.onPointerOut, { capture: true, passive: true });
       window.addEventListener('pointerleave', preview.handlers.onPointerLeave, { capture: true, passive: true });
@@ -738,6 +750,7 @@ export default defineContentScript({
       // resources: cleanup() owns their removal (recordingToolbar?.remove(),
       // hoverPreview?.destroy()); this uninstaller only detaches listeners.
       return () => {
+        window.removeEventListener('keydown', onCandidateKeyDown, { capture: true });
         document.removeEventListener('pointerdown', onPointerDown, { capture: true });
         window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
         window.removeEventListener('pointerout', preview.handlers.onPointerOut, { capture: true });
