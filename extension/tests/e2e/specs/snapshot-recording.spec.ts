@@ -400,40 +400,38 @@ test.describe('snapshot recording', () => {
     await stopRecording(popupPage);
   });
 
-  test('advertises candidate cycling only where another box exists', async ({
+  test('offers selection-resize controls only where another box exists', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
-    // The hint lives inside the shield toolbar, which already occupies its own
-    // pixels: an affordance next to the box would cover the content the user
-    // is trying to annotate.
-    const hint = shield.locator('.ft-cycle-hint');
+    // The controls live in the shield toolbar, which already occupies its own
+    // pixels: an affordance next to the box would cover the content being
+    // annotated, and a text hint there went unnoticed.
+    const widen = shield.getByRole('button', { name: '選取更大範圍（↑）' });
+    const narrow = shield.getByRole('button', { name: '選取更小範圍（↓）' });
 
-    // Nested content: the span sits inside a card inside <main>, so the point
-    // has ancestors to widen into but nothing narrower than the default.
     const nested = await targetCenter(appPage, '#plain-text');
     await appPage.mouse.move(nested.x, nested.y);
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
-    await expect(hint).toHaveText('↑ 選取更大範圍');
+    await expect(widen).toBeEnabled();
+    await expect(narrow).toBeDisabled();
 
-    // After widening once, both directions are live.
-    await appPage.keyboard.press('ArrowUp');
-    await expect(hint).toHaveText('↑↓ 調整選取範圍');
+    // Clicking the control widens the box the pointer left behind: the
+    // highlight freezes on its last page target while the pointer is on the
+    // toolbar, so pointer-only users get the same reach as the shortcut.
+    const narrowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    await widen.click();
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
+    await expect(narrow).toBeEnabled();
 
-    const widened = await shield.locator('.snapshot-box--preview').getAttribute('style');
     await appPage.keyboard.press('ArrowDown');
-    await expect
-      .poll(() => shield.locator('.snapshot-box--preview').getAttribute('style'))
-      .not.toBe(widened);
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(narrowStyle);
 
-    // The hint is chrome, not content: committing must not bake it into the
-    // screenshot, and the committed annotation clears it.
     await clickSnapshotTarget(appPage, nested);
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
-    await expect(hint).toBeHidden();
 
     await stopRecording(popupPage);
   });

@@ -78,10 +78,6 @@ export const recordingToolbarStyles = `
     width: min(520px, calc(100vw - 32px)); height: auto; max-width: calc(100vw - 32px); gap: 10px;
     padding: 8px; border-radius: var(--ft-radius);
   }
-  .ft-cycle-hint {
-    flex: none; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--ft-border);
-    color: var(--ft-muted); font-size: 12px; font-weight: 600; white-space: nowrap;
-  }
   .ft-invalidated-status { min-width: 0; flex: 1 1 240px; display: flex; align-items: center; gap: 8px; }
   .ft-invalidated-status svg { width: 18px; height: 18px; flex: none; color: var(--ft-warning); }
   .ft-invalidated-copy { min-width: 0; font-size: 12px; font-weight: 600; white-space: normal; }

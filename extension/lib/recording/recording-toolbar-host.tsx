@@ -1,5 +1,8 @@
 import { createRoot } from 'react-dom/client';
-import RecordingToolbar, { type RecordingToolbarState } from './recording-toolbar';
+import RecordingToolbar, {
+  type CandidateCyclingControls,
+  type RecordingToolbarState,
+} from './recording-toolbar';
 import { createViewportOverlayHost } from '../capture/viewport-overlay-host';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
@@ -16,9 +19,9 @@ export interface MountedRecordingToolbar {
   host: HTMLElement;
   update(state: RecordingToolbarState): void;
   setRegionCaptureActive(active: boolean): void;
-  /** Candidate-cycling copy, rendered inside the toolbar so the affordance
-   * never covers page content. */
-  setCycleHint(label: string | null): void;
+  /** Selection-resize controls for the hovered point, rendered inside the
+   * toolbar so the affordance never covers page content. */
+  setCandidateCycling(controls: CandidateCyclingControls | null): void;
   remove(): void;
 }
 
@@ -37,7 +40,7 @@ export function mountRecordingToolbar(
   let removed = false;
   let currentState = initialState;
   let regionCaptureActive = false;
-  let cycleHint: string | null = null;
+  let candidateCycling: CandidateCyclingControls | null = null;
 
   const render = (state: RecordingToolbarState = currentState) => {
     currentState = state;
@@ -50,7 +53,7 @@ export function mountRecordingToolbar(
         onRestoreApplied={options.onRestoreApplied}
         onStartRegionCapture={options.onStartRegionCapture}
         regionCaptureActive={regionCaptureActive}
-        cycleHint={cycleHint}
+        candidateCycling={candidateCycling}
       />,
     );
   };
@@ -66,9 +69,9 @@ export function mountRecordingToolbar(
       regionCaptureActive = active;
       render();
     },
-    setCycleHint(label) {
-      if (removed || cycleHint === label) return;
-      cycleHint = label;
+    setCandidateCycling(controls) {
+      if (removed) return;
+      candidateCycling = controls;
       render();
     },
     remove() {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStepHoverPreview, type StepHoverPreview } from '@/lib/recording/step-hover-preview';
+import { createViewportOverlayHost } from '@/lib/capture/viewport-overlay-host';
 
 function makeVisible(element: Element, rect: { x: number; y: number; width: number; height: number }): void {
   const box = {
@@ -21,7 +22,7 @@ function nextFrame(): Promise<void> {
 
 describe('step hover preview candidate cycling', () => {
   let preview: StepHoverPreview;
-  let hints: Array<string | null>;
+  let cycling: Array<{ canWiden: boolean; canNarrow: boolean } | null>;
   let card: HTMLElement;
   let text: HTMLElement;
 
@@ -37,12 +38,12 @@ describe('step hover preview candidate cycling', () => {
     makeVisible(text, { x: 30, y: 30, width: 90, height: 24 });
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => text });
 
-    hints = [];
+    cycling = [];
     preview = createStepHoverPreview({
       isPaused: () => false,
       isGestureActive: () => false,
       isRegionCaptureActive: () => false,
-      onCycleHint: (label) => hints.push(label),
+      onCandidateCycling: (state) => cycling.push(state),
     });
   });
 
@@ -57,10 +58,10 @@ describe('step hover preview candidate cycling', () => {
     await nextFrame();
   }
 
-  it('announces only the direction the point can still be cycled', async () => {
+  it('reports only the direction the point can still be cycled', async () => {
     await hover();
 
-    expect(hints.at(-1)).toBe('Alt+↑ 選取更大範圍');
+    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: false });
     expect(preview.resolveTargetAt(40, 40)).toBe(text);
   });
 
@@ -69,14 +70,14 @@ describe('step hover preview candidate cycling', () => {
 
     expect(preview.adjustCandidateOffset(1)).toBe(true);
     expect(preview.resolveTargetAt(40, 40)).toBe(card);
-    expect(hints.at(-1)).toBe('Alt+↑↓ 調整選取範圍');
+    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: true });
 
     // Two more widens reach the outermost box; a third has nothing left, and
     // saying so lets the content script leave the key to the page.
     preview.adjustCandidateOffset(1);
     preview.adjustCandidateOffset(1);
     expect(preview.adjustCandidateOffset(1)).toBe(false);
-    expect(hints.at(-1)).toBe('Alt+↓ 選取更小範圍');
+    expect(cycling.at(-1)).toEqual({ canWiden: false, canNarrow: true });
   });
 
   it('resets the offset when the pointer lands on a new point', async () => {
@@ -89,10 +90,24 @@ describe('step hover preview candidate cycling', () => {
     expect(preview.resolveTargetAt(41, 41)).toBe(text);
   });
 
-  it('clears the hint when the highlight goes away', async () => {
+  it('drops the controls when the highlight goes away', async () => {
     await hover();
     preview.suspend();
 
-    expect(hints.at(-1)).toBeNull();
+    expect(cycling.at(-1)).toBeNull();
+  });
+
+  it('freezes on its last page target while the pointer is over recorder UI', async () => {
+    await hover();
+    const overlayHost = createViewportOverlayHost('data-frametrail-recording-toolbar');
+    document.body.append(overlayHost);
+
+    preview.handlers.onPointerMove({ clientX: 500, clientY: 500, target: overlayHost } as unknown as PointerEvent);
+    await nextFrame();
+
+    // The point never moved, so the toolbar's resize controls still act on the
+    // page element the user was aiming at — and the toolbar is never a target.
+    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: false });
+    expect(preview.resolveTargetAt(40, 40)).toBe(text);
   });
 });

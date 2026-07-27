@@ -1,11 +1,15 @@
 /**
- * Copy for the "resize the selection" affordance, shared by both recorders.
+ * The "resize the selection" affordance, shared by both recorders.
  *
- * The shortcut is invisible without it, but the hint must never cover page
- * content, so it is rendered inside the recording toolbar — the one surface
- * that already occupies its pixels. Snapshot mode binds the bare arrows (its
- * page is frozen); step mode binds Alt+arrows, because the live page still
- * needs plain arrows for scrolling and text entry.
+ * It is exposed as toolbar buttons rather than a hint next to the highlight:
+ * a floating hint covers page content, and text alone goes unread. Buttons
+ * live in a surface that already occupies its pixels, are what users scan a
+ * toolbar for, and give pointer-only users a shortcut-free way in — the label
+ * teaches the key binding as a by-product.
+ *
+ * Snapshot mode binds the bare arrows (its page is frozen); step mode binds
+ * Alt+arrows, because the live page still needs plain arrows for scrolling and
+ * text entry.
  */
 
 export interface CandidateOffsetRange {
@@ -13,23 +17,15 @@ export interface CandidateOffsetRange {
   max: number;
 }
 
-/** Step mode's modifier; snapshot mode binds the bare arrows and passes none. */
-export const STEP_CYCLE_KEYS = 'Alt+';
+export const STEP_CYCLE_MODIFIER = 'Alt+';
 
-/**
- * Names only the directions that would actually change the box, and returns
- * null when the point offers a single candidate — advertising a key that does
- * nothing is worse than not advertising it at all.
- */
-export function cycleHintLabel(
-  candidateOffset: number,
-  range: CandidateOffsetRange,
-  modifier = '',
-): string | null {
-  const canWiden = candidateOffset < range.max;
-  const canNarrow = candidateOffset > range.min;
-  if (canWiden && canNarrow) return `${modifier}↑↓ 調整選取範圍`;
-  if (canWiden) return `${modifier}↑ 選取更大範圍`;
-  if (canNarrow) return `${modifier}↓ 選取更小範圍`;
-  return null;
+/** Whether either direction would change the box at the current offset. */
+export function candidateCyclingState(candidateOffset: number, range: CandidateOffsetRange) {
+  return { canWiden: candidateOffset < range.max, canNarrow: candidateOffset > range.min };
+}
+
+export function cycleActionLabel(direction: 'widen' | 'narrow', modifier = ''): string {
+  return direction === 'widen'
+    ? `選取更大範圍（${modifier}↑）`
+    : `選取更小範圍（${modifier}↓）`;
 }

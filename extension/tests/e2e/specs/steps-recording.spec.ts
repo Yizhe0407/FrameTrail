@@ -75,6 +75,37 @@ test.describe('step recording', () => {
     await stopRecording(popupPage);
   });
 
+  test('never highlights the recorder toolbar and keeps the page target frozen behind it', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+    const point = await targetCenter(appPage, '#plain-text');
+    await appPage.mouse.move(point.x, point.y);
+    await expect.poll(async () => (await getStepPreviewStyle(appPage)).hidden).toBe(false);
+    const pageTargetStyle = (await getStepPreviewStyle(appPage)).style;
+
+    // The toolbar pill lives in a closed shadow root, so find it by hit-testing
+    // for the point where its host answers.
+    const pill = await appPage.evaluate(() => {
+      for (let y = window.innerHeight - 10; y > window.innerHeight - 120; y -= 6) {
+        for (let x = 20; x < window.innerWidth; x += 20) {
+          if (document.elementFromPoint(x, y)?.hasAttribute('data-frametrail-recording-toolbar')) return { x, y };
+        }
+      }
+      return null;
+    });
+    expect(pill).not.toBeNull();
+    await appPage.mouse.move(pill!.x, pill!.y);
+
+    // The recorder can pierce its own closed roots, so without an explicit
+    // exclusion the hit test would frame a toolbar button as page content.
+    await expectSteady(async () => (await getStepPreviewStyle(appPage)).style, pageTargetStyle);
+
+    await stopRecording(popupPage);
+  });
+
   test('records interactive controls as clicks and replays the page handler once', async ({
     appPage,
     popupPage,

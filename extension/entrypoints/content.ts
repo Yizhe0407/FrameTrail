@@ -23,6 +23,7 @@ import {
   isInteractiveElement,
 } from '@/lib/capture/selector-utils';
 import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
+import { STEP_CYCLE_MODIFIER } from '@/lib/capture/candidate-cycling';
 import {
   isOutOfViewport,
   readRegionScrollSnapshot,
@@ -418,7 +419,13 @@ export default defineContentScript({
         isPaused: () => recorderPaused,
         isGestureActive: () => stepGesture !== null,
         isRegionCaptureActive: () => manualRegionCapture?.isActive() ?? false,
-        onCycleHint: (label) => recordingToolbar?.setCycleHint(label),
+        onCandidateCycling: (cycling) => recordingToolbar?.setCandidateCycling(
+          cycling && {
+            ...cycling,
+            modifier: STEP_CYCLE_MODIFIER,
+            onAdjust: (delta) => preview.adjustCandidateOffset(delta),
+          },
+        ),
       });
       hoverPreview = preview;
 

@@ -32,6 +32,7 @@ import {
   type WithoutToken,
 } from './snapshot-shield-protocol';
 import { deepElementFromPoint } from '../capture/selector-utils';
+import { createViewportOverlayHost, setImportantStyle } from '../capture/viewport-overlay-host';
 import type { RecordingControlResult } from '../runtime/messages';
 
 const SHIELD_PAGE = '/snapshot-shield.html';
@@ -67,10 +68,6 @@ type RegionHandler = (
   message: SnapshotShieldRegionCaptureMessage,
 ) => SnapshotShieldSelection | null | void | Promise<SnapshotShieldSelection | null | void>;
 type FailureHandler = (error: Error) => void | Promise<void>;
-
-function setImportantStyle(element: HTMLElement, property: string, value: string): void {
-  element.style.setProperty(property, value, 'important');
-}
 
 function isDialogElement(value: unknown): value is HTMLDialogElement {
   return typeof HTMLDialogElement !== 'undefined' && value instanceof HTMLDialogElement;
@@ -123,38 +120,6 @@ function installBackdropStyles(shadowRoot: ShadowRoot): void {
   const style = document.createElement('style');
   style.textContent = SHIELD_BACKDROP_CSS;
   shadowRoot.append(style);
-}
-
-function hardenHost(host: HTMLElement): void {
-  const declarations: Record<string, string> = {
-    all: 'initial',
-    position: 'fixed',
-    inset: '0',
-    width: '100vw',
-    height: '100vh',
-    'min-width': '0',
-    'min-height': '0',
-    'max-width': 'none',
-    'max-height': 'none',
-    margin: '0',
-    padding: '0',
-    border: '0',
-    display: 'block',
-    'box-sizing': 'border-box',
-    background: 'transparent',
-    opacity: '1',
-    visibility: 'visible',
-    overflow: 'hidden',
-    contain: 'strict',
-    transform: 'none',
-    filter: 'none',
-    'backdrop-filter': 'none',
-    animation: 'none',
-    transition: 'none',
-    'pointer-events': 'auto',
-    'z-index': '2147483647',
-  };
-  for (const [property, value] of Object.entries(declarations)) setImportantStyle(host, property, value);
 }
 
 function hardenFrame(frame: HTMLIFrameElement): void {
@@ -210,10 +175,27 @@ export function createSnapshotShield(
   // (resource timing exposes URLs) and race the init handshake.
   const frameKey = crypto.randomUUID();
   const tokenStorageKey = buildShieldTokenStorageKey(frameKey);
-  const host = document.createElement('div');
-  host.setAttribute('data-frametrail-snapshot-shield', '');
-  host.setAttribute('popover', 'manual');
-  hardenHost(host);
+  const host = createViewportOverlayHost(
+    'data-frametrail-snapshot-shield',
+    {
+      'min-width': '0',
+      'min-height': '0',
+      'max-width': 'none',
+      'max-height': 'none',
+      'box-sizing': 'border-box',
+      opacity: '1',
+      visibility: 'visible',
+      overflow: 'hidden',
+      contain: 'strict',
+      transform: 'none',
+      filter: 'none',
+      'backdrop-filter': 'none',
+      animation: 'none',
+      transition: 'none',
+      'pointer-events': 'auto',
+    },
+    { popover: true },
+  );
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   installBackdropStyles(shadowRoot);

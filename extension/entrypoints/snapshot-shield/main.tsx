@@ -33,7 +33,7 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
-import { cycleHintLabel } from '@/lib/capture/candidate-cycling';
+import { candidateCyclingState } from '@/lib/capture/candidate-cycling';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
@@ -106,11 +106,11 @@ function tryInitialize(event: MessageEvent): void {
   // Rendered inside the toolbar rather than next to the box: the toolbar
   // already occupies its pixels, so the affordance can never hide content the
   // user is trying to annotate.
-  let cycleHint: string | null = null;
+  let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
 
-  const setCycleHint = (next: string | null) => {
-    if (cycleHint === next) return;
-    cycleHint = next;
+  const setCycling = (next: { canWiden: boolean; canNarrow: boolean } | null) => {
+    if (cycling?.canWiden === next?.canWiden && cycling?.canNarrow === next?.canNarrow) return;
+    cycling = next;
     renderToolbar();
   };
   let lastCommitViaKeyboard = false;
@@ -198,7 +198,7 @@ function tryInitialize(event: MessageEvent): void {
   const clearHover = () => {
     hover.clear();
     overlay.preview(null);
-    setCycleHint(null);
+    setCycling(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
@@ -207,10 +207,9 @@ function tryInitialize(event: MessageEvent): void {
       clearHover();
       return;
     }
-    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) {
-      clearHover();
-      return;
-    }
+    // Over the toolbar the highlight freezes on its last target instead of
+    // clearing, so the resize controls still act on what the user was aiming at.
+    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     ensureKeyboardFocus();
     hover.pointerMove(event.clientX, event.clientY);
   };
@@ -257,7 +256,10 @@ function tryInitialize(event: MessageEvent): void {
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
     if (regionCapture?.isActive()) return;
-    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
+    // Only the drag handle owns the arrows (it moves the toolbar). Every other
+    // toolbar control leaves them free, so cycling keeps working right after a
+    // resize button was clicked and took focus.
+    if (event.target instanceof Element && event.target.closest('[data-frametrail-toolbar-position]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
     if (!interactionsEnabled || capturing || !hover.hasPoint()) return;
@@ -310,7 +312,7 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
-          cycleHint={cycleHint}
+          candidateCycling={cycling && { ...cycling, modifier: '', onAdjust: (delta) => hover.adjustOffset(delta) }}
         />
       ) : null,
     );
@@ -460,8 +462,8 @@ function tryInitialize(event: MessageEvent): void {
       if (outcome === 'accepted') {
         lastPreviewRect = event.data.rect;
         overlay.preview(event.data.rect);
-        setCycleHint(
-          event.data.rect ? cycleHintLabel(event.data.candidateOffset, event.data.offsetRange) : null,
+        setCycling(
+          event.data.rect ? candidateCyclingState(event.data.candidateOffset, event.data.offsetRange) : null,
         );
       }
       hover.schedule();

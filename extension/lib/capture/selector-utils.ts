@@ -1,5 +1,6 @@
 import type { Bounds } from '../storage/db';
 import { getOpenOrClosedShadowRoot } from './shadow-dom';
+import { isExtensionOverlay } from './viewport-overlay-host';
 import type { CandidateOffsetRange } from './candidate-cycling';
 
 const INTERACTIVE_TAGS = new Set([
@@ -372,9 +373,16 @@ function descendShadowRoots(start: Element, clientX: number, clientY: number): E
   }
 }
 
+/**
+ * The deepest element under a point, piercing shadow roots. Returns null over
+ * the extension's own overlays: the recorder must never target its toolbar or
+ * highlight — and since it can pierce its own closed roots, the hit test would
+ * otherwise resolve a toolbar button as if it were page content.
+ */
 export function deepElementFromPoint(clientX: number, clientY: number): Element | null {
   const hit = document.elementFromPoint(clientX, clientY);
-  return hit ? descendShadowRoots(hit, clientX, clientY) : null;
+  if (!hit || isExtensionOverlay(hit)) return null;
+  return descendShadowRoots(hit, clientX, clientY);
 }
 
 function elementAndComposedAncestors(target: Element): Element[] {
@@ -510,7 +518,7 @@ export function findVisualTargetCandidatesAtPoint(
 
   const analyzed = new Set(elementAndComposedAncestors(hit));
   for (const occluded of document.elementsFromPoint(clientX, clientY).slice(0, OCCLUDER_STACK_LIMIT)) {
-    if (analyzed.has(occluded)) continue;
+    if (analyzed.has(occluded) || isExtensionOverlay(occluded)) continue;
     const deeper = analyzeChain(descendShadowRoots(occluded, clientX, clientY), clientX, clientY);
     if (deeper.interactive) return deeper.targets;
     for (const element of elementAndComposedAncestors(occluded)) analyzed.add(element);

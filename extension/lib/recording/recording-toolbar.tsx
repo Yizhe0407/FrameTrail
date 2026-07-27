@@ -8,18 +8,21 @@ import {
 import {
   Check,
   Crop,
+  Expand,
   Loader2,
   Minimize2,
   MoreHorizontal,
   Pause,
   Play,
   Plus,
+  Shrink,
   Trash2,
   TriangleAlert,
   Undo2,
 } from 'lucide-react';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-state';
+import { cycleActionLabel } from '@/lib/capture/candidate-cycling';
 import { RECORDING_CHANNEL_LOST_MESSAGE } from './content-script-constants';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
@@ -42,10 +45,18 @@ interface Props {
   onRestoreApplied?: () => void;
   onStartRegionCapture?: () => void;
   regionCaptureActive?: boolean;
-  /** Copy for the candidate-cycling shortcut, or null when the hovered point
-   * offers no other box. It lives inside the toolbar so the affordance can
-   * never cover page content. */
-  cycleHint?: string | null;
+  /** Selection-resize controls for the hovered point, or null when it offers
+   * no other box. They live inside the toolbar so the affordance can never
+   * cover page content. */
+  candidateCycling?: CandidateCyclingControls | null;
+}
+
+export interface CandidateCyclingControls {
+  canWiden: boolean;
+  canNarrow: boolean;
+  /** Shortcut prefix the labels teach ('' in snapshot mode, 'Alt+' in step). */
+  modifier: string;
+  onAdjust(delta: number): void;
 }
 
 export default function RecordingToolbar({
@@ -55,7 +66,7 @@ export default function RecordingToolbar({
   onRestoreApplied,
   onStartRegionCapture,
   regionCaptureActive = false,
-  cycleHint = null,
+  candidateCycling = null,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [pending, setPending] = useState<ToolbarAction | null>(null);
@@ -310,6 +321,7 @@ export default function RecordingToolbar({
               ref={(element) => { floatingRef.current = element; }}
               type="button"
               className="ft-collapsed"
+              data-frametrail-toolbar-position=""
               aria-label={`${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆；展開錄製控制`}
               title="展開控制器"
               onPointerDown={handlePositionPointerDown}
@@ -382,6 +394,7 @@ export default function RecordingToolbar({
                   <button
                     type="button"
                     className="ft-status"
+                    data-frametrail-toolbar-position=""
                     aria-label={`${preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆`}；拖曳或使用方向鍵移動`}
                     title="拖曳或使用方向鍵移動錄製控制"
                     onPointerDown={handlePositionPointerDown}
@@ -399,8 +412,28 @@ export default function RecordingToolbar({
                     <span className="ft-count-badge">{state.itemCount}</span>
                   </button>
 
-                  {cycleHint && !regionCaptureActive && (
-                    <span className="ft-cycle-hint" role="status">{cycleHint}</span>
+                  {candidateCycling && !regionCaptureActive && (
+                    <div className="ft-actions-group" role="group" aria-label="選取範圍">
+                      {([
+                        { direction: 'narrow', delta: -1, enabled: candidateCycling.canNarrow, Icon: Shrink },
+                        { direction: 'widen', delta: 1, enabled: candidateCycling.canWiden, Icon: Expand },
+                      ] as const).map(({ direction, delta, enabled, Icon }) => {
+                        const label = cycleActionLabel(direction, candidateCycling.modifier);
+                        return (
+                          <button
+                            key={direction}
+                            type="button"
+                            className="ft-button"
+                            aria-label={label}
+                            title={label}
+                            disabled={busy || !enabled}
+                            onClick={() => candidateCycling.onAdjust(delta)}
+                          >
+                            <Icon size={18} />
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
 
                   <span className="ft-divider" aria-hidden="true" />

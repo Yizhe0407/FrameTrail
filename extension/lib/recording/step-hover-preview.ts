@@ -4,15 +4,16 @@ import {
   getVisibleHighlightBounds,
   resolveVisualTargetAtPoint,
 } from '../capture/selector-utils';
-import { cycleHintLabel, STEP_CYCLE_KEYS } from '../capture/candidate-cycling';
+import { candidateCyclingState } from '../capture/candidate-cycling';
+import { isExtensionOverlay } from '../capture/viewport-overlay-host';
 import { isPointInsideViewport } from './recording-guards';
 
 const STEP_PREVIEW_FALLBACK_MS = 750;
 
 export interface StepHoverPreviewOptions {
-  /** Receives the candidate-cycling copy for the recording toolbar, or null
-   * when the hovered point has no other box to offer. */
-  onCycleHint?(label: string | null): void;
+  /** Receives which resize directions the hovered point still offers, or null
+   * when it offers none, so the toolbar can enable its controls. */
+  onCandidateCycling?(state: { canWiden: boolean; canNarrow: boolean } | null): void;
   isPaused(): boolean;
   /** True while a step gesture's capture is in flight; the preview must stay
    * hidden until the screenshot lands. */
@@ -62,7 +63,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
   let candidateOffset = 0;
-  let cycleHint: string | null = null;
+  let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
   let observedTarget: Element | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   const observer = new MutationObserver(() => schedule());
@@ -126,10 +127,10 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     }, STEP_PREVIEW_FALLBACK_MS);
   };
 
-  const publishCycleHint = (label: string | null) => {
-    if (cycleHint === label) return;
-    cycleHint = label;
-    options.onCycleHint?.(label);
+  const publishCycling = (next: { canWiden: boolean; canNarrow: boolean } | null) => {
+    if (cycling?.canWiden === next?.canWiden && cycling?.canNarrow === next?.canNarrow) return;
+    cycling = next;
+    options.onCandidateCycling?.(next);
   };
 
   const render = () => {
@@ -137,7 +138,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     if (options.isPaused() || !point || options.isGestureActive()) {
       disconnectObserver();
       preview.hide();
-      publishCycleHint(null);
+      publishCycling(null);
       return;
     }
     const { clientX, clientY } = point;
@@ -150,8 +151,8 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     // The offset is clamped by the selection, so it also reports what the keys
     // can still reach from here.
     if (selected) candidateOffset = selected.candidateOffset;
-    publishCycleHint(
-      selected && bounds ? cycleHintLabel(selected.candidateOffset, selected.offsetRange, STEP_CYCLE_KEYS) : null,
+    publishCycling(
+      selected && bounds ? candidateCyclingState(selected.candidateOffset, selected.offsetRange) : null,
     );
     armFallback();
   };
@@ -167,11 +168,15 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     disconnectObserver();
     stopFallback();
     preview.hide();
-    publishCycleHint(null);
+    publishCycling(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
     if (options.isPaused() || options.isRegionCaptureActive()) return;
+    // Over the recorder's own UI the highlight freezes on its last page target
+    // instead of following the pointer, so the toolbar's resize controls still
+    // act on what the user was aiming at.
+    if (event.target instanceof Element && isExtensionOverlay(event.target)) return;
     // A new point is a new chain; keeping the old offset would silently widen
     // an unrelated target.
     if (!point || point.clientX !== event.clientX || point.clientY !== event.clientY) candidateOffset = 0;
@@ -241,7 +246,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       frame = null;
       disconnectObserver();
       stopFallback();
-      publishCycleHint(null);
+      publishCycling(null);
       preview.remove();
     },
   };
