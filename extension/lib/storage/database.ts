@@ -198,6 +198,8 @@ let databaseConnection: IDBPDatabase<FrameTrailDB> | undefined;
 
 function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
   if (databasePromise) return databasePromise;
+  // 'scribe' is the legacy pre-rename DB name; renaming it would be a
+  // user-data migration of every stored recording, deliberately not done.
   databasePromise = openDB<FrameTrailDB>('scribe', 4, {
     async upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {

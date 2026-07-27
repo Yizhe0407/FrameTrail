@@ -13,21 +13,29 @@ export default defineConfig({
     // The product UI is Traditional Chinese; store metadata follows it, with
     // an English fallback locale for non-Chinese browsers.
     default_locale: 'zh_TW',
-    // Every request/response message relies on Promise-returning
-    // runtime.onMessage listeners (wxt/browser is the bare chrome namespace,
-    // no webextension-polyfill). Chrome only honours a Promise returned from a
-    // listener as the async response starting with Chrome 148; on earlier
-    // versions the response channel closes immediately and every caller sees a
-    // generic channel error. Gate installation instead of failing silently.
-    minimum_chrome_version: '148',
+    // Floor derived from the APIs the extension actually ships (the background
+    // message router deliberately uses the callback sendResponse contract, so
+    // it imposes no floor — Chrome's promise-reply for runtime.onMessage
+    // shipped in 144 and was reverted, crbug.com/40753031, and must never be
+    // relied on). Constraints, highest last:
+    //   88  MV3 service worker + scripting API baseline
+    //   92  crypto.randomUUID, Array.prototype.at
+    //   99  @layer (Tailwind v4 output)
+    //  105  :has() (assets/tailwind.css label affordances)
+    //  108  dvh viewport units (editor Lightbox)
+    //  111  color-mix()/oklab in the Tailwind CSS v4 generated stylesheet —
+    //       Tailwind v4's own documented browser floor is Chrome 111.
+    // Uint8Array.prototype.toBase64 (140) is deliberately NOT a floor:
+    // lib/export/base64.ts carries a pure-JS fallback.
+    minimum_chrome_version: '111',
     permissions: ['storage', 'unlimitedStorage', 'activeTab', 'scripting', 'downloads', 'clipboardWrite'],
     optional_host_permissions: ['<all_urls>'],
     // No default keys: users bind them at chrome://extensions/shortcuts so we
     // never hijack a site's own hotkeys (UX_PLAN §8.3).
     commands: {
-      'toggle-pause': { description: '錄製：暫停或繼續' },
-      'undo-last-capture': { description: '錄製：復原上一個' },
-      'finish-recording': { description: '錄製：完成' },
+      'toggle-pause': { description: '__MSG_cmdTogglePause__' },
+      'undo-last-capture': { description: '__MSG_cmdUndoLastCapture__' },
+      'finish-recording': { description: '__MSG_cmdFinishRecording__' },
     },
     web_accessible_resources: [
       {
@@ -53,12 +61,20 @@ export default defineConfig({
   hooks: {
     // Runtime content scripts make WXT infer a required host permission. The
     // recorder only needs it after an explicit Start action, so keep it optional.
-    'build:manifestGenerated': (_, manifest) => {
+    'build:manifestGenerated': (wxt, manifest) => {
       manifest.host_permissions = manifest.host_permissions?.filter((permission: string) => permission !== '<all_urls>');
       if (manifest.host_permissions?.length === 0) delete manifest.host_permissions;
       if (manifest.manifest_version === 2) {
         manifest.optional_permissions ??= [];
         if (!manifest.optional_permissions.includes('<all_urls>')) manifest.optional_permissions.push('<all_urls>');
+      }
+      // Keep each browser's manifest free of the other's vendor keys: gecko
+      // settings mean nothing to Chrome, and minimum_chrome_version means
+      // nothing to Firefox (harmless, but flagged by store linters).
+      if (wxt.config.browser === 'firefox') {
+        delete manifest.minimum_chrome_version;
+      } else {
+        delete manifest.browser_specific_settings;
       }
     },
   },

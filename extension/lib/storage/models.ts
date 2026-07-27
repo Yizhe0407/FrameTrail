@@ -50,10 +50,11 @@ export interface Step {
   /** Recording run that created this row. Legacy/editor-created rows omit it. */
   runId?: string;
   order: number;
-  /** Raw (un-annotated) screenshot — the highlight box is drawn at render/export time. */
-  /** Only ordinary steps and snapshot anchors own image data. Snapshot
-   * annotations refer to their anchor through groupId. Older recordings may
-   * still contain a duplicate blob on annotations; writes strip it. */
+  /** Raw (un-annotated) screenshot — the highlight box is drawn at
+   * render/export time. Only ordinary steps and snapshot anchors own image
+   * data; snapshot annotations refer to their anchor through groupId. Older
+   * recordings may still contain a duplicate blob on annotations; writes
+   * strip it. */
   screenshotBlob?: Blob;
   /** Clicked element rect in CSS px, relative to the viewport at capture time. */
   bounds: Bounds | null;
@@ -365,10 +366,6 @@ export function getEntryPrivacyState(entry: StepEntry): EntryPrivacyState {
     redactions,
     reviewRequired: owner.redactionReviewRequired === true || redactions.length !== rawItems.length,
   };
-}
-
-export function getEntryRedactions(entry: StepEntry): Redaction[] {
-  return getEntryPrivacyState(entry).redactions;
 }
 
 export function sanitizeStepForStorage(step: Step): Step {

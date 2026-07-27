@@ -15,7 +15,6 @@ export {
   getEffectiveBounds,
   getEntryImageOwner,
   getEntryPrivacyState,
-  getEntryRedactions,
   getOrderedAnnotations,
   isValidBounds,
   stepRole,
@@ -43,7 +42,6 @@ export {
   getGuide,
   getGuideSummaries,
   resetGuide,
-  touchGuide,
   updateGuide,
   type CreateGuideFromStepsOptions,
 } from './guide-repository';
@@ -77,7 +75,6 @@ export {
   deleteStep,
   deleteStepsAndReorder,
   deleteStepsForRun,
-  deleteStepsForSession,
   getStep,
   getSteps,
   reorderSteps,

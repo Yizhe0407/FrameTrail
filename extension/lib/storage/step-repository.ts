@@ -14,7 +14,6 @@ import {
   runWithDatabase,
   writeDenseOrder,
 } from './database';
-import { resetGuide } from './guide-repository';
 
 export async function addStep(step: Step): Promise<void> {
   await addSteps([step]);
@@ -284,11 +283,6 @@ export async function deleteStep(id: string): Promise<void> {
     await writeDenseOrder(tx, remaining, []);
     await refreshGuideSummary(tx, guide);
   });
-}
-
-/** Compatibility wrapper; new RESET_GUIDE callers should use resetGuide. */
-export async function deleteStepsForSession(sessionId: string): Promise<void> {
-  await resetGuide(sessionId);
 }
 
 /** Deletes only one recording run and closes order gaps without disturbing

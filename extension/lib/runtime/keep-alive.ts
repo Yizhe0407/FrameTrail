@@ -16,6 +16,93 @@ function isKeepAliveRejectionMessage(message: unknown): boolean {
   );
 }
 
+function isKeepAliveHeartbeat(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    (message as { type?: unknown }).type === 'heartbeat'
+  );
+}
+
+/** Background-side view of a runtime.onConnect port. */
+export interface KeepAliveServerPortLike<TSender = unknown> {
+  name: string;
+  sender?: TSender;
+  postMessage(message: unknown): void;
+  disconnect(): void;
+  onMessage: { addListener(listener: (message: unknown) => void): void };
+  onDisconnect: { addListener(listener: () => void): void };
+}
+
+export interface KeepAlivePortHandlerDeps<TSender, TState> {
+  getRecordingState(): Promise<TState>;
+  /** Trust check binding the port's sender to the active capture job; receives
+   * `undefined` when the runtime reports no sender. */
+  isTrustedKeepAliveSender(sender: TSender | undefined, state: TState): boolean;
+  /** Invoked on disconnect to read runtime.lastError. A recorded page that
+   * navigates hands its port to the back/forward cache, which closes the
+   * channel with a lastError; acknowledging it stops Chrome from logging
+   * "Unchecked runtime.lastError" for every recorded-page navigation. */
+  acknowledgeDisconnect(): void;
+}
+
+/**
+ * Background half of the keep-alive protocol: serves ports carrying
+ * KEEPALIVE_PORT_NAME and authorizes them against the active capture job.
+ * An authoritative rejection tells the client its capture job is over so it
+ * tears its UI down, instead of mistaking the disconnect for a worker restart
+ * and reconnecting (and waking the worker) forever. The onConnect listener
+ * itself stays wired in the background entrypoint.
+ */
+export function createKeepAlivePortHandler<TSender, TState>(
+  deps: KeepAlivePortHandlerDeps<TSender, TState>,
+): (port: KeepAliveServerPortLike<TSender>) => void {
+  return (port) => {
+    if (port.name !== KEEPALIVE_PORT_NAME) return;
+    let disconnected = false;
+    const disconnect = () => {
+      if (disconnected) return;
+      disconnected = true;
+      try {
+        port.disconnect();
+      } catch {
+        // The sender may already have disappeared during authorization.
+      }
+    };
+    const reject = () => {
+      if (disconnected) return;
+      try {
+        port.postMessage({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
+      } catch {
+        // The port may already be gone; the client's give-up cap still applies.
+      }
+      disconnect();
+    };
+    const authorize = () => {
+      void deps.getRecordingState().then((state) => {
+        if (!disconnected && !deps.isTrustedKeepAliveSender(port.sender, state)) reject();
+      }).catch((error) => {
+        // Reading state failed, which says nothing about the sender: drop the
+        // port without the rejection message so a healthy recorder reconnects.
+        console.error('[frametrail] failed to authorize keep-alive port', error);
+        disconnect();
+      });
+    };
+    port.onDisconnect.addListener(() => {
+      disconnected = true;
+      deps.acknowledgeDisconnect();
+    });
+    port.onMessage.addListener((message) => {
+      if (!isKeepAliveHeartbeat(message)) {
+        reject();
+        return;
+      }
+      authorize();
+    });
+    authorize();
+  };
+}
+
 export interface KeepAlivePortLike {
   postMessage(message: unknown): void;
   disconnect(): void;

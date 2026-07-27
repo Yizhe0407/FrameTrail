@@ -6,63 +6,14 @@ import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 
-vi.mock('wxt/browser', async () => {
-  const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
-  return {
-    browser: makeBackgroundBrowserMock({
-      onMessage: (listener) => {
-        mocks.messageListener = listener;
-      },
-      onTabActivated: (listener) => {
-        mocks.tabActivatedListener = listener;
-      },
-      onWindowFocusChanged: (listener) => {
-        mocks.windowFocusListener = listener;
-      },
-      permissionsContains: mocks.permissionsContains,
-      tabsCreate: mocks.tabsCreate,
-      tabsGet: mocks.tabsGet,
-      tabsQuery: mocks.tabsQuery,
-      tabsRemove: mocks.tabsRemove,
-      tabsSendMessage: mocks.tabsSendMessage,
-      tabsUpdate: mocks.tabsUpdate,
-      windowsUpdate: mocks.windowsUpdate,
-      executeScript: mocks.executeScript,
-    }),
-  };
-});
-
-vi.mock('@/lib/storage/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage/db')>();
-  return {
-    ...actual,
-    getGuide: mocks.getGuide,
-    getStep: mocks.getStep,
-    getSteps: mocks.getSteps,
-    addStep: mocks.addStep,
-    // Background persists captures through the batched write; route it to the
-    // same per-step mock so existing addStep assertions keep observing rows.
-    addSteps: async (steps: readonly unknown[]) => {
-      for (const step of steps) await mocks.addStep(step);
-    },
-    deleteStep: mocks.deleteStep,
-  };
-});
-
-vi.mock('@/lib/storage/storage', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage/storage')>();
-  return {
-    ...actual,
-    getRecordingState: mocks.getRecordingState,
-    setRecordingState: mocks.setRecordingState,
-  };
-});
-
-vi.mock('@/lib/recording/background/pending-undo-store', () => ({
-  savePendingUndoRecord: mocks.savePendingUndoRecord,
-  readPendingUndoRecord: mocks.readPendingUndoRecord,
-  clearPendingUndoRecord: mocks.clearPendingUndoRecord,
-}));
+vi.mock('wxt/browser', async () =>
+  (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
+vi.mock('@/lib/storage/db', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStorageDbModule(mocks, importOriginal));
+vi.mock('@/lib/storage/storage', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
+vi.mock('@/lib/recording/background/pending-undo-store', async () =>
+  (await import('../setup/background-test-utils')).mockPendingUndoStoreModule(mocks));
 
 function recordingState(overrides: Partial<RecordingState> = {}): RecordingState {
   return makeRecordingState({

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  KEEPALIVE_PORT_NAME,
   KEEPALIVE_REJECTED_MESSAGE_TYPE,
+  createKeepAlivePortHandler,
   startKeepAlive,
   type KeepAlivePortLike,
 } from '@/lib/runtime/keep-alive';
@@ -258,5 +260,130 @@ describe('startKeepAlive', () => {
     handle.resume();
     vi.advanceTimersByTime(60_000);
     expect(connect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('createKeepAlivePortHandler', () => {
+  interface ServerPortOverrides {
+    name?: string;
+    sender?: { tabId?: number };
+  }
+
+  function serverPort(overrides: ServerPortOverrides = {}) {
+    let onMessage: ((message: unknown) => void) | undefined;
+    let onDisconnect: (() => void) | undefined;
+    return {
+      name: overrides.name ?? KEEPALIVE_PORT_NAME,
+      sender: overrides.sender,
+      postMessage: vi.fn(),
+      disconnect: vi.fn(),
+      onMessage: {
+        addListener: vi.fn((listener: (message: unknown) => void) => {
+          onMessage = listener;
+        }),
+      },
+      onDisconnect: {
+        addListener: vi.fn((listener: () => void) => {
+          onDisconnect = listener;
+        }),
+      },
+      emitMessage: (message: unknown) => onMessage?.(message),
+      emitDisconnect: () => onDisconnect?.(),
+    };
+  }
+
+  function makeHandler(options: {
+    trusted?: boolean;
+    stateError?: Error;
+  } = {}) {
+    const acknowledgeDisconnect = vi.fn();
+    const handler = createKeepAlivePortHandler<{ tabId?: number }, { live: boolean }>({
+      getRecordingState: options.stateError
+        ? () => Promise.reject(options.stateError)
+        : () => Promise.resolve({ live: true }),
+      isTrustedKeepAliveSender: () => options.trusted === true,
+      acknowledgeDisconnect,
+    });
+    return { handler, acknowledgeDisconnect };
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  }
+
+  it('ignores ports that do not carry the keep-alive name', async () => {
+    const { handler } = makeHandler({ trusted: false });
+    const port = serverPort({ name: 'other-port' });
+
+    handler(port);
+    await flush();
+
+    expect(port.onMessage.addListener).not.toHaveBeenCalled();
+    expect(port.postMessage).not.toHaveBeenCalled();
+    expect(port.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('keeps a trusted port connected across heartbeats', async () => {
+    const { handler } = makeHandler({ trusted: true });
+    const port = serverPort({ sender: { tabId: 4 } });
+
+    handler(port);
+    await flush();
+    port.emitMessage({ type: 'heartbeat' });
+    await flush();
+
+    expect(port.postMessage).not.toHaveBeenCalled();
+    expect(port.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('posts the authoritative rejection before disconnecting an untrusted port', async () => {
+    const { handler } = makeHandler({ trusted: false });
+    const port = serverPort();
+
+    handler(port);
+    await flush();
+
+    expect(port.postMessage).toHaveBeenCalledWith({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
+    expect(port.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a port that sends anything but a heartbeat', async () => {
+    const { handler } = makeHandler({ trusted: true });
+    const port = serverPort();
+
+    handler(port);
+    await flush();
+    port.emitMessage({ type: 'exfiltrate' });
+
+    expect(port.postMessage).toHaveBeenCalledWith({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
+    expect(port.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('drops the port without the rejection message when reading state fails', async () => {
+    silenceIntentionalErrorLogs();
+    const { handler } = makeHandler({ stateError: new Error('storage gone') });
+    const port = serverPort();
+
+    handler(port);
+    await flush();
+
+    // A state read failure says nothing about the sender: no rejection, so a
+    // healthy recorder is free to reconnect.
+    expect(port.postMessage).not.toHaveBeenCalled();
+    expect(port.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('acknowledges the runtime disconnect and stops answering afterwards', async () => {
+    const { handler, acknowledgeDisconnect } = makeHandler({ trusted: false });
+    const port = serverPort();
+
+    handler(port);
+    port.emitDisconnect();
+    await flush();
+
+    expect(acknowledgeDisconnect).toHaveBeenCalledOnce();
+    // Authorization resolved after the disconnect: no post into a dead port.
+    expect(port.postMessage).not.toHaveBeenCalled();
+    expect(port.disconnect).not.toHaveBeenCalled();
   });
 });

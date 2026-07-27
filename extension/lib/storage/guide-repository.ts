@@ -92,19 +92,6 @@ export async function updateGuide(
   });
 }
 
-/** Metadata-only touch. Missing guides are never recreated. */
-export async function touchGuide(id: string, timestamp = Date.now()): Promise<void> {
-  await runWithDatabase(async (db) => {
-    const tx = db.transaction('guides', 'readwrite');
-    const existing = await requireGuideInTx(tx, id);
-    await tx.store.put(sanitizeGuide({
-      ...existing,
-      updatedAt: Math.max(existing.updatedAt, timestamp),
-    }));
-    await tx.done;
-  });
-}
-
 /** Reads only denormalized guide rows; no step cursor or screenshot Blob is opened. */
 export async function getGuideSummaries(): Promise<GuideSummary[]> {
   const guides = (await runWithDatabase((db) => db.getAllFromIndex('guides', 'by-updated-at')))

@@ -9,44 +9,13 @@ import type { RecordingState } from '@/lib/storage/recording-state';
 import { makeRecordingState } from '../setup/recording-state';
 import type { Step } from '@/lib/storage/db';
 
-const mocks = vi.hoisted(() => ({
-  messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
-  getGuide: vi.fn(),
-  getStep: vi.fn(),
-  getSteps: vi.fn(),
-  getRecordingState: vi.fn(),
-  setRecordingState: vi.fn(),
-  permissionsContains: vi.fn(),
-  permissionsRequest: vi.fn(),
-  tabsQuery: vi.fn(),
-  tabsCreate: vi.fn(),
-  tabsGet: vi.fn(),
-  tabsUpdate: vi.fn(),
-  tabsRemove: vi.fn(),
-  executeScript: vi.fn(),
-  insertCSS: vi.fn(),
-}));
+const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 
-vi.mock('wxt/browser', async () => {
-  const { makeBackgroundBrowserMock } = await import('../setup/browser-mocks');
-  return {
-    browser: makeBackgroundBrowserMock({
-      onMessage: (listener) => {
-        mocks.messageListener = listener;
-      },
-      permissionsContains: mocks.permissionsContains,
-      permissionsRequest: mocks.permissionsRequest,
-      tabsCreate: mocks.tabsCreate,
-      tabsGet: mocks.tabsGet,
-      tabsQuery: mocks.tabsQuery,
-      tabsRemove: mocks.tabsRemove,
-      tabsUpdate: mocks.tabsUpdate,
-      executeScript: mocks.executeScript,
-      insertCSS: mocks.insertCSS,
-    }),
-  };
-});
-
+vi.mock('wxt/browser', async () =>
+  (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
+// This suite keeps step persistence real: only the read APIs are stubbed, so
+// any unexpected write during a preflight path fails loudly instead of being
+// silently absorbed by a mock.
 vi.mock('@/lib/storage/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/db')>();
   return {
@@ -57,14 +26,8 @@ vi.mock('@/lib/storage/db', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/storage/storage', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage/storage')>();
-  return {
-    ...actual,
-    getRecordingState: mocks.getRecordingState,
-    setRecordingState: mocks.setRecordingState,
-  };
-});
+vi.mock('@/lib/storage/storage', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 
 const idleState = makeRecordingState();
 

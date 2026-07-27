@@ -69,16 +69,12 @@ import {
   savePendingUndoRecord,
   type PendingUndoRecord,
 } from '@/lib/recording/background/pending-undo-store';
-import { KEEPALIVE_PORT_NAME, KEEPALIVE_REJECTED_MESSAGE_TYPE } from '@/lib/runtime/keep-alive';
+import { createKeepAlivePortHandler } from '@/lib/runtime/keep-alive';
+import { createEditorOpen } from '@/lib/recording/background/editor-open';
 import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
 import { getRecordingState, resetRunStateToIdle, setRecordingState } from '@/lib/storage/storage';
-import {
-  clearEditorRecovery,
-  markEditorOpenFailed,
-  needsEditorRecovery,
-  RECORDED_TAB_CLOSED_ERROR,
-} from '@/lib/recording/recording-recovery';
+import { markEditorOpenFailed, RECORDED_TAB_CLOSED_ERROR } from '@/lib/recording/recording-recovery';
 import type {
   BackgroundMessage,
   CancelStepRecaptureResult,
@@ -87,7 +83,6 @@ import type {
   FinishResult,
   FocusStepRecaptureSourceResult,
   FrameTrailSnapshotActiveMessage,
-  OpenEditorMessage,
   OpenEditorResult,
   PreflightGuideContinuationSourcePermissionErrorCode,
   PreflightGuideContinuationSourcePermissionMessage,
@@ -149,6 +144,8 @@ const recaptureFlow = createRecaptureFlow({
 });
 
 const followMode = createFollowMode({ control, runtime: recorderRuntime });
+
+const editorOpen = createEditorOpen({ control });
 
 /**
  * Invalidates the in-memory undo window synchronously (control flows rely on
@@ -1251,98 +1248,6 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
   }
 }
 
-async function openOrFocusEditor(result?: FinishResult): Promise<void> {
-  const editorBase = browser.runtime.getURL('/editor.html');
-  const editorUrl = new URL(editorBase);
-  if (result) {
-    editorUrl.searchParams.set('sessionId', result.sessionId);
-    if (result.entryId) editorUrl.searchParams.set('entryId', result.entryId);
-    if (result.groupId) editorUrl.searchParams.set('groupId', result.groupId);
-  }
-
-  // Never redirect an editor that may contain an unsaved description for a
-  // different Guide. Focus an existing same-Guide editor or open a new tab.
-  const editors = await browser.tabs.query({ url: `${editorBase}*` });
-  const existing = result
-    ? editors.find((tab) => {
-        if (tab.id == null || !tab.url) return false;
-        try {
-          return new URL(tab.url).searchParams.get('sessionId') === result.sessionId;
-        } catch {
-          return false;
-        }
-      })
-    : editors.find((tab) => tab.id != null && tab.url === editorBase);
-  if (existing?.id != null) {
-    await focusTab(existing.id, existing.windowId);
-    return;
-  }
-  await browser.tabs.create({ url: editorUrl.href, active: true });
-}
-
-async function latestFinishResult(sessionId: string): Promise<FinishResult> {
-  const steps = await getSteps(sessionId);
-  const items = steps.filter((step) => step.bounds !== null);
-  const lastItem = items.at(-1) ?? null;
-  return {
-    sessionId,
-    entryId: lastItem?.groupId ?? lastItem?.id ?? null,
-    groupId: lastItem?.groupId ?? null,
-    itemCount: items.length,
-  };
-}
-
-async function openEditorForStoredSession(message: OpenEditorMessage): Promise<OpenEditorResult> {
-  const expectedControlVersion = control.controlVersion;
-  let state: RecordingState | null = null;
-  let targetSessionId = message.sessionId;
-  try {
-    state = await getRecordingState();
-    targetSessionId ??= state.sessionId ?? undefined;
-    if (!targetSessionId) {
-      await openOrFocusEditor();
-      return { ok: true };
-    }
-    const guide = await getGuide(targetSessionId);
-    if (!guide) return { ok: false, error: '找不到這份教學。' };
-    // Only a hand-off continues where the capture stopped: finishing a run, or
-    // recovering one whose recorded tab went away. Ordinary navigation opens the
-    // guide at its first entry — deriving the target from the newest capture
-    // made every "open editor" land on the last step.
-    const resumesInterruptedRun =
-      state.sessionId === targetSessionId && needsEditorRecovery(state.recoverableError);
-    const result: FinishResult = resumesInterruptedRun
-      ? await latestFinishResult(targetSessionId)
-      : { sessionId: targetSessionId, entryId: null, groupId: null, itemCount: 0 };
-    if (message.entryId) result.entryId = message.entryId;
-    await openOrFocusEditor(result);
-    if (state.sessionId === targetSessionId) {
-      await control.writeStateForControl(expectedControlVersion, (current) => {
-        if (current.sessionId !== targetSessionId) return current;
-        return clearEditorRecovery(current);
-      });
-    }
-    return { ok: true };
-  } catch (error) {
-    console.error('[frametrail] failed to open editor:', describeBrowserError(error), error);
-    if (state?.sessionId === targetSessionId) {
-      try {
-        await control.writeStateForControl(expectedControlVersion, (current) => {
-          if (current.sessionId !== targetSessionId) return current;
-          return markEditorOpenFailed(current);
-        });
-      } catch (recoveryError) {
-        console.error(
-          '[frametrail] failed to persist editor recovery state:',
-          describeBrowserError(recoveryError),
-          recoveryError,
-        );
-      }
-    }
-    return { ok: false, error: EDITOR_OPEN_FAILED_MESSAGE };
-  }
-}
-
 async function finishRecording(message: RecordingControlMessage): Promise<RecordingControlResult> {
   const startedAtControlVersion = control.controlVersion;
   const initial = await getRecordingState();
@@ -1400,7 +1305,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   await deleteEmptySnapshotAnchorBestEffort(state);
   await recorderRuntime.stopRecorderInTab(state.tabId);
   try {
-    await openOrFocusEditor(result);
+    await editorOpen.openOrFocusEditor(result);
   } catch (error) {
     console.error('[frametrail] failed to open editor after recording', error);
     await control.writeStateForControl(version, markEditorOpenFailed);
@@ -1656,16 +1561,13 @@ async function handleCancelCapture(
   message: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_CANCEL_CAPTURE' }>,
   sender: Browser.runtime.MessageSender,
 ): Promise<ClickCaptureResult> {
-  const state = await getRecordingState();
-  if (
-    !state.isRecording ||
-    state.operation !== 'recording' ||
-    state.runId !== message.runId ||
-    sender.frameId !== 0 ||
-    sender.tab?.id !== state.tabId
-  ) {
-    return { ok: false };
-  }
+  // No version requirement: cancelling an already-doomed capture is harmless,
+  // and the capture registry only ever cancels ids it still tracks.
+  const validated = await validateRecorderMessageSender(message, sender, {
+    operation: 'recording',
+    requireCurrentControlVersion: false,
+  });
+  if (!validated) return { ok: false };
   cancelCapture(message.captureId);
   return { ok: true };
 }
@@ -1806,16 +1708,17 @@ export default defineBackground(() => {
     console.error('[frametrail] failed to recover an interrupted operation', error);
   });
 
-  browser.runtime.onMessage.addListener((message: unknown, sender) => {
-    if (!isBackgroundMessage(message)) return undefined;
-    if (
-      isExtensionPageOnlyMessage(message) &&
-      !isTrustedExtensionPageSender(sender, browser.runtime.getURL('/'))
-    ) {
-      console.warn('[frametrail] rejected an untrusted extension control message', message.type);
-      return undefined;
-    }
-
+  /**
+   * Routes a validated background message to its handler. Invariant: every
+   * case returns a promise that RESOLVES (never rejects) with that case's
+   * response — withMessageFailureFallback catches and maps every handler
+   * failure onto the case's fallback result — so the onMessage listener can
+   * always close the response channel with a well-formed result.
+   */
+  const routeBackgroundMessage = (
+    message: BackgroundMessage,
+    sender: Browser.runtime.MessageSender,
+  ): Promise<unknown> => {
     switch (message.type) {
       case 'START_RECORDING':
         return withMessageFailureFallback(
@@ -1887,7 +1790,7 @@ export default defineBackground(() => {
         );
       case 'OPEN_EDITOR':
         return withMessageFailureFallback(
-          openEditorForStoredSession(message),
+          editorOpen.openEditorForStoredSession(message),
           'open editor request failed',
           { ok: false, error: EDITOR_OPEN_FAILED_MESSAGE } satisfies OpenEditorResult,
         );
@@ -1967,6 +1870,45 @@ export default defineBackground(() => {
           false,
         );
     }
+  };
+
+  // Chrome honoured a Promise returned from a runtime.onMessage listener for
+  // exactly one release: the promise-reply feature reached stable in Chrome
+  // 144 (2026-01-13, announced in the chromium-extensions "Messaging API
+  // Changes" PSA) and was reverted right after rollout — crbug.com/40753031
+  // (formerly 1185241) remains open, MDN's compat data still lists Chrome as
+  // unsupported, and async listeners on Chrome 144–145 stable regressed to an
+  // immediate `undefined` reply. As of 2026-07 no release is confirmed to
+  // have re-shipped it, so this listener uses the universally supported
+  // callback contract instead of gating installs on a promise-honouring
+  // Chrome: compute the response promise, return `true` to hold the channel
+  // open, and settle it through sendResponse.
+  //
+  // requireRuntimeMessageResult callers treat a closed channel as failure, so
+  // every response-bearing case must reach sendResponse exactly once;
+  // routeBackgroundMessage's never-rejects invariant provides that, and the
+  // rejection leg below is defense in depth only. The synchronous rejection
+  // paths (malformed message, untrusted sender) keep returning undefined: no
+  // response is intended and the sender's error path already covers a closed
+  // channel.
+  browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    if (!isBackgroundMessage(message)) return undefined;
+    if (
+      isExtensionPageOnlyMessage(message) &&
+      !isTrustedExtensionPageSender(sender, browser.runtime.getURL('/'))
+    ) {
+      console.warn('[frametrail] rejected an untrusted extension control message', message.type);
+      return undefined;
+    }
+    void routeBackgroundMessage(message, sender).then(sendResponse, (error) => {
+      console.error(
+        '[frametrail] background message handling failed unexpectedly:',
+        describeBrowserError(error),
+        error,
+      );
+      sendResponse(undefined);
+    });
+    return true;
   });
 
   browser.commands?.onCommand.addListener((command) => {
@@ -1975,57 +1917,13 @@ export default defineBackground(() => {
     });
   });
 
-  browser.runtime.onConnect.addListener((port) => {
-    if (port.name !== KEEPALIVE_PORT_NAME) return;
-    let disconnected = false;
-    const disconnect = () => {
-      if (disconnected) return;
-      disconnected = true;
-      try {
-        port.disconnect();
-      } catch {
-        // The sender may already have disappeared during authorization.
-      }
-    };
-    // An authoritative rejection tells the client its capture job is over so
-    // it tears its UI down, instead of mistaking the disconnect for a worker
-    // restart and reconnecting (and waking this worker) forever.
-    const reject = () => {
-      if (disconnected) return;
-      try {
-        port.postMessage({ type: KEEPALIVE_REJECTED_MESSAGE_TYPE });
-      } catch {
-        // The port may already be gone; the client's give-up cap still applies.
-      }
-      disconnect();
-    };
-    const authorize = () => {
-      void getRecordingState().then((state) => {
-        if (!disconnected && !isTrustedKeepAliveSender(port.sender ?? {}, state)) reject();
-      }).catch((error) => {
-        // Reading state failed, which says nothing about the sender: drop the
-        // port without the rejection message so a healthy recorder reconnects.
-        console.error('[frametrail] failed to authorize keep-alive port', error);
-        disconnect();
-      });
-    };
-    port.onDisconnect.addListener(() => {
-      disconnected = true;
-      // A recorded page that navigates hands its port to the back/forward
-      // cache, which closes the channel with a runtime.lastError. Reading it
-      // here acknowledges the expected disconnect so Chrome stops logging
-      // "Unchecked runtime.lastError" for every recorded-page navigation.
-      void browser.runtime.lastError;
-    });
-    port.onMessage.addListener((message) => {
-      if (message?.type !== 'heartbeat') {
-        reject();
-        return;
-      }
-      authorize();
-    });
-    authorize();
+  const handleKeepAlivePort = createKeepAlivePortHandler({
+    getRecordingState,
+    isTrustedKeepAliveSender: (sender: Browser.runtime.MessageSender | undefined, state: RecordingState) =>
+      isTrustedKeepAliveSender(sender ?? {}, state),
+    acknowledgeDisconnect: () => void browser.runtime.lastError,
   });
+  browser.runtime.onConnect.addListener(handleKeepAlivePort);
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     void (async () => {
