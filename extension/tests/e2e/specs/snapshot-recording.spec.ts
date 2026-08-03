@@ -63,12 +63,45 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => shield.evaluate(() => document.hasFocus())).toBe(true);
     await expect.poll(() => appPage.evaluate(() => document.activeElement?.hasAttribute('data-frametrail-snapshot-shield'))).toBe(true);
     const initialStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
-    await appPage.keyboard.press('ArrowUp');
+    await appPage.mouse.wheel(0, -100);
     await expect.poll(async () => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(initialStyle);
 
     await clickSnapshotTarget(appPage, point);
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
     expect(await appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(0);
+
+    await stopRecording(popupPage);
+  });
+
+  test('keeps a widened Element identity across descendants with different wrapper depths', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'snapshot');
+    const shallow = await targetCenter(appPage, '#plain-text');
+    const deep = await targetCenter(appPage, '#deep-text');
+    const card = await appPage.locator('#plain-card').boundingBox();
+    const deepText = await appPage.locator('#deep-text').boundingBox();
+    const shield = await getSnapshotFrame(appPage);
+
+    await appPage.mouse.move(shallow.x, shallow.y);
+    await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
+    const narrowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    await appPage.mouse.wheel(0, -100);
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
+    const widenedStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+
+    // Reusing offset 1 at #deep-text would select #deep-shell. The page-side
+    // lock must keep the concrete #plain-card Element selected instead.
+    await appPage.mouse.move(deep.x, deep.y);
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(widenedStyle);
+
+    await clickSnapshotTarget(appPage, deep);
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    const annotation = (await readSteps(popupPage)).find((step) => step.bounds !== null);
+    expect(Math.round(annotation!.bounds!.width)).toBe(Math.round(card!.width));
+    expect(Math.round(annotation!.bounds!.width)).not.toBe(Math.round(deepText!.width));
 
     await stopRecording(popupPage);
   });

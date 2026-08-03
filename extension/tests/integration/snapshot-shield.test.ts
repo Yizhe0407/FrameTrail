@@ -118,6 +118,7 @@ describe('createSnapshotShield', () => {
       clientX: 50,
       clientY: 70,
       candidateOffset: 1,
+      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onHover).toHaveBeenCalledOnce());
     await vi.waitFor(() =>
@@ -138,6 +139,7 @@ describe('createSnapshotShield', () => {
       clientX: 50,
       clientY: 70,
       candidateOffset: 1,
+      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
     expect(onPoint).toHaveBeenCalledWith(expect.objectContaining({ candidateOffset: 1 }));
@@ -220,6 +222,7 @@ describe('createSnapshotShield', () => {
       clientX: 90,
       clientY: 110,
       candidateOffset: 0,
+      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
 
@@ -232,6 +235,7 @@ describe('createSnapshotShield', () => {
       clientX: 50,
       clientY: 70,
       candidateOffset: 0,
+      candidateEpoch: 0,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onPoint).not.toHaveBeenCalled();

@@ -32,7 +32,7 @@ describe('snapshot shield protocol', () => {
     expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_READY, token }, token)).toBe(true);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: 120, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
         token,
       ),
     ).toBe(true);
@@ -40,25 +40,25 @@ describe('snapshot shield protocol', () => {
     // completion, so it is rejected outright.
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: -1, clientX: 120, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: -1, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: Number.NaN, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: Number.NaN, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: -1, clientY: 80, candidateOffset: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: -1, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
         token,
       ),
     ).toBe(false);
@@ -71,6 +71,7 @@ describe('snapshot shield protocol', () => {
           clientX: 120,
           clientY: 80,
           candidateOffset: 1,
+          candidateEpoch: 0,
         },
         token,
       ),
@@ -84,6 +85,7 @@ describe('snapshot shield protocol', () => {
           clientX: 120,
           clientY: 80,
           candidateOffset: 0,
+          candidateEpoch: 0,
         },
         token,
       ),
@@ -97,6 +99,21 @@ describe('snapshot shield protocol', () => {
           clientX: 120,
           clientY: 80,
           candidateOffset: 4_097,
+          candidateEpoch: 0,
+        },
+        token,
+      ),
+    ).toBe(false);
+    expect(
+      isSnapshotShieldPortMessage(
+        {
+          type: SNAPSHOT_SHIELD_POINTER_MOVE,
+          token,
+          requestId: 4,
+          clientX: 120,
+          clientY: 80,
+          candidateOffset: 0,
+          candidateEpoch: -1,
         },
         token,
       ),

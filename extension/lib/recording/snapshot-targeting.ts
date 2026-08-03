@@ -2,13 +2,11 @@ import { browser } from 'wxt/browser';
 import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
-  findVisualTargetCandidatesAtPoint,
   getVisibleHighlightBounds,
   INTERACTIVE_CANDIDATE_SELECTOR,
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
-  selectVisualTargetCandidate,
 } from '../capture/selector-utils';
 import { describeElement } from '../capture/element-description';
 import {
@@ -32,6 +30,7 @@ import {
   resolveFrameProbeTargetOrigin,
 } from '../capture/frame-probe';
 import { createImageCoordinateMapper } from '../capture/image-geometry';
+import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isFiniteRect } from '../shared/validation';
 import { CLEANUP_EVENT } from './content-script-constants';
 import type { FrameTrailStopMessage } from '../runtime/messages';
@@ -97,6 +96,7 @@ interface SnapshotProbeRequest {
   clientX: number;
   clientY: number;
   candidateOffset: number;
+  candidateEpoch: number;
 }
 
 function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
@@ -223,6 +223,7 @@ async function probeChildFrame(
   clientY: number,
   timeoutMs: number,
   candidateOffset: number,
+  candidateEpoch: number,
 ): Promise<ResolvedSnapshotTarget | null> {
   if (!frame.contentWindow || isElementVisuallyUnavailable(frame)) return null;
   const visibleFrame = getVisibleHighlightBounds(frame, clientX, clientY);
@@ -271,6 +272,7 @@ async function probeChildFrame(
     clientX: childPoint.x,
     clientY: childPoint.y,
     candidateOffset,
+    candidateEpoch,
   };
   try {
     frame.contentWindow.postMessage(request, targetOrigin, [channel.port2]);
@@ -305,41 +307,117 @@ async function probeChildFrame(
     : null;
 }
 
+export interface SnapshotTargetResolver {
+  resolveAt(
+    clientX: number,
+    clientY: number,
+    candidateOffset?: number,
+    candidateEpoch?: number,
+    frameProbeTimeoutMs?: number,
+  ): Promise<ResolvedSnapshotTarget | null>;
+  clear(): void;
+}
+
+/**
+ * Creates the sole stateful snapshot targeting pipeline for one recording run.
+ * Candidate offsets are merely addresses into the retained chain; concrete
+ * Element identity and the 6px hysteresis boundary live in CandidateTargetLock.
+ */
+export function createSnapshotTargetResolver(runId: string): SnapshotTargetResolver {
+  const candidateTarget = createCandidateTargetLock();
+  let currentEpoch: number | null = null;
+
+  const clear = () => {
+    candidateTarget.clear();
+    currentEpoch = null;
+  };
+
+  const resolveAt = async (
+    clientX: number,
+    clientY: number,
+    candidateOffset = 0,
+    candidateEpoch = 0,
+    frameProbeTimeoutMs = FRAME_PROBE_TIMEOUT_MS,
+  ): Promise<ResolvedSnapshotTarget | null> => {
+    if (currentEpoch !== candidateEpoch) {
+      candidateTarget.clear();
+      currentEpoch = candidateEpoch;
+    }
+    if (clientX < 0 || clientY < 0 || clientX >= window.innerWidth || clientY >= window.innerHeight) {
+      candidateTarget.clear();
+      return null;
+    }
+
+    const hadLock = candidateTarget.hasLock();
+    const retained = candidateTarget.resolveLockedAt(clientX, clientY, candidateOffset);
+    if (retained) {
+      return resolvedElement(
+        retained.element,
+        retained.bounds,
+        retained.candidateOffset,
+        retained.offsetRange,
+      );
+    }
+
+    // Once an identity lock leaves its hysteresis boundary, its numeric offset
+    // must not be applied to an unrelated chain at the new point.
+    const effectiveOffset = hadLock ? 0 : candidateOffset;
+    const hit = deepElementFromPoint(clientX, clientY);
+    if (!hit) return null;
+    if (hit instanceof HTMLIFrameElement) {
+      return probeChildFrame(
+        hit,
+        runId,
+        clientX,
+        clientY,
+        frameProbeTimeoutMs,
+        effectiveOffset,
+        candidateEpoch,
+      );
+    }
+    if (hit instanceof HTMLAreaElement) {
+      const image = imageForArea(hit);
+      if (image) return resolveImageMapTarget(image, clientX, clientY);
+    }
+    if (hit instanceof HTMLImageElement && hit.useMap) {
+      const area = resolveImageMapTarget(hit, clientX, clientY);
+      if (area) return area;
+    }
+
+    const selected = candidateTarget.resolveFromHit(hit, clientX, clientY, effectiveOffset);
+    return selected
+      ? resolvedElement(
+          selected.element,
+          selected.bounds,
+          selected.candidateOffset,
+          selected.offsetRange,
+        )
+      : null;
+  };
+
+  return { resolveAt, clear };
+}
+
+/** Stateless compatibility helper for callers that need a single probe. */
 export async function resolveSnapshotTargetAtPoint(
   runId: string,
   clientX: number,
   clientY: number,
   candidateOffset = 0,
   frameProbeTimeoutMs = FRAME_PROBE_TIMEOUT_MS,
+  candidateEpoch = 0,
 ): Promise<ResolvedSnapshotTarget | null> {
-  if (clientX < 0 || clientY < 0 || clientX >= window.innerWidth || clientY >= window.innerHeight) return null;
-  const hit = deepElementFromPoint(clientX, clientY);
-  if (!hit) return null;
-  if (hit instanceof HTMLIFrameElement) {
-    return probeChildFrame(hit, runId, clientX, clientY, frameProbeTimeoutMs, candidateOffset);
-  }
-  if (hit instanceof HTMLAreaElement) {
-    const image = imageForArea(hit);
-    if (image) return resolveImageMapTarget(image, clientX, clientY);
-  }
-  if (hit instanceof HTMLImageElement && hit.useMap) {
-    const area = resolveImageMapTarget(hit, clientX, clientY);
-    if (area) return area;
-  }
-
-  const targets = findVisualTargetCandidatesAtPoint(hit, clientX, clientY);
-  const selected = selectVisualTargetCandidate(targets, candidateOffset);
-  return selected
-    ? resolvedElement(
-        selected.element,
-        getVisibleHighlightBounds(selected.element, clientX, clientY),
-        selected.candidateOffset,
-        selected.offsetRange,
-      )
-    : null;
+  return createSnapshotTargetResolver(runId).resolveAt(
+    clientX,
+    clientY,
+    candidateOffset,
+    candidateEpoch,
+    frameProbeTimeoutMs,
+  );
 }
 
 export function installSnapshotFrameProbe(runId: string): void {
+  const targetResolver = createSnapshotTargetResolver(runId);
   const admission = createFrameProbeRateLimiter({
     maxConcurrent: FRAME_PROBE_MAX_CONCURRENT_REQUESTS,
     maxRequestsPerWindow: FRAME_PROBE_MAX_REQUESTS_PER_WINDOW,
@@ -348,7 +426,7 @@ export function installSnapshotFrameProbe(runId: string): void {
   const onMessage = (event: MessageEvent) => {
     const request = event.data as Partial<SnapshotProbeRequest> | null;
     const port = event.ports[0];
-    const { timeoutMs, clientX, clientY, candidateOffset } = request ?? {};
+    const { timeoutMs, clientX, clientY, candidateOffset, candidateEpoch } = request ?? {};
     if (
       event.source !== parent ||
       !port ||
@@ -364,7 +442,10 @@ export function installSnapshotFrameProbe(runId: string): void {
       !Number.isFinite(clientY) ||
       candidateOffset === undefined ||
       !Number.isSafeInteger(candidateOffset) ||
-      Math.abs(candidateOffset) > SNAPSHOT_TARGET_OFFSET_LIMIT
+      Math.abs(candidateOffset) > SNAPSHOT_TARGET_OFFSET_LIMIT ||
+      candidateEpoch === undefined ||
+      !Number.isSafeInteger(candidateEpoch) ||
+      candidateEpoch < 0
     ) {
       closePortQuietly(port);
       return;
@@ -385,11 +466,11 @@ export function installSnapshotFrameProbe(runId: string): void {
     void (async () => {
       let response: SnapshotProbeResult | null = null;
       try {
-        const target = await resolveSnapshotTargetAtPoint(
-          runId,
+        const target = await targetResolver.resolveAt(
           clientX,
           clientY,
           candidateOffset,
+          candidateEpoch,
           timeoutMs,
         );
         response = target
@@ -416,6 +497,7 @@ export function installSnapshotFrameProbe(runId: string): void {
     })();
   };
   const cleanup = () => {
+    targetResolver.clear();
     window.removeEventListener('message', onMessage);
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);

@@ -11,6 +11,10 @@
       #closed-host { position: relative; display: block; width: 320px; height: 160px; margin-bottom: 28px; background: #e0e7ff; }
       .delegated { width: 280px; margin-bottom: 28px; background: #fff7ed; padding: 16px; }
       #covered-button { display: block; width: 220px; height: 48px; }
+      #small-overlay-wrap { position: relative; width: 220px; height: 48px; margin-top: 28px; }
+      #small-covered-button { display: block; width: 220px; height: 48px; }
+      #small-blank-overlay { position: absolute; inset: 0; display: none; background: transparent; }
+      body.small-overlay-armed #small-blank-overlay { display: block; }
       /* A transparent shim that swallows the hit test while showing nothing of
          its own: the shape a drag layer or modal backdrop takes. Armed from the
          test so the rest of the page stays clickable. */
@@ -23,6 +27,10 @@
     <div id="jsaction-card" class="delegated" jsaction="keydown:card.key;click:card.open">jsaction 卡片</div>
     <div id="stimulus-card" class="delegated" data-action="card#open">Stimulus 卡片</div>
     <button id="covered-button" type="button">被遮住的按鈕</button>
+    <div id="small-overlay-wrap">
+      <button id="small-covered-button" type="button">被小型遮罩蓋住的按鈕</button>
+      <div id="small-blank-overlay"></div>
+    </div>
     <div id="blank-overlay"></div>
     <script>
       const host = document.getElementById('closed-host');
@@ -41,6 +49,9 @@
         },
         armOverlay() {
           document.body.classList.add('overlay-armed');
+        },
+        armSmallOverlay() {
+          document.body.classList.add('small-overlay-armed');
         },
       };
     </script>

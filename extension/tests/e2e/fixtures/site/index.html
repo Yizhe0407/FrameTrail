@@ -23,6 +23,8 @@
       h1 { margin: 0 0 24px; font-size: 30px; }
       .plain-card { width: 420px; margin-bottom: 20px; background: #eef2ff; padding: 14px; }
       #plain-text { display: inline; font-size: 16px; line-height: 24px; }
+      #deep-branch { display: block; width: 220px; margin-top: 8px; padding: 5px; background: #dbeafe; }
+      #deep-shell { display: inline-block; padding: 3px 7px; background: #bfdbfe; }
       .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
       button { min-height: 40px; padding: 8px 16px; }
       #visual-container { width: 360px; margin-bottom: 24px; border: 1px dashed #a8a29e; padding: 18px; }
@@ -45,6 +47,7 @@
       <h1 id="heading">FrameTrail 元素測試</h1>
       <div id="plain-card" class="plain-card">
         <span id="plain-text">這是一段不可點擊的純文字</span>
+        <span id="deep-branch"><span id="deep-shell"><span id="deep-text">較深層的純文字</span></span></span>
       </div>
       <div class="controls">
         <button id="action-button" type="button"><span>執行操作</span></button>

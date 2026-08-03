@@ -63,6 +63,39 @@ describe('findVisualTargetCandidatesAtPoint', () => {
     expect(selectVisualTargetCandidate(targets, 99)).toMatchObject({ element: article, candidateOffset: 2 });
   });
 
+  it('collapses near-identical wrapper boxes into one perceived boundary', () => {
+    const surface = document.createElement('div');
+    const wrapper = document.createElement('span');
+    const label = document.createElement('span');
+    wrapper.append(label);
+    surface.append(wrapper);
+    document.body.append(surface);
+    makeVisible(surface, { x: 20, y: 20, width: 124, height: 44 });
+    makeVisible(wrapper, { x: 21, y: 21, width: 122, height: 42 });
+    makeVisible(label, { x: 22, y: 22, width: 120, height: 40 });
+
+    const targets = findVisualTargetCandidatesAtPoint(label, 40, 30);
+
+    expect(targets.candidates).toHaveLength(1);
+    expect(targets.candidates[0].element).toBe(label);
+    expect(selectVisualTargetCandidate(targets, 1)?.offsetRange).toEqual({ min: 0, max: 0 });
+  });
+
+  it('keeps the semantic control when fuzzy visual dedup merges its child box', () => {
+    const button = document.createElement('button');
+    const label = document.createElement('span');
+    button.append(label);
+    document.body.append(button);
+    makeVisible(button, { x: 20, y: 20, width: 124, height: 44 });
+    makeVisible(label, { x: 22, y: 22, width: 120, height: 40 });
+
+    const targets = findVisualTargetCandidatesAtPoint(label, 40, 30);
+
+    expect(targets.candidates).toHaveLength(1);
+    expect(targets.candidates[0].element).toBe(button);
+    expect(selectVisualTargetCandidate(targets, 0)?.element).toBe(button);
+  });
+
   it('keeps a semantic control as the default while allowing its child to be selected', () => {
     const button = document.createElement('button');
     const icon = document.createElement('span');
@@ -406,6 +439,73 @@ describe('shadow and occlusion aware hit testing', () => {
     // the target instead of being treated as a shim.
     overlay.textContent = '請先同意條款';
     expect(findVisualTargetCandidatesAtPoint(overlay, 30, 30, viewport).candidates[0].element).toBe(overlay);
+  });
+
+  it('looks past a small transparent hit-test shim', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    button.textContent = '送出';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, button, document.body],
+    });
+    const styleSpy = vi.spyOn(window, 'getComputedStyle');
+
+    const targets = findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 });
+
+    expect(targets.candidates[0].element).toBe(button);
+    expect(styleSpy.mock.calls.filter(([element]) => element === overlay)).toHaveLength(1);
+  });
+
+  it('does not click through a small painted or accessibly named surface', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    button.textContent = '底下按鈕';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, button, document.body],
+    });
+
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+    expect(
+      findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 }).candidates[0].element,
+    ).toBe(overlay);
+
+    overlay.style.backgroundColor = 'transparent';
+    overlay.setAttribute('aria-label', '拖曳區域');
+    expect(
+      findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 }).candidates[0].element,
+    ).toBe(overlay);
+
+    overlay.removeAttribute('aria-label');
+    overlay.setAttribute('role', 'region');
+    expect(
+      findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 }).candidates[0].element,
+    ).toBe(overlay);
+  });
+
+  it('does not click through a transparent disabled control', () => {
+    const overlay = document.createElement('button');
+    const underneath = document.createElement('button');
+    overlay.disabled = true;
+    underneath.textContent = '底下按鈕';
+    document.body.append(overlay, underneath);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(underneath, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, underneath, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 });
+
+    expect(targets.candidates[0].element).toBe(overlay);
   });
 
   it('keeps the topmost chain when the stack holds no control', () => {

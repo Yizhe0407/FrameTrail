@@ -50,7 +50,7 @@ describe('createHoverScheduler', () => {
     scheduler.pointerMove(11, 21);
     expect(frames.size).toBe(1);
     flushFrames();
-    expect(posts).toEqual([{ requestId: 1, clientX: 11, clientY: 21, candidateOffset: 0 }]);
+    expect(posts).toEqual([{ requestId: 1, clientX: 11, clientY: 21, candidateOffset: 0, candidateEpoch: 0 }]);
 
     // While the probe is pending, new input schedules but never posts.
     scheduler.pointerMove(30, 40);
@@ -82,7 +82,7 @@ describe('createHoverScheduler', () => {
     scheduler.schedule();
     flushFrames();
     expect(posts).toHaveLength(2);
-    expect(posts[1]).toEqual({ requestId: 2, clientX: 10, clientY: 20, candidateOffset: 3 });
+    expect(posts[1]).toEqual({ requestId: 2, clientX: 10, clientY: 20, candidateOffset: 3, candidateEpoch: 0 });
   });
 
   it('abandons an unanswered probe after the timeout and retries; the late response is ignored', () => {
@@ -141,28 +141,47 @@ describe('createHoverScheduler', () => {
     expect(posts).toHaveLength(0);
   });
 
-  it('beginCapture cancels scheduled work and resets the offset only when the point moved', () => {
+  it('carries the selected offset while page-side identity locking decides retention', () => {
+    const { scheduler, posts, flushFrames } = createHarness();
+    scheduler.pointerMove(10, 20);
+    scheduler.adjustOffset(2);
+    flushFrames();
+    expect(posts[0]).toMatchObject({ clientX: 10, clientY: 20, candidateOffset: 2, candidateEpoch: 0 });
+    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 2 })).toBe('accepted');
+
+    scheduler.pointerMove(12, 22);
+    flushFrames();
+    expect(posts[1]).toMatchObject({ clientX: 12, clientY: 22, candidateOffset: 2, candidateEpoch: 0 });
+
+    // The shield no longer owns rectangle-based retention. It keeps carrying
+    // the address; the page-side Element lock either retains it or responds 0.
+    expect(scheduler.resolvePreview({ requestId: 2, candidateOffset: 0 })).toBe('accepted');
+    scheduler.pointerMove(50, 60);
+    flushFrames();
+    expect(posts[2]).toMatchObject({ clientX: 50, clientY: 60, candidateOffset: 0, candidateEpoch: 0 });
+  });
+
+  it('beginCapture returns the current offset and epoch without a second targeting policy', () => {
     const { scheduler, posts, frames, flushFrames } = createHarness();
     scheduler.pointerMove(10, 20);
     scheduler.adjustOffset(2);
     expect(frames.size).toBe(1);
 
-    // Committing at the hovered point keeps the cycled candidate offset.
-    expect(scheduler.beginCapture(10, 20)).toBe(2);
+    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: 2, candidateEpoch: 0 });
     flushFrames();
     expect(posts).toHaveLength(0);
 
-    // Committing somewhere else starts from the default candidate.
-    expect(scheduler.beginCapture(50, 60)).toBe(0);
+    scheduler.adjustOffset(2);
+    expect(scheduler.beginCapture(50, 60)).toEqual({ candidateOffset: 4, candidateEpoch: 0 });
   });
 
   it('clamps keyboard offset cycling to the configured limit', () => {
     const { scheduler } = createHarness();
     scheduler.setAnchor(10, 20);
     for (let i = 0; i < 20; i++) scheduler.adjustOffset(1);
-    expect(scheduler.beginCapture(10, 20)).toBe(OFFSET_LIMIT);
+    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: OFFSET_LIMIT, candidateEpoch: 1 });
     for (let i = 0; i < 40; i++) scheduler.adjustOffset(-1);
-    expect(scheduler.beginCapture(10, 20)).toBe(-OFFSET_LIMIT);
+    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: -OFFSET_LIMIT, candidateEpoch: 1 });
   });
 
   it('clear drops the point and the pending probe', () => {
@@ -176,5 +195,9 @@ describe('createHoverScheduler', () => {
     scheduler.schedule();
     flushFrames();
     expect(posts).toHaveLength(1);
+
+    scheduler.pointerMove(30, 40);
+    flushFrames();
+    expect(posts[1]).toMatchObject({ candidateOffset: 0, candidateEpoch: 1 });
   });
 });

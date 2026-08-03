@@ -1,10 +1,7 @@
 import { createStepPreview } from '../capture/step-preview';
-import {
-  getComposedParent,
-  getVisibleHighlightBounds,
-  resolveVisualTargetAtPoint,
-} from '../capture/selector-utils';
+import { getComposedParent } from '../capture/selector-utils';
 import { candidateCyclingState } from '../capture/candidate-cycling';
+import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isExtensionOverlay } from '../capture/viewport-overlay-host';
 import { isPointInsideViewport } from './recording-guards';
 
@@ -62,7 +59,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
   const preview = createStepPreview();
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
-  let candidateOffset = 0;
+  const candidateTarget = createCandidateTargetLock();
   let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
   let observedTarget: Element | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -142,17 +139,14 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       return;
     }
     const { clientX, clientY } = point;
-    const selected = resolveVisualTargetAtPoint(clientX, clientY, candidateOffset);
+    const selected = candidateTarget.resolveAt(clientX, clientY);
     const target = selected?.element ?? null;
-    const bounds = target ? getVisibleHighlightBounds(target, clientX, clientY) : null;
+
     observeTarget(target);
-    if (bounds) preview.show(bounds);
+    if (selected) preview.show(selected.bounds);
     else preview.hide();
-    // The offset is clamped by the selection, so it also reports what the keys
-    // can still reach from here.
-    if (selected) candidateOffset = selected.candidateOffset;
     publishCycling(
-      selected && bounds ? candidateCyclingState(selected.candidateOffset, selected.offsetRange) : null,
+      selected ? candidateCyclingState(selected.candidateOffset, selected.offsetRange) : null,
     );
     armFallback();
   };
@@ -177,9 +171,6 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     // instead of following the pointer, so the toolbar's resize controls still
     // act on what the user was aiming at.
     if (event.target instanceof Element && isExtensionOverlay(event.target)) return;
-    // A new point is a new chain; keeping the old offset would silently widen
-    // an unrelated target.
-    if (!point || point.clientX !== event.clientX || point.clientY !== event.clientY) candidateOffset = 0;
     point = { clientX: event.clientX, clientY: event.clientY };
     schedule();
     armFallback();
@@ -200,12 +191,14 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       return;
     }
     point = null;
+    candidateTarget.clear();
     suspend();
   };
 
   const onPointerLeave = (event: PointerEvent) => {
     if (event.relatedTarget) return;
     point = null;
+    candidateTarget.clear();
     suspend();
   };
 
@@ -223,19 +216,15 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     handlers: { onPointerMove, onPointerOut, onPointerLeave, onVisibilityChange },
     adjustCandidateOffset(delta) {
       if (!point || options.isPaused() || options.isGestureActive() || options.isRegionCaptureActive()) return false;
-      const selected = resolveVisualTargetAtPoint(point.clientX, point.clientY, candidateOffset);
-      if (!selected) return false;
-      const next = Math.max(
-        selected.offsetRange.min,
-        Math.min(selected.candidateOffset + delta, selected.offsetRange.max),
-      );
-      if (next === selected.candidateOffset) return false;
-      candidateOffset = next;
+      const current = candidateTarget.resolveAt(point.clientX, point.clientY);
+      if (!current) return false;
+      const selected = candidateTarget.adjustAt(point.clientX, point.clientY, delta);
+      if (!selected || selected.candidateOffset === current.candidateOffset) return false;
       render();
       return true;
     },
     resolveTargetAt(clientX, clientY) {
-      return resolveVisualTargetAtPoint(clientX, clientY, candidateOffset)?.element ?? null;
+      return candidateTarget.resolveAt(clientX, clientY)?.element ?? null;
     },
     schedule,
     armFallback,
@@ -246,6 +235,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       frame = null;
       disconnectObserver();
       stopFallback();
+      candidateTarget.clear();
       publishCycling(null);
       preview.remove();
     },

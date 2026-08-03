@@ -74,6 +74,8 @@ export interface SnapshotShieldPointerDownMessage {
   clientX: number;
   clientY: number;
   candidateOffset: number;
+  /** Bumps whenever the shield deliberately starts a fresh candidate chain. */
+  candidateEpoch: number;
 }
 
 export interface SnapshotShieldPointerMoveMessage {
@@ -83,6 +85,8 @@ export interface SnapshotShieldPointerMoveMessage {
   clientX: number;
   clientY: number;
   candidateOffset: number;
+  /** See SnapshotShieldPointerDownMessage.candidateEpoch. */
+  candidateEpoch: number;
 }
 
 export interface SnapshotShieldRegionCaptureMessage {
@@ -278,6 +282,7 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     clientX?: number;
     clientY?: number;
     candidateOffset?: number;
+    candidateEpoch?: number;
     action?: RecordingControlMessage['type'];
     undoToken?: string;
     rect?: SnapshotShieldRect;
@@ -313,13 +318,19 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     clientX >= 0 &&
     clientY >= 0;
   if (message.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
-    return hasPoint && isRequestId(message.captureId) && isCandidateOffset(message.candidateOffset);
+    return (
+      hasPoint &&
+      isRequestId(message.captureId) &&
+      isCandidateOffset(message.candidateOffset) &&
+      isRequestId(message.candidateEpoch)
+    );
   }
   return (
     message.type === SNAPSHOT_SHIELD_POINTER_MOVE &&
     hasPoint &&
     isRequestId(message.requestId) &&
-    isCandidateOffset(message.candidateOffset)
+    isCandidateOffset(message.candidateOffset) &&
+    isRequestId(message.candidateEpoch)
   );
 }
 

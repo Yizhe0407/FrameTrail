@@ -111,6 +111,24 @@ const NON_SELECTABLE_VISUAL_TAGS = new Set([
   'track',
 ]);
 
+/** Replaced/graphics elements can paint meaningful pixels without DOM text or
+ * CSS background/border clues, so they must never be treated as transparent
+ * hit-test shims. */
+const SELF_PAINTING_TAGS = new Set([
+  'canvas',
+  'embed',
+  'iframe',
+  'img',
+  'object',
+  'picture',
+  'svg',
+  'video',
+]);
+/** Wrappers in component trees frequently differ by a one-pixel inset even
+ * though users perceive one boundary. Visual cycling should move between
+ * distinct boxes, not every implementation wrapper. */
+const VISUAL_EDGE_MERGE_TOLERANCE = 2;
+
 type InteractionKind = 'native' | 'role' | 'handler' | 'focusable' | 'cursor';
 
 export function getComposedParent(el: Element): Element | null {
@@ -244,6 +262,7 @@ function isDecorativeLeaf(el: Element, kind: InteractionKind): boolean {
 
 interface AnalyzedElement {
   element: Element;
+  style: CSSStyleDeclaration;
   kind: InteractionKind | null;
   interactionUnavailable: boolean;
   visuallyUnavailable: boolean;
@@ -290,6 +309,7 @@ function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
     visualUnavailable ||= hasOwnVisualUnavailableState(style);
     entries[index] = {
       element,
+      style,
       kind: interactionKind(element, style),
       interactionUnavailable,
       // Image-map areas intentionally inherit their rendered state from the
@@ -420,6 +440,21 @@ function visualBoundsKey(bounds: Bounds): string {
     .join(':');
 }
 
+function boundsEdges(bounds: Bounds): [number, number, number, number] {
+  return [bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height];
+}
+
+/** Collapses tiny layout insets while retaining genuinely different parent
+ * levels. Comparing edges rather than width/height avoids treating translated
+ * sibling boxes as equivalent. */
+function hasSamePerceivedBoundary(a: Bounds, b: Bounds): boolean {
+  const aEdges = boundsEdges(a);
+  const bEdges = boundsEdges(b);
+  return aEdges.every(
+    (edge, index) => Math.abs(edge - bEdges[index]) <= VISUAL_EDGE_MERGE_TOLERANCE,
+  );
+}
+
 function isVisuallySelectableEntry(entry: AnalyzedElement): boolean {
   const tag = entry.element.tagName.toLowerCase();
   return (
@@ -441,6 +476,9 @@ function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: numbe
 
 interface ChainAnalysis {
   targets: VisualTargetCandidates;
+  /** Reuses the style and geometry already measured for the top hit when the
+   * occlusion fallback needs to classify it. */
+  hit: AnalyzedElement;
   /** The control the chain resolves to, or null when it holds none. */
   interactive: Element | null;
 }
@@ -461,11 +499,25 @@ function analyzeChain(hit: Element, clientX: number, clientY: number): ChainAnal
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue;
 
     const key = visualBoundsKey(bounds);
-    const existingIndex = indexByBounds.get(key);
-    if (existingIndex !== undefined) {
-      if (element === interactive) candidates[existingIndex] = { element, bounds };
+    const exactIndex = indexByBounds.get(key);
+    if (exactIndex !== undefined) {
+      if (element === interactive) candidates[exactIndex] = { element, bounds };
       continue;
     }
+
+    // Component libraries often nest icon/label/surface wrappers whose boxes
+    // differ by only one or two CSS pixels. Keeping all of them makes a single
+    // visible boundary take several cycling steps. Ancestors are visited in
+    // visual depth order, so the immediately preceding distinct box is the only
+    // fuzzy comparison needed; exact non-adjacent repeats still use the map.
+    const previousIndex = candidates.length - 1;
+    const previous = candidates[previousIndex];
+    if (previous && hasSamePerceivedBoundary(previous.bounds, bounds)) {
+      if (element === interactive) candidates[previousIndex] = { element, bounds };
+      indexByBounds.set(key, previousIndex);
+      continue;
+    }
+
     indexByBounds.set(key, candidates.length);
     candidates.push({ element, bounds });
   }
@@ -475,24 +527,94 @@ function analyzeChain(hit: Element, clientX: number, clientY: number): ChainAnal
     : -1;
   return {
     targets: { candidates, defaultIndex: interactiveIndex >= 0 ? interactiveIndex : 0 },
+    hit: entries[0],
     interactive,
   };
 }
 
 /** How far down the paint stack a blank occluder is searched past. */
 const OCCLUDER_STACK_LIMIT = 8;
-/** Share of the viewport a blank element must cover to read as an overlay. */
+/** A large empty layer is almost always a modal backdrop or drag shield even
+ * when its CSS paint cannot be classified reliably. */
 const OCCLUDER_COVERAGE_RATIO = 0.6;
 
+function cssColorIsTransparent(color: string): boolean {
+  const normalized = color.replace(/\s+/g, '').toLowerCase();
+  if (!normalized || normalized === 'transparent') return true;
+  const rgba = normalized.match(/^rgba\([^,]+,[^,]+,[^,]+,([\d.]+)\)$/);
+  if (rgba) return Number(rgba[1]) === 0;
+  const modernRgb = normalized.match(/^rgb\([^/]+\/([\d.]+)%?\)$/);
+  if (!modernRgb) return false;
+  return Number(modernRgb[1]) === 0;
+}
+
+function cssPaintIsAbsent(value: string | undefined): boolean {
+  return !value || value === 'none' || value === 'normal';
+}
+
 /**
- * A shim, drag layer or modal backdrop swallows the hit test while showing
- * nothing of its own. Text content is the discriminator: a cookie banner or a
- * hero section covering the viewport is real content and stays the target.
+ * Whether the hit element itself contributes visible pixels. This deliberately
+ * stays conservative: unknown paint (images, pseudo-like filters, borders) is
+ * considered real, because selecting the top visual object is safer than
+ * clicking through it.
  */
-function looksLikeBlankOccluder(el: Element, viewport: { width: number; height: number }): boolean {
-  if ((el.textContent ?? '').trim().length > 0) return false;
-  const rect = el.getBoundingClientRect();
-  return rect.width * rect.height >= viewport.width * viewport.height * OCCLUDER_COVERAGE_RATIO;
+function hasNoOwnVisualPaint(el: Element, style: CSSStyleDeclaration): boolean {
+  if (SELF_PAINTING_TAGS.has(el.tagName.toLowerCase())) return false;
+  // Disabled/inert controls are intentionally still selectable in snapshot
+  // mode. interactionKind describes their own semantics before inherited
+  // disabled state is applied, so they never become accidental pass-throughs.
+  if (interactionKind(el, style) !== null) return false;
+  const role = (el.getAttribute('role') ?? '').trim().toLowerCase();
+  if (role && role !== 'none' && role !== 'presentation' && role !== 'generic') return false;
+  if (Number(style.opacity) === 0) return true;
+  if (!cssColorIsTransparent(style.backgroundColor) || !cssPaintIsAbsent(style.backgroundImage)) return false;
+  if (!cssPaintIsAbsent(style.boxShadow) || !cssPaintIsAbsent(style.outlineStyle)) return false;
+
+  const extended = style as CSSStyleDeclaration & {
+    backdropFilter?: string;
+    maskImage?: string;
+    webkitBackdropFilter?: string;
+    webkitMaskImage?: string;
+  };
+  if (
+    !cssPaintIsAbsent(extended.backdropFilter) ||
+    !cssPaintIsAbsent(extended.webkitBackdropFilter) ||
+    !cssPaintIsAbsent(extended.maskImage) ||
+    !cssPaintIsAbsent(extended.webkitMaskImage)
+  ) {
+    return false;
+  }
+
+  for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
+    const width = Number.parseFloat(style[`border${side}Width`]);
+    const borderStyle = style[`border${side}Style`];
+    const color = style[`border${side}Color`];
+    if (width > 0 && borderStyle !== 'none' && !cssColorIsTransparent(color)) return false;
+  }
+  return true;
+}
+
+/**
+ * A transparent shim, drag layer or modal backdrop can swallow hit testing
+ * without being the thing users see. PixPin-like targeting follows visible UI
+ * boundaries, so a small transparent layer is just as pass-through as a
+ * full-viewport one. Text/accessible labels and painted surfaces stay real
+ * targets; viewport coverage remains a fallback for browser-specific CSS that
+ * cannot be classified from computed style.
+ */
+function looksLikeBlankOccluder(entry: AnalyzedElement, viewport: { width: number; height: number }): boolean {
+  const el = entry.element;
+  if (
+    (el.textContent ?? '').trim().length > 0 ||
+    (el.getAttribute('aria-label') ?? '').trim().length > 0 ||
+    (el.getAttribute('aria-labelledby') ?? '').trim().length > 0 ||
+    (el.getAttribute('title') ?? '').trim().length > 0
+  ) {
+    return false;
+  }
+  const rect = boundingRect(entry);
+  const coversViewport = rect.width * rect.height >= viewport.width * viewport.height * OCCLUDER_COVERAGE_RATIO;
+  return hasNoOwnVisualPaint(el, entry.style) || coversViewport;
 }
 
 /**
@@ -511,7 +633,7 @@ export function findVisualTargetCandidatesAtPoint(
   if (
     top.interactive ||
     typeof document.elementsFromPoint !== 'function' ||
-    !looksLikeBlankOccluder(hit, viewport)
+    !looksLikeBlankOccluder(top.hit, viewport)
   ) {
     return top.targets;
   }

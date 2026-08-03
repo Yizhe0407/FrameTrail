@@ -73,6 +73,30 @@ test.describe('element detection', () => {
     await stopRecording(popupPage);
   });
 
+  test('looks past a small transparent hit-test shim', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    const covered = await rectOf(appPage, 'small-covered-button');
+    await startRecording(appPage, popupPage, 'steps');
+    await appPage.evaluate(() => window.detectionProbe.armSmallOverlay());
+    await expect
+      .poll(() => appPage.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id, {
+        x: covered.x + covered.width / 2,
+        y: covered.y + covered.height / 2,
+      }))
+      .toBe('small-blank-overlay');
+    await clickRect(appPage, covered);
+
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+    const [step] = await readSteps(popupPage);
+    expect(step.description).toBe('點擊按鈕');
+    expectBoundsNear(step.bounds, covered);
+
+    await stopRecording(popupPage);
+  });
+
   test('looks past a blank overlay to the button it covers', async ({
     appPage,
     popupPage,
@@ -103,6 +127,7 @@ declare global {
     detectionProbe: {
       rectOf(id: string): ProbeRect;
       armOverlay(): void;
+      armSmallOverlay(): void;
     };
   }
 }

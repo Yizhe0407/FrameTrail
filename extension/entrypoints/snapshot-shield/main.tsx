@@ -33,7 +33,7 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
-import { candidateCyclingState } from '@/lib/capture/candidate-cycling';
+import { candidateCyclingState, createCandidateWheelCycler } from '@/lib/capture/candidate-cycling';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
@@ -219,7 +219,7 @@ function tryInitialize(event: MessageEvent): void {
     capturing = true;
     activeCaptureId = ++captureSequence;
     lastCommitViaKeyboard = viaKeyboard;
-    const candidateOffset = hover.beginCapture(clientX, clientY);
+    const candidate = hover.beginCapture(clientX, clientY);
     overlay.preview(null);
     lastPreviewRect = null;
     armCaptureTimeout(activeCaptureId);
@@ -228,7 +228,8 @@ function tryInitialize(event: MessageEvent): void {
       captureId: activeCaptureId,
       clientX,
       clientY,
-      candidateOffset,
+      candidateOffset: candidate.candidateOffset,
+      candidateEpoch: candidate.candidateEpoch,
     });
     if (!posted) clearCaptureTimeout();
   };
@@ -254,6 +255,29 @@ function tryInitialize(event: MessageEvent): void {
     event.preventDefault();
   };
 
+  const tryAdjustCandidate = (delta: number): boolean => {
+    if (!interactionsEnabled || capturing || !hover.hasPoint()) return false;
+    if (delta > 0 ? !cycling?.canWiden : !cycling?.canNarrow) return false;
+    hover.adjustOffset(delta);
+    return true;
+  };
+
+  const wheelCycler = createCandidateWheelCycler(tryAdjustCandidate);
+
+  const onCandidateWheel = (event: WheelEvent) => {
+    if (regionCapture?.isActive()) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        '[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]',
+      )
+    ) {
+      return;
+    }
+    if (!wheelCycler.handle(event.deltaX, event.deltaY, event.timeStamp)) return;
+    consume(event);
+  };
+
   const onCandidateKeyDown = (event: KeyboardEvent) => {
     if (regionCapture?.isActive()) return;
     // Only the drag handle owns the arrows (it moves the toolbar). Every other
@@ -262,8 +286,7 @@ function tryInitialize(event: MessageEvent): void {
     if (event.target instanceof Element && event.target.closest('[data-frametrail-toolbar-position]')) return;
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     consume(event);
-    if (!interactionsEnabled || capturing || !hover.hasPoint()) return;
-    hover.adjustOffset(event.key === 'ArrowUp' ? 1 : -1);
+    tryAdjustCandidate(event.key === 'ArrowUp' ? 1 : -1);
   };
 
   // Keyboard-only annotation traversal (§9.5). Roving over the parent-supplied
@@ -312,7 +335,7 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
-          candidateCycling={cycling && { ...cycling, modifier: '', onAdjust: (delta) => hover.adjustOffset(delta) }}
+          candidateCycling={cycling && { ...cycling, modifier: '', onAdjust: tryAdjustCandidate }}
         />
       ) : null,
     );
@@ -552,6 +575,9 @@ function tryInitialize(event: MessageEvent): void {
   window.addEventListener('keydown', onScrollKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onShieldKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
+  // Registered before the generic freeze consumer so a snapshot wheel gesture
+  // can change candidate level while still remaining page-input-blind.
+  window.addEventListener('wheel', onCandidateWheel, { capture: true, passive: false });
   for (const type of FREEZE_EVENTS) {
     window.addEventListener(type, consume, { capture: true, passive: false });
   }

@@ -1,9 +1,9 @@
 import { browser } from 'wxt/browser';
 import {
   collectKeyboardCandidateAnchors,
+  createSnapshotTargetResolver,
   installSnapshotFrameProbe,
   type ResolvedSnapshotTarget,
-  resolveSnapshotTargetAtPoint,
   waitForNextFrame,
 } from '@/lib/recording/snapshot-targeting';
 import {
@@ -23,7 +23,10 @@ import {
   isInteractiveElement,
 } from '@/lib/capture/selector-utils';
 import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
-import { STEP_CYCLE_MODIFIER } from '@/lib/capture/candidate-cycling';
+import {
+  createCandidateWheelCycler,
+  STEP_CYCLE_MODIFIER,
+} from '@/lib/capture/candidate-cycling';
 import {
   isOutOfViewport,
   readRegionScrollSnapshot,
@@ -155,6 +158,7 @@ export default defineContentScript({
     let snapshotDprQuery: MediaQueryList | null = null;
     let hoverPreview: StepHoverPreview | null = null;
     const snapshotSelection = createSnapshotSelectionSet();
+    const snapshotTargetResolver = shouldFreezeSnapshot ? createSnapshotTargetResolver(runId) : null;
 
     const readSnapshotViewport = (): ClickCapture['viewport'] => ({
       width: window.innerWidth,
@@ -273,11 +277,16 @@ export default defineContentScript({
       point: SnapshotShieldPointerMoveMessage,
     ): Promise<SnapshotShieldPreviewResult> => {
       const shield = snapshotShield;
-      if (!shield || !snapshotInteractionsActive) {
+      if (!shield || !snapshotTargetResolver || !snapshotInteractionsActive) {
         return { rect: null, candidateOffset: point.candidateOffset, offsetRange: NO_CANDIDATE_CYCLING };
       }
       const target = await shield.runWithoutShield(() =>
-        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
+        snapshotTargetResolver.resolveAt(
+          point.clientX,
+          point.clientY,
+          point.candidateOffset,
+          point.candidateEpoch,
+        ),
       );
       if (!snapshotInteractionsActive || !target || snapshotSelection.isSelected(target)) {
         return {
@@ -293,9 +302,14 @@ export default defineContentScript({
       point: SnapshotShieldPointerDownMessage,
     ): Promise<SnapshotShieldSelection | null> => {
       const shield = snapshotShield;
-      if (!shield || !snapshotInteractionsActive) return null;
+      if (!shield || !snapshotTargetResolver || !snapshotInteractionsActive) return null;
       const target = await shield.runWithoutShield(() =>
-        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY, point.candidateOffset),
+        snapshotTargetResolver.resolveAt(
+          point.clientX,
+          point.clientY,
+          point.candidateOffset,
+          point.candidateEpoch,
+        ),
       );
       const now = Date.now();
       if (!snapshotInteractionsActive || !target) return null;
@@ -726,15 +740,23 @@ export default defineContentScript({
       });
 
       // Alt is the modifier because the page stays live in step mode: bare
-      // arrows must keep scrolling it and moving the caret in its fields.
+      // arrows and wheel gestures must keep scrolling it and moving the caret.
       const onCandidateKeyDown = (event: KeyboardEvent) => {
         if (!event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         if (!preview.adjustCandidateOffset(event.key === 'ArrowUp' ? 1 : -1)) return;
         event.preventDefault();
       };
+      const wheelCycler = createCandidateWheelCycler((delta) => preview.adjustCandidateOffset(delta));
+      const onCandidateWheel = (event: WheelEvent) => {
+        if (!event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!wheelCycler.handle(event.deltaX, event.deltaY, event.timeStamp)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
 
       window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
+      window.addEventListener('wheel', onCandidateWheel, { capture: true, passive: false });
       window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
       window.addEventListener('pointerout', preview.handlers.onPointerOut, { capture: true, passive: true });
       window.addEventListener('pointerleave', preview.handlers.onPointerLeave, { capture: true, passive: true });
@@ -758,6 +780,7 @@ export default defineContentScript({
       // hoverPreview?.destroy()); this uninstaller only detaches listeners.
       return () => {
         window.removeEventListener('keydown', onCandidateKeyDown, { capture: true });
+        window.removeEventListener('wheel', onCandidateWheel, { capture: true });
         document.removeEventListener('pointerdown', onPointerDown, { capture: true });
         window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
         window.removeEventListener('pointerout', preview.handlers.onPointerOut, { capture: true });
@@ -880,6 +903,7 @@ export default defineContentScript({
 
     const cleanup = () => {
       uninstallModeRecorder();
+      snapshotTargetResolver?.clear();
       manualRegionCapture?.cancel('removed');
       manualRegionCapture = null;
       snapshotShield?.remove();

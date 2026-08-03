@@ -80,14 +80,48 @@ describe('step hover preview candidate cycling', () => {
     expect(cycling.at(-1)).toEqual({ canWiden: false, canNarrow: true });
   });
 
-  it('resets the offset when the pointer lands on a new point', async () => {
+  it('retains an explicitly selected level while moving inside its visual surface', async () => {
     await hover();
     preview.adjustCandidateOffset(1);
     expect(preview.resolveTargetAt(40, 40)).toBe(card);
 
     await hover(41, 41);
 
-    expect(preview.resolveTargetAt(41, 41)).toBe(text);
+    expect(preview.resolveTargetAt(41, 41)).toBe(card);
+  });
+
+  it('locks target identity across descendants with different wrapper depths', async () => {
+    const nestedWrapper = document.createElement('div');
+    const nestedText = document.createElement('span');
+    nestedWrapper.append(nestedText);
+    card.append(nestedWrapper);
+    makeVisible(nestedWrapper, { x: 180, y: 30, width: 100, height: 50 });
+    makeVisible(nestedText, { x: 190, y: 40, width: 60, height: 20 });
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: (clientX: number) => (clientX < 150 ? text : nestedText),
+    });
+
+    await hover(40, 40);
+    preview.adjustCandidateOffset(1);
+    expect(preview.resolveTargetAt(40, 40)).toBe(card);
+
+    // Reusing offset 1 on the deeper chain would select nestedWrapper. The
+    // explicit lock must keep the card itself instead.
+    await hover(200, 50);
+    expect(preview.resolveTargetAt(200, 50)).toBe(card);
+  });
+
+  it('releases the selected level after leaving its hysteresis boundary', async () => {
+    await hover();
+    preview.adjustCandidateOffset(1);
+
+    // The card starts at x=20; six pixels of spill remain locked, the seventh
+    // starts a new chain from its default candidate.
+    await hover(14, 40);
+    expect(preview.resolveTargetAt(14, 40)).toBe(card);
+    await hover(13, 40);
+    expect(preview.resolveTargetAt(13, 40)).toBe(text);
   });
 
   it('drops the controls when the highlight goes away', async () => {

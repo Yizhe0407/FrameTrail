@@ -5,6 +5,7 @@ import {
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
+  SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   type SnapshotShieldFrameMessage,
 } from '@/lib/recording/snapshot-shield-protocol';
@@ -82,13 +83,33 @@ describe('snapshot shield frame controls', () => {
 
     window.dispatchEvent(new MouseEvent('pointermove', { clientX: 20, clientY: 30 }));
     await vi.advanceTimersByTimeAsync(16);
-    expect(port.postMessage.mock.calls.filter(
-      ([message]) => message.type === SNAPSHOT_SHIELD_POINTER_MOVE,
-    )).toHaveLength(1);
+    const pointerMoves = () => port.postMessage.mock.calls
+      .map(([message]) => message)
+      .filter((message) => message.type === SNAPSHOT_SHIELD_POINTER_MOVE);
+    expect(pointerMoves()).toHaveLength(1);
+
+    port.onmessage?.({
+      data: {
+        type: SNAPSHOT_SHIELD_PREVIEW,
+        token: 'test-token',
+        requestId: 1,
+        rect: { x: 10, y: 15, width: 120, height: 60 },
+        candidateOffset: 0,
+        offsetRange: { min: 0, max: 2 },
+      },
+    } as MessageEvent<SnapshotShieldFrameMessage>);
+    document.body.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -100,
+    }));
+    await vi.advanceTimersByTimeAsync(16);
+    expect(pointerMoves()).toHaveLength(2);
+    expect(pointerMoves()[1]).toMatchObject({ candidateOffset: 1 });
+
+    // The wheel-started probe is still covered by the normal timeout retry.
     await vi.advanceTimersByTimeAsync(4_016);
-    expect(port.postMessage.mock.calls.filter(
-      ([message]) => message.type === SNAPSHOT_SHIELD_POINTER_MOVE,
-    )).toHaveLength(2);
+    expect(pointerMoves()).toHaveLength(3);
 
     const pointerDown = new MouseEvent('pointerdown', {
       bubbles: true,

@@ -10,7 +10,10 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-import { collectKeyboardCandidateAnchors } from '@/lib/recording/snapshot-targeting';
+import {
+  collectKeyboardCandidateAnchors,
+  createSnapshotTargetResolver,
+} from '@/lib/recording/snapshot-targeting';
 import { SNAPSHOT_FREEZE_EVENTS } from '@/lib/recording/content-script-constants';
 import { describeElement, replayElementClick } from '@/lib/capture/element-description';
 import {
@@ -60,6 +63,43 @@ function stubElementFromPoint(implementation: (x: number, y: number) => Element 
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
+});
+
+
+describe('createSnapshotTargetResolver', () => {
+  it('uses the shared Element identity lock instead of reapplying an offset to each hit chain', async () => {
+    const card = document.createElement('div');
+    const shallowText = document.createElement('span');
+    const wrapper = document.createElement('div');
+    const nestedText = document.createElement('span');
+    wrapper.append(nestedText);
+    card.append(shallowText, wrapper);
+    document.body.append(card);
+    stubRect(card, { x: 20, y: 20, width: 300, height: 120 });
+    stubRect(shallowText, { x: 30, y: 30, width: 90, height: 24 });
+    stubRect(wrapper, { x: 180, y: 30, width: 100, height: 50 });
+    stubRect(nestedText, { x: 190, y: 40, width: 60, height: 20 });
+    for (const element of [card, shallowText, wrapper, nestedText]) {
+      Object.defineProperty(element, 'getClientRects', {
+        configurable: true,
+        value: () => [element.getBoundingClientRect()],
+      });
+    }
+    stubElementFromPoint((x) => (x < 150 ? shallowText : nestedText));
+    const resolver = createSnapshotTargetResolver('run-1');
+
+    const widened = await resolver.resolveAt(40, 40, 1, 0);
+    expect(widened?.element).toBe(card);
+
+    // Offset 1 on nestedText's fresh chain would select wrapper. The retained
+    // concrete identity must continue selecting card instead.
+    const retained = await resolver.resolveAt(200, 50, 1, 0);
+    expect(retained?.element).toBe(card);
+
+    // A deliberate epoch reset starts a fresh chain at the current hit.
+    const reset = await resolver.resolveAt(200, 50, 0, 1);
+    expect(reset?.element).toBe(nestedText);
+  });
 });
 
 describe('SNAPSHOT_FREEZE_EVENTS', () => {

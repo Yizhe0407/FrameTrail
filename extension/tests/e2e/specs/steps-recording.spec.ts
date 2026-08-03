@@ -46,7 +46,7 @@ test.describe('step recording', () => {
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(0);
   });
 
-  test('cycles the highlight to an ancestor with Alt+arrows before capturing', async ({
+  test('cycles the highlight to an ancestor with Alt+wheel before capturing', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
@@ -58,12 +58,14 @@ test.describe('step recording', () => {
     await appPage.mouse.move(point.x, point.y);
     await expect.poll(async () => (await getStepPreviewStyle(appPage)).hidden).toBe(false);
 
-    // Alt keeps plain arrows free for the live page; one step widens the
-    // highlight from the span to the card that contains it. The rendered box
+    // Alt keeps the live page's ordinary wheel scrolling intact; one upward
+    // notch widens the highlight from the span to the card that contains it. The rendered box
     // carries the highlight frame's padding, so the capture bounds below are
     // what pins the exact target.
     const narrowStyle = (await getStepPreviewStyle(appPage)).style;
-    await appPage.keyboard.press('Alt+ArrowUp');
+    await appPage.keyboard.down('Alt');
+    await appPage.mouse.wheel(0, -100);
+    await appPage.keyboard.up('Alt');
     await expect.poll(async () => (await getStepPreviewStyle(appPage)).style).not.toBe(narrowStyle);
 
     await appPage.mouse.click(point.x, point.y);
