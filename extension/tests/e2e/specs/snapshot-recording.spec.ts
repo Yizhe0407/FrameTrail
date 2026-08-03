@@ -3,6 +3,7 @@ import {
   clickSnapshotTarget,
   expectSteady,
   getSnapshotFrame,
+  readPageScreenshotPixel,
   readRecordingState,
   readSteps,
   resetExtensionData,
@@ -15,6 +16,39 @@ import {
 test.describe('snapshot recording', () => {
   test.beforeEach(async ({ popupPage }) => {
     await resetExtensionData(popupPage);
+  });
+
+  test('keeps dark host pages visible through the snapshot shield', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.emulateMedia({ colorScheme: 'dark' });
+    await appPage.evaluate(() => {
+      document.documentElement.style.colorScheme = 'dark';
+      const sentinel = document.createElement('div');
+      sentinel.id = 'snapshot-transparency-sentinel';
+      Object.assign(sentinel.style, {
+        position: 'fixed',
+        left: '24px',
+        top: '300px',
+        width: '120px',
+        height: '120px',
+        zIndex: '2147480000',
+        background: 'rgb(12, 200, 90)',
+      });
+      document.body.append(sentinel);
+    });
+    const sentinelPixel = { red: 12, green: 200, blue: 90, alpha: 255 };
+    expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
+
+    await startRecording(appPage, popupPage, 'snapshot');
+    const shield = await getSnapshotFrame(appPage);
+
+    expect(await shield.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light');
+    expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
+
+    await stopRecording(popupPage);
   });
 
   test('shows hover preview, commits numbered marks, and deduplicates the same target', async ({

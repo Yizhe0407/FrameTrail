@@ -46,16 +46,26 @@ if (firefox.manifest.browser_specific_settings?.gecko?.id !== 'frametrail@local'
   throw new Error('Firefox add-on ID is missing or unexpected.');
 }
 
+const htmlEntrypoints = [
+  'popup.html',
+  'editor.html',
+  'library.html',
+  'practice.html',
+  'snapshot-shield.html',
+];
+
 for (const build of [chrome, firefox]) {
   await requireFiles(build, [
     'background.js',
-    'popup.html',
-    'editor.html',
-    'library.html',
-    'practice.html',
-    'snapshot-shield.html',
+    ...htmlEntrypoints,
     'content-scripts/content.js',
   ]);
+  for (const entrypoint of htmlEntrypoints) {
+    const html = await readFile(path.join(root, '.output', build.directory, entrypoint), 'utf8');
+    if (html.includes('rel="modulepreload"')) {
+      throw new Error(`${build.directory}/${entrypoint} must not preload extension chunks across Chromium worlds.`);
+    }
+  }
 }
 
 console.log('Chrome MV3 and Firefox MV2 artifacts are structurally valid.');

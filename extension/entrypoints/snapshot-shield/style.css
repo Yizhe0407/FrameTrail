@@ -1,8 +1,13 @@
-/* This document overlays the recorded page as a transparent iframe. Do NOT
- * declare `color-scheme` on :root: when an embedded document's root color
- * scheme differs from its embedder's, the browser paints the iframe backdrop
- * opaque and the shield would white/black out the page. Themed UI inside
- * (recording toolbar, skip link) scopes its own colors per element instead. */
+/* This document overlays the recorded page as a transparent iframe. Chromium
+ * paints an iframe canvas opaque when the iframe element and embedded root use
+ * different color schemes. snapshot-shield.ts pins the iframe element to the
+ * same scheme; keep this declaration paired with hardenFrame() or dark-mode
+ * pages can be covered by a white sheet. Themed controls still scope their own
+ * light/dark schemes per element. */
+:root {
+  color-scheme: light;
+}
+
 :root,
 body {
   width: 100%;

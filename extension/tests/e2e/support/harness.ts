@@ -123,6 +123,27 @@ function decodePngRgba(input: Buffer): { width: number; height: number; channels
   return { width, height, channels, pixels };
 }
 
+export async function readPageScreenshotPixel(
+  page: Page,
+  clientX: number,
+  clientY: number,
+): Promise<{ red: number; green: number; blue: number; alpha: number }> {
+  const [screenshot, viewport] = await Promise.all([
+    page.screenshot({ type: 'png' }),
+    page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })),
+  ]);
+  const decoded = decodePngRgba(screenshot);
+  const x = Math.min(decoded.width - 1, Math.max(0, Math.floor(clientX * decoded.width / viewport.width)));
+  const y = Math.min(decoded.height - 1, Math.max(0, Math.floor(clientY * decoded.height / viewport.height)));
+  const index = (y * decoded.width + x) * decoded.channels;
+  return {
+    red: decoded.pixels[index],
+    green: decoded.pixels[index + 1],
+    blue: decoded.pixels[index + 2],
+    alpha: decoded.channels === 4 ? decoded.pixels[index + 3] : 255,
+  };
+}
+
 export async function readRootScrollbarSentinelPixels(page: Page): Promise<number> {
   const decoded = decodePngRgba(await page.screenshot({ type: 'png' }));
   const stripWidth = Math.min(24, decoded.width);

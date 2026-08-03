@@ -6,6 +6,13 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
     plugins: [tailwindcss()],
+    build: {
+      // Extension documents load local chunks immediately. Vite's speculative
+      // modulepreload links cross Chromium's extension/page world boundary and
+      // are rejected with noisy "cross-world extension resource mismatch"
+      // warnings; normal ESM imports remain unchanged when preloading is off.
+      modulePreload: false,
+    },
   }),
   manifest: {
     name: '__MSG_extName__',

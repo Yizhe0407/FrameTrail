@@ -77,6 +77,8 @@ describe('createSnapshotShield', () => {
     const onRegion = vi.fn().mockResolvedValue(regionSelection);
     const shield = createSnapshotShield(onPoint, onHover, undefined, onRegion);
     const frame = shadowRoot!.querySelector('iframe')!;
+    expect(frame.style.getPropertyValue('color-scheme')).toBe('light');
+    expect(frame.style.getPropertyPriority('color-scheme')).toBe('important');
     const focusFrame = vi.spyOn(frame, 'focus');
 
     // Token provisioning assigns src asynchronously; the load handler
