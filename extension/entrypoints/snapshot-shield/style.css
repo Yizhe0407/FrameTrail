@@ -1,11 +1,11 @@
 /* This document overlays the recorded page as a transparent iframe. Chromium
  * paints an iframe canvas opaque when the iframe element and embedded root use
  * different color schemes. snapshot-shield.ts pins the iframe element to the
- * same scheme; keep this declaration paired with hardenFrame() or dark-mode
- * pages can be covered by a white sheet. Themed controls still scope their own
- * light/dark schemes per element. */
+ * same only-light scheme; keep this declaration paired with hardenFrame() or
+ * dark-mode pages can be covered by a white sheet. Themed controls still
+ * scope their own light/dark schemes per element. */
 :root {
-  color-scheme: light;
+  color-scheme: only light;
 }
 
 :root,

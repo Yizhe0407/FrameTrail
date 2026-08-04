@@ -18,14 +18,13 @@ test.describe('snapshot recording', () => {
     await resetExtensionData(popupPage);
   });
 
-  test('keeps dark host pages visible through the snapshot shield', async ({
+  test('keeps host pages visible across page and browser color schemes', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.emulateMedia({ colorScheme: 'dark' });
+    const sentinelPixel = { red: 12, green: 200, blue: 90, alpha: 255 };
     await appPage.evaluate(() => {
-      document.documentElement.style.colorScheme = 'dark';
       const sentinel = document.createElement('div');
       sentinel.id = 'snapshot-transparency-sentinel';
       Object.assign(sentinel.style, {
@@ -39,16 +38,25 @@ test.describe('snapshot recording', () => {
       });
       document.body.append(sentinel);
     });
-    const sentinelPixel = { red: 12, green: 200, blue: 90, alpha: 255 };
-    expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
 
-    await startRecording(appPage, popupPage, 'snapshot');
-    const shield = await getSnapshotFrame(appPage);
+    for (const hostScheme of ['light', 'dark'] as const) {
+      for (const preferredScheme of ['light', 'dark'] as const) {
+        await appPage.emulateMedia({ colorScheme: preferredScheme });
+        await appPage.evaluate((scheme) => {
+          document.documentElement.style.colorScheme = scheme;
+        }, hostScheme);
+        expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
 
-    expect(await shield.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light');
-    expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
+        await startRecording(appPage, popupPage, 'snapshot');
+        const shield = await getSnapshotFrame(appPage);
 
-    await stopRecording(popupPage);
+        expect(await shield.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light only');
+        expect(await readPageScreenshotPixel(appPage, 40, 320)).toEqual(sentinelPixel);
+
+        await stopRecording(popupPage);
+        await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
+      }
+    }
   });
 
   test('shows hover preview, commits numbered marks, and deduplicates the same target', async ({

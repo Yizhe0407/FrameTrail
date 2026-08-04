@@ -140,9 +140,10 @@ function hardenFrame(frame: HTMLIFrameElement): void {
     // Keep the iframe element's used scheme identical to the shield
     // document root. Chromium paints a nominally transparent iframe canvas
     // opaque when these schemes differ (commonly a white sheet on dark-mode
-    // pages). The shield owns all themed controls, so a light canvas scheme is
-    // safe as long as both sides explicitly agree.
-    'color-scheme': 'light',
+    // pages). The shield owns all themed controls, so an only-light canvas
+    // scheme is safe as long as both sides explicitly agree. `only` also
+    // prevents a forced browser preference from overriding just one context.
+    'color-scheme': 'only light',
     'pointer-events': 'auto',
   };
   for (const [property, value] of Object.entries(declarations)) setImportantStyle(frame, property, value);
