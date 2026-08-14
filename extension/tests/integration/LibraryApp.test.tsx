@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
 const database = vi.hoisted(() => ({
-  UNTITLED_GUIDE_BASE: '未命名教學',
+  UNTITLED_GUIDE_BASE: '未命名作品',
   createGuideFromSteps: vi.fn(),
   deleteGuidePermanently: vi.fn(),
   duplicateGuide: vi.fn(),
@@ -112,10 +112,10 @@ describe('作品庫', () => {
     render(<LibraryApp />);
 
     expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getAllByRole('button', { name: '新增教學' })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole('button', { name: '新增' })[0] as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => { resolveState({ operation: null, isRecording: false }); });
-    await waitFor(() => expect((screen.getAllByRole('button', { name: '新增教學' })[0] as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getAllByRole('button', { name: '新增' })[0] as HTMLButtonElement).disabled).toBe(false));
   });
 
   it('即時訂閱全域 operation lock，避免錄製中修改作品庫', async () => {

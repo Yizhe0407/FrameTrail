@@ -36,7 +36,7 @@ const MODE_DETAILS: Record<RecordingMode, {
 }> = {
   steps: {
     label: '步驟',
-    description: '每次點擊都會擷取一張截圖，自動編號成一連串教學步驟。',
+    description: '每次點擊都會擷取一張截圖，自動編號成一連串操作步驟。',
     itemLabel: '個步驟',
     startingLabel: '正在連接頁面',
   },
@@ -352,7 +352,7 @@ export default function RecordControls({
           new-guide-per-recording model differs from the old append behavior. */}
       {selectedGuideHasContent && (
         <p className="mt-[-6px] mx-[2px] mb-0 text-[11px] leading-[1.7] text-muted-foreground/60 dark:text-white/35">
-          每次錄製都會建立新教學；要接續現有教學，請從作品庫開啟教學後使用「接續錄製」。
+          每次錄製都會建立新作品；要接續現有作品，請從作品庫開啟後使用「接續錄製」。
         </p>
       )}
     </div>

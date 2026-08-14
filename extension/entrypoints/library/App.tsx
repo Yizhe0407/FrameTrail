@@ -189,7 +189,7 @@ export default function App() {
     }
     await run('import', async () => {
       const imported = await importProjectArchive(file, { includeMetadata: true });
-      const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || '匯入的教學';
+      const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || '匯入的作品';
       const guide = await createGuideFromSteps(
         imported.steps,
         {
@@ -220,7 +220,7 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="mr-0.5 max-w-full text-[12.5px] font-medium text-muted-foreground/80 sm:whitespace-nowrap">
-              {guides.length} 份教學 · {formatBytes(storageBytes)}
+              {guides.length} 份作品 · {formatBytes(storageBytes)}
             </span>
             <input
               ref={importInput}
@@ -247,7 +247,7 @@ export default function App() {
               onClick={() => void createNewGuide()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'new' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}新增教學
+              {pendingId === 'new' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}新增
             </Button>
           </div>
         </div>
@@ -350,8 +350,8 @@ export default function App() {
         ) : visibleGuides.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-border bg-card px-6 text-center">
             <PencilLine className="mb-4 size-8 text-brand" />
-            <h2 className="font-medium">{query || filterTags.length > 0 ? '找不到符合的教學' : '建立第一份教學'}</h2>
-            {!query && filterTags.length === 0 && <Button className="mt-4" onClick={() => void createNewGuide()}>新增教學</Button>}
+            <h2 className="font-medium">{query || filterTags.length > 0 ? '找不到符合的作品' : '建立第一份作品'}</h2>
+            {!query && filterTags.length === 0 && <Button className="mt-4" onClick={() => void createNewGuide()}>新增</Button>}
           </div>
         ) : (
           <ul className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -384,7 +384,7 @@ export default function App() {
                     <EditableTitle
                       value={guide.title}
                       fallback={UNTITLED_GUIDE_TITLE}
-                      label="教學名稱"
+                      label="作品名稱"
                       disabled={actionsLocked}
                       // `run` reports the reason through the page-level alert
                       // and answers false when the write was refused or failed;
@@ -396,7 +396,7 @@ export default function App() {
                       className="w-full rounded-md border border-transparent px-1 py-0.5 -ml-1 text-[15px] font-semibold leading-[1.35] text-foreground hover:border-border focus:border-border focus:bg-background focus:ring-2 focus:ring-ring disabled:opacity-70"
                     />
                     <p className="line-clamp-2 min-h-10 text-[12.5px] leading-[1.55] text-muted-foreground">
-                      {guide.description || '尚未加入教學說明'}
+                      {guide.description || '尚未加入作品說明'}
                     </p>
                     <div
                       className="mt-0.5 flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground"
@@ -472,7 +472,7 @@ export default function App() {
                   <span className="flex size-11 items-center justify-center rounded-full bg-foreground/5">
                     <Plus className="size-5" />
                   </span>
-                  <span className="text-xs font-semibold">新增教學</span>
+                  <span className="text-xs font-semibold">新增</span>
                 </button>
               </li>
             )}
@@ -496,7 +496,7 @@ export default function App() {
 
       <ConfirmationDialog
         open={deleteTarget !== null}
-        title="永久刪除這份教學？"
+        title="永久刪除這份作品？"
         description="原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出 .frametrail 可編輯檔案。"
         confirmLabel="永久刪除"
         pending={deleteTarget ? pendingId === deleteTarget.id : false}

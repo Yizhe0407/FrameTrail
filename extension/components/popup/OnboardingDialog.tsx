@@ -111,7 +111,7 @@ export default function OnboardingDialog({
           <p className="text-xs font-semibold text-brand">FrameTrail · 開始導覽</p>
           <DialogTitle className="mt-2 text-2xl font-semibold">歡迎使用 FrameTrail</DialogTitle>
           <DialogDescription className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            把網頁操作整理成教學：錄製、編輯，再匯出。每一步都可回來調整。
+            把網頁操作整理成操作說明：錄製、編輯，再匯出。每一步都可回來調整。
           </DialogDescription>
         </DialogHeader>
 
@@ -119,7 +119,7 @@ export default function OnboardingDialog({
           <section aria-labelledby="onboarding-workflow-title">
             <div className="flex items-baseline justify-between gap-4">
               <h2 id="onboarding-workflow-title" className="text-sm font-semibold">
-                三步完成一份教學
+                三步完成一份操作說明
               </h2>
               <span className="text-xs text-muted-foreground">錄製 → 編輯 → 匯出</span>
             </div>

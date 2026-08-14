@@ -26,7 +26,7 @@ function queueSelectionAction<T>(action: () => Promise<T>): Promise<T> {
 
 async function selectExistingGuide(guideId: string): Promise<Guide> {
   const guide = await getGuide(guideId);
-  if (!guide) throw new Error('找不到這份教學。');
+  if (!guide) throw new Error('找不到這份內容。');
   await setActiveGuideId(guide.id);
   return guide;
 }

@@ -75,7 +75,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
         return { ok: true };
       }
       const guide = await getGuide(targetSessionId);
-      if (!guide) return { ok: false, error: '找不到這份教學。' };
+      if (!guide) return { ok: false, error: '找不到這份內容。' };
       // Only a hand-off continues where the capture stopped: finishing a run, or
       // recovering one whose recorded tab went away. Ordinary navigation opens the
       // guide at its first entry — deriving the target from the newest capture

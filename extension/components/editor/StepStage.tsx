@@ -84,11 +84,11 @@ export default function StepStage({
           <EditableTitle
             value={guideTitle ?? ''}
             fallback={UNTITLED_GUIDE_TITLE}
-            label="教學標題"
+            label="內容標題"
             disabled={editingDisabled || !onTitleChange}
             onCommit={(title) => onTitleChange?.(title)}
             onCommitError={(titleError) => {
-              setStageError(reportError('重新命名教學失敗', titleError, '標題儲存失敗，請再試一次。'));
+              setStageError(reportError('重新命名內容失敗', titleError, '標題儲存失敗，請再試一次。'));
             }}
             className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-none px-2 py-1 text-[20px] font-bold leading-tight text-foreground transition-colors hover:bg-foreground/5 focus:bg-card focus:shadow-[0_0_0_1.5px_var(--focus)] [field-sizing:content]"
           />

@@ -33,7 +33,7 @@ export default function ResetButton({
     setResetting(true);
     setResetError(null);
     try {
-      if (!sessionId) throw new Error('找不到要重置的教學。');
+      if (!sessionId) throw new Error('找不到要重置的內容。');
       await resetSession(sessionId);
       await onReset?.();
       setConfirmationOpen(false);

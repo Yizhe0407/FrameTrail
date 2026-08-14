@@ -268,7 +268,7 @@ function EditorApp() {
     runRecaptureControl('取消補拍失敗', cancelStepRecapture, '無法取消補拍，請再試一次。');
 
   async function publicationEntries(signal: AbortSignal) {
-    if (!sessionId) throw new Error('找不到要發佈的教學。');
+    if (!sessionId) throw new Error('找不到要發佈的內容。');
     if (!beginDataOperation('正在準備發佈內容…')) {
       throw new Error('目前有其他資料操作進行中，請稍後再發佈。');
     }
@@ -276,7 +276,7 @@ function EditorApp() {
       await flushDescriptions();
       throwIfAborted(signal);
       const snapshot = await reload();
-      if (!snapshot) throw new Error('找不到要發佈的教學。');
+      if (!snapshot) throw new Error('找不到要發佈的內容。');
       throwIfAborted(signal);
       return {
         entries: snapshot.entries,
@@ -309,7 +309,7 @@ function EditorApp() {
   // input whose displayed value must roll back to the stored one, so it needs
   // the failure, not just a page-level banner.
   async function updateGuideMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
-    if (!guide) throw new Error('找不到要編輯的教學。');
+    if (!guide) throw new Error('找不到要編輯的內容。');
     if (isPermissionFlowLocked() || dataOperationLock.current || operationActive) {
       throw new Error('目前有其他操作進行中，請稍後再修改。');
     }
@@ -369,17 +369,17 @@ function EditorApp() {
       <div className="flex min-h-0 flex-1 pb-32 lg:pb-0">
         {guideLoadState === 'loading' ? (
           <main role="status" className="flex min-w-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-            正在讀取教學…
+            正在讀取內容…
           </main>
         ) : guideLoadState === 'missing' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
             <div className="max-w-md text-muted-foreground">
               <AlertCircle className="mx-auto mb-3 size-8" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">找不到這份教學</h2>
+              <h2 className="font-semibold text-foreground">找不到這份內容</h2>
               <p className="mt-2 text-sm">
                 {viewedSessionId
-                  ? '這份教學可能已被刪除或網址已失效。為避免顯示其他錄製內容，編輯器不會自動切換到別份教學。'
-                  : '編輯器網址缺少教學識別碼。請從 FrameTrail 作品庫重新開啟教學。'}
+                  ? '這份內容可能已被刪除或網址已失效。為避免顯示其他錄製內容，編輯器不會自動切換到其他內容。'
+                  : '編輯器網址缺少內容識別碼。請從 FrameTrail 作品庫重新開啟內容。'}
               </p>
             </div>
           </main>
@@ -387,9 +387,9 @@ function EditorApp() {
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
             <div className="max-w-md text-muted-foreground">
               <AlertCircle className="mx-auto mb-3 size-8" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">教學結構需要修復</h2>
+              <h2 className="font-semibold text-foreground">內容結構需要修復</h2>
               <p className="mt-2 text-sm">
-                為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份教學。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。
+                為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份內容。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。
               </p>
             </div>
           </main>

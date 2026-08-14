@@ -13,7 +13,7 @@ describe('OnboardingDialog', () => {
     render(<OnboardingDialog open onOpenChange={vi.fn()} />);
 
     expect(screen.getByRole('dialog', { name: '歡迎使用 FrameTrail' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '三步完成一份教學' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '三步完成一份操作說明' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '錄製' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '編輯' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '匯出' })).toBeTruthy();

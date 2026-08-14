@@ -355,8 +355,8 @@ describe('Editor App structure wiring', () => {
     window.history.replaceState({}, '', '/editor.html');
     render(<EditorApp />);
 
-    expect(await screen.findByRole('heading', { name: '找不到這份教學' })).toBeTruthy();
-    expect(screen.getByText(/編輯器網址缺少教學識別碼/)).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '找不到這份內容' })).toBeTruthy();
+    expect(screen.getByText(/編輯器網址缺少內容識別碼/)).toBeTruthy();
     expect(recordingSession.useRecordingSession).toHaveBeenCalledWith(null);
     expect(recordingSession.useRecordingSession).not.toHaveBeenCalledWith(undefined);
     expect(database.getGuide).not.toHaveBeenCalled();
@@ -496,7 +496,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
   it('opens the dialog in elsewhere-only mode when the Guide has no continuation source', async () => {
     browserApi.sendMessage.mockImplementation(async (message: any) => {
       if (message.type === 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION') {
-        return { ok: false, code: 'SOURCE_NOT_FOUND', message: '這份教學還沒有可接續的來源頁面。' };
+        return { ok: false, code: 'SOURCE_NOT_FOUND', message: '這份內容還沒有可接續的來源頁面。' };
       }
       if (message.type === 'START_RECORDING') {
         return { ok: true, sessionId: 'guide-1', runId: 'run-elsewhere' };
@@ -517,7 +517,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     const dialog = await openContinuationDialog();
 
     // Not a terminal error: the zero-step Guide keeps the elsewhere path.
-    expect(dialog.textContent).toContain('這份教學還沒有可接續的來源頁面。');
+    expect(dialog.textContent).toContain('這份內容還沒有可接續的來源頁面。');
     expect(within(dialog).queryByRole('button', { name: '允許並開始' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
 

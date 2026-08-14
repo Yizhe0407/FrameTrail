@@ -209,7 +209,7 @@ function sanitizeGuideText(value: unknown, maximum: number): string {
 /** Base display name shared by every untitled guide; defaultGuideTitle
  * composes the timestamped placeholder from it, and UI copy that talks about
  * unnamed guides derives from the same constant. */
-export const UNTITLED_GUIDE_BASE = '未命名教學';
+export const UNTITLED_GUIDE_BASE = '未命名作品';
 
 export function defaultGuideTitle(createdAt: number): string {
   const date = new Date(createdAt);

@@ -75,7 +75,7 @@ export function useGuideMutations({
     console.error(`${operation}失敗`, mutationError);
     setOperationError(
       mutationError instanceof GuideContentConflictError
-        ? '教學內容已在其他操作中變更。為避免覆蓋較新的資料，這次操作未套用，畫面已重新載入。'
+        ? '內容已在其他操作中變更。為避免覆蓋較新的資料，這次操作未套用，畫面已重新載入。'
         : `${operation}失敗，已重新載入目前資料。`,
     );
   }

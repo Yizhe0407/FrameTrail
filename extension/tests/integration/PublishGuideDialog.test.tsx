@@ -148,7 +148,7 @@ describe('PublishGuideDialog', () => {
       />,
     );
 
-    expect(screen.getByText('「未命名教學」')).toBeTruthy();
+    expect(screen.getByText('「未命名作品」')).toBeTruthy();
     expect(screen.queryByText(/登入與初始設定/)).toBeNull();
   });
 

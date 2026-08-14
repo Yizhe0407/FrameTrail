@@ -170,7 +170,7 @@ export async function resolveContinuationTab(
   }
   const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
   if (!sourceUrl) {
-    return { ok: false, error: '這份教學還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。' };
+    return { ok: false, error: '這份內容還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。' };
   }
   const permission = await checkSourcePermission(sourceUrl);
   if (permission === 'restricted') {

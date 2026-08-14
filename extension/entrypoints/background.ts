@@ -435,7 +435,7 @@ async function preflightGuideContinuationSourcePermission(
   }
   const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
   if (!sourceUrl) {
-    return continuationPreflightFailure('SOURCE_NOT_FOUND', '這份教學還沒有可接續的來源頁面。');
+    return continuationPreflightFailure('SOURCE_NOT_FOUND', '這份內容還沒有可接續的來源頁面。');
   }
   return (
     sourcePermissionPreflightSuccess(sourceUrl) ??
@@ -572,7 +572,7 @@ async function startRecording(
     return { ok: false, error: ACTIVE_OPERATION_MESSAGE };
   }
   const targetGuide = await getGuide(message.sessionId);
-  if (!targetGuide) return { ok: false, error: '找不到要錄製的教學。請回作品庫重新選擇。' };
+  if (!targetGuide) return { ok: false, error: '找不到要錄製的內容。請回作品庫重新選擇。' };
 
   let continuationTab: Browser.tabs.Tab | null = null;
   if (message.continuation) {
@@ -1218,10 +1218,10 @@ async function createNextSnapshot(
 async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGuideResult> {
   const initial = await getRecordingState();
   if (initial.operation !== null || initial.isRecording || recaptureFlow.isStartingRecapture()) {
-    return { ok: false, error: '錄製或補拍期間無法重置教學。' };
+    return { ok: false, error: '錄製或補拍期間無法重置內容。' };
   }
   const guide = await getGuide(message.sessionId);
-  if (!guide) return { ok: false, error: '找不到要重置的教學。' };
+  if (!guide) return { ok: false, error: '找不到要重置的內容。' };
 
   // Invalidate any in-memory work first, then wait for all already-queued DB
   // writes. Persisted run/session guards remain authoritative after restarts.
@@ -1229,7 +1229,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
   await waitForQueuedClicks();
   const current = await getRecordingState();
   if (version !== control.controlVersion || current.operation !== null || current.isRecording) {
-    return { ok: false, error: '錄製狀態已變更，未重置教學。' };
+    return { ok: false, error: '錄製狀態已變更，未重置內容。' };
   }
   try {
     const updated = await resetGuide(message.sessionId);
@@ -1244,7 +1244,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
     return { ok: true, contentRevision: updated.contentRevision };
   } catch (error) {
     console.error('[frametrail] failed to reset Guide', error);
-    return { ok: false, error: '無法重置教學，請重新載入後再試一次。' };
+    return { ok: false, error: '無法重置內容，請重新載入後再試一次。' };
   }
 }
 
@@ -1786,7 +1786,7 @@ export default defineBackground(() => {
         return withMessageFailureFallback(
           queueLifecycle(() => resetGuideLifecycle(message)),
           'reset guide request failed',
-          { ok: false, error: '無法重置教學，請再試一次。' } satisfies ResetGuideResult,
+          { ok: false, error: '無法重置內容，請再試一次。' } satisfies ResetGuideResult,
         );
       case 'OPEN_EDITOR':
         return withMessageFailureFallback(

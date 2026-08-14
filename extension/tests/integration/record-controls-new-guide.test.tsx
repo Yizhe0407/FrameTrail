@@ -46,7 +46,7 @@ const SELECTED_GUIDE_WITH_CONTENT = {
   stepCount: 3,
 };
 
-const NEW_GUIDE_HINT = /每次錄製都會建立新教學/;
+const NEW_GUIDE_HINT = /每次錄製都會建立新作品/;
 
 /** Marks `guide` as the current UI selection (what getSelectedGuide reads). */
 function selectGuideInStorage(guide: { id: string } & Record<string, unknown>) {

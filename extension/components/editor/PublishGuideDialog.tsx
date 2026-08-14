@@ -44,9 +44,9 @@ type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html' 
 type PublicationAction = 'markdown' | 'html' | 'pdf' | 'images';
 
 const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
-  markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與教學內容後再試一次。',
-  html: '無法下載 HTML 網頁。請確認所有敏感資訊遮罩與教學內容後再試一次。',
-  pdf: '無法下載 PDF。請確認所有敏感資訊遮罩與教學內容後再試一次。',
+  markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與內容後再試一次。',
+  html: '無法下載 HTML 網頁。請確認所有敏感資訊遮罩與內容後再試一次。',
+  pdf: '無法下載 PDF。請確認所有敏感資訊遮罩與內容後再試一次。',
   images: '無法下載圖片。請確認所有敏感資訊遮罩後再試一次。',
 };
 
@@ -162,7 +162,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       if (isAbortError(actionError) || controller.signal.aborted) {
         setNotice('已取消匯出操作。');
       } else {
-        console.error(`教學匯出失敗：${action}`, actionError);
+        console.error(`內容匯出失敗：${action}`, actionError);
         setError(ACTION_ERROR_MESSAGES[action]);
       }
     } finally {
@@ -241,7 +241,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       action: 'pdf',
       title: 'PDF',
       ariaLabel: '下載 PDF',
-      description: '排版好的教學文件，可直接列印分享',
+      description: '排版好的操作文件，可直接列印分享',
       icon: <MonoGlyph className="px-1.5 text-[11px]">P</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('pdf'),
