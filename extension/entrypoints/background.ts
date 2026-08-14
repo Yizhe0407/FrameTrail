@@ -64,6 +64,7 @@ import { createKeepAlivePortHandler } from '@/lib/runtime/keep-alive';
 import { createEditorOpen } from '@/lib/recording/background/editor-open';
 import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
+import { withMessageFailureFallback } from '@/lib/runtime/background-message-fallback';
 import { getRecordingState, resetRunStateToIdle, setRecordingState } from '@/lib/storage/storage';
 import { markEditorOpenFailed, RECORDED_TAB_CLOSED_ERROR } from '@/lib/recording/recording-recovery';
 import type {
@@ -1616,19 +1617,6 @@ async function handleClick(
   }
 }
 
-
-async function withMessageFailureFallback<T>(
-  operation: Promise<T>,
-  label: string,
-  fallback: T,
-): Promise<T> {
-  try {
-    return await operation;
-  } catch (error) {
-    console.error(`[frametrail] ${label}:`, describeBrowserError(error), error);
-    return fallback;
-  }
-}
 
 export default defineBackground(() => {
   // A worker woken by a capture message from a page whose persisted run is
