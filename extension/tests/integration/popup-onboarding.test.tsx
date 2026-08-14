@@ -21,7 +21,7 @@ vi.mock('@/lib/runtime/onboarding', () => onboarding);
 vi.mock('@/lib/guide/guide-actions', () => ({
   ensureSelectedGuide: vi.fn().mockResolvedValue({ id: 'guide-selected' }),
 }));
-vi.mock('@/lib/storage/db', () => ({
+vi.mock('@/lib/storage/guide-repository', () => ({
   getGuide: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/lib/recording/use-recording-session', () => ({

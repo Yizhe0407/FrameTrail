@@ -1,5 +1,5 @@
 import { throwIfAborted } from '../shared/abort';
-import type { StepEntry } from '../storage/db';
+import { type StepEntry } from '../storage/models';
 import {
   DEFAULT_DESCRIPTION,
   DEFAULT_TITLE,

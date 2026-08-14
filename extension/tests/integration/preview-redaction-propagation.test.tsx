@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 // @vitest-environment jsdom
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
+import { type ScreenshotStep, type Step, type StepEntry } from '@/lib/storage/models';
 
 const previewMocks = vi.hoisted(() => ({
   highlight: vi.fn(),

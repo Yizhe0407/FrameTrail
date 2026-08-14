@@ -14,10 +14,10 @@ import type { Guide } from '../../../lib/storage/models';
  * - lib/storage/storage.ts — ACTIVE_GUIDE_ID_KEY
  * - lib/runtime/onboarding.ts — ONBOARDING_STORAGE_KEY
  */
-const SCRIBE_DB = { name: 'scribe', version: 4 } as const;
+const SCRIBE_DB = { name: 'frametrail', version: 1 } as const;
 // `as const` keeps the literal types non-widening so the typed
 // chrome.storage.local.get overloads still apply inside evaluate bodies.
-const RECORDING_STATE_KEY = 'scribe:recordingState' as const;
+const RECORDING_STATE_KEY = 'frametrail:recordingState' as const;
 const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId' as const;
 const ONBOARDING_STORAGE_KEY = 'frametrail:onboarding:v1' as const;
 
@@ -46,7 +46,7 @@ declare const chrome: {
   storage: {
     local: {
       clear(): Promise<void>;
-      get(key: 'scribe:recordingState'): Promise<Record<string, { isRecording?: boolean } | undefined>>;
+      get(key: 'frametrail:recordingState'): Promise<Record<string, { isRecording?: boolean } | undefined>>;
       get(key: string): Promise<Record<string, unknown>>;
       set(values: Record<string, unknown>): Promise<void>;
     };

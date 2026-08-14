@@ -7,11 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  saveStepDescription,
-  StepDescriptionConflictError,
-  type Step,
-} from '../storage/db';
+import { saveStepDescription, StepDescriptionConflictError } from '../storage/step-repository';
+import { type Step } from '../storage/models';
 import {
   clearMatchingCommittedDescriptionDrafts,
   DESCRIPTION_DRAFT_KEY_PREFIX,

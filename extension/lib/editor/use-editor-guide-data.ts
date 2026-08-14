@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  getGuide,
-  getGuideStructureSnapshot,
-  type Guide,
-  type GuideStructureSnapshot,
-} from '../storage/db';
+import { getGuide } from '../storage/guide-repository';
+import { getGuideStructureSnapshot, type GuideStructureSnapshot } from '../storage/guide-structure';
+import { type Guide } from '../storage/models';
 
 export type EditorGuideLoadState = 'loading' | 'ready' | 'missing' | 'invalid';
 

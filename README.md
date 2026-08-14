@@ -57,8 +57,8 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - 標注說明區使用一致的細型滾動條樣式；所有可操作按鈕、圖片、切換器與拖曳把手都有對應的 pointer、zoom 或 grab 游標。
 - Lightbox 使用 shadcn Dialog，可用按鈕或方向鍵跨步驟模式與快照模式連續瀏覽。
 - **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，清除不再適用於新圖片的舊框選與遮罩，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
-- **既有遮罩相容性**：舊版或匯入資料中的 owner-level `redactions` 仍會由預覽、Lightbox、剪貼簿與匯出管線安全渲染，避免既有敏感資訊意外露出；Editor 不再提供新增或調整遮罩的介面。
-- **隱私 fail-closed**：讀到舊版待確認或格式錯誤的隱私 metadata 時，圖片預覽保持全黑，複製與匯出被阻擋；使用補拍取代圖片後會清除不再適用的舊遮罩並解除封鎖。
+- **匯入遮罩安全**：匯入資料中的 owner-level `redactions` 會由預覽、Lightbox、剪貼簿與匯出管線一致渲染；Editor 不提供新增或調整遮罩的介面。
+- **隱私 fail-closed**：讀到待確認或格式錯誤的隱私 metadata 時，圖片預覽保持全黑，複製與匯出被阻擋；使用補拍取代圖片後會清除不再適用的遮罩並解除封鎖。
 - PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與標註圖片 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。`.frametrail` v2 可編輯匯出檔案另包含標題、說明與章節；因檔案保留未遮罩原圖，匯出前會明確警告。
 
 ### 狀態與效能
@@ -149,7 +149,7 @@ Chromium E2E 覆蓋：
 10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
 11. 測試刪除單一步驟與整個快照群組，確認會直接刪除並可在 5 秒內還原；重置整個 session 才顯示 shadcn Dialog，且不出現瀏覽器原生 alert/confirm。
 12. 對普通步驟補拍；再對含多個標註的快照嘗試補拍，確認前者原子替換並清除舊視覺 metadata，後者明確拒絕且不破壞資料。
-13. 匯入含既有遮罩的舊資料，確認 Editor、Lightbox、Clipboard PNG 與 ZIP/JPEG 仍安全覆蓋敏感資訊；待確認資料保持全黑並要求補拍取代。
+13. 匯入含遮罩的資料，確認 Editor、Lightbox、Clipboard PNG 與 ZIP/JPEG 仍安全覆蓋敏感資訊；待確認資料保持全黑並要求補拍取代。
 
 ## 已知限制
 

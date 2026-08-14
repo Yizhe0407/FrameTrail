@@ -10,7 +10,7 @@ import { MULTI_ANNOTATION_RECAPTURE_BLOCKED } from '@/lib/editor/editor-messages
 import { isRecordableTab } from '@/lib/shared/restricted-urls';
 import { focusTab } from '@/lib/runtime/navigation';
 import { reportError } from '@/components/shared/report-error';
-import { entryId, type StepEntry } from '@/lib/storage/db';
+import { entryId, type StepEntry } from '@/lib/storage/models';
 import type {
   PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,

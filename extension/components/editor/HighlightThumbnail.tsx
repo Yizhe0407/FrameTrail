@@ -1,11 +1,8 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import {
-  HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_RADIUS,
-  fitHighlightFrame,
-} from '@/lib/media/annotate';
+import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS } from '@/lib/media/annotation-contract';
+import { fitHighlightFrame } from '@/lib/media/annotation-geometry';
 import { useObjectUrl } from '@/lib/editor/use-object-url';
-import type { Bounds, Redaction } from '@/lib/storage/db';
+import { type Bounds, type Redaction } from '@/lib/storage/models';
 import ThumbnailSurface from './ThumbnailSurface';
 import HighlightFrame from './HighlightFrame';
 import {

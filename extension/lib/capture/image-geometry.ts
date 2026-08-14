@@ -1,4 +1,4 @@
-import type { Bounds } from '../storage/db';
+import { type Bounds } from '../storage/models';
 import { createBorderBoxCoordinateMapper } from './frame-geometry';
 
 export interface ImageCoordinateMapper {

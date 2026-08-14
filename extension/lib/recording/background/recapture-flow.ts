@@ -1,15 +1,8 @@
 import { browser, type Browser } from 'wxt/browser';
 import { StaleCaptureError, waitForQueuedClicks } from '../background-queues';
 import { getRecordingState } from '../../storage/storage';
-import {
-  getEffectiveBounds,
-  getStep,
-  getSteps,
-  replaceStepCaptureAtomically,
-  StepRecaptureError,
-  stepRole,
-  type StepRecaptureTarget as DbStepRecaptureTarget,
-} from '../../storage/db';
+import { getEffectiveBounds, stepRole } from '../../storage/models';
+import { getStep, getSteps, replaceStepCaptureAtomically, StepRecaptureError, type StepRecaptureTarget as DbStepRecaptureTarget } from '../../storage/step-repository';
 import { isTrustedRecaptureSourceSender } from '../../capture/recapture-guards';
 import { focusTab } from '../../runtime/navigation';
 import {

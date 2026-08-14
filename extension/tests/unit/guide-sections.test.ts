@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Step, StepEntry } from '@/lib/storage/db';
+import { type Step, type StepEntry } from '@/lib/storage/models';
 import {
   GUIDE_SECTION_LIMITS,
   repairGuideSections,

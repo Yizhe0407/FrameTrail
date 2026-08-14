@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import type { StepEntry } from '@/lib/storage/db';
+import { type StepEntry } from '@/lib/storage/models';
 
 const mocks = vi.hoisted(() => ({
   composite: vi.fn(),
@@ -13,7 +13,8 @@ vi.mock('@/lib/export/entry-render', () => ({
   compositeStepEntry: mocks.composite,
 }));
 
-import { GUIDE_EXPORT_LIMITS, generateGuidePdf } from '@/lib/export/guide-export';
+import { GUIDE_EXPORT_LIMITS } from '@/lib/export/guide-export-contract';
+import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 
 /**

@@ -1,4 +1,5 @@
-import { PERSISTED_STEP_LIMITS, type Step } from '@/lib/storage/db';
+import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
+import { type Step } from '@/lib/storage/models';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';

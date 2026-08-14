@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StepEntry } from '@/lib/storage/db';
+import { type StepEntry } from '@/lib/storage/models';
 
 const mocks = vi.hoisted(() => ({
   composite: vi.fn(),
@@ -19,15 +19,10 @@ vi.mock('pdf-lib', () => ({
   PDFDocument: { create: mocks.pdfCreate },
 }));
 
-import {
-  GUIDE_EXPORT_LIMITS,
-  GuideExportLimitError,
-  generateGuideHtml,
-  generateGuideMarkdownArchive,
-  generateGuidePdf,
-  guideExportFilename,
-  type GuideExportMetadata,
-} from '@/lib/export/guide-export';
+import { GUIDE_EXPORT_LIMITS, GuideExportLimitError, guideExportFilename, type GuideExportMetadata } from '@/lib/export/guide-export-contract';
+import { generateGuideHtml } from '@/lib/export/guide-export-html';
+import { generateGuideMarkdownArchive } from '@/lib/export/guide-export-markdown';
+import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
 import { renderEntryImages } from '@/lib/export/guide-export-render';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';

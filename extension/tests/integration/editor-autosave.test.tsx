@@ -7,15 +7,16 @@ const mocks = vi.hoisted(() => ({
   saveStepDescription: vi.fn(),
 }));
 
-vi.mock('@/lib/storage/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage/db')>();
+vi.mock('@/lib/storage/step-repository', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/storage/step-repository')>();
   return { ...actual, saveStepDescription: mocks.saveStepDescription };
 });
 
 import DescriptionField from '@/components/editor/DescriptionField';
 import { EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { readDescriptionDrafts, writeDescriptionDraft } from '@/lib/editor/editor-draft-journal';
-import { StepDescriptionConflictError, StepNotFoundError, type Step } from '@/lib/storage/db';
+import { StepDescriptionConflictError, StepNotFoundError } from '@/lib/storage/step-repository';
+import { type Step } from '@/lib/storage/models';
 
 function makeStep(): Step {
   return {
@@ -196,44 +197,6 @@ describe('editor description autosave', () => {
     });
     expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', '關閉前最後輸入', '');
     expect(screen.queryByText('已儲存')).toBeNull();
-  });
-
-  it('does not silently overwrite a newer external value when a foreign legacy draft exists', async () => {
-    const firstStep = makeStep();
-    localStorage.setItem(
-      'frametrail:editor-description-draft:v1:session-1:step-1',
-      JSON.stringify({
-        version: 1,
-        stepId: 'step-1',
-        sessionId: 'session-1',
-        baseDescription: '',
-        description: '關閉前草稿',
-        updatedAt: Date.now(),
-      }),
-    );
-    render(
-      <EditorSaveProvider>
-        <DescriptionField step={{ ...firstStep, description: '其他分頁的新內容' }} onChange={vi.fn()} />
-      </EditorSaveProvider>,
-    );
-
-    expect(screen.getByDisplayValue('其他分頁的新內容')).toBeTruthy();
-    expect(screen.getByText('關閉前草稿')).toBeTruthy();
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(mocks.saveStepDescription).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: '載入草稿 1' }));
-    expect(screen.getByDisplayValue('關閉前草稿')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '確認覆寫草稿 1' })).toBeTruthy();
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(mocks.saveStepDescription).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: '確認覆寫草稿 1' }));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(mocks.saveStepDescription).toHaveBeenCalledWith('step-1', '關閉前草稿', '其他分頁的新內容');
   });
 
   it('lets the user choose among concurrent tab drafts and discard only one candidate', () => {

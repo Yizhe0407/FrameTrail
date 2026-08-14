@@ -14,16 +14,6 @@ describe('recording state normalization', () => {
     expect(first).not.toBe(second);
   });
 
-  it('keeps current fields while replacing a legacy recording mode', () => {
-    const normalized = normalizeRecordingState({
-      sessionId: 'session-1',
-      mode: 'multi' as never,
-    });
-
-    expect(normalized.sessionId).toBe('session-1');
-    expect(normalized.mode).toBe('steps');
-  });
-
   it('normalizes a valid recapture operation without treating it as ordinary recording', () => {
     const normalized = normalizeRecordingState({
       operation: 'recapture',

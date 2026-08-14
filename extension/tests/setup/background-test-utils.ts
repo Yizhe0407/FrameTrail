@@ -55,8 +55,8 @@ export type BackgroundMocks = ReturnType<typeof makeBackgroundMocks>;
  *
  *   vi.mock('wxt/browser', async () =>
  *     (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
- *   vi.mock('@/lib/storage/db', async (importOriginal) =>
- *     (await import('../setup/background-test-utils')).mockStorageDbModule(mocks, importOriginal));
+ *   Storage repositories are mocked separately because production imports
+ *   their responsibility-specific modules directly.
  *   vi.mock('@/lib/storage/storage', async (importOriginal) =>
  *     (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
  *   vi.mock('@/lib/recording/background/pending-undo-store', async () =>
@@ -101,22 +101,14 @@ export async function mockWxtBrowserModule(
   };
 }
 
-type StorageDbModule = typeof import('@/lib/storage/db');
-
-/**
- * Factory body for vi.mock('@/lib/storage/db'): read/write step APIs routed
- * to the shared table, everything else real. Suites needing more (for example
- * guide reclamation) pass the extra members via `overrides`.
- */
-export async function mockStorageDbModule(
+export async function mockStepRepositoryModule(
   mocks: BackgroundMocks,
-  importOriginal: () => Promise<StorageDbModule>,
-  overrides: Partial<Record<keyof StorageDbModule, unknown>> = {},
+  importOriginal: () => Promise<typeof import('@/lib/storage/step-repository')>,
+  overrides: Partial<Record<keyof typeof import('@/lib/storage/step-repository'), unknown>> = {},
 ) {
   const actual = await importOriginal();
   return {
     ...actual,
-    getGuide: mocks.getGuide,
     getStep: mocks.getStep,
     getSteps: mocks.getSteps,
     addStep: mocks.addStep,
@@ -128,6 +120,14 @@ export async function mockStorageDbModule(
     deleteStep: mocks.deleteStep,
     ...overrides,
   };
+}
+
+export async function mockGuideRepositoryModule(
+  mocks: BackgroundMocks,
+  importOriginal: () => Promise<typeof import('@/lib/storage/guide-repository')>,
+  overrides: Partial<Record<keyof typeof import('@/lib/storage/guide-repository'), unknown>> = {},
+) {
+  return { ...(await importOriginal()), getGuide: mocks.getGuide, ...overrides };
 }
 
 /** Factory body for vi.mock('@/lib/storage/storage'): recording state only. */

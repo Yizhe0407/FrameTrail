@@ -6,32 +6,29 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  generateGuideHtml,
-  generateGuideMarkdownArchive,
-  generateGuidePdf,
-  guideExportFilename,
-  type GuideExportMetadata,
-} from '@/lib/export/guide-export';
-import type { StepEntry } from '@/lib/storage/db';
+import { generateGuideHtml } from '@/lib/export/guide-export-html';
+import { generateGuideMarkdownArchive } from '@/lib/export/guide-export-markdown';
+import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
+import { guideExportFilename, type GuideExportMetadata } from '@/lib/export/guide-export-contract';
+import { type StepEntry } from '@/lib/storage/models';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
 import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
 
-export type GuideEntriesSnapshot = {
+type GuideEntriesSnapshot = {
   entries: readonly StepEntry[];
   metadata?: GuideExportMetadata;
 };
 
-export type GuideEntriesProvider = (
+type GuideEntriesProvider = (
   signal: AbortSignal,
 ) =>
   | readonly StepEntry[]
   | GuideEntriesSnapshot
   | Promise<readonly StepEntry[] | GuideEntriesSnapshot>;
 
-export type PublishGuideDialogProps = {
+type PublishGuideDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Resolves the entries (and optionally fresher metadata) to publish. */

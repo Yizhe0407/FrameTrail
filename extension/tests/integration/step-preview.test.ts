@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PADDING } from '@/lib/media/annotate';
+import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PADDING } from '@/lib/media/annotation-contract';
 import { createStepPreview } from '@/lib/capture/step-preview';
 
 afterEach(() => {

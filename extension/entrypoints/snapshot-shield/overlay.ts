@@ -3,18 +3,9 @@ import {
   type SnapshotShieldRect,
   type SnapshotShieldSelection,
 } from '@/lib/recording/snapshot-shield-protocol';
-import {
-  BADGE_RADIUS,
-  HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_RADIUS,
-  LEADER_LINE_WIDTH,
-  MARKER_INNER_RADIUS,
-  MARKER_RADIUS,
-  MARKER_RING_WIDTH,
-  fitHighlightFrame,
-  getBadgeFontSize,
-  layoutAnnotations,
-} from '@/lib/media/annotate';
+import { BADGE_RADIUS, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS, LEADER_LINE_WIDTH, MARKER_INNER_RADIUS, MARKER_RADIUS, MARKER_RING_WIDTH } from '@/lib/media/annotation-contract';
+import { fitHighlightFrame, getBadgeFontSize } from '@/lib/media/annotation-geometry';
+import { layoutAnnotations } from '@/lib/media/annotation-layout';
 
 function positionBox(element: HTMLElement, rect: SnapshotShieldRect): void {
   const frame = fitHighlightFrame(rect, window.innerWidth, window.innerHeight);

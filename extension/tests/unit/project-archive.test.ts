@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Step } from '@/lib/storage/db';
-import type { ProjectArchiveMetadataInput } from '@/lib/export/project-archive';
-import {
-  PROJECT_ARCHIVE_FORMAT,
-  PROJECT_ARCHIVE_LEGACY_VERSION,
-  PROJECT_ARCHIVE_LIMITS,
-  PROJECT_ARCHIVE_MIME_TYPE,
-  PROJECT_ARCHIVE_VERSION,
-  exportProjectArchive,
-  importProjectArchive,
-  serializeProjectArchive,
-} from '@/lib/export/project-archive';
+import { type Step } from '@/lib/storage/models';
+import { type ProjectArchiveMetadataInput } from '@/lib/export/project-archive-contract';
+import { PROJECT_ARCHIVE_FORMAT, PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_MIME_TYPE, PROJECT_ARCHIVE_VERSION } from '@/lib/export/project-archive-contract';
+import { exportProjectArchive, serializeProjectArchive } from '@/lib/export/project-archive-serialize';
+import { importProjectArchive } from '@/lib/export/project-archive-import';
 import { STEP_KEYS } from '@/lib/export/project-archive-contract';
 
 function pngBlob(width = 2, height = 2): Blob {
@@ -104,7 +97,7 @@ describe('project archive', () => {
     expect(encoded.manifest.steps.map((step: any) => step.id)).toEqual(['ordinary', 'anchor', 'annotation']);
     expect(encoded.blobs.map((blob: any) => blob.id)).toEqual(['screenshot-000001', 'screenshot-000002']);
 
-    const restored = await importProjectArchive(archive);
+    const { steps: restored } = await importProjectArchive(archive);
     const expected = [ordinary, anchor, annotation];
     expect(restored.map((step) => step.id)).not.toEqual(expected.map((step) => step.id));
     expect(new Set(restored.map((step) => step.sessionId)).size).toBe(1);
@@ -170,20 +163,6 @@ describe('project archive', () => {
     expect(JSON.parse(forward).manifest.steps.map((step: any) => step.id)).toEqual(['a', 'b']);
   });
 
-  it('imports legacy v1 archives and exposes empty metadata through the opt-in overload', async () => {
-    const archive = await archiveObject();
-    archive.manifest.version = PROJECT_ARCHIVE_LEGACY_VERSION;
-    delete archive.manifest.metadata;
-
-    const imported = await importProjectArchive(JSON.stringify(archive), { includeMetadata: true });
-
-    expect(imported.version).toBe(PROJECT_ARCHIVE_LEGACY_VERSION);
-    expect(imported.metadata).toEqual({ title: '', description: '', sections: [], tags: [] });
-    expect(imported.steps).toHaveLength(1);
-    expect(imported.steps[0].id).not.toBe('step-1');
-    expect(imported.steps[0].sessionId).not.toBe('session-1');
-  });
-
   it('round-trips v2 metadata, remaps section boundaries, and repairs stale or duplicate sections', async () => {
     const first = makeStep({ id: 'first', order: 0 });
     const anchor = makeStep({ id: 'anchor', order: 1, bounds: null, groupId: 'anchor', numbered: true });
@@ -216,7 +195,7 @@ describe('project archive', () => {
       'last',
     ]);
 
-    const imported = await importProjectArchive(JSON.stringify(archive), { includeMetadata: true });
+    const imported = await importProjectArchive(JSON.stringify(archive));
     const [remappedFirst, remappedAnchor, remappedAnnotation, remappedLast] = imported.steps;
     expect(imported.version).toBe(PROJECT_ARCHIVE_VERSION);
     expect(imported.metadata.title).toBe('Safe guide');
@@ -251,7 +230,7 @@ describe('project archive', () => {
       { id: 'missing', title: 'Missing', startEntryId: 'does-not-exist' },
     ];
 
-    const imported = await importProjectArchive(JSON.stringify(archive), { includeMetadata: true });
+    const imported = await importProjectArchive(JSON.stringify(archive));
 
     expect(imported.metadata.sections).toEqual([
       { id: 'winner', title: 'Winner', startEntryId: imported.steps[0].id },

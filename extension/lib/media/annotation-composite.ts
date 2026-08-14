@@ -216,7 +216,7 @@ async function compositeRaster(
 
 /**
  * Composites the red highlight box onto a raw screenshot and returns an image
- * blob. If bounds is null (legacy step), no box is drawn and any privacy
+ * blob. If bounds is null, no box is drawn and any privacy
  * redactions are still rendered; with nothing at all to draw the validated
  * source blob may be returned unchanged instead of re-encoded.
  */

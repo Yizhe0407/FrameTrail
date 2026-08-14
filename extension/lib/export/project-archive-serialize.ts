@@ -7,9 +7,9 @@ import {
   PROJECT_ARCHIVE_MIME_TYPE,
   PROJECT_ARCHIVE_VERSION,
   STEP_KEYS,
-  type ArchiveBlobV1,
-  type ArchiveEnvelopeV2,
-  type ArchiveStepV1,
+  type ArchiveBlob,
+  type ArchiveEnvelope,
+  type ArchiveStep,
   type ProjectArchiveOptions,
 } from './project-archive-contract';
 import {
@@ -29,13 +29,13 @@ import {
  * of being silently dropped here. screenshotBlobId is the one synthesized
  * field; the Blob itself is serialized separately into the blobs array.
  */
-function archiveStepFromRuntime(step: Step, screenshotBlobId?: string): ArchiveStepV1 {
+function archiveStepFromRuntime(step: Step, screenshotBlobId?: string): ArchiveStep {
   const archived: Partial<Record<(typeof STEP_KEYS)[number], unknown>> = {};
   for (const key of STEP_KEYS) {
     const value = key === 'screenshotBlobId' ? screenshotBlobId : step[key];
     if (value !== undefined) archived[key] = value;
   }
-  return archived as ArchiveStepV1;
+  return archived as ArchiveStep;
 }
 
 /**
@@ -59,7 +59,7 @@ async function buildArchiveParts(stepsInput: readonly Step[], options: ProjectAr
   steps.sort(canonicalStepComparator);
   const metadata = archiveMetadataFromInput(options.metadata, steps);
 
-  const archivedSteps: ArchiveStepV1[] = [];
+  const archivedSteps: ArchiveStep[] = [];
   const blobParts: string[] = [];
   let blobCount = 0;
   let totalScreenshotBytes = 0;
@@ -86,7 +86,7 @@ async function buildArchiveParts(stepsInput: readonly Step[], options: ProjectAr
     archivedSteps.push(archiveStepFromRuntime(step, blobId));
   }
 
-  const manifest: ArchiveEnvelopeV2['manifest'] = {
+  const manifest: ArchiveEnvelope['manifest'] = {
     format: PROJECT_ARCHIVE_FORMAT,
     version: PROJECT_ARCHIVE_VERSION,
     stepCount: archivedSteps.length,
@@ -114,7 +114,7 @@ async function buildArchiveParts(stepsInput: readonly Step[], options: ProjectAr
  * base64 payload in directly: it uses no characters JSON would escape, so
  * running the multi-MB string through JSON.stringify would merely copy it. */
 function serializeArchiveBlob(id: string, mediaType: string, bytes: Uint8Array, signal?: AbortSignal): string {
-  const blob: Omit<ArchiveBlobV1, 'data'> = { id, mediaType, size: bytes.byteLength, encoding: 'base64' };
+  const blob: Omit<ArchiveBlob, 'data'> = { id, mediaType, size: bytes.byteLength, encoding: 'base64' };
   return `${JSON.stringify(blob).slice(0, -1)},"data":"${encodeBase64(bytes, signal)}"}`;
 }
 

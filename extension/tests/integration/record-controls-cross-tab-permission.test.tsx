@@ -30,7 +30,7 @@ vi.mock('wxt/browser', async () => {
   };
 });
 // Only the storage primitives are mocked; the real guide-actions flow runs.
-vi.mock('@/lib/storage/db', () => ({
+vi.mock('@/lib/storage/guide-repository', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
   discardPristineGuide: mocks.discardPristineGuide,

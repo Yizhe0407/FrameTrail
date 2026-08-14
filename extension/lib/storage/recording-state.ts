@@ -111,10 +111,7 @@ export interface RecordingState {
   recaptureResult: StepRecaptureResult | null;
 }
 
-// 'scribe' is the legacy pre-rename brand; changing the key would be a
-// user-data migration (an in-progress recording would be discarded during the
-// upgrade), deliberately not done.
-export const RECORDING_STATE_KEY = 'scribe:recordingState';
+export const RECORDING_STATE_KEY = 'frametrail:recordingState';
 
 const DEFAULT_STATE: RecordingState = {
   operation: null,

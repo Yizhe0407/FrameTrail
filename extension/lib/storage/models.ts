@@ -47,7 +47,7 @@ export interface OrderedAnnotation {
 export interface Step {
   id: string;
   sessionId: string;
-  /** Recording run that created this row. Legacy/editor-created rows omit it. */
+  /** Recording run that created this row. Editor-created rows omit it. */
   runId?: string;
   order: number;
   /** Raw (un-annotated) screenshot — the highlight box is drawn at
@@ -93,8 +93,7 @@ export interface Step {
 }
 
 /** A locally persisted, editable guide. `id` intentionally remains identical
- * to the legacy Step.sessionId so existing recordings need no destructive
- * migration and all capture transaction guards keep their current semantics. */
+ * to Step.sessionId so capture transaction guards share one stable identity. */
 export interface Guide {
   id: string;
   title: string;
@@ -481,7 +480,7 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
       // An anchor without any surviving annotation has no renderable content.
       // Do not surface it as a phantom snapshot whose old pixels can be
       // mistaken for a current annotation; deletion and stop cleanup remove
-      // the rows, while this also sanitizes legacy empty groups on read.
+      // the rows, while this also omits incomplete empty groups on read.
       const annotations = groupSteps.filter(
         (candidate) => stepRole(candidate) === 'annotation' && getEffectiveBounds(candidate) !== null,
       );
@@ -494,11 +493,6 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
       continue;
     }
 
-    // Salvage legacy members with their own screenshots when an anchor is
-    // missing. New annotations have no blob and are safely omitted.
-    for (const member of groupSteps) {
-      if (member.screenshotBlob) entries.push({ kind: 'single', step: member as ScreenshotStep });
-    }
   }
 
   return entries;
@@ -616,7 +610,7 @@ export function assertExactEntryIds(actualEntries: readonly StepEntry[], request
 }
 
 /** Converts persisted annotation steps into the geometry contract shared by
- * previews, clipboard compositing, and exports. Invalid legacy rows are
+ * previews, clipboard compositing, and exports. Invalid rows are
  * skipped instead of leaking non-null assertions into every caller. */
 export function getOrderedAnnotations(steps: Step[]): OrderedAnnotation[] {
   const annotations: OrderedAnnotation[] = [];

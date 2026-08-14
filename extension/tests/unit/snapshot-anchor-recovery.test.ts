@@ -2,14 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RecordingState } from '@/lib/storage/recording-state';
 import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
-import type { Step } from '@/lib/storage/db';
+import { type Step } from '@/lib/storage/models';
 
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 
 vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
-vi.mock('@/lib/storage/db', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockStorageDbModule(mocks, importOriginal));
+vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>

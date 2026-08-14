@@ -191,65 +191,17 @@ async function abortTransaction(tx: GuideStepsTransaction, error: unknown): Prom
   throw error;
 }
 
-// Keep the original IndexedDB name to retain recordings made before the
-// product rename. Guide ids intentionally reuse legacy session ids.
 let databasePromise: Promise<IDBPDatabase<FrameTrailDB>> | undefined;
 let databaseConnection: IDBPDatabase<FrameTrailDB> | undefined;
 
 function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
   if (databasePromise) return databasePromise;
-  // 'scribe' is the legacy pre-rename DB name; renaming it would be a
-  // user-data migration of every stored recording, deliberately not done.
-  databasePromise = openDB<FrameTrailDB>('scribe', 4, {
-    async upgrade(db, oldVersion, _newVersion, transaction) {
-      if (oldVersion < 1) {
-        const store = db.createObjectStore('steps', { keyPath: 'id' });
-        store.createIndex('by-session', 'sessionId');
-      }
-      // v2 adds bounds/devicePixelRatio; v3 adds snapshot groups. Those rows
-      // remain byte-for-byte untouched. v4 adds guide metadata and summaries.
-      if (oldVersion < 4) {
-        const guides = db.createObjectStore('guides', { keyPath: 'id' });
-        guides.createIndex('by-updated-at', 'updatedAt');
-
-        interface MigrationState {
-          createdAt: number;
-          updatedAt: number;
-          summary: SummaryAccumulator;
-        }
-        const now = Date.now();
-        const states = new Map<string, MigrationState>();
-        // Cursor values are inspected only to derive metadata. We never getAll,
-        // put, or otherwise rewrite the Blob-bearing legacy step records.
-        let cursor = await transaction.objectStore('steps').openCursor();
-        while (cursor) {
-          const step = cursor.value;
-          const timestamp = Number.isFinite(step.timestamp) ? step.timestamp : now;
-          let state = states.get(step.sessionId);
-          if (!state) {
-            state = { createdAt: timestamp, updatedAt: timestamp, summary: createSummaryAccumulator() };
-            states.set(step.sessionId, state);
-          } else {
-            state.createdAt = Math.min(state.createdAt, timestamp);
-            state.updatedAt = Math.max(state.updatedAt, timestamp);
-          }
-          addStepToSummary(state.summary, step);
-          cursor = await cursor.continue();
-        }
-        for (const [id, state] of states) {
-          await guides.add(sanitizeGuide({
-            id,
-            title: defaultGuideTitle(state.createdAt),
-            description: '',
-            sections: [],
-            tags: [],
-            createdAt: state.createdAt,
-            updatedAt: state.updatedAt,
-            contentRevision: 0,
-            ...finishSummary(state.summary),
-          }));
-        }
-      }
+  databasePromise = openDB<FrameTrailDB>('frametrail', 1, {
+    upgrade(db) {
+      const steps = db.createObjectStore('steps', { keyPath: 'id' });
+      steps.createIndex('by-session', 'sessionId');
+      const guides = db.createObjectStore('guides', { keyPath: 'id' });
+      guides.createIndex('by-updated-at', 'updatedAt');
     },
     blocked(currentVersion, blockedVersion) {
       console.warn(`FrameTrail database upgrade to ${blockedVersion ?? 'unknown'} is blocked by version ${currentVersion}.`);

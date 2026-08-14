@@ -1,20 +1,9 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import {
-  BADGE_RADIUS,
-  BADGE_TEXT_COLOR,
-  HIGHLIGHT_COLOR,
-  HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_RADIUS,
-  LEADER_LINE_WIDTH,
-  MARKER_INNER_RADIUS,
-  MARKER_RADIUS,
-  MARKER_RING_WIDTH,
-  getBadgeFontSize,
-  layoutAnnotations,
-  type Annotation,
-} from '@/lib/media/annotate';
+import { BADGE_RADIUS, BADGE_TEXT_COLOR, HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS, LEADER_LINE_WIDTH, MARKER_INNER_RADIUS, MARKER_RADIUS, MARKER_RING_WIDTH, type Annotation } from '@/lib/media/annotation-contract';
+import { getBadgeFontSize } from '@/lib/media/annotation-geometry';
+import { layoutAnnotations } from '@/lib/media/annotation-layout';
 import { useObjectUrl } from '@/lib/editor/use-object-url';
-import type { Redaction } from '@/lib/storage/db';
+import { type Redaction } from '@/lib/storage/models';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import ThumbnailSurface from './ThumbnailSurface';
 import HighlightFrame from './HighlightFrame';

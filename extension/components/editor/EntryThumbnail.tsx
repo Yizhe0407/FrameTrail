@@ -1,10 +1,5 @@
 import type { ReactNode } from 'react';
-import {
-  getEffectiveBounds,
-  getEntryPrivacyState,
-  getOrderedAnnotations,
-  type StepEntry,
-} from '@/lib/storage/db';
+import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '@/lib/storage/models';
 import HighlightThumbnail from './HighlightThumbnail';
 import MultiHighlightThumbnail from './MultiHighlightThumbnail';
 

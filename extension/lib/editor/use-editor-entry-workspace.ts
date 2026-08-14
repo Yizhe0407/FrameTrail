@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { entryId, type StepEntry } from '@/lib/storage/db';
+import { entryId, type StepEntry } from '@/lib/storage/models';
 import { DraftConfirmationRequiredError } from './editor-autosave';
 
 interface UseEditorEntryWorkspaceOptions {

@@ -1,33 +1,9 @@
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import {
-  addStep as addStepToDatabase,
-  addSteps,
-  buildStepEntries,
-  closeDatabase,
-  createGuideFromSteps,
-  deleteGuidePermanently,
-  deleteStepsAndReorder,
-  deleteStepsForRun,
-  duplicateGuide,
-  ensureGuide,
-  getEffectiveBounds,
-  getGuide,
-  getGuideSummaries,
-  getOrderedAnnotations,
-  getSteps,
-  reorderSteps,
-  replaceStepCaptureAtomically,
-  resetGuide,
-  restoreStepsAndReorder,
-  saveStepDescription,
-  STEP_STORAGE_LIMITS,
-  StepNotFoundError,
-  StepStorageValidationError,
-  updateStep,
-  updateStepsAtomically,
-  type Step,
-} from '@/lib/storage/db';
+import { addStep as addStepToDatabase, addSteps, deleteStepsAndReorder, deleteStepsForRun, getSteps, reorderSteps, replaceStepCaptureAtomically, restoreStepsAndReorder, saveStepDescription, StepNotFoundError, updateStep, updateStepsAtomically } from '@/lib/storage/step-repository';
+import { buildStepEntries, getEffectiveBounds, getOrderedAnnotations, STEP_STORAGE_LIMITS, StepStorageValidationError, type Step } from '@/lib/storage/models';
+import { closeDatabase } from '@/lib/storage/database';
+import { createGuideFromSteps, deleteGuidePermanently, duplicateGuide, ensureGuide, getGuide, getGuideSummaries, resetGuide } from '@/lib/storage/guide-repository';
 
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {
@@ -63,17 +39,6 @@ describe('buildStepEntries', () => {
     expect(entries[0]).toMatchObject({ kind: 'group', anchor: { id: groupId } });
     expect(entries[0].kind === 'group' && entries[0].annotations).toEqual([annotation]);
     expect(entries[1]).toMatchObject({ kind: 'single', step: { id: ordinary.id } });
-  });
-
-  it('does not crash on a missing anchor and salvages legacy image-bearing members', () => {
-    const missingAnchorId = crypto.randomUUID();
-    const legacyAnnotation = makeStep({ groupId: missingAnchorId });
-    const modernAnnotation = makeStep({ groupId: missingAnchorId, screenshotBlob: undefined });
-
-    const entries = buildStepEntries([legacyAnnotation, modernAnnotation]);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ kind: 'single', step: { id: legacyAnnotation.id } });
   });
 
   it('does not render an empty snapshot anchor as a phantom annotated entry', () => {

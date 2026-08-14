@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import { compositeStepEntry } from '@/lib/export/entry-render';
-import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/db';
+import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
 import { PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED } from '@/lib/editor/editor-messages';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';

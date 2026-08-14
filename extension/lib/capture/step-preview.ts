@@ -1,11 +1,6 @@
-import {
-  HIGHLIGHT_COLOR,
-  HIGHLIGHT_LINE_WIDTH,
-  HIGHLIGHT_PREVIEW_FILL_COLOR,
-  HIGHLIGHT_RADIUS,
-  fitHighlightFrame,
-} from '../media/annotate';
-import type { Bounds } from '../storage/db';
+import { HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PREVIEW_FILL_COLOR, HIGHLIGHT_RADIUS } from '../media/annotation-contract';
+import { fitHighlightFrame } from '../media/annotation-geometry';
+import { type Bounds } from '../storage/models';
 import { createViewportOverlayHost, setImportantStyle } from './viewport-overlay-host';
 
 export interface StepPreview {

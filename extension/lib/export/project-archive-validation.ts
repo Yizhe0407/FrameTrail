@@ -18,7 +18,7 @@ import {
   SAFE_SCREENSHOT_MEDIA_TYPES,
   SECTION_KEYS,
   ProjectArchiveError,
-  type ArchiveMetadataV2,
+  type ArchiveMetadata,
   type JsonRecord,
   type ProjectArchiveErrorCode,
   type ProjectArchiveMetadata,
@@ -307,7 +307,7 @@ export function parseArchiveMetadata(value: unknown, steps: readonly Step[], pat
   };
 }
 
-export function archiveMetadataFromInput(value: ProjectArchiveMetadataInput | undefined, steps: readonly Step[]): ArchiveMetadataV2 {
+export function archiveMetadataFromInput(value: ProjectArchiveMetadataInput | undefined, steps: readonly Step[]): ArchiveMetadata {
   const record = expectRecord(value ?? {}, 'metadata');
   assertExactKeys(record, METADATA_KEYS, 'metadata');
   const title = hasOwn(record, 'title')

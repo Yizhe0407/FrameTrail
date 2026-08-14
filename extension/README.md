@@ -39,10 +39,10 @@ pnpm dev:firefox
 - `lib/editor/`、`lib/export/`、`lib/guide/`：各功能領域的純邏輯與 hooks。
 - `lib/media/`：annotation layout、圖片標註與 screenshot 工具；`annotate.ts` 僅保留公開 facade。
 - `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting、注入頁面與 snapshot shield 使用的錄製 UI（`recording-toolbar*.tsx` 等），以及瀏覽器訊息／導覽邊界。
-- `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema／migration／transaction 基礎，`*-repository.ts` 與 `guide-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
+- `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema 與 transaction 基礎，`*-repository.ts` 與 `guide-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
 - `lib/shared/`：僅放真正無領域狀態的工具。
 
-新增檔案時應優先放入最接近的功能領域，內部程式碼也應直接 import 具體模組，以免隱藏依賴方向或形成循環引用。`lib/storage/db.ts` 是刻意保留的例外：它以明確 named exports 提供既有 storage API 的相容 facade，讓入口點、呼叫端與 Vitest mocks 可逐步遷移；新實作不應再放進 facade。
+新增檔案時應優先放入最接近的功能領域，內部程式碼與測試 mock 也應直接 import 具體責任模組，以免隱藏依賴方向、形成循環引用，或讓單一聚合 mock 意外攔截不相關行為。
 
 ## 驗證
 

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
-import { getGuide, getSteps } from '../../storage/db';
+import { getGuide } from '../../storage/guide-repository';
+import { getSteps } from '../../storage/step-repository';
 import { getRecordingState } from '../../storage/storage';
 import { focusTab } from '../../runtime/navigation';
 import { describeBrowserError } from '../../runtime/browser-errors';

@@ -7,7 +7,6 @@ import {
 import {
   assertExactEntryIds,
   buildCompleteStepEntries,
-  buildStepEntries,
   entryId,
   GuideStructureIntegrityError,
   flattenEntrySteps,
@@ -252,79 +251,8 @@ function rebaseSectionsAfterDelete(
   return rebased;
 }
 
-/** Rebuilds strict-parser-valid rows from the lenient UI grouping. Legacy rows
- * (pre-v4 recordings the migration deliberately never rewrote) can violate the
- * strict topology: empty snapshot groups, anchor-less members with their own
- * screenshots, boundless annotations, inconsistent group numbering, and order
- * ties that split a group. buildStepEntries() already defines the salvage
- * policy for all of these, so the repair persists exactly what the UI would
- * have shown: anchor-less image members become ordinary entries, unrenderable
- * rows are dropped, and orders are renumbered densely with each group's anchor
- * leading its annotations. */
-function repairLegacyStepRows(steps: readonly Step[]): Step[] {
-  const repaired: Step[] = [];
-  for (const entry of buildStepEntries(orderedSessionSteps(steps))) {
-    if (entry.kind === 'single') {
-      const { groupId: _salvagedFromGroup, ...rest } = entry.step;
-      repaired.push(rest);
-      continue;
-    }
-    repaired.push({ ...entry.anchor, groupId: entry.anchor.id });
-    for (const annotation of entry.annotations) {
-      repaired.push({ ...annotation, groupId: entry.anchor.id, numbered: entry.anchor.numbered });
-    }
-  }
-  return repaired.map((step, order) => ({ ...step, order }));
-}
-
-/** One-time load-time repair for guides whose persisted rows predate the strict
- * topology invariant. Re-validates inside the readwrite transaction (another
- * tab may have repaired first), commits the lenient parse, and bumps
- * contentRevision so concurrent CAS mutations against the broken layout fail
- * cleanly. Rows the lenient reader cannot salvage either keep the guide
- * fail-closed (original error is rethrown) or are dropped as unrenderable. */
-async function repairGuideStructure(
-  sessionId: string,
-  cause: GuideStructureIntegrityError,
-): Promise<GuideStructureSnapshot> {
-  return runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
-    const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-    try {
-      return structureSnapshot(guide, steps);
-    } catch {
-      // Still broken in this transaction; fall through to the actual repair.
-    }
-    const repairedSteps = repairLegacyStepRows(steps);
-    let entries: StepEntry[];
-    try {
-      entries = buildCompleteStepEntries(repairedSteps, sessionId);
-    } catch {
-      throw cause;
-    }
-    const repairedIds = new Set(repairedSteps.map((step) => step.id));
-    for (const step of steps) {
-      if (!repairedIds.has(step.id)) await tx.objectStore('steps').delete(step.id);
-    }
-    for (const step of repairedSteps) {
-      await tx.objectStore('steps').put(sanitizeStepForStorage(step));
-    }
-    const repairedGuide = sanitizeGuide({
-      ...guide,
-      ...summarizeSteps(repairedSteps),
-      sections: repairGuideSections(guide.sections, entries),
-      updatedAt: Math.max(guide.updatedAt, Date.now()),
-      contentRevision: guide.contentRevision + 1,
-    });
-    await tx.objectStore('guides').put(repairedGuide);
-    return { guide: repairedGuide, entries, entryIds: entries.map(entryId) };
-  });
-}
-
 export async function getGuideStructureSnapshot(sessionId: string): Promise<GuideStructureSnapshot> {
-  const loaded = await runWithDatabase<
-    { snapshot: GuideStructureSnapshot } | { repairCause: GuideStructureIntegrityError }
-  >(async (db) => {
+  return runWithDatabase(async (db) => {
     const tx: ReadonlyGuideStepsTransaction = db.transaction(['guides', 'steps'], 'readonly');
     const rawGuide = await tx.objectStore('guides').get(sessionId);
     if (!rawGuide) {
@@ -333,18 +261,10 @@ export async function getGuideStructureSnapshot(sessionId: string): Promise<Guid
     }
     const guide = sanitizeGuide(rawGuide);
     const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-    try {
-      const snapshot = structureSnapshot(guide, steps);
-      await tx.done;
-      return { snapshot };
-    } catch (error) {
-      await tx.done;
-      if (!(error instanceof GuideStructureIntegrityError)) throw error;
-      return { repairCause: error };
-    }
+    const snapshot = structureSnapshot(guide, steps);
+    await tx.done;
+    return snapshot;
   });
-  if ('snapshot' in loaded) return loaded.snapshot;
-  return repairGuideStructure(sessionId, loaded.repairCause);
 }
 
 export async function reorderGuideEntriesAtomically(

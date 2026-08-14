@@ -1,4 +1,4 @@
-import { UNTITLED_GUIDE_BASE } from '../storage/db';
+import { UNTITLED_GUIDE_BASE } from '../storage/models';
 
 /**
  * Load-bearing user-facing strings that more than one editor surface renders.

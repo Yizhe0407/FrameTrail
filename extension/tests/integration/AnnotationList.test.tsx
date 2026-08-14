@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Step } from '@/lib/storage/db';
+import { type Step } from '@/lib/storage/models';
 
 vi.mock('@/lib/editor/editor-autosave', () => ({
   useStepDescriptionAutosave: (step: Step) => ({

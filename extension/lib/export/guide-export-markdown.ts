@@ -1,6 +1,6 @@
 import { throwIfAborted } from '../shared/abort';
 import { strToU8 } from 'fflate';
-import type { StepEntry } from '../storage/db';
+import { type StepEntry } from '../storage/models';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 import {
   DEFAULT_DESCRIPTION,

@@ -143,8 +143,8 @@ test.describe('step recording', () => {
             runtime: { sendMessage(message: unknown): Promise<unknown> };
           };
         }).chrome;
-        const stored = await extensionApi.storage.local.get('scribe:recordingState');
-        const runId = (stored['scribe:recordingState'] as { runId: string }).runId;
+        const stored = await extensionApi.storage.local.get('frametrail:recordingState');
+        const runId = (stored['frametrail:recordingState'] as { runId: string }).runId;
         return extensionApi.runtime.sendMessage({ type, runId, ...(undoToken ? { undoToken } : {}) });
       }, { type, undoToken });
     };

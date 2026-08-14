@@ -1,10 +1,5 @@
-import { compositeHighlight, compositeMultiHighlight } from '../media/annotate';
-import {
-  getEffectiveBounds,
-  getEntryPrivacyState,
-  getOrderedAnnotations,
-  type StepEntry,
-} from '../storage/db';
+import { compositeHighlight, compositeMultiHighlight } from '../media/annotation-composite';
+import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '../storage/models';
 import { getValidScreenshotScale } from '../media/image-utils';
 
 export type CompositeImageFormat = 'image/jpeg' | 'image/png';

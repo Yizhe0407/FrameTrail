@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getExpandedRedactionBounds } from '@/lib/media/annotate';
+import { getExpandedRedactionBounds } from '@/lib/media/annotation-composite';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
-import type { Redaction } from '@/lib/storage/db';
+import { type Redaction } from '@/lib/storage/models';
 
 // Re-exported for the thumbnails: the drawable-frame guard is the raster
 // compositor's contract, so the single definition lives with it.

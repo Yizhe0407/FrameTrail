@@ -26,7 +26,7 @@ vi.mock('@/lib/storage/storage', () => ({
   getRecordingState: mocks.getRecordingState,
   onRecordingStateChange: mocks.onRecordingStateChange,
 }));
-vi.mock('@/lib/storage/db', () => ({ getSteps: mocks.getSteps }));
+vi.mock('@/lib/storage/step-repository', () => ({ getSteps: mocks.getSteps }));
 
 import {
   RECORDING_RECONCILE_INTERVAL_MS,

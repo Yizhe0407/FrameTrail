@@ -29,7 +29,7 @@ export async function createGuide(initial?: Partial<Pick<Guide, 'title' | 'descr
   return guide;
 }
 
-/** Explicit legacy/bootstrap primitive. Ordinary step mutations never call it. */
+/** Explicit bootstrap primitive. Ordinary step mutations never call it. */
 export async function ensureGuide(id: string, createdAt = Date.now()): Promise<Guide> {
   if (!id) throw new Error('Guide id is required.');
   return runWithDatabase(async (db) => {

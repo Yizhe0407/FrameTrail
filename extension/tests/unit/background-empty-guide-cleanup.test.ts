@@ -10,9 +10,12 @@ vi.mock('wxt/browser', async () =>
 // The reclaim guard itself (only pristine shells are deleted) is covered by
 // tests/integration/db-pristine-guide.test.ts; here only the routing matters:
 // which run endings hand the guide to it and which never do.
-vi.mock('@/lib/storage/db', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockStorageDbModule(mocks, importOriginal, {
+vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal, {
     deleteStepsForRun: mocks.deleteStepsForRun,
+  }));
+vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal, {
     discardPristineGuide: mocks.discardPristineGuide,
   }));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>

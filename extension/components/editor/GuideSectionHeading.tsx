@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 /** A parent-owned action that may complete synchronously or asynchronously. */
 type MaybePromise = void | Promise<void>;
 
-export interface GuideSectionHeadingSection {
+interface GuideSectionHeadingSection {
   id: string;
   title: string;
   startEntryId: string;
@@ -30,7 +30,7 @@ function normalizeTitle(value: string): string {
  * A callback-only section heading. Its owner controls persistence, error
  * reporting, and any confirmation UI for destructive actions.
  */
-export function GuideSectionHeading({
+function GuideSectionHeading({
   section,
   disabled = false,
   onRename,

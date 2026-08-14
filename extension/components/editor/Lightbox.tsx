@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Button } from '@/components/ui/button';
 import EntryThumbnail from './EntryThumbnail';
 import { PRIVACY_REVIEW_REQUIRED_HIDDEN } from '@/lib/editor/editor-messages';
-import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/db';
+import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
 
 interface Props {
   entries: StepEntry[];

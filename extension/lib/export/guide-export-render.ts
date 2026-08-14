@@ -1,7 +1,7 @@
 import { throwIfAborted } from '../shared/abort';
 import { encodeBase64 } from './base64';
 import { compositeStepEntry } from './entry-render';
-import type { Step, StepEntry } from '../storage/db';
+import { type Step, type StepEntry } from '../storage/models';
 import {
   GUIDE_EXPORT_LIMITS,
   GuideExportLimitError,

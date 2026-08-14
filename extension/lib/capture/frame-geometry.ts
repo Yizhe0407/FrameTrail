@@ -1,4 +1,4 @@
-import type { Bounds } from '../storage/db';
+import { type Bounds } from '../storage/models';
 
 interface Point {
   x: number;

@@ -1,30 +1,10 @@
 import 'fake-indexeddb/auto';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  GuideContentConflictError,
-  GuideStructureIntegrityError,
-  addGuideSectionAtomically,
-  closeDatabase,
-  createGuideFromSteps,
-  deleteGuideAnnotationAtomically,
-  deleteGuideEntriesAtomically,
-  deleteGuidePermanently,
-  deleteGuideSectionAtomically,
-  duplicateGuide,
-  getGuideStructureSnapshot,
-  getGuideSummaries,
-  getSteps,
-  moveGuideEntriesAtomically,
-  renameGuideSectionAtomically,
-  reorderGuideAnnotationsAtomically,
-  reorderGuideEntriesAtomically,
-  resetGuide,
-  restoreGuideAnnotationAtomically,
-  restoreGuideEntriesAtomically,
-  setGuideEntriesNumberedAtomically,
-  type GuideSection,
-  type Step,
-} from '@/lib/storage/db';
+import { GuideContentConflictError, addGuideSectionAtomically, deleteGuideAnnotationAtomically, deleteGuideEntriesAtomically, deleteGuideSectionAtomically, getGuideStructureSnapshot, moveGuideEntriesAtomically, renameGuideSectionAtomically, reorderGuideAnnotationsAtomically, reorderGuideEntriesAtomically, restoreGuideAnnotationAtomically, restoreGuideEntriesAtomically, setGuideEntriesNumberedAtomically } from '@/lib/storage/guide-structure';
+import { GuideStructureIntegrityError, type GuideSection, type Step } from '@/lib/storage/models';
+import { closeDatabase } from '@/lib/storage/database';
+import { createGuideFromSteps, deleteGuidePermanently, duplicateGuide, getGuideSummaries, resetGuide } from '@/lib/storage/guide-repository';
+import { getSteps } from '@/lib/storage/step-repository';
 
 const createdGuideIds = new Set<string>();
 
@@ -487,77 +467,5 @@ describe('strict annotation and visual CAS mutations', () => {
     expect(result.previousEntryIds).toEqual(before.entryIds);
     expect(result.previousSections).toEqual(before.guide.sections);
     expect(result.guide.contentRevision).toBe(before.guide.contentRevision + 1);
-  });
-});
-
-/** Writes rows exactly as legacy code left them, bypassing sanitization —
- * the v4 migration deliberately never rewrote step rows. */
-async function rawPutSteps(rows: readonly Step[]): Promise<void> {
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('scribe', 4);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('steps', 'readwrite');
-      for (const row of rows) tx.objectStore('steps').put(row);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('raw step write failed'));
-      tx.onabort = () => reject(tx.error ?? new Error('raw step write aborted'));
-    });
-  } finally {
-    db.close();
-  }
-}
-
-describe('legacy topology load-time repair', () => {
-  it('repairs legacy rows the lenient reader tolerates instead of failing closed forever', async () => {
-    const { guide, snapshot } = await createTrackedGuide(makeSingleSteps(1));
-    const keptEntryId = snapshot.entryIds[0];
-    const emptyAnchorId = crypto.randomUUID();
-    const orphanMemberId = crypto.randomUUID();
-    await rawPutSteps([
-      // Empty snapshot group: an anchor without any surviving annotation.
-      makeStep({ id: emptyAnchorId, sessionId: guide.id, groupId: emptyAnchorId, bounds: null, order: 1 }),
-      // Anchor-less legacy member carrying its own screenshot.
-      makeStep({ id: orphanMemberId, sessionId: guide.id, groupId: crypto.randomUUID(), order: 2, description: '被搶救的舊資料' }),
-    ]);
-
-    const repaired = await getGuideStructureSnapshot(guide.id);
-
-    expect(repaired.entryIds).toEqual([keptEntryId, orphanMemberId]);
-    expect(repaired.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
-    const rows = await getSteps(guide.id);
-    expect(rows.map((row) => ({ id: row.id, order: row.order }))).toEqual([
-      { id: keptEntryId, order: 0 },
-      { id: orphanMemberId, order: 1 },
-    ]);
-    expect(rows[1].groupId).toBeUndefined();
-    expect(rows[1].description).toBe('被搶救的舊資料');
-
-    // The repair persisted a strict-parser-valid layout: reloading is
-    // read-only again and does not advance the revision.
-    const reloaded = await getGuideStructureSnapshot(guide.id);
-    expect(reloaded.entryIds).toEqual(repaired.entryIds);
-    expect(reloaded.guide.contentRevision).toBe(repaired.guide.contentRevision);
-  });
-
-  it('invalidates concurrent CAS mutations taken against the pre-repair revision', async () => {
-    const { guide, snapshot } = await createTrackedGuide(makeSingleSteps(2));
-    const emptyAnchorId = crypto.randomUUID();
-    await rawPutSteps([
-      makeStep({ id: emptyAnchorId, sessionId: guide.id, groupId: emptyAnchorId, bounds: null, order: 2 }),
-    ]);
-
-    const repaired = await getGuideStructureSnapshot(guide.id);
-    expect(repaired.guide.contentRevision).toBe(snapshot.guide.contentRevision + 1);
-
-    await expect(
-      deleteGuideEntriesAtomically(guide.id, [snapshot.entryIds[0]], snapshot.guide.contentRevision),
-    ).rejects.toBeInstanceOf(GuideContentConflictError);
-    await expect(
-      deleteGuideEntriesAtomically(guide.id, [snapshot.entryIds[0]], repaired.guide.contentRevision),
-    ).resolves.toBeTruthy();
   });
 });

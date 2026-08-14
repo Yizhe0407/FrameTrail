@@ -5,7 +5,6 @@ import { GUIDE_SECTION_LIMITS, type GuideSection } from '../storage/guide-sectio
 import { GUIDE_TAG_LIMITS } from '../storage/guide-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'frametrail-project';
-export const PROJECT_ARCHIVE_LEGACY_VERSION = 1;
 export const PROJECT_ARCHIVE_VERSION = 2;
 export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.frametrail.project+json';
 
@@ -61,12 +60,6 @@ export interface ProjectArchiveOptions {
 
 export interface ProjectArchiveImportOptions {
   signal?: AbortSignal;
-  includeMetadata?: false;
-}
-
-export interface ProjectArchiveImportWithMetadataOptions {
-  signal?: AbortSignal;
-  includeMetadata: true;
 }
 
 export interface ProjectArchiveMetadataInput {
@@ -84,7 +77,7 @@ export interface ProjectArchiveMetadata {
 }
 
 export interface ImportedProjectArchive {
-  version: typeof PROJECT_ARCHIVE_LEGACY_VERSION | typeof PROJECT_ARCHIVE_VERSION;
+  version: typeof PROJECT_ARCHIVE_VERSION;
   steps: Step[];
   /** Section start ids already refer to the remapped ids in `steps`. */
   metadata: ProjectArchiveMetadata;
@@ -97,7 +90,7 @@ export type JsonRecord = Record<string, unknown>;
 export type ArchiveBounds = Bounds;
 export type ArchiveRedaction = Redaction;
 
-export interface ArchiveStepV1 {
+export interface ArchiveStep {
   id: string;
   sessionId: string;
   runId?: string;
@@ -118,7 +111,7 @@ export interface ArchiveStepV1 {
   numbered?: boolean;
 }
 
-export interface ArchiveBlobV1 {
+export interface ArchiveBlob {
   id: string;
   mediaType: string;
   size: number;
@@ -126,39 +119,29 @@ export interface ArchiveBlobV1 {
   data: string;
 }
 
-export interface ArchiveManifestV1 {
+export interface ArchiveManifest {
   format: typeof PROJECT_ARCHIVE_FORMAT;
-  version: typeof PROJECT_ARCHIVE_LEGACY_VERSION;
+  version: typeof PROJECT_ARCHIVE_VERSION;
   stepCount: number;
   blobCount: number;
-  steps: ArchiveStepV1[];
+  steps: ArchiveStep[];
+  metadata: ArchiveMetadata;
 }
 
-export interface ArchiveEnvelopeV1 {
-  manifest: ArchiveManifestV1;
-  blobs: ArchiveBlobV1[];
-}
-
-export interface ArchiveMetadataV2 {
+export interface ArchiveMetadata {
   title: string;
   description: string;
   sections: GuideSection[];
   tags: string[];
 }
 
-export interface ArchiveManifestV2 extends Omit<ArchiveManifestV1, 'version'> {
-  version: typeof PROJECT_ARCHIVE_VERSION;
-  metadata: ArchiveMetadataV2;
-}
-
-export interface ArchiveEnvelopeV2 {
-  manifest: ArchiveManifestV2;
-  blobs: ArchiveBlobV1[];
+export interface ArchiveEnvelope {
+  manifest: ArchiveManifest;
+  blobs: ArchiveBlob[];
 }
 
 export const ENVELOPE_KEYS = ['manifest', 'blobs'] as const;
-export const MANIFEST_V1_KEYS = ['format', 'version', 'stepCount', 'blobCount', 'steps'] as const;
-export const MANIFEST_V2_KEYS = [...MANIFEST_V1_KEYS, 'metadata'] as const;
+export const MANIFEST_KEYS = ['format', 'version', 'stepCount', 'blobCount', 'steps', 'metadata'] as const;
 export const METADATA_KEYS = ['title', 'description', 'sections', 'tags'] as const;
 export const SECTION_KEYS = ['id', 'title', 'startEntryId'] as const;
 export const BLOB_KEYS = ['id', 'mediaType', 'size', 'encoding', 'data'] as const;

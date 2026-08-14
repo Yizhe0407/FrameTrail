@@ -8,8 +8,10 @@ const mocks = await vi.hoisted(async () => (await import('../setup/background-te
 
 vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
-vi.mock('@/lib/storage/db', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockStorageDbModule(mocks, importOriginal));
+vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>

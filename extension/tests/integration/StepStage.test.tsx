@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import type { ScreenshotStep, Step, StepEntry } from '@/lib/storage/db';
+import { type ScreenshotStep, type Step, type StepEntry } from '@/lib/storage/models';
 vi.mock('@/components/editor/HighlightThumbnail', () => ({
   default: ({ overlay }: { overlay?: ReactNode }) => <div data-testid="single-image-frame">{overlay}</div>,
 }));

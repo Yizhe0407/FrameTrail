@@ -23,7 +23,7 @@ async function readActiveGuideId(page: import('@playwright/test').Page): Promise
 
 async function readGuideIds(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(async () => new Promise<string[]>((resolve, reject) => {
-    const request = indexedDB.open('scribe', 4);
+    const request = indexedDB.open('frametrail', 1);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;

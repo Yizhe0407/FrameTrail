@@ -12,15 +12,9 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import {
-  createGuideFromSteps,
-  deleteGuidePermanently,
-  duplicateGuide,
-  getGuideSummaries,
-  getSteps,
-  updateGuide,
-  type GuideSummary,
-} from '@/lib/storage/db';
+import { createGuideFromSteps, deleteGuidePermanently, duplicateGuide, getGuideSummaries, updateGuide } from '@/lib/storage/guide-repository';
+import { getSteps } from '@/lib/storage/step-repository';
+import { type GuideSummary } from '@/lib/storage/models';
 import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide/guide-actions';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
 import { cn } from '@/lib/shared/utils';
@@ -34,8 +28,10 @@ import EditableTitle from '@/components/shared/EditableTitle';
 import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
 import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
-import { exportProjectArchive, importProjectArchive, PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive';
-import { guideExportFilename } from '@/lib/export/guide-export';
+import { exportProjectArchive } from '@/lib/export/project-archive-serialize';
+import { importProjectArchive } from '@/lib/export/project-archive-import';
+import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
+import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 
 function formatBytes(bytes: number): string {
@@ -188,7 +184,7 @@ export default function App() {
       return;
     }
     await run('import', async () => {
-      const imported = await importProjectArchive(file, { includeMetadata: true });
+      const imported = await importProjectArchive(file);
       const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || '匯入的作品';
       const guide = await createGuideFromSteps(
         imported.steps,

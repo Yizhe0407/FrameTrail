@@ -26,7 +26,7 @@ import {
   exportImagesAsZip,
   localDateStamp,
 } from '@/lib/export/export-images';
-import type { Step } from '@/lib/storage/db';
+import { type Step } from '@/lib/storage/models';
 
 function step(order: number): Step {
   return {

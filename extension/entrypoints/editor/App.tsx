@@ -4,12 +4,9 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
 import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
-import {
-  entryId,
-  updateGuide,
-  type GuideStructureSnapshot,
-  type StepEntry,
-} from '@/lib/storage/db';
+import { entryId, type StepEntry } from '@/lib/storage/models';
+import { updateGuide } from '@/lib/storage/guide-repository';
+import { type GuideStructureSnapshot } from '@/lib/storage/guide-structure';
 import { DraftConfirmationRequiredError, EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/editor/EditorHeader';

@@ -1,6 +1,6 @@
 import { browser, type Browser } from 'wxt/browser';
 import { isTrustedEditorSenderForSession } from '../../capture/recapture-guards';
-import { getSteps } from '../../storage/db';
+import { getSteps } from '../../storage/step-repository';
 import { isRestrictedUrl } from '../../shared/restricted-urls';
 import { waitForTabComplete } from '../../runtime/tab-loading';
 import type { SourcePermissionPreflightSuccess, StartRecordingMessage } from '../../runtime/messages';

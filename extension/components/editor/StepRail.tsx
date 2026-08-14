@@ -6,7 +6,7 @@ import {
   horizontalListSortingStrategy,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { entryId, type StepEntry } from '@/lib/storage/db';
+import { entryId, type StepEntry } from '@/lib/storage/models';
 import type { GuideSection } from '@/lib/guide/guide-sections';
 import {
   restrictToHorizontalAxis,

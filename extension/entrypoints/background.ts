@@ -23,25 +23,16 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture/capture-presentation';
-import {
-  addStep,
-  addSteps,
-  deleteStep,
-  deleteStepsForRun,
-  getGuide,
-  getStep,
-  getSteps,
-  resetGuide,
-  stepRole,
-  type Step,
-} from '@/lib/storage/db';
+import { addStep, addSteps, deleteStep, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
+import { getGuide, resetGuide } from '@/lib/storage/guide-repository';
+import { stepRole, type Step } from '@/lib/storage/models';
 import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
-import { discardPristineGuide } from '@/lib/storage/db';
+import { discardPristineGuide } from '@/lib/storage/guide-repository';
 import {
   createControlPlane,
   type SnapshotCaptureContext,

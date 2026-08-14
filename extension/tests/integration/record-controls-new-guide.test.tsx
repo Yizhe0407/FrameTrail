@@ -26,7 +26,7 @@ vi.mock('wxt/browser', async () => {
 });
 // Only the storage primitives are mocked: the real guide-actions transaction
 // (create → send → verify → rollback with the live-run probe) runs under test.
-vi.mock('@/lib/storage/db', () => ({
+vi.mock('@/lib/storage/guide-repository', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
   discardPristineGuide: mocks.discardPristineGuide,

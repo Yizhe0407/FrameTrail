@@ -3,10 +3,8 @@ import { type Step } from '../storage/models';
 import {
   BLOB_KEYS,
   ENVELOPE_KEYS,
-  MANIFEST_V1_KEYS,
-  MANIFEST_V2_KEYS,
+  MANIFEST_KEYS,
   PROJECT_ARCHIVE_FORMAT,
-  PROJECT_ARCHIVE_LEGACY_VERSION,
   PROJECT_ARCHIVE_LIMITS,
   PROJECT_ARCHIVE_VERSION,
   SAFE_SCREENSHOT_MEDIA_TYPES,
@@ -14,7 +12,6 @@ import {
   type ImportedProjectArchive,
   type JsonRecord,
   type ProjectArchiveImportOptions,
-  type ProjectArchiveImportWithMetadataOptions,
   type ProjectArchiveSource,
 } from './project-archive-contract';
 import {
@@ -130,18 +127,10 @@ async function parseBlobRecords(value: unknown, expectedCount: number, signal?: 
 }
 
 /** Strictly parses an archive into fresh, collision-resistant Step ids and screenshot Blobs. */
-export function importProjectArchive(
-  source: ProjectArchiveSource,
-  options: ProjectArchiveImportWithMetadataOptions,
-): Promise<ImportedProjectArchive>;
-export function importProjectArchive(
-  source: ProjectArchiveSource,
-  options?: ProjectArchiveImportOptions,
-): Promise<Step[]>;
 export async function importProjectArchive(
   source: ProjectArchiveSource,
-  options: ProjectArchiveImportOptions | ProjectArchiveImportWithMetadataOptions = {},
-): Promise<Step[] | ImportedProjectArchive> {
+  options: ProjectArchiveImportOptions = {},
+): Promise<ImportedProjectArchive> {
   const { signal } = options;
   const text = await sourceToText(source, signal);
   throwIfAborted(signal);
@@ -160,16 +149,11 @@ export async function importProjectArchive(
   // fail explicitly instead of being misreported as an unknown-field error.
   if (manifest.format !== PROJECT_ARCHIVE_FORMAT) fail('INVALID_ARCHIVE', 'Unrecognized project archive format.');
   if (!Number.isSafeInteger(manifest.version)) fail('INVALID_ARCHIVE', 'manifest.version must be an integer.');
-  if (manifest.version !== PROJECT_ARCHIVE_LEGACY_VERSION && manifest.version !== PROJECT_ARCHIVE_VERSION) {
+  if (manifest.version !== PROJECT_ARCHIVE_VERSION) {
     fail('UNSUPPORTED_VERSION', `Project archive version ${String(manifest.version)} is not supported.`);
   }
-  const version = manifest.version as ImportedProjectArchive['version'];
   assertExactKeys(envelope, ENVELOPE_KEYS, 'archive');
-  assertExactKeys(
-    manifest,
-    version === PROJECT_ARCHIVE_LEGACY_VERSION ? MANIFEST_V1_KEYS : MANIFEST_V2_KEYS,
-    'manifest',
-  );
+  assertExactKeys(manifest, MANIFEST_KEYS, 'manifest');
 
   const stepCount = expectSafeInteger(manifest.stepCount, 'manifest.stepCount', 0, PROJECT_ARCHIVE_LIMITS.maxSteps);
   const blobCount = expectSafeInteger(
@@ -198,13 +182,9 @@ export async function importProjectArchive(
   validateGroups(steps);
   steps.sort(canonicalStepComparator);
 
-  const metadata = version === PROJECT_ARCHIVE_VERSION
-    ? parseArchiveMetadata(manifest.metadata, steps)
-    : { title: '', description: '', sections: [], tags: [] };
+  const metadata = parseArchiveMetadata(manifest.metadata, steps);
   const remapped = remapImportedProject(steps, metadata);
   throwIfAborted(signal);
 
-  return options.includeMetadata
-    ? { version, steps: remapped.steps, metadata: remapped.metadata }
-    : remapped.steps;
+  return { version: PROJECT_ARCHIVE_VERSION, steps: remapped.steps, metadata: remapped.metadata };
 }

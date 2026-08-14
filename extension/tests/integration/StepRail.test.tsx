@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
-import type { StepEntry } from '@/lib/storage/db';
+import { type StepEntry } from '@/lib/storage/models';
 import type { GuideSection } from '@/lib/guide/guide-sections';
 import { makeEntry } from '../setup/step-entries';
 

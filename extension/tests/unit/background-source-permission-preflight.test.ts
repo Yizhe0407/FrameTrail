@@ -7,7 +7,7 @@ import type {
 } from '@/lib/runtime/messages';
 import type { RecordingState } from '@/lib/storage/recording-state';
 import { makeRecordingState } from '../setup/recording-state';
-import type { Step } from '@/lib/storage/db';
+import { type Step } from '@/lib/storage/models';
 
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 
@@ -16,15 +16,19 @@ vi.mock('wxt/browser', async () =>
 // This suite keeps step persistence real: only the read APIs are stubbed, so
 // any unexpected write during a preflight path fails loudly instead of being
 // silently absorbed by a mock.
-vi.mock('@/lib/storage/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/storage/db')>();
+vi.mock('@/lib/storage/step-repository', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/storage/step-repository')>();
   return {
     ...actual,
-    getGuide: mocks.getGuide,
     getStep: mocks.getStep,
     getSteps: mocks.getSteps,
   };
 });
+
+vi.mock('@/lib/storage/guide-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/guide-repository')>()),
+  getGuide: mocks.getGuide,
+}));
 
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));

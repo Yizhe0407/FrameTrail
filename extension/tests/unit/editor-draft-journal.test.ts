@@ -4,7 +4,6 @@ import {
   clearCommittedDescriptionDraft,
   clearMatchingCommittedDescriptionDrafts,
   DESCRIPTION_DRAFT_JOURNAL_LIMITS,
-  discardDescriptionDraft,
   readDescriptionDrafts,
   writeDescriptionDraft,
 } from '@/lib/editor/editor-draft-journal';
@@ -156,28 +155,6 @@ describe('editor description draft journal', () => {
     expect(readDescriptionDrafts(step, 'writer-a', storage, 1_000_001)[0]?.description).toBe('可恢復寫入');
   });
 
-  it('recovers and selectively clears a legacy v1 record', () => {
-    localStorage.setItem(
-      'frametrail:editor-description-draft:v1:guide-1:step-1',
-      JSON.stringify({
-        version: 1,
-        stepId: 'step-1',
-        sessionId: 'guide-1',
-        baseDescription: '已儲存',
-        description: '舊版草稿',
-        updatedAt: 1_000,
-      }),
-    );
-
-    expect(readDescriptionDrafts(step, 'writer-a', localStorage, 1_001)[0]).toMatchObject({
-      writerId: 'legacy-v1',
-      description: '舊版草稿',
-      belongsToCurrentWriter: false,
-    });
-    expect(discardDescriptionDraft(step, 'legacy-v1', localStorage)).toBe(true);
-    expect(readDescriptionDrafts(step, 'writer-a', localStorage, 1_002)).toEqual([]);
-  });
-
   it('clears all and only candidates matching the authoritative commit', () => {
     writeDescriptionDraft(step, '相同內容', 'writer-a', localStorage, 1_000);
     writeDescriptionDraft(step, '相同內容', 'writer-b', localStorage, 1_001);
@@ -189,7 +166,7 @@ describe('editor description draft journal', () => {
     ]);
   });
 
-  it('removes expired and malformed records instead of restoring untrusted data', () => {
+  it('removes expired records instead of restoring stale data', () => {
     writeDescriptionDraft(step, '過期草稿', 'writer-a', localStorage, 1_000);
     expect(
       readDescriptionDrafts(
@@ -201,23 +178,16 @@ describe('editor description draft journal', () => {
     ).toEqual([]);
     expect(localStorage.length).toBe(0);
 
-    localStorage.setItem('frametrail:editor-description-draft:v1:guide-1:step-1', '{broken');
-    expect(readDescriptionDrafts(step, 'writer-a', localStorage, 2_000)).toEqual([]);
-    expect(localStorage.length).toBe(0);
   });
 
   it('evicts the oldest foreign records at the record cap instead of refusing the live write', () => {
-    localStorage.setItem(
-      'frametrail:editor-description-draft:v1:legacy-guide:legacy-step',
-      JSON.stringify({
-        version: 1,
-        stepId: 'legacy-step',
-        sessionId: 'legacy-guide',
-        baseDescription: '',
-        description: 'legacy',
-        updatedAt: 1_000,
-      }),
-    );
+    expect(writeDescriptionDraft(
+      { id: 'oldest-step', sessionId: 'guide', description: '' },
+      'oldest draft',
+      'oldest-writer',
+      localStorage,
+      1_000,
+    )).toBe(true);
     for (let index = 0; index < DESCRIPTION_DRAFT_JOURNAL_LIMITS.maxRecords - 1; index += 1) {
       expect(
         writeDescriptionDraft(
@@ -240,10 +210,10 @@ describe('editor description draft journal', () => {
       ),
     ).toBe(true);
 
-    // The oldest record (the abandoned legacy row) was reclaimed; everything
+    // The oldest foreign record was reclaimed; everything
     // newer survives, including the just-written live draft.
     expect(
-      readDescriptionDrafts({ id: 'legacy-step', sessionId: 'legacy-guide', description: '' }, 'observer', localStorage, 2_001),
+      readDescriptionDrafts({ id: 'oldest-step', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001),
     ).toEqual([]);
     expect(
       readDescriptionDrafts({ id: 'step-0', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001)[0]?.description,

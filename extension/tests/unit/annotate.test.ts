@@ -3,19 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/capture/raster-image-validation', () => ({
   validateRasterImageBlob: vi.fn().mockResolvedValue({ width: 100, height: 100, mediaType: 'image/png' }),
 }));
-import {
-  BADGE_RADIUS,
-  LEADER_LINE_WIDTH,
-  MARKER_RADIUS,
-  REDACTION_COLOR,
-  REDACTION_EXPANSION,
-  compositeHighlight,
-  compositeMultiHighlight,
-  getBadgeFontSize,
-  getExpandedRedactionBounds,
-  layoutAnnotations,
-  type AnnotationLayout,
-} from '@/lib/media/annotate';
+import { BADGE_RADIUS, LEADER_LINE_WIDTH, MARKER_RADIUS, REDACTION_COLOR, REDACTION_EXPANSION, type AnnotationLayout } from '@/lib/media/annotation-contract';
+import { compositeHighlight, compositeMultiHighlight, getExpandedRedactionBounds } from '@/lib/media/annotation-composite';
+import { getBadgeFontSize } from '@/lib/media/annotation-geometry';
+import { layoutAnnotations } from '@/lib/media/annotation-layout';
 
 interface Point {
   x: number;

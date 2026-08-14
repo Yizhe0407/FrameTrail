@@ -205,7 +205,7 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#disabled-button']);
     await popupPage.evaluate(async () => {
       await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open('scribe', 4);
+        const request = indexedDB.open('frametrail', 1);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const db = request.result;

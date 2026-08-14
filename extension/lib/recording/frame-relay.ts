@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import type { Bounds } from '../storage/db';
+import { type Bounds } from '../storage/models';
 import {
   getVisibleHighlightBounds,
   intersectBounds,

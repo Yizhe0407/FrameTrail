@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
-import { createGuide, discardPristineGuide, getGuide, type Guide } from '../storage/db';
+import { createGuide, discardPristineGuide, getGuide } from '../storage/guide-repository';
+import { type Guide } from '../storage/models';
 import {
   clearActiveGuideId,
   getActiveGuideId,

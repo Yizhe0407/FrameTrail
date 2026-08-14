@@ -1,6 +1,6 @@
-import { HIGHLIGHT_COLOR, HIGHLIGHT_FILL_COLOR } from '@/lib/media/annotate';
+import { HIGHLIGHT_COLOR, HIGHLIGHT_FILL_COLOR } from '@/lib/media/annotation-contract';
 
-export interface HighlightFrameBox {
+interface HighlightFrameBox {
   left: number;
   top: number;
   width: number;

@@ -1,4 +1,4 @@
-import type { StepEntry } from '@/lib/storage/db';
+import { type StepEntry } from '@/lib/storage/models';
 
 /** Single-step timeline entry fixture shared by the StepRail integration tests. */
 export function makeEntry(id: string, order: number): StepEntry {

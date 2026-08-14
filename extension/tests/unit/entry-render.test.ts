@@ -6,13 +6,13 @@ const mocks = vi.hoisted(() => ({
   compositeMultiHighlight: vi.fn(),
 }));
 
-vi.mock('@/lib/media/annotate', () => ({
+vi.mock('@/lib/media/annotation-composite', () => ({
   compositeHighlight: mocks.compositeHighlight,
   compositeMultiHighlight: mocks.compositeMultiHighlight,
 }));
 
 import { compositeStepEntry } from '@/lib/export/entry-render';
-import type { Step, StepEntry } from '@/lib/storage/db';
+import { type Step, type StepEntry } from '@/lib/storage/models';
 
 function makeStep(id: string, order: number, changes: Partial<Step> = {}): Step {
   return {

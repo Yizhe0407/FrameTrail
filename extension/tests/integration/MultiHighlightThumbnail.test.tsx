@@ -7,8 +7,8 @@ const annotateMocks = vi.hoisted(() => ({
   layoutAnnotations: vi.fn(),
 }));
 
-vi.mock('@/lib/media/annotate', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/media/annotate')>()),
+vi.mock('@/lib/media/annotation-layout', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/media/annotation-layout')>()),
   layoutAnnotations: annotateMocks.layoutAnnotations,
 }));
 

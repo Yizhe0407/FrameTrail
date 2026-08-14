@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import type { RecordingMode } from '@/lib/storage/recording-state';
 
-export interface OnboardingDialogProps {
+interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called before the dialog closes when the user finishes onboarding. */

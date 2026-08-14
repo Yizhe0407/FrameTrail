@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   reorderGuideEntriesAtomically: vi.fn(),
 }));
 
-vi.mock('@/lib/storage/db', () => {
+vi.mock('@/lib/storage/guide-structure', () => {
   class GuideContentConflictError extends Error {
     constructor(
       public readonly guideId: string,
@@ -20,8 +20,6 @@ vi.mock('@/lib/storage/db', () => {
   }
   return {
     GuideContentConflictError,
-    entryId: (entry: { kind: string; step?: { id: string }; anchor?: { id: string } }) =>
-      (entry.kind === 'single' ? entry.step!.id : entry.anchor!.id),
     getGuideStructureSnapshot: mocks.getGuideStructureSnapshot,
     reorderGuideEntriesAtomically: mocks.reorderGuideEntriesAtomically,
     addGuideSectionAtomically: vi.fn(),

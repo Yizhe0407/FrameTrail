@@ -18,7 +18,21 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-vi.mock('@/lib/storage/db', () => database);
+vi.mock('@/lib/storage/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/models')>()),
+  entryId: database.entryId,
+}));
+vi.mock('@/lib/storage/guide-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/guide-repository')>()),
+  getGuide: database.getGuide,
+  updateGuide: database.updateGuide,
+}));
+vi.mock('@/lib/storage/guide-structure', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/guide-structure')>()),
+  getGuideStructureSnapshot: database.getGuideStructureSnapshot,
+  deleteGuideSectionAtomically: database.deleteGuideSectionAtomically,
+  addGuideSectionAtomically: database.addGuideSectionAtomically,
+}));
 vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
 }));

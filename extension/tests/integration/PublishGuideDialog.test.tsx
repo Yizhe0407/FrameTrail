@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
-import type { StepEntry } from '@/lib/storage/db';
+import { type StepEntry } from '@/lib/storage/models';
 
 const mocks = vi.hoisted(() => ({
   generateGuideHtml: vi.fn(),
@@ -14,10 +14,10 @@ const mocks = vi.hoisted(() => ({
   downloadBlobViaBrowser: vi.fn(),
 }));
 
-vi.mock('@/lib/export/guide-export', () => ({
-  generateGuideHtml: mocks.generateGuideHtml,
-  generateGuideMarkdownArchive: mocks.generateGuideMarkdownArchive,
-  generateGuidePdf: mocks.generateGuidePdf,
+vi.mock('@/lib/export/guide-export-html', () => ({ generateGuideHtml: mocks.generateGuideHtml }));
+vi.mock('@/lib/export/guide-export-markdown', () => ({ generateGuideMarkdownArchive: mocks.generateGuideMarkdownArchive }));
+vi.mock('@/lib/export/guide-export-pdf', () => ({ generateGuidePdf: mocks.generateGuidePdf }));
+vi.mock('@/lib/export/guide-export-contract', () => ({
   guideExportFilename: mocks.guideExportFilename,
 }));
 

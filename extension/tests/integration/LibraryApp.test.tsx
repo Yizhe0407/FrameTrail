@@ -36,10 +36,23 @@ const archive = vi.hoisted(() => ({
   PROJECT_ARCHIVE_LIMITS: { maxArchiveBytes: 128 * 1024 * 1024 },
 }));
 
-vi.mock('@/lib/storage/db', () => database);
+vi.mock('@/lib/storage/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/models')>()),
+  UNTITLED_GUIDE_BASE: database.UNTITLED_GUIDE_BASE,
+}));
+vi.mock('@/lib/storage/guide-repository', () => ({
+  createGuideFromSteps: database.createGuideFromSteps,
+  deleteGuidePermanently: database.deleteGuidePermanently,
+  duplicateGuide: database.duplicateGuide,
+  getGuideSummaries: database.getGuideSummaries,
+  updateGuide: database.updateGuide,
+}));
+vi.mock('@/lib/storage/step-repository', () => ({ getSteps: database.getSteps }));
 vi.mock('@/lib/guide/guide-actions', () => guideActions);
 vi.mock('@/lib/storage/storage', () => storage);
-vi.mock('@/lib/export/project-archive', () => archive);
+vi.mock('@/lib/export/project-archive-serialize', () => ({ exportProjectArchive: archive.exportProjectArchive }));
+vi.mock('@/lib/export/project-archive-import', () => ({ importProjectArchive: archive.importProjectArchive }));
+vi.mock('@/lib/export/project-archive-contract', () => ({ PROJECT_ARCHIVE_LIMITS: archive.PROJECT_ARCHIVE_LIMITS }));
 vi.mock('wxt/browser', () => ({
   browser: { downloads },
 }));
@@ -304,7 +317,7 @@ describe('作品庫', () => {
     const file = new File(['archive'], 'fallback.frametrail', { type: 'application/vnd.frametrail.project+json' });
     fireEvent.change(input!, { target: { files: [file] } });
 
-    await waitFor(() => expect(archive.importProjectArchive).toHaveBeenCalledWith(file, { includeMetadata: true }));
+    await waitFor(() => expect(archive.importProjectArchive).toHaveBeenCalledWith(file));
     expect(database.createGuideFromSteps).toHaveBeenCalledWith(
       imported.steps,
       { title: '匯入標題', description: '匯入說明', tags: ['匯入'] },

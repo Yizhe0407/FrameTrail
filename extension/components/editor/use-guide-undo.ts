@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PendingUndoAction, UndoAction } from '@/lib/editor/editor-app-model';
-import type { Guide } from '@/lib/storage/db';
+import { type Guide } from '@/lib/storage/models';
 
 /**
  * Bookkeeping for the editor's single offered undo action.

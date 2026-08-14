@@ -1,5 +1,5 @@
 import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
-import type { StepEntry } from '../storage/db';
+import { type StepEntry } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 
 /** Metadata that is rendered into a local publication export. */

@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Step } from '../../storage/db';
+import { type Step } from '../../storage/models';
 
 /**
  * Durable copy of the one step an in-flight undo removed from the guide. The

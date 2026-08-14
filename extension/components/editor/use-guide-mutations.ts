@@ -3,25 +3,8 @@ import {
   type PendingUndoAction,
   type UndoAction,
 } from '@/lib/editor/editor-app-model';
-import {
-  addGuideSectionAtomically,
-  deleteGuideAnnotationAtomically,
-  deleteGuideEntriesAtomically,
-  deleteGuideSectionAtomically,
-  entryId,
-  getGuideStructureSnapshot,
-  GuideContentConflictError,
-  renameGuideSectionAtomically,
-  reorderGuideAnnotationsAtomically,
-  reorderGuideEntriesAtomically,
-  restoreGuideAnnotationAtomically,
-  restoreGuideEntriesAtomically,
-  setGuideEntriesNumberedAtomically,
-  type Guide,
-  type GuideStructureSnapshot,
-  type Step,
-  type StepEntry,
-} from '@/lib/storage/db';
+import { addGuideSectionAtomically, deleteGuideAnnotationAtomically, deleteGuideEntriesAtomically, deleteGuideSectionAtomically, getGuideStructureSnapshot, GuideContentConflictError, renameGuideSectionAtomically, reorderGuideAnnotationsAtomically, reorderGuideEntriesAtomically, restoreGuideAnnotationAtomically, restoreGuideEntriesAtomically, setGuideEntriesNumberedAtomically, type GuideStructureSnapshot } from '@/lib/storage/guide-structure';
+import { entryId, type Guide, type Step, type StepEntry } from '@/lib/storage/models';
 
 interface UseGuideMutationsOptions {
   sessionId: string | null;

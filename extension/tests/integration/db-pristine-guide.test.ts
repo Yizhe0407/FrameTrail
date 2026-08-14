@@ -19,16 +19,10 @@ vi.mock('wxt/browser', () => ({
   browser: { storage: { local: localStorageArea, onChanged: { addListener: vi.fn(), removeListener: vi.fn() } } },
 }));
 
-import {
-  closeDatabase,
-  createGuide,
-  discardPristineGuide,
-  getGuide,
-  isPristineGuide,
-  updateGuide,
-  addStep,
-  type Step,
-} from '@/lib/storage/db';
+import { closeDatabase, isPristineGuide } from '@/lib/storage/database';
+import { createGuide, discardPristineGuide, getGuide, updateGuide } from '@/lib/storage/guide-repository';
+import { addStep } from '@/lib/storage/step-repository';
+import { type Step } from '@/lib/storage/models';
 import { ACTIVE_GUIDE_ID_KEY, getActiveGuideId, setActiveGuideId } from '@/lib/storage/storage';
 
 afterAll(closeDatabase);

@@ -1,6 +1,6 @@
 import { downloadBlobViaBrowser } from './download-utils';
 import { throwIfAborted } from '../shared/abort';
-import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/db';
+import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { renderEntryImages, type EntryImageBudget } from './guide-export-render';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';

@@ -1,5 +1,5 @@
 import type { StepRecaptureTarget } from '../storage/recording-state';
-import type { StepEntry } from '../storage/db';
+import { type StepEntry } from '../storage/models';
 
 export const EMPTY_STEP_ENTRIES: StepEntry[] = [];
 

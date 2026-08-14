@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
-import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/db';
+import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/models';
 import { Badge } from '@/components/ui/badge';
 import EntryThumbnail from './EntryThumbnail';
 import StepActions from './StepActions';

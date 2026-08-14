@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getRecordingState, onRecordingStateChange } from '../storage/storage';
 import { createDefaultRecordingState } from '../storage/recording-state';
-import { getSteps, type Step } from '../storage/db';
+import { getSteps } from '../storage/step-repository';
+import { type Step } from '../storage/models';
 
 
 /** Exported so tests assert the reconciliation contract, not a magic number. */

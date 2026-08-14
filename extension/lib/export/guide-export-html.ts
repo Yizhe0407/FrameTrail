@@ -1,6 +1,6 @@
 import { throwIfAborted } from '../shared/abort';
 import type { GuideSection } from '../guide/guide-sections';
-import type { StepEntry } from '../storage/db';
+import { type StepEntry } from '../storage/models';
 import {
   DEFAULT_DESCRIPTION,
   DEFAULT_IMAGE_ALT,

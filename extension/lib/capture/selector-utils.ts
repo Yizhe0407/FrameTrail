@@ -1,4 +1,4 @@
-import type { Bounds } from '../storage/db';
+import { type Bounds } from '../storage/models';
 import { getOpenOrClosedShadowRoot } from './shadow-dom';
 import { isExtensionOverlay } from './viewport-overlay-host';
 import type { CandidateOffsetRange } from './candidate-cycling';
