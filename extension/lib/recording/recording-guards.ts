@@ -5,13 +5,7 @@ import { deepElementFromPoint, getComposedParent } from '../capture/selector-uti
 export type CaptureGuardFailure = 'stale-run' | 'inactive-tab' | 'changed-url' | null;
 export type RecordingTabUpdateAction = 'ignore' | 'reinject' | 'stop-snapshot';
 
-/**
- * True when a pointer coordinate falls in a native scrollbar gutter. The layout
- * viewport (`clientWidth`/`clientHeight`) excludes the scrollbars, so anything at
- * or beyond it is a scroll gesture on the bar — never page content. Step mode must
- * leave those events alone so the user can still drag to scroll and no bogus step
- * is recorded from a hit-test that lands on nothing.
- */
+/** 原生捲軸間隙位於 layout viewport 外，不可被記錄為步驟。 */
 export function isInScrollbarGutter(
   clientX: number,
   clientY: number,
@@ -30,13 +24,8 @@ const DOCUMENT_SCROLLING_KEYS = new Set([
 const TEXT_ENTRY_SELECTOR = 'input,textarea,select,[contenteditable=""],[contenteditable="true"]';
 
 /**
- * True when a key press would scroll the document it is delivered to.
- *
- * The snapshot shield needs this because its own document never scrolls: the
- * browser therefore chains the scroll out to the frozen page underneath, which
- * moves every captured rect and invalidates the run ("畫面尺寸已改變"). Text
- * entry keeps its native behaviour, and Space is only a scrolling key away
- * from a control it would otherwise activate.
+ * 偵測會透過不可捲動 shield 捲動凍結頁面的按鍵。
+ * 文字輸入及以 Space 觸發的控制項保留原生行為。
  */
 export function isDocumentScrollingKey(key: string, target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null;

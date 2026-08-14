@@ -2,20 +2,14 @@ import { repairGuideSections, type GuideSection } from '../guide/guide-sections'
 import { type StepEntry } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 
-/** Metadata that is rendered into a local publication export. */
 export interface GuideExportMetadata {
-  /** Display title and, when no filename is supplied, the filename source. */
+  /** 未指定 filename 時亦作為檔名來源。 */
   title?: string;
-  /** Optional introductory text for the guide. */
   description?: string;
-  /** Optional stable filename source; extensions are added by guideExportFilename. */
+  /** 副檔名由 guideExportFilename 加入。 */
   filename?: string;
-  /** Optional chapter headings anchored to complete timeline entry ids. */
   sections?: readonly GuideSection[];
-  /**
-   * Optional creation time (epoch milliseconds) rendered in the title block of
-   * styled exports. Display-only: it never affects filenames or determinism.
-   */
+  /** 僅供顯示的 epoch 毫秒，不影響檔名。 */
   createdAt?: number;
 }
 
@@ -37,12 +31,7 @@ export const DEFAULT_IMAGE_ALT = '步驟截圖';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
-/**
- * Shared visual identity for styled guide publications: the HTML stylesheet's
- * screen palette and the PDF raster renderer draw from this single source so
- * the two documents cannot drift apart. The HTML print palette intentionally
- * uses separate ink-friendly values and stays with the stylesheet.
- */
+/** HTML 螢幕與 PDF 共用主題；HTML 列印仍使用省墨配色。 */
 export const GUIDE_EXPORT_THEME = Object.freeze({
   text: '#1d2129',
   secondaryText: '#454d59',
@@ -79,11 +68,7 @@ export class GuideExportLimitError extends Error {
   }
 }
 
-/**
- * Produces a stable, filesystem-safe filename without consulting the clock or
- * the browser. Keeping this deterministic lets callers safely retry/cancel a
- * local export without silently creating a differently named publication.
- */
+/** 產生確定且檔案系統安全的名稱，確保重試結果穩定。 */
 export function guideExportFilename(metadata: GuideExportMetadata = {}, format: GuideExportFormat): string {
   const extension = format === 'markdown' ? 'md' : format === 'markdown-archive' ? 'zip' : format;
   return `${filenameStem(metadata)}.${extension}`;
@@ -141,11 +126,7 @@ function filenameStem(metadata: GuideExportMetadata): string {
   return bounded || DEFAULT_FILENAME;
 }
 
-/**
- * Formats an optional creation timestamp for display in exported documents.
- * Returns an empty string for absent or invalid values so callers can simply
- * skip the metadata line.
- */
+/** 時間戳缺少或無效時回傳空字串。 */
 export function formatGuideCreatedAt(timestamp: unknown): string {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
   const date = new Date(timestamp);

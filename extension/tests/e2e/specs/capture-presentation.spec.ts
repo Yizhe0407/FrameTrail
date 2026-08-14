@@ -67,11 +67,7 @@ async function expectRealRootScrollbar(page: Parameters<typeof startRecording>[0
     return { color: thumb.backgroundColor, geometry };
   });
   expect(state.color).toBe('rgb(255, 0, 255)');
-  // The fixture styles ::-webkit-scrollbar, so Blink paints a custom (never
-  // overlay) scrollbar that takes layout space on every OS — including macOS
-  // in 「顯示捲軸列：自動」 mode. Only Chromium's --hide-scrollbars zeroes it,
-  // and the harness strips that switch for this suite. A zero gutter here is a
-  // real regression, never an environment quirk: do not skip on it.
+  // Fixture 的自訂捲軸在所有平台佔佈局空間；零間隙代表真實回歸，不可 skip。
   expect(
     state.geometry.innerWidth - state.geometry.clientWidth,
     'root scrollbar gutter (is --hide-scrollbars still stripped in fixture.ts?)',

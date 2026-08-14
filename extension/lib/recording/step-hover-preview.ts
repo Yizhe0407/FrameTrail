@@ -50,11 +50,7 @@ export interface StepHoverPreview {
   destroy(): void;
 }
 
-/**
- * Owns the step-mode hover highlight: pointer tracking, frame-coalesced
- * rendering, a mutation observer bounded to the hovered target's composed
- * ancestor chain, and a slow fallback timer for silent DOM churn.
- */
+/** 管理逐 frame 合併的 hover highlight 與有限範圍的 mutation observer。 */
 export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHoverPreview {
   const preview = createStepPreview();
   let frame: number | null = null;
@@ -89,17 +85,12 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       });
     };
 
-    // Observe content/style changes inside the selected target, direct child
-    // replacement in its DOM parent, and only style-affecting attributes on
-    // composed ancestors. Unrelated document subtrees produce no records.
+    // 僅觀察目標與 composed ancestor chain，不含無關 subtree。
     mergeOptions(target, { subtree: true, childList: true, attributes: true, characterData: true });
     if (target.parentNode) mergeOptions(target.parentNode, { childList: true });
     let ancestor = getComposedParent(target);
     while (ancestor) {
-      // Direct child replacement on any composed ancestor can detach the
-      // current target (for example a virtualized row replacing its wrapper).
-      // This remains bounded to the ancestor chain; no document subtree is
-      // observed.
+      // ancestor 子節點替換可能使虛擬化目標脫離。
       mergeOptions(ancestor, { attributes: true, childList: true });
       ancestor = getComposedParent(ancestor);
     }

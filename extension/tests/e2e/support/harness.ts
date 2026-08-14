@@ -4,16 +4,7 @@ import { inflateSync } from 'node:zlib';
 // extension code, but the guide template below cannot drift from the model.
 import type { Guide } from '../../../lib/storage/models';
 
-/**
- * Single in-file source for the extension's persistence contract. page.evaluate
- * bodies run inside the browser and cannot share Node imports, so the literals
- * are declared once here and passed in as evaluate args. Authoritative
- * contract (keep in sync on schema changes):
- * - lib/storage/database.ts — DB name/version, object stores, indexes
- * - lib/storage/recording-state.ts — RECORDING_STATE_KEY
- * - lib/storage/storage.ts — ACTIVE_GUIDE_ID_KEY
- * - lib/runtime/onboarding.ts — ONBOARDING_STORAGE_KEY
- */
+/** Browser 內的 page.evaluate 無法匯入 Node 模組，因此在此集中管理持久化契約字面值。 */
 const SCRIBE_DB = { name: 'frametrail', version: 1 } as const;
 // `as const` keeps the literal types non-widening so the typed
 // chrome.storage.local.get overloads still apply inside evaluate bodies.
@@ -494,12 +485,7 @@ export async function sendRecordingControl(
   }, { type, undoToken, recordingStateKey: RECORDING_STATE_KEY });
 }
 
-/**
- * Repeatedly asserts that `read` keeps returning `expected` for the whole
- * window. Unlike a sleep-then-assert, this fails at the instant a spurious
- * value lands instead of sampling once after an arbitrary delay. Each read is
- * a real extension round-trip, so the loop needs no artificial pacing.
- */
+/** 整個視窗反覆斷言值穩定，以捕捉 sleep-then-assert 會漏掉的短暫異常。 */
 export async function expectSteady<T>(
   read: () => Promise<T>,
   expected: T,

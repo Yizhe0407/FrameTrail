@@ -2,13 +2,8 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { type Step } from '../../storage/models';
 
 /**
- * Durable copy of the one step an in-flight undo removed from the guide. The
- * in-memory pendingUndo slot in the background is authoritative while the
- * service worker lives, but MV3 may terminate it inside the short restore
- * window — this record is then the only surviving copy of the screenshot, so
- * startup can rehydrate the window instead of losing the image forever. It is
- * hard-deleted lazily: on restore, on the next undo/capture/lifecycle change,
- * or at startup once the window has expired.
+ * 單一待復原項目的持久化副本。MV3 可能在它成為唯一截圖副本時終止 worker，
+ * 因此刻意延後清理。
  */
 export interface PendingUndoRecord {
   token: string;

@@ -1,11 +1,6 @@
-/** Canonical name of the recorder's keep-alive port. The background accepts
- * only ports carrying this exact name; both sides import it from here. */
 export const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
 
-/** Posted by the background on a keep-alive port it refuses to serve, right
- * before disconnecting it. It authoritatively tells the client its capture job
- * no longer exists, unlike a bare disconnect which may just be a transient
- * service-worker restart. */
+/** 不同於單純斷線，此訊息確認擷取工作已不存在。 */
 export const KEEPALIVE_REJECTED_MESSAGE_TYPE = 'frametrail-keepalive-rejected';
 
 function isKeepAliveRejectionMessage(message: unknown): boolean {
@@ -24,8 +19,6 @@ function isKeepAliveHeartbeat(message: unknown): boolean {
   );
 }
 
-/** Background-side view of a runtime.onConnect port. */
-/** The half of a runtime port both ends of the keep-alive use. */
 export interface KeepAlivePortLike {
   postMessage(message: unknown): void;
   disconnect(): void;
@@ -40,24 +33,13 @@ export interface KeepAliveServerPortLike<TSender = unknown> extends KeepAlivePor
 
 export interface KeepAlivePortHandlerDeps<TSender, TState> {
   getRecordingState(): Promise<TState>;
-  /** Trust check binding the port's sender to the active capture job; receives
-   * `undefined` when the runtime reports no sender. */
+  /** 將 port 來源綁定至目前的擷取工作。 */
   isTrustedKeepAliveSender(sender: TSender | undefined, state: TState): boolean;
-  /** Invoked on disconnect to read runtime.lastError. A recorded page that
-   * navigates hands its port to the back/forward cache, which closes the
-   * channel with a lastError; acknowledging it stops Chrome from logging
-   * "Unchecked runtime.lastError" for every recorded-page navigation. */
+  /** 讀取 runtime.lastError，避免 bfcache 斷線產生 Chrome 警告。 */
   acknowledgeDisconnect(): void;
 }
 
-/**
- * Background half of the keep-alive protocol: serves ports carrying
- * KEEPALIVE_PORT_NAME and authorizes them against the active capture job.
- * An authoritative rejection tells the client its capture job is over so it
- * tears its UI down, instead of mistaking the disconnect for a worker restart
- * and reconnecting (and waking the worker) forever. The onConnect listener
- * itself stays wired in the background entrypoint.
- */
+/** 驗證 keep-alive port，並明確拒絕孤立 client，避免無限喚醒 worker。 */
 export function createKeepAlivePortHandler<TSender, TState>(
   deps: KeepAlivePortHandlerDeps<TSender, TState>,
 ): (port: KeepAliveServerPortLike<TSender>) => void {
@@ -116,44 +98,23 @@ export interface KeepAliveOptions {
   intervalMs: number;
   initialReconnectDelayMs?: number;
   maxReconnectDelayMs?: number;
-  /** Consecutive failed connection cycles (no heartbeat ever succeeding)
-   * tolerated before the client gives up instead of reconnecting forever. */
+  /** 放棄前可容許的連線失敗週期數。 */
   maxConsecutiveFailures?: number;
-  /** Invoked once when the background rejects this client or reconnection
-   * fails maxConsecutiveFailures times in a row; the handle is already
-   * stopped, so the caller only needs to tear down its own UI. */
+  /** 遭拒或耗盡重試後呼叫；此時 handle 已停止。 */
   onRejected?: () => void;
 }
 
 export interface KeepAliveHandle {
   stop(): void;
-  /**
-   * Closes the port cleanly without counting toward the give-up cap. Used on
-   * pagehide: a page that enters the back/forward cache with a live extension
-   * port makes the browser kill the channel and surface an "Unchecked
-   * runtime.lastError" in the service worker, so the client hands the port
-   * back before the document is frozen.
-   */
+  /** bfcache 凍結文件前交還 port，且不計為失敗。 */
   suspend(): void;
-  /** Re-establishes the port after a suspend (pageshow). No-op unless
-   * suspended; backoff state restarts from zero because a restore from the
-   * cache says nothing about background health. */
+  /** suspend 後重連並重設 backoff，因 bfcache 無法反映 worker 狀態。 */
   resume(): void;
 }
 
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 10;
 
-/**
- * Keeps a long-running extension operation alive without recursive reconnects.
- * Browser runtime ports can throw while an extension is being reloaded and can
- * also throw when a stale port is used, so every boundary is guarded and
- * reconnection is scheduled with bounded exponential backoff.
- *
- * An orphaned client must not wake the service worker forever: an explicit
- * rejection message from the background stops the client immediately, and a
- * bounded run of consecutive failures without one successful heartbeat stops
- * it as defense in depth (an older background may disconnect silently).
- */
+/** 以受保護 port、有限指數 backoff 與孤立拒絕維持操作。 */
 export function startKeepAlive(
   runtime: KeepAliveRuntimeLike,
   options: KeepAliveOptions,

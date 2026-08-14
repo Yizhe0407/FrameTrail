@@ -96,7 +96,6 @@ describe('createSnapshotTargetResolver', () => {
     const retained = await resolver.resolveAt(200, 50, 1, 0);
     expect(retained?.element).toBe(card);
 
-    // A deliberate epoch reset starts a fresh chain at the current hit.
     const reset = await resolver.resolveAt(200, 50, 0, 1);
     expect(reset?.element).toBe(nestedText);
   });
@@ -233,7 +232,6 @@ describe('readRegionScrollSnapshot', () => {
     const hits = stubElementFromPoint((x) => (x < 50 ? childA : childB));
     const snapshot = readRegionScrollSnapshot({ x: 8, y: 8, width: 80, height: 40 });
 
-    // Center plus four corners inset by min(4, size/4).
     expect(hits.mock.calls).toEqual([
       [48, 28],
       [12, 12],
@@ -241,7 +239,6 @@ describe('readRegionScrollSnapshot', () => {
       [12, 44],
       [84, 44],
     ]);
-    // Different hit elements, one shared scroll container: recorded once.
     expect(snapshot.containers).toEqual([{ element: container, x: 0, y: 40 }]);
     expect(snapshot.x).toBe(window.scrollX);
     expect(snapshot.y).toBe(window.scrollY);
@@ -280,7 +277,6 @@ describe('collectKeyboardCandidateAnchors', () => {
     const anchors = collectKeyboardCandidateAnchors();
 
     expect(anchors.map((anchor) => anchor.label)).toEqual(['div', '送出']);
-    // Anchors carry the candidate's center point for the shield to target.
     expect(anchors[0]).toMatchObject({ x: 50, y: 55 });
   });
 });

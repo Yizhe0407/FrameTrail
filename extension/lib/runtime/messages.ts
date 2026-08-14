@@ -1,5 +1,3 @@
-/** Shared message contracts between content script, background, and popup. */
-
 import type { RecordingMode, StepRecaptureTarget, Viewport } from '../storage/recording-state';
 
 type CaptureIntent = 'click' | 'mark';
@@ -16,9 +14,8 @@ export interface ClickCapture {
   type: 'FRAME_TRAIL_CLICK';
   /** Element selections replay the original page click; region selections are capture-only. */
   captureKind?: 'element' | 'region';
-  /** Identifies one in-flight screenshot so a cancelled gesture can invalidate it. */
+  /** 讓已取消 gesture 使進行中的截圖失效。 */
   captureId: string;
-  /** Identifies the exact recording run that injected the sender. */
   runId: string;
   rect: CaptureRect;
   devicePixelRatio: number;
@@ -26,7 +23,6 @@ export interface ClickCapture {
   viewport: Viewport;
   text: string;
   tagName: string;
-  /** Controls the generated description; generic visible targets are marks. */
   intent: CaptureIntent;
   url: string;
   timestamp: number;
@@ -34,23 +30,11 @@ export interface ClickCapture {
 
 export interface StartRecordingMessage {
   type: 'START_RECORDING';
-  /** Explicit Guide target. UI selection is intentionally separate from RecordingState. */
   sessionId: string;
   mode: RecordingMode;
-  /**
-   * True when the caller created sessionId's Guide solely for this run (the
-   * popup's 開始錄製 always records into a fresh Guide). Lets background
-   * reclaim the empty shell if the run ends with nothing captured; guides the
-   * user created explicitly (作品庫 新增教學) or continued from the editor
-   * never carry this flag and are never auto-deleted.
-   */
+  /** 未擷取內容時，允許 background 回收該流程建立的 Guide。 */
   autoCreatedGuide?: boolean;
-  /**
-   * Editor-initiated continuation of an existing Guide. The editor tab itself
-   * cannot be recorded, so background resolves the Guide's own persisted source
-   * page instead of using whichever tab happens to be active. The source URL is
-   * never accepted from the caller.
-   */
+  /** 從持久化來源接續；一律不信任呼叫端提供的來源 URL。 */
   continuation?: { preferredTabId?: number };
 }
 
@@ -62,9 +46,7 @@ export interface SourcePermissionPreflightSuccess {
   ok: true;
   /** Exact persisted HTTP(S) URL resolved by background; never accepted from editor state. */
   sourceUrl: string;
-  /** Parsed origin of sourceUrl, suitable for permission copy/UI. */
   sourceOrigin: string;
-  /** Browser host-permission match pattern derived from sourceOrigin. */
   permissionPattern: string;
 }
 
@@ -139,17 +121,12 @@ export type RecordingControlResult =
     }
   | { ok: false; error: string };
 
-/** Sent background -> content script (not through the BackgroundMessage
- *  union) telling the recorder in a specific tab to tear itself down —
- *  removes its listeners and closes the keep-alive port so the tab stops
- *  holding the service worker alive after recording stops. */
+/** 在 BackgroundMessage 外傳送，用於卸載 tab 錄製器並釋放 keep-alive port。 */
 export interface FrameTrailStopMessage {
   type: 'FRAME_TRAIL_STOP';
 }
 
-/** Sent background -> the top-level snapshot recorder only after its clean
- * anchor screenshot has been captured and persisted. Until this arrives the
- * shield consumes input but does not show hover previews or accept marks. */
+/** 僅在乾淨 anchor 持久化後啟用快照互動。 */
 export interface FrameTrailSnapshotActiveMessage {
   type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE';
   runId: string;
@@ -168,8 +145,7 @@ interface CancelCaptureMessage {
 export interface RecorderReadyMessage {
   type: 'FRAME_TRAIL_READY';
   runId: string;
-  /** Snapshot mode captures its clean base image during START, before the
-   * user can create any live annotations. */
+  /** 快照模式會先擷取此乾淨底圖，再接受標註。 */
   snapshotContext?: {
     viewport: Viewport;
     devicePixelRatio: number;
@@ -184,8 +160,7 @@ export interface PreflightStepRecaptureSourcePermissionMessage {
   target: StepRecaptureTarget;
 }
 
-/** Single source of truth for the recapture-preflight failure codes; the
- * result guard in runtime-message-result.ts validates against this same array. */
+/** 與 runtime-message-result.ts 的結果 guard 共用。 */
 export const RECAPTURE_PREFLIGHT_ERROR_CODES = [
   'INVALID_EDITOR',
   'TARGET_NOT_FOUND',
@@ -227,8 +202,7 @@ export interface StartStepRecaptureMessage {
   preferredTabId?: number;
 }
 
-/** Superset of the preflight codes: START re-runs the preflight and adds the
- * failure modes of actually taking over a source tab. */
+/** START 會重跑 preflight，並加入接管來源 tab 的失敗類型。 */
 export const RECAPTURE_START_ERROR_CODES = [
   'ACTIVE_OPERATION',
   ...RECAPTURE_PREFLIGHT_ERROR_CODES,

@@ -21,17 +21,8 @@ export interface RecorderLifecycle {
 }
 
 /**
- * Wires the shared keep-alive + back/forward-cache lifecycle for an injected
- * recorder (step/snapshot recorder and recapture selector alike):
- *
- * - The keep-alive port lets the background detect a dead recorder; a
- *   rejected port means the background disowned this run for good, so the
- *   injected UI tears down instead of reconnecting forever.
- * - Navigating away freezes this document in the back/forward cache with all
- *   recorder listeners intact. The port is handed back before the freeze, and
- *   on restore the recorder only resumes when its run is still the live one;
- *   otherwise the restored recorder would swallow real clicks and send
- *   captures into a run that already ended ("step was not captured").
+ * 讓注入的錄製器共用 keep-alive 與 bfcache 所有權檢查。
+ * 遭拒或過時的錄製器會卸載，而非無限重連。
  */
 export function installRecorderLifecycle(options: RecorderLifecycleOptions): RecorderLifecycle {
   const keepAlive = startKeepAlive(browser.runtime, {

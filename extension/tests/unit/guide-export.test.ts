@@ -123,7 +123,6 @@ describe('guide export', () => {
       maxPdfPages: 4_000,
       maxPdfBytes: 128 * 1024 * 1024,
     });
-    // The derivation source itself must not drift either.
     expect(PERSISTED_STEP_LIMITS.maxStepsPerGuide).toBe(2_000);
     expect(PERSISTED_STEP_LIMITS.maxScreenshotBytes).toBe(16 * 1024 * 1024);
     expect(PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes).toBe(64 * 1024 * 1024);
@@ -164,7 +163,6 @@ describe('guide export', () => {
     expect(mocks.pdfDrawImage).toHaveBeenCalledTimes(2);
     const [pagePlacement, screenshotPlacement] = mocks.pdfDrawImage.mock.calls.map(([, placement]) => placement);
     expect(pagePlacement).toEqual({ x: 0, y: 0, width: 595.28, height: 841.89 });
-    // The screenshot is layered inside the content area, above the footer.
     expect(screenshotPlacement.x).toBeGreaterThan(0);
     expect(screenshotPlacement.y).toBeGreaterThan(0);
     expect(screenshotPlacement.width).toBeLessThan(595.28);
@@ -173,10 +171,8 @@ describe('guide export', () => {
     expect(drawnText).toContain('Shared page');
     expect(drawnText).toContain('1. ');
     expect(drawnText).toContain('First annotation');
-    // Metadata line and running footer.
     expect(drawnText).toContain('共 1 個步驟');
     expect(drawnText).toContain('第 1 頁');
-    // The step badge draws only the numeral, never a "Step" label.
     expect(drawnText).toContain('1');
     expect(drawnText).not.toContain('Source');
     expect(drawnText).not.toContain('Step');
@@ -252,7 +248,6 @@ describe('guide export', () => {
     expect(strFromU8(files['images/02.jpg'])).toBe('second-image');
     expect(markdown).toContain('![Open settings](images/01.jpg)');
     expect(markdown).toContain('![Shared page](images/02.jpg)');
-    // Text-first reading order: the description paragraph precedes its image.
     expect(markdown.indexOf('Open settings')).toBeLessThan(markdown.indexOf('![Open settings](images/01.jpg)'));
     expect(markdown.indexOf('Shared page')).toBeLessThan(markdown.indexOf('![Shared page](images/02.jpg)'));
     expect(markdown).not.toContain('Step 1');

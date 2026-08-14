@@ -280,7 +280,6 @@ describe('layoutAnnotations', () => {
     const layouts = layoutAnnotations(annotations, 1_280, 800);
 
     expect(layouts.every((layout) => layout.markerOnly && layout.callout !== null)).toBe(true);
-    // Lane is horizontal: badges share one y and read 1..14 left to right.
     const badgeYs = new Set(layouts.map((layout) => layout.callout!.y));
     expect(badgeYs.size).toBe(1);
     const sortedByBadgeX = layouts.slice().sort((a, b) => a.callout!.x - b.callout!.x);
@@ -350,8 +349,6 @@ describe('layoutAnnotations', () => {
       let x = 60;
       for (let column = 0; column < 7; column++) {
         annotations.push({ bounds: { x, y, width: 24, height: 18 }, order: order++ });
-        // Advance by the box plus a gap that varies across 1–9px, so
-        // neighbors sit at a mix of small horizontal/vertical separations.
         x += 24 + (1 + (column % 5) * 2);
       }
       y += 18 + (1 + (row % 5) * 2);
@@ -672,7 +669,6 @@ describe('compositeMultiHighlight', () => {
 
   it('draws numbered frames and badges before privacy redactions', async () => {
     const { calls, context, FakeOffscreenCanvas } = fakeCanvas();
-    // 400x200 bitmap at scale 2 -> 200x100 CSS viewport.
     const close = stubBitmap(400, 200, FakeOffscreenCanvas);
 
     try {
@@ -688,9 +684,7 @@ describe('compositeMultiHighlight', () => {
         [{ id: 'mask', kind: 'solid', bounds: { x: 98, y: 48, width: 10, height: 10 } }],
       );
 
-      // Two disjoint framed singles: strokeBox rounds twice per frame (fill + stroke).
       expect(calls.filter(([name]) => name === 'roundRect')).toHaveLength(4);
-      // Numbered mode draws one badge circle and one digit per annotation.
       expect(calls.filter(([name]) => name === 'arc')).toHaveLength(2);
       const digits = calls.filter(([name]) => name === 'fillText').map(([, text]) => text);
       expect(digits).toEqual(['1', '2']);
@@ -700,7 +694,6 @@ describe('compositeMultiHighlight', () => {
       expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('stroke'));
       expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('arc'));
       expect(redactionIndex).toBeGreaterThan(calls.map(([name]) => name).lastIndexOf('fillText'));
-      // Expanded by 2 CSS px on every side, then scaled into bitmap coordinates.
       expect(calls[redactionIndex]).toEqual(['fillRect', 192, 92, 28, 28]);
       expect(context.fillStyle).toBe(REDACTION_COLOR);
       expect(calls.at(-1)).toEqual(['convertToBlob']);
@@ -748,13 +741,10 @@ describe('compositeMultiHighlight', () => {
         false,
       );
 
-      // Each marker paints three arcs (disc, ring, dot) and each callout one badge arc.
       expect(calls.filter(([name]) => name === 'arc')).toHaveLength(2 * 3 + 2);
       expect(calls.filter(([name]) => name === 'fillText').map(([, text]) => text)).toEqual(['1', '2']);
-      // At least one leader polyline connects a marker to its lane badge.
       expect(calls.some(([name]) => name === 'moveTo')).toBe(true);
       expect(calls.some(([name]) => name === 'lineTo')).toBe(true);
-      // Markers replace frames entirely for coincident targets.
       expect(calls.some(([name]) => name === 'roundRect')).toBe(false);
     } finally {
       vi.unstubAllGlobals();
@@ -763,7 +753,6 @@ describe('compositeMultiHighlight', () => {
 
   it('skips stroking annotations whose frames degenerate outside the viewport', async () => {
     const { calls, FakeOffscreenCanvas } = fakeCanvas();
-    // 100x50 CSS viewport; the annotation lies wholly beyond the right edge.
     stubBitmap(200, 100, FakeOffscreenCanvas);
 
     try {

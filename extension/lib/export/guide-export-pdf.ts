@@ -41,8 +41,7 @@ export async function generateGuidePdf(
   throwIfAborted(signal);
   const document = await PDFDocument.create();
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
-  // Pure embed callback: page/byte accounting and limit checks live in the
-  // paginator, which verifies the budget before handing a page over.
+  // 分頁器會先驗證頁數與位元組預算，再呼叫此純嵌入 callback。
   const paginator = new GuidePdfPaginator(async (jpegBytes, screenshots) => {
     throwIfAborted(signal);
     const embedded = await document.embedJpg(jpegBytes);
@@ -53,9 +52,7 @@ export async function generateGuidePdf(
       width: PDF_PAGE_WIDTH_POINTS,
       height: PDF_PAGE_HEIGHT_POINTS,
     });
-    // Screenshots are layered ON TOP of the page raster (whose rectangles are
-    // left blank) so the PDF shows them at native capture resolution; pdf-lib
-    // scales the embedded JPEG into the layout rectangle at display time.
+    // 將截圖疊在空白點陣矩形上，以保留原生解析度。
     for (const screenshot of screenshots) {
       const image = await document.embedJpg(screenshot.bytes);
       page.drawImage(image, {
@@ -88,8 +85,7 @@ export async function generateGuidePdf(
       textOrDefault(rendered.content.description, DEFAULT_DESCRIPTION),
     );
     await paginator.addImage(rendered.imageBytes);
-    // The entry description is already the step heading; only group
-    // annotations remain to be listed under the screenshot.
+    // 標題已包含項目說明。
     for (const [index, annotation] of rendered.content.annotations.entries()) {
       await paginator.addNumberedParagraph(index + 1, annotation.description);
     }
@@ -136,29 +132,20 @@ const PDF_FOOTER_RULE_Y = PDF_PAGE_HEIGHT - 112;
 const PDF_FOOTER_TEXT_Y = PDF_PAGE_HEIGHT - 92;
 const PDF_STEP_BADGE_SIZE = 56;
 const PDF_STEP_BADGE_GAP = 24;
-/** Digit size inside the step badge; independent of the title's text style. */
 const PDF_STEP_BADGE_FONT_SIZE = 26;
-/** Accent kicker above the title: a short thick rule acting as the brand mark. */
 const PDF_KICKER_WIDTH = 120;
 const PDF_KICKER_THICKNESS = 8;
 const PDF_KICKER_GAP_AFTER = 26;
-/** Hairline closing the title block before the first step. */
 const PDF_HEADER_RULE_THICKNESS = 2;
 const PDF_HEADER_RULE_GAP_AFTER = 34;
-/** Minimum room left on the page before a screenshot moves to the next one. */
 const PDF_IMAGE_MIN_SPACE = 360;
-/** A screenshot may always claim at least this much height after the break check. */
 const PDF_IMAGE_MIN_HEIGHT = 320;
-/** Cap so a tall capture never swallows the whole page. */
 const PDF_IMAGE_MAX_HEIGHT = 1_040;
-/** Clearance kept between the screenshot block and the content bottom. */
 const PDF_IMAGE_BOTTOM_CLEARANCE = 8;
-/** Vertical gap between the screenshot border and whatever follows it. */
 const PDF_IMAGE_GAP_AFTER = 30;
 const PDF_IMAGE_BORDER_WIDTH = 2;
 const PDF_FOOTER_FONT_SIZE = 22;
 const PDF_FOOTER_RULE_THICKNESS = 2;
-/** Minimum gap between the footer title and the right-aligned page number. */
 const PDF_FOOTER_TITLE_GAP = 40;
 const PDF_FONT_FAMILY = GUIDE_EXPORT_THEME.fontFamily;
 

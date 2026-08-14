@@ -251,8 +251,7 @@ export default defineContentScript({
       }
     };
 
-    /** Commits one snapshot annotation and returns its authoritative 1-based
-     * label, or null when no step was stored. */
+    /** 回傳已提交標註的權威 1-based 編號。 */
     const commitSnapshotAnnotation = async (
       rect: SnapshotShieldRect,
       target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
@@ -412,8 +411,6 @@ export default defineContentScript({
       }
     };
 
-    /** Installs the whole step-mode recorder (hover preview, gesture capture,
-     * child-frame relay endpoint, toolbar) and returns its uninstaller. */
     const installStepRecorder = (): (() => void) => {
       let stepGesture: {
         target: Element;

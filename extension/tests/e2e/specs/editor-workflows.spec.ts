@@ -341,12 +341,7 @@ test.describe('editor workflows', () => {
     await recordSnapshotTargets(appPage, popupPage, ['#action-button', '#visual-container strong']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 2);
 
-    // StepActions no longer hides its actions behind a "更多步驟操作" menu
-    // trigger (components/editor/StepActions.tsx) — copy/recapture/delete are
-    // always-visible icon buttons now, so the menu-open step is gone. The
-    // redesign also dropped the visible/aria-live "已複製" confirmation text
-    // in favour of a transient icon swap with no accessible name change; the
-    // clipboard-content assertions below are the reliable success signal.
+    // 圖示短暫切換沒有 DOM 訊號，因此直接驗證剪貼簿。
     await editor.getByRole('button', { name: '複製圖片' }).click();
     const ordinaryPng = await readClipboardPngEventually(editor);
     expect(ordinaryPng).toMatchObject({
@@ -526,11 +521,6 @@ test.describe('editor workflows', () => {
     await expect(editor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
 
-    // The header's reset trigger now carries an explicit aria-label
-    // ("重置目前錄製", added in ResetButton.tsx) that is more descriptive than
-    // its visible "重置" text, so it is no longer an exact match for '重置'.
-    // The in-dialog confirm button (ConfirmationDialog's confirmLabel) has no
-    // such override and keeps the plain "重置" accessible name.
     await editor.getByRole('button', { name: '重置目前錄製' }).click();
     const resetDialog = editor.getByRole('dialog');
     await expect(resetDialog).toContainText('重置目前錄製？');

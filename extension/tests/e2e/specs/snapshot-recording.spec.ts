@@ -221,10 +221,6 @@ test.describe('snapshot recording', () => {
     })).toEqual({ left: 16, bottom: 16 });
     await expect.poll(readToolbarCorner).toBe('bottom-left');
 
-    // The "更多錄製動作" dropdown-menu trigger only exists in the toolbar's
-    // invalidated-viewport variant now (lib/recording/recording-toolbar.tsx).
-    // The normal toolbar shows "放棄這次錄製" as an always-visible icon button
-    // directly, with no menu step in between.
     await shield.getByRole('button', { name: '放棄這次錄製' }).click();
     await expect(shield.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeVisible();
     await shield.getByRole('button', { name: '放棄錄製' }).click();

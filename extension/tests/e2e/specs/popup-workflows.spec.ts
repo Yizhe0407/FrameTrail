@@ -77,8 +77,6 @@ test.describe('popup workflows', () => {
     await expect(snapshotMode).toHaveAttribute('aria-checked', 'true');
     await expect(popupPage.getByText('鎖定目前畫面，在同一張截圖上加入多個標註點。')).toBeVisible();
 
-    // Numbering is no longer a start-time choice: recordings always begin
-    // numbered and the editor owns turning it off per snapshot.
     await expect(popupPage.getByRole('switch', { name: '自動編號' })).toHaveCount(0);
 
     const statePage = await extensionContext.newPage();
@@ -143,11 +141,7 @@ test.describe('popup workflows', () => {
       throw new Error('Expected reset data to select an empty Guide.');
     }
 
-    // The redesign keeps this action visible (rather than hiding it) and
-    // disables it instead when the session has no recorded steps.
     await expect(popupPage.getByRole('button', { name: '重置' })).toBeDisabled();
-    // 開啟編輯器 is the popup's secondary entry point (UX_PLAN 6.1) and stays
-    // enabled for an empty Guide: opening an empty editor is valid.
     await expect(popupPage.getByRole('button', { name: '作品庫', exact: true })).toBeEnabled();
 
     const editorPromise = extensionContext.waitForEvent('page');

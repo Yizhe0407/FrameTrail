@@ -1,12 +1,4 @@
-/** Back/forward-cache lifecycle for an injected recorder.
- *
- * A recorded page that navigates away is frozen in the bfcache with every
- * recorder listener and its keep-alive port intact. Without this hook the
- * browser kills the port (logging "Unchecked runtime.lastError" in the
- * service worker), and a later restore resurrects a zombie recorder that
- * swallows the user's clicks and fires captures into a run that may have
- * moved on — the "step was not captured" spam after pressing Back.
- */
+/** 防止從 bfcache 恢復的文件啟動已不屬於其流程的錄製器。 */
 
 export interface BfcacheLifecycleTarget {
   addEventListener(type: string, listener: (event: Event) => void): void;
@@ -26,12 +18,7 @@ export interface BfcacheLifecycleOptions {
   teardown(): void;
 }
 
-/**
- * Installs pagehide/pageshow handling for a recorder and returns its
- * uninstaller. On pagehide the port is closed cleanly; on a restore from the
- * bfcache the recorder revalidates its run before resuming — a stale one
- * tears itself down instead of zombie-ing until the keep-alive rejection cap.
- */
+/** 凍結前關閉 keep-alive，從 bfcache 恢復後重新驗證所有權。 */
 export function installBfcacheLifecycle(options: BfcacheLifecycleOptions): () => void {
   const onPageHide = () => {
     options.suspend();

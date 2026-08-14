@@ -96,20 +96,15 @@ const REBUILD_SNAPSHOT_FAILED_MESSAGE = '無法重建快照，請重試。';
 const CREATE_SNAPSHOT_FAILED_MESSAGE = '無法建立新快照，請重試。';
 
 const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
-/** Raised when a snapshot annotation arrives from a viewport that no longer
- * matches the anchor's. Typed so handleClick invalidates the run instead of
- * surfacing a per-click error. */
+/** 標示 anchor viewport 不符，讓整個快照流程失效。 */
 class SnapshotViewportChangedError extends Error {}
-/** A snapshot run whose anchor row (or its base image) is gone can never accept
- * another annotation. Settling the whole run once — instead of failing every
- * click — is what makes the state recoverable from the popup. */
+/** 結束 anchor 已無法接受標註的快照流程。 */
 const SNAPSHOT_ANCHOR_MISSING_ERROR: RecoverableRecordingError = {
   code: 'SNAPSHOT_ANCHOR_MISSING',
   message: '快照底圖已遺失，這次快照錄製已停止。先前完成的內容仍保留，請重新開始快照錄製。',
 };
 
-/** Raised when an annotation arrives for a run whose anchor no longer holds a
- * base image. Typed so handleClick settles the run instead of retrying forever. */
+/** 標示 anchor 圖片遺失，讓流程結束而非持續重試。 */
 class SnapshotAnchorMissingError extends Error {}
 const recorderRuntime = createRecorderRuntime({
   captureVisibleTab: (windowId) => browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 }),
@@ -121,13 +116,10 @@ const recorderRuntime = createRecorderRuntime({
 });
 let pendingUndo: PendingUndoRecord | null = null;
 
-// Owns the control version, the click gate, the ready gates and the pending
-// snapshot context; its claimControl is the one enforcement point of the
-// "invalidate synchronously before the first await" contract.
+// 強制控制流程在第一個 await 前同步失效。
 const control = createControlPlane({ discardPendingUndo });
 
-// The recapture flow shares the capture pipeline with step capture; the
-// cancellation/commit markers both flows consult live in capture-registry.
+// 步驟擷取與補拍共用取消及提交標記。
 const recaptureFlow = createRecaptureFlow({
   control,
   runtime: recorderRuntime,
@@ -138,11 +130,7 @@ const followMode = createFollowMode({ control, runtime: recorderRuntime });
 
 const editorOpen = createEditorOpen({ control });
 
-/**
- * Invalidates the in-memory undo window synchronously (control flows rely on
- * that ordering) and lazily hard-deletes its persisted copy — the last copy of
- * the removed step's screenshot once the window is gone.
- */
+/** 同步使復原失效，再刪除持久化的截圖副本。 */
 function discardPendingUndo(): void {
   pendingUndo = null;
   void clearPendingUndoRecord().catch((error) => {
@@ -435,13 +423,8 @@ async function preflightGuideContinuationSourcePermission(
 }
 
 /**
- * `operation: 'recording'` persists across restarts by design so ordinary MV3
- * worker restarts resume seamlessly, but a browser restart reissues tab ids:
- * the recorded tab is gone (or its id names an unrelated page), no recorder is
- * injected anywhere, and the stale single-owner state would make every future
- * start return "already recording" forever. Validate the recorded tab at
- * startup and settle impossible runs the same way a mid-run tab close does —
- * recoverable, captured content kept.
+ * MV3 worker 重啟會保留流程，但瀏覽器重啟可能重用 tab id。
+ * 結束無法再驗證 tab 身分的流程，同時保留已擷取內容。
  */
 async function recoverInterruptedRecording(): Promise<void> {
   const state = await getRecordingState();
@@ -470,17 +453,10 @@ async function assessInterruptedRecording(state: RecordingState): Promise<Interr
   } catch {
     return 'tab-gone';
   }
-  // A live run can read its tab's URL through the activeTab/host grant that
-  // started it. After a browser restart those grants are gone or the reissued
-  // id shows a browser page, so an unreadable or restricted URL means this
-  // run can never capture again. A readable ordinary URL is kept — steps mode
-  // legitimately navigates, so a stricter match would kill healthy runs.
+  // 步驟模式允許導頁；只有無法讀取或受限 URL 才能證明流程已失效。
   if (isRestrictedUrl(tab.url)) return 'tab-gone';
   if (state.mode === 'snapshot') {
-    // A snapshot run only accepts annotations while a valid anchor with a base
-    // image exists, so startup validates the anchor exactly like the tab: a
-    // run resumed into a click-accepting phase without one would fail every
-    // future annotation with a per-click error instead of settling.
+    // 恢復的快照流程必須先有持久化底圖，才能接受點擊。
     const acceptsAnnotations = state.phase === 'recording' || state.phase === 'finishing';
     if (acceptsAnnotations && !state.groupAnchorId) return 'anchor-missing';
     if (state.groupAnchorId) {
@@ -494,12 +470,7 @@ async function assessInterruptedRecording(state: RecordingState): Promise<Interr
   return 'intact';
 }
 
-/**
- * The in-memory undo window dies with the service worker while its persisted
- * copy survives. Rehydrate the window when the persisted run still matches;
- * otherwise the window is over and the record is hard-deleted — the deferred
- * deletion undoLastCapture's soft delete left to this point.
- */
+/** 僅在持久化流程仍相符時，重建 MV3 遺失的復原狀態。 */
 async function recoverPendingUndo(): Promise<void> {
   const record = await readPendingUndoRecord();
   if (!record) return;
@@ -518,16 +489,10 @@ async function recoverPendingUndo(): Promise<void> {
   pendingUndo ??= record;
 }
 
-/**
- * Every run starts numbered. Numbering is a per-snapshot presentation choice,
- * so the editor owns turning it off where the result is visible; asking before
- * the first capture made the user decide blind. Captures still stamp the run's
- * value onto each step, so turning it off later never rewrites older images.
- */
+/** 新流程預設編號；每次擷取都持久化當下的顯示設定。 */
 const RUN_STARTS_NUMBERED = true;
 
-/** The three start-failure writes share one shape: a version-independent error
- * stop that records the requested mode and resets every run-scoped field. */
+/** 寫入不受版本影響的共用啟動失敗狀態。 */
 function startFailureState(
   current: RecordingState,
   mode: StartRecordingMessage['mode'],
@@ -730,12 +695,7 @@ interface ValidatedRecorderSender {
   expectedControlVersion: number;
 }
 
-/**
- * The shared sender/state guard for messages a recorder content script sends
- * about a live recording run: top-frame sender, run identity, and recorded-tab
- * identity, plus the per-handler legs named in the options. Returns null when
- * any leg fails, so handlers answer untrusted or stale senders uniformly.
- */
+/** 驗證錄製器來源、流程身分、tab 所有權及 handler 專屬狀態。 */
 async function validateRecorderMessageSender(
   message: { runId: string },
   sender: Browser.runtime.MessageSender,
@@ -859,18 +819,8 @@ async function handleStopRecording(version: number): Promise<void> {
 }
 
 /**
- * The popup's 開始錄製 auto-creates a fresh Guide per run (autoCreatedGuideId).
- * When such a run ends with nothing captured, delete that empty shell and clear
- * the selection so aborted runs cannot pile unnamed empty guides up in 作品庫.
- *
- * Deliberately conservative: only guides that are still completely untouched
- * are deleted (discardPristineGuide re-verifies zero steps and empty
- * metadata at delete time), and only runs started with the popup's
- * autoCreatedGuide flag qualify — 作品庫 新增教學 and the editor's 接續錄製
- * never set it, so user-created guides are never touched. Two run endings
- * intentionally keep the guide: FINISH_RECORDING (the editor is about to open
- * it, so deleting would strand that navigation) and error stops (the recovery
- * flow still targets the run's sessionId).
+ * 僅回收 popup 建立且仍為空白的 Guide。完成與錯誤路徑仍需該 id
+ * 供編輯器導頁或復原，因此予以保留。
  */
 async function reclaimAbandonedAutoCreatedGuide(state: RecordingState): Promise<void> {
   if (!state.autoCreatedGuideId || state.autoCreatedGuideId !== state.sessionId) return;
@@ -896,9 +846,7 @@ async function deleteEmptySnapshotAnchor(state: RecordingState): Promise<string 
   return state.groupAnchorId;
 }
 
-/** Best-effort variant for run endings: the cleanup runs only after the stop
- * already won its state write, so a failure may leak an orphan row but must
- * never fail the stop itself. */
+/** 停止後盡力清理；失敗可能留下孤立資料，但不可讓停止操作失敗。 */
 async function deleteEmptySnapshotAnchorBestEffort(state: RecordingState): Promise<void> {
   try {
     await deleteEmptySnapshotAnchor(state);
@@ -1390,12 +1338,7 @@ async function handleRecordingControl(
   }
 }
 
-/**
- * Routes a configurable browser keyboard shortcut to the active recording's
- * control handlers (UX_PLAN §8.3). Shortcuts carry no runId, so the current
- * authoritative state supplies it; the handlers stay the single source of
- * truth and remain idempotent, so acting in a wrong phase is a safe no-op.
- */
+/** 將沒有 runId 的瀏覽器快捷鍵交由具冪等性的控制 handler 處理。 */
 async function handleCommandShortcut(command: string): Promise<void> {
   const state = await getRecordingState();
   if (!state.isRecording || !state.runId) return;
@@ -1863,25 +1806,8 @@ export default defineBackground(() => {
     }
   };
 
-  // Chrome honoured a Promise returned from a runtime.onMessage listener for
-  // exactly one release: the promise-reply feature reached stable in Chrome
-  // 144 (2026-01-13, announced in the chromium-extensions "Messaging API
-  // Changes" PSA) and was reverted right after rollout — crbug.com/40753031
-  // (formerly 1185241) remains open, MDN's compat data still lists Chrome as
-  // unsupported, and async listeners on Chrome 144–145 stable regressed to an
-  // immediate `undefined` reply. As of 2026-07 no release is confirmed to
-  // have re-shipped it, so this listener uses the universally supported
-  // callback contract instead of gating installs on a promise-honouring
-  // Chrome: compute the response promise, return `true` to hold the channel
-  // open, and settle it through sendResponse.
-  //
-  // requireRuntimeMessageResult callers treat a closed channel as failure, so
-  // every response-bearing case must reach sendResponse exactly once;
-  // routeBackgroundMessage's never-rejects invariant provides that, and the
-  // rejection leg below is defense in depth only. The synchronous rejection
-  // paths (malformed message, untrusted sender) keep returning undefined: no
-  // response is intended and the sender's error path already covers a closed
-  // channel.
+  // Chrome 仍無法可靠支援 onMessage 的 Promise 回覆（crbug.com/40753031）。
+  // 回傳 true 並只呼叫一次 sendResponse；格式錯誤或不可信訊息刻意不回覆。
   browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     if (!isBackgroundMessage(message)) return undefined;
     if (
@@ -1916,12 +1842,7 @@ export default defineBackground(() => {
   });
   browser.runtime.onConnect.addListener(handleKeepAlivePort);
 
-  /**
-   * Reads the run this tab event concerns, or null when it no longer concerns
-   * one: the control version moved (a newer command owns the run), the run
-   * ended, or the event belongs to a different tab. Every tab listener has to
-   * make this check before acting on a run it did not verify.
-   */
+  /** 回傳仍有效且屬於此 tab 事件的流程。 */
   const readActiveRunForTab = async (
     tabId: number,
     expectedControlVersion: number,
@@ -1939,16 +1860,7 @@ export default defineBackground(() => {
     return { state, runId: state.runId };
   };
 
-  /**
-   * Re-instruments a navigated tab. All-frames mirrors the START injection:
-   * step mode instruments every accessible child frame so iframe clicks keep
-   * being relayed to the top-frame recorder, not silently lost.
-   *
-   * A vanished tab always ends the run the same way, so that outcome is settled
-   * here; 'failed' hands the caller back control because the two navigation
-   * paths recover differently — a snapshot awaiting its next page only surfaces
-   * the error, while a live step run must stop.
-   */
+  /** 重新注入所有可存取 frame；注入失敗的結束方式由呼叫端決定。 */
   const reinjectRecorder = async (
     tabId: number,
     runId: string,

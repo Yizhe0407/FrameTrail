@@ -68,14 +68,11 @@ describe('orchestrateStepCapture', () => {
     const harness = createHarness();
     const run = orchestrateStepCapture(harness.handlers);
 
-    // Let the hide + capture-start microtasks flush before the screenshot lands.
     await Promise.resolve();
     await Promise.resolve();
     expect(harness.log).toEqual(['hide', 'capture:start']);
-    // The preview must not re-appear while the capture is still in flight.
     expect(harness.isPreviewVisible()).toBe(false);
 
-    // The real screenshot resolves late — replay must still wait for it.
     harness.resolveCapture(true);
     const outcome = await run;
 
@@ -99,7 +96,6 @@ describe('orchestrateStepCapture', () => {
     const harness = createHarness();
     const run = orchestrateStepCapture(harness.handlers);
     await Promise.resolve();
-    // The capture auto-scrolled the page down.
     expect(harness.getScroll()).toEqual({ x: 0, y: 640 });
 
     harness.resolveCapture(true);
@@ -155,11 +151,7 @@ describe('orchestrateStepCapture', () => {
   });
 
   it('keeps a committed capture intact when the response channel dies: failed outcome never invalidates background work', async () => {
-    // A link-click capture commits in the background before the response is
-    // sent; if that response is lost (page already navigating into bfcache),
-    // the content side sees a failure. It must NOT send a cancellation — the
-    // committed step has to survive — and it must still replay so the page
-    // stays usable.
+    // 回應可在 bfcache 導航時遺失；內容端不可取消已提交步驟，且仍須重播點擊。
     const cancelCapture = vi.fn(async () => {});
     const harness = createHarness({
       capture: () => Promise.reject(new Error('message channel closed')),
@@ -221,7 +213,6 @@ describe('createLateClickSuppressor', () => {
     expect(suppressor.shouldSuppress('button', false, identity)).toBe(false);
     expect(suppressor.shouldSuppress('other', true, identity)).toBe(false);
     expect(suppressor.shouldSuppress('button', true, identity)).toBe(true);
-    // Consuming disarms: the next trusted click goes through.
     expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
   });
 
@@ -242,23 +233,17 @@ describe('createLateClickSuppressor', () => {
   });
 
   it('delivers a rapid double-click even when the dedup window declines the capture', () => {
-    // Regression: first gesture captured and replayed; suppression armed. The
-    // second genuine click landed within DEDUP_MS, so no capture started —
-    // but its trusted click used to be eaten by the still-armed suppressor,
-    // losing the activation entirely.
+    // 回歸：DEDUP_MS 內的第二次真實點擊曾被尚未解除的 suppressor 吞掉。
     let clock = 0;
     const dedup = createStepCaptureDedup<string>(400, () => clock);
     const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
 
-    // First gesture: pointerdown captured, replay arms suppression.
     expect(dedup.shouldCapture('button')).toBe(true);
     suppressor.arm('button');
 
-    // Second gesture 150ms later on the same element.
     clock = 150;
     suppressor.onTrustedPointerDown();
-    expect(dedup.shouldCapture('button')).toBe(false); // no new capture (dedup)
-    // The second gesture's trusted click must be delivered, not suppressed.
+    expect(dedup.shouldCapture('button')).toBe(false);
     expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
   });
 

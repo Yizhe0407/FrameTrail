@@ -50,11 +50,7 @@ export interface Step {
   /** Recording run that created this row. Editor-created rows omit it. */
   runId?: string;
   order: number;
-  /** Raw (un-annotated) screenshot — the highlight box is drawn at
-   * render/export time. Only ordinary steps and snapshot anchors own image
-   * data; snapshot annotations refer to their anchor through groupId. Older
-   * recordings may still contain a duplicate blob on annotations; writes
-   * strip it. */
+  /** 僅一般步驟與快照 anchor 擁有原始截圖；寫入時移除標註副本。 */
   screenshotBlob?: Blob;
   /** Clicked element rect in CSS px, relative to the viewport at capture time. */
   bounds: Bounds | null;
@@ -78,14 +74,7 @@ export interface Step {
   captureRevision?: number;
   /** Durable marker used to recover a recapture after service-worker restart. */
   lastCaptureRunId?: string;
-  /** Present when this step is part of a single-image annotation group: the id
-   * of the group's anchor step, which holds the shared screenshotBlob and
-   * screenshot scale (every other member's own screenshotBlob is unused). The
-   * anchor step's own groupId equals its own id (self-reference) and its
-   * bounds is null — it's just the shared base image, not a clicked box.
-   * A session can freely mix ordinary steps (groupId undefined, own
-   * screenshot) and any number of these groups; each "start recording" in
-   * snapshot mode begins a brand-new group rather than resuming an old one. */
+  /** 快照 anchor id；anchor 自我引用並擁有群組共用圖片。 */
   groupId?: string;
   /** Snapshot mode only: whether the group renders order-number badges.
    * Same value denormalized across every step sharing a groupId. */
@@ -111,7 +100,6 @@ export interface Guide {
   storageBytes: number;
 }
 
-/** Kept as a named API type for compatibility; summaries are now guide rows. */
 export type GuideSummary = Guide;
 
 export const GUIDE_TITLE_MAX_LENGTH = 120;
@@ -280,9 +268,6 @@ export function sanitizeGuide(guide: Guide): Guide {
   };
 }
 
-/** One renderable unit in a session's timeline: either an ordinary per-click
- * step, or a whole single-image group collapsed into its shared image plus
- * the ordered list of click annotations on it. */
 export type ScreenshotStep = Step & { screenshotBlob: Blob };
 
 export type StepEntry =
@@ -291,18 +276,7 @@ export type StepEntry =
 
 export type StepRole = 'ordinary' | 'anchor' | 'annotation';
 
-/**
- * Structural role of a persisted step row, the single source of the id/groupId
- * rules every storage layer hand-enforced separately:
- * - 'ordinary': no groupId — a per-click step that owns its own screenshot.
- * - 'anchor': id === groupId (self-reference) — a snapshot group's shared base
- *   image row; its own bounds are null and it holds the group's screenshot.
- * - 'annotation': member of a group (groupId set, id !== groupId) — a click
- *   box drawn on the anchor's image; it owns no image data of its own.
- * The classifier is purely structural: validity requirements layered on top
- * (an anchor must actually carry a Blob, an annotation must have effective
- * bounds) remain with each call site because they differ by context.
- */
+/** 僅分類拓撲；呼叫端依情境驗證圖片與 bounds。 */
 export function stepRole(step: Pick<Step, 'id' | 'groupId'>): StepRole {
   if (!step.groupId) return 'ordinary';
   return step.id === step.groupId ? 'anchor' : 'annotation';
@@ -337,10 +311,7 @@ export interface EntryPrivacyState {
   reviewRequired: boolean;
 }
 
-/** Shared so the overwhelmingly common "no masks" answer keeps one identity.
- * A fresh `[]` per call made every thumbnail's overlay-mapping callback change
- * identity on every editor render, tearing down and rebuilding its
- * ResizeObserver each time. */
+/** 穩定的 identity 可避免縮圖 ResizeObserver 每次 render 都重建。 */
 const NO_REDACTIONS: Redaction[] = [];
 
 /** Validates privacy metadata without silently treating corrupt masks as absent.
@@ -356,9 +327,7 @@ export function getEntryPrivacyState(entry: StepEntry): EntryPrivacyState {
   const rawItems = raw as unknown[];
   const redactions = rawItems.filter(isValidRedaction);
   if (redactions.length === rawItems.length) {
-    // Keep the already-sanitized array identity on the hot preview path. This
-    // avoids allocating a new array on every editor render, which otherwise
-    // causes thumbnail overlay mapping observers to be torn down and rebuilt.
+    // 預覽 hot path 保留 identity，避免重建 overlay observer。
     return { redactions: owner.redactions as Redaction[], reviewRequired: owner.redactionReviewRequired === true };
   }
   return {
@@ -442,13 +411,7 @@ export function sanitizeStepForStorage(step: Step): Step {
 }
 
 
-/**
- * Groups a session's flat, order-sorted step list into displayable entries.
- * A group's anchor always has the lowest `order` among its members (it's
- * created first), so it's always the first occurrence of its groupId in the
- * sorted array — that's what keeps each group's entry positioned correctly
- * relative to ordinary steps around it.
- */
+/** 將已排序 row 分組；群組首次出現處決定其時間軸位置。 */
 export function buildStepEntries(steps: Step[]): StepEntry[] {
   const entries: StepEntry[] = [];
   const seenGroups = new Set<string>();
@@ -477,10 +440,7 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
     );
 
     if (anchor) {
-      // An anchor without any surviving annotation has no renderable content.
-      // Do not surface it as a phantom snapshot whose old pixels can be
-      // mistaken for a current annotation; deletion and stop cleanup remove
-      // the rows, while this also omits incomplete empty groups on read.
+      // 隱藏空 anchor，避免過時像素顯示為目前快照。
       const annotations = groupSteps.filter(
         (candidate) => stepRole(candidate) === 'annotation' && getEffectiveBounds(candidate) !== null,
       );
@@ -498,16 +458,11 @@ export function buildStepEntries(steps: Step[]): StepEntry[] {
   return entries;
 }
 
-/** Stable id for a timeline entry — an ordinary step's own id, or a group's
- * anchor id — used as the @dnd-kit sortable key and as a selection key. */
 export function entryId(entry: StepEntry): string {
   return entry.kind === 'single' ? entry.step.id : entry.anchor.id;
 }
 
-/** Flattens entries back into the complete, order-sorted list of step ids —
- * the shape reorderSteps needs (it must receive every id in the session, or
- * the steps left out keep their old `order` and can collide with the ones
- * renumbered here). */
+/** 包含所有 row id，避免 reorderSteps 留下衝突的舊 order。 */
 export function flattenEntries(entries: StepEntry[]): string[] {
   return entries.flatMap((entry) =>
     entry.kind === 'single' ? [entry.step.id] : [entry.anchor.id, ...entry.annotations.map((s) => s.id)],
@@ -565,8 +520,6 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
     index += 1;
     while (index < sorted.length && sorted[index].groupId === groupId) {
       const annotation = sorted[index];
-      // The loop condition pins annotation.groupId === groupId, so the role
-      // check is exactly the old `annotation.id === groupId` anchor test.
       if (seenIds.has(annotation.id) || stepRole(annotation) !== 'annotation' || !getEffectiveBounds(annotation)) {
         throw new GuideStructureIntegrityError('A snapshot group contains an invalid annotation.');
       }

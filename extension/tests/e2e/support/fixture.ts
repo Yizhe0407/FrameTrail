@@ -31,12 +31,7 @@ export const test = base.extend<Fixtures & Options>({
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: process.env.PW_HEADED !== '1',
-      // --hide-scrollbars, which Chromium injects in headless mode, is the sole
-      // switch governing whether the fixture's scrollbar gutter exists: the
-      // fixture's ::-webkit-scrollbar rules make Blink paint custom scrollbars,
-      // and those take layout space on every platform, macOS overlay preference
-      // included. Specs that assert on scrollbar pixels strip it; the rest keep
-      // it so their geometry never shifts.
+      // Chromium 的 --hide-scrollbars 是此 fixture 捲軸間隙的唯一開關；僅像素斷言需移除它。
       ignoreDefaultArgs: nativeScrollbars ? ['--hide-scrollbars'] : undefined,
       viewport: null,
       acceptDownloads: true,
@@ -45,9 +40,7 @@ export const test = base.extend<Fixtures & Options>({
         `--load-extension=${preparedExtensionPath}`,
         '--window-size=1280,900',
         '--force-device-scale-factor=1',
-        // Native scrollbars are restored by the ignoreDefaultArgs entry above,
-        // which strips the --hide-scrollbars switch Chromium injects in
-        // headless mode; this flag is only belt-and-braces for headed runs.
+        // ignoreDefaultArgs 處理 headless；此參數只補強 headed 模式。
         ...(nativeScrollbars || process.env.PW_HEADED === '1' ? ['--show-scrollbars'] : []),
         '--no-first-run',
         '--no-default-browser-check',
