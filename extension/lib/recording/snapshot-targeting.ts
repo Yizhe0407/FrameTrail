@@ -29,7 +29,7 @@ import {
   isExplicitFrameProbeFallback,
   resolveFrameProbeTargetOrigin,
 } from '../capture/frame-probe';
-import { createImageCoordinateMapper } from '../capture/image-geometry';
+import { findImageForArea, resolveImageMapTargetAtPoint } from './image-map-resolver';
 import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isFiniteRect } from '../shared/validation';
 import { CLEANUP_EVENT } from './content-script-constants';
@@ -87,6 +87,12 @@ interface SnapshotProbeResult {
 
 export interface ResolvedSnapshotTarget extends SnapshotProbeResult {
   element?: Element;
+  /**
+   * Overrides live-Element duplicate detection. `undefined` keeps the default
+   * `element` identity, while `null` disables it for composite targets whose
+   * logical identity spans more than one live element (for example area+image).
+   */
+  dedupeElement?: Element | null;
 }
 
 interface SnapshotProbeRequest {
@@ -138,82 +144,21 @@ function resolvedElement(
   };
 }
 
-function pointInPolygon(x: number, y: number, points: Array<[number, number]>): boolean {
-  let inside = false;
-  for (let i = 0, previous = points.length - 1; i < points.length; previous = i++) {
-    const [xi, yi] = points[i];
-    const [xj, yj] = points[previous];
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi || 1) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-function resolveImageMapTarget(
+function resolvedImageMapTarget(
+  area: HTMLAreaElement,
   image: HTMLImageElement,
-  clientX: number,
-  clientY: number,
-): ResolvedSnapshotTarget | null {
-  const mapName = image.useMap.replace(/^#/, '');
-  if (!mapName) return null;
-  const map = Array.from(document.querySelectorAll('map')).find(
-    (candidate) => (candidate as HTMLMapElement).name === mapName,
-  ) as HTMLMapElement | undefined;
-  const imageRect = image.getBoundingClientRect();
-  if (!map || imageRect.width <= 0 || imageRect.height <= 0) return null;
-  const sourceWidth = image.naturalWidth || imageRect.width;
-  const sourceHeight = image.naturalHeight || imageRect.height;
-  const mapper = createImageCoordinateMapper(image, sourceWidth, sourceHeight);
-  if (!mapper) return null;
-  const { x, y } = mapper.toSourcePoint(clientX, clientY);
-  if (x < 0 || y < 0 || x > sourceWidth || y > sourceHeight) return null;
-
-  for (const area of Array.from(map.areas) as HTMLAreaElement[]) {
-    if (!isInteractiveElement(area)) continue;
-    const coords = area.coords.split(',').map(Number).filter(Number.isFinite);
-    const shape = area.shape.toLowerCase();
-    let contains = shape === 'default';
-    let sourceBounds = { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
-    if (shape === 'rect' && coords.length >= 4) {
-      const [left, top, right, bottom] = coords;
-      contains = x >= left && x <= right && y >= top && y <= bottom;
-      sourceBounds = { x: left, y: top, width: right - left, height: bottom - top };
-    } else if (shape === 'circle' && coords.length >= 3) {
-      const [cx, cy, radius] = coords;
-      contains = Math.hypot(x - cx, y - cy) <= radius;
-      sourceBounds = { x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 };
-    } else if (shape === 'poly' && coords.length >= 6) {
-      const points = Array.from({ length: Math.floor(coords.length / 2) }, (_, index) => [
-        coords[index * 2],
-        coords[index * 2 + 1],
-      ] as [number, number]);
-      contains = pointInPolygon(x, y, points);
-      const xs = points.map(([pointX]) => pointX);
-      const ys = points.map(([, pointY]) => pointY);
-      const left = Math.min(...xs);
-      const top = Math.min(...ys);
-      sourceBounds = { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
-    }
-    if (!contains || sourceBounds.width <= 0 || sourceBounds.height <= 0) continue;
-
-    const areaBounds = mapper.toViewportBounds(sourceBounds);
-    const visibleImage = getVisibleHighlightBounds(image, clientX, clientY);
-    const visibleContent = visibleImage && intersectBounds(mapper.contentBounds, visibleImage);
-    const visibleArea = visibleContent && intersectBounds(areaBounds, visibleContent);
-    return visibleArea ? resolvedElement(area, visibleArea) : null;
-  }
-  return null;
-}
-
-function imageForArea(area: HTMLAreaElement): HTMLImageElement | null {
-  const map = area.closest('map');
-  const mapName = map?.getAttribute('name');
-  if (!mapName) return null;
-  const normalizedName = mapName.toLowerCase();
-  return (
-    Array.from(document.images).find(
-      (image) => image.useMap.replace(/^#/, '').toLowerCase() === normalizedName,
-    ) ?? null
-  );
+  rect: SnapshotShieldRect,
+): ResolvedSnapshotTarget {
+  return {
+    element: area,
+    dedupeElement: null,
+    rect,
+    identity: `${buildSnapshotTargetIdentity(area)}::image-map::${buildSnapshotTargetIdentity(image)}`,
+    text: describeElement(area),
+    tagName: area.tagName.toLowerCase(),
+    candidateOffset: 0,
+    offsetRange: NO_CANDIDATE_CYCLING,
+  };
 }
 
 async function probeChildFrame(
@@ -376,12 +321,15 @@ export function createSnapshotTargetResolver(runId: string): SnapshotTargetResol
       );
     }
     if (hit instanceof HTMLAreaElement) {
-      const image = imageForArea(hit);
-      if (image) return resolveImageMapTarget(image, clientX, clientY);
+      const image = findImageForArea(hit, clientX, clientY);
+      if (image) {
+        const target = resolveImageMapTargetAtPoint(image, clientX, clientY);
+        return target ? resolvedImageMapTarget(target.area, target.image, target.bounds) : null;
+      }
     }
     if (hit instanceof HTMLImageElement && hit.useMap) {
-      const area = resolveImageMapTarget(hit, clientX, clientY);
-      if (area) return area;
+      const target = resolveImageMapTargetAtPoint(hit, clientX, clientY);
+      if (target) return resolvedImageMapTarget(target.area, target.image, target.bounds);
     }
 
     const selected = candidateTarget.resolveFromHit(hit, clientX, clientY, effectiveOffset);

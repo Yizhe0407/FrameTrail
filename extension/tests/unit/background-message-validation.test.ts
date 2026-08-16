@@ -22,6 +22,44 @@ const validClick = {
   timestamp: 123,
 } as const;
 
+const validStepFrameBegin = {
+  type: 'FRAME_TRAIL_STEP_FRAME_BEGIN',
+  runId: 'run-1',
+  captureId: 'capture-1',
+  rect: { x: -10.5, y: 20, width: 120.25, height: 48 },
+  text: 'Open settings',
+  tagName: 'BUTTON',
+  interactive: true,
+} as const;
+
+const validStepFrameClaim = {
+  type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
+  runId: 'run-1',
+  captureId: 'capture-1',
+  relayToken: 'relay-token',
+} as const;
+
+const validStepFrameReject = {
+  type: 'FRAME_TRAIL_STEP_FRAME_REJECT',
+  runId: 'run-1',
+  captureId: 'capture-1',
+  relayToken: 'relay-token',
+} as const;
+
+const validStepFrameSettle = {
+  type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
+  runId: 'run-1',
+  captureId: 'capture-1',
+  settleToken: 'settle-token',
+  replay: true,
+} as const;
+
+const validStepFrameAbort = {
+  type: 'FRAME_TRAIL_STEP_FRAME_ABORT',
+  runId: 'run-1',
+  captureId: 'capture-1',
+} as const;
+
 describe('background runtime message validation', () => {
   it.each<unknown>([
     validClick,
@@ -90,6 +128,146 @@ describe('background runtime message validation', () => {
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { sourceUrl: 'https://attacker.example/' } },
     { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: '' },
   ])('rejects malformed or resource-unbounded input %#', (message) => {
+    expect(isBackgroundMessage(message)).toBe(false);
+  });
+});
+
+describe('step frame relay runtime payload validation', () => {
+  it.each<unknown>([
+    validStepFrameBegin,
+    validStepFrameClaim,
+    validStepFrameReject,
+    validStepFrameSettle,
+    { ...validStepFrameSettle, replay: false },
+    validStepFrameAbort,
+  ])('accepts a valid relay message %#', (message) => {
+    expect(isBackgroundMessage(message)).toBe(true);
+  });
+
+  it.each<{ name: string; message: unknown }>([
+    {
+      name: 'begin with an empty run id',
+      message: { ...validStepFrameBegin, runId: '' },
+    },
+    {
+      name: 'begin with an overlong capture id',
+      message: { ...validStepFrameBegin, captureId: 'x'.repeat(257) },
+    },
+    {
+      name: 'begin with a zero-width rect',
+      message: { ...validStepFrameBegin, rect: { ...validStepFrameBegin.rect, width: 0 } },
+    },
+    {
+      name: 'begin with non-finite geometry',
+      message: { ...validStepFrameBegin, rect: { ...validStepFrameBegin.rect, x: Number.NaN } },
+    },
+    {
+      name: 'begin with out-of-range geometry',
+      message: { ...validStepFrameBegin, rect: { ...validStepFrameBegin.rect, x: 10_000_001 } },
+    },
+    {
+      name: 'begin with overlong text',
+      message: { ...validStepFrameBegin, text: 'x'.repeat(201) },
+    },
+    {
+      name: 'begin with non-string text',
+      message: { ...validStepFrameBegin, text: 42 },
+    },
+    {
+      name: 'begin with an empty tag name',
+      message: { ...validStepFrameBegin, tagName: '' },
+    },
+    {
+      name: 'begin with an overlong tag name',
+      message: { ...validStepFrameBegin, tagName: 'T'.repeat(101) },
+    },
+    {
+      name: 'begin with a non-boolean interactive flag',
+      message: { ...validStepFrameBegin, interactive: 'yes' },
+    },
+    {
+      name: 'claim with an empty run id',
+      message: { ...validStepFrameClaim, runId: '' },
+    },
+    {
+      name: 'claim with an empty capture id',
+      message: { ...validStepFrameClaim, captureId: '' },
+    },
+    {
+      name: 'claim with a missing relay token',
+      message: {
+        type: validStepFrameClaim.type,
+        runId: validStepFrameClaim.runId,
+        captureId: validStepFrameClaim.captureId,
+      },
+    },
+    {
+      name: 'claim with an overlong relay token',
+      message: { ...validStepFrameClaim, relayToken: 'x'.repeat(257) },
+    },
+    {
+      name: 'reject with an overlong run id',
+      message: { ...validStepFrameReject, runId: 'x'.repeat(257) },
+    },
+    {
+      name: 'reject with a non-string capture id',
+      message: { ...validStepFrameReject, captureId: 42 },
+    },
+    {
+      name: 'reject with an empty relay token',
+      message: { ...validStepFrameReject, relayToken: '' },
+    },
+    {
+      name: 'settle with an empty run id',
+      message: { ...validStepFrameSettle, runId: '' },
+    },
+    {
+      name: 'settle with an overlong capture id',
+      message: { ...validStepFrameSettle, captureId: 'x'.repeat(257) },
+    },
+    {
+      name: 'settle with an empty settle token',
+      message: { ...validStepFrameSettle, settleToken: '' },
+    },
+    {
+      name: 'settle with only the page-visible relay token',
+      message: {
+        type: validStepFrameSettle.type,
+        runId: validStepFrameSettle.runId,
+        captureId: validStepFrameSettle.captureId,
+        relayToken: validStepFrameClaim.relayToken,
+        replay: true,
+      },
+    },
+    {
+      name: 'settle with a non-boolean replay flag',
+      message: { ...validStepFrameSettle, replay: 'true' },
+    },
+    {
+      name: 'abort with an empty run id',
+      message: { ...validStepFrameAbort, runId: '' },
+    },
+    {
+      name: 'abort with an overlong capture id',
+      message: { ...validStepFrameAbort, captureId: 'x'.repeat(257) },
+    },
+    {
+      name: 'abort without a capture id',
+      message: {
+        type: validStepFrameAbort.type,
+        runId: validStepFrameAbort.runId,
+      },
+    },
+    {
+      name: 'background-to-origin result sent in the inbound background channel',
+      message: {
+        type: 'FRAME_TRAIL_STEP_FRAME_RESULT',
+        runId: 'run-1',
+        captureId: 'capture-1',
+        replay: true,
+      },
+    },
+  ])('rejects $name', ({ message }) => {
     expect(isBackgroundMessage(message)).toBe(false);
   });
 });

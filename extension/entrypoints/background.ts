@@ -44,6 +44,7 @@ import {
   releaseCapture,
 } from '@/lib/recording/background/capture-registry';
 import { createRecorderRuntime } from '@/lib/recording/background/recorder-runtime';
+import { createStepFrameRelayBroker } from '@/lib/recording/background/step-frame-relay-broker';
 import { ACTIVE_OPERATION_MESSAGE, createRecaptureFlow } from '@/lib/recording/background/recapture-flow';
 import { createFollowMode } from '@/lib/recording/background/follow-mode';
 import {
@@ -89,6 +90,9 @@ import type {
   StartRecordingMessage,
   StartRecordingResult,
   StartStepRecaptureResult,
+  StepFrameRelayBeginResult,
+  StepFrameRelayClaimResult,
+  StepFrameRelayMutationResult,
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
 import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
@@ -1619,6 +1623,12 @@ async function handleClick(
 
 
 export default defineBackground(() => {
+  const stepFrameRelayBroker = createStepFrameRelayBroker({
+    sendResult: async (tabId, frameId, message) => {
+      await browser.tabs.sendMessage(tabId, message, { frameId });
+    },
+  });
+
   // A worker woken by a capture message from a page whose persisted run is
   // stale (e.g. a bfcache-restored recorder) must not race startup recovery:
   // clicks queue behind this settle so a dead run is retired silently by
@@ -1629,6 +1639,35 @@ export default defineBackground(() => {
   })().catch((error) => {
     console.error('[frametrail] failed to recover an interrupted operation', error);
   });
+
+  const relaySender = (sender: Browser.runtime.MessageSender) => ({
+    tabId: sender.tab?.id ?? null,
+    frameId: sender.frameId ?? null,
+  });
+
+  const isActiveStepRelaySender = async (
+    runId: string,
+    sender: Browser.runtime.MessageSender,
+    expectedFrame: 'child' | 'top',
+  ): Promise<boolean> => {
+    const tabId = sender.tab?.id;
+    const frameId = sender.frameId;
+    if (tabId == null || frameId == null) return false;
+    if (expectedFrame === 'child' ? frameId <= 0 : frameId !== 0) return false;
+    if (!control.acceptingClicks) return false;
+    const expectedControlVersion = control.controlVersion;
+    const state = await getRecordingState();
+    return (
+      expectedControlVersion === control.controlVersion &&
+      control.acceptingClicks &&
+      state.operation === 'recording' &&
+      state.isRecording &&
+      state.mode === 'steps' &&
+      state.phase === 'recording' &&
+      state.runId === runId &&
+      state.tabId === tabId
+    );
+  };
 
   /**
    * Routes a validated background message to its handler. Invariant: every
@@ -1757,6 +1796,40 @@ export default defineBackground(() => {
             { ok: false, status: 'failed' } satisfies StepRecaptureTargetResult,
           );
         }
+      case 'FRAME_TRAIL_STEP_FRAME_BEGIN':
+        return withMessageFailureFallback(
+          (async () => {
+            await startupRecovery;
+            if (!(await isActiveStepRelaySender(message.runId, sender, 'child'))) return { ok: false };
+            return stepFrameRelayBroker.begin(message, relaySender(sender));
+          })(),
+          'child-frame relay authorization failed',
+          { ok: false } satisfies StepFrameRelayBeginResult,
+        );
+      case 'FRAME_TRAIL_STEP_FRAME_CLAIM':
+        return withMessageFailureFallback(
+          (async () => {
+            await startupRecovery;
+            if (!(await isActiveStepRelaySender(message.runId, sender, 'top'))) return { ok: false };
+            return stepFrameRelayBroker.claim(message, relaySender(sender));
+          })(),
+          'child-frame relay claim failed',
+          { ok: false } satisfies StepFrameRelayClaimResult,
+        );
+      case 'FRAME_TRAIL_STEP_FRAME_REJECT':
+        return withMessageFailureFallback(
+          stepFrameRelayBroker.reject(message, relaySender(sender)),
+          'child-frame relay rejection failed',
+          { ok: false } satisfies StepFrameRelayMutationResult,
+        );
+      case 'FRAME_TRAIL_STEP_FRAME_SETTLE':
+        return withMessageFailureFallback(
+          stepFrameRelayBroker.settle(message, relaySender(sender)),
+          'child-frame relay settlement failed',
+          { ok: false } satisfies StepFrameRelayMutationResult,
+        );
+      case 'FRAME_TRAIL_STEP_FRAME_ABORT':
+        return Promise.resolve(stepFrameRelayBroker.abort(message, relaySender(sender)));
       case 'FRAME_TRAIL_CLICK':
         if (!control.acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
         {

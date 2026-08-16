@@ -1,4 +1,5 @@
 import { type Bounds } from '../storage/models';
+import { resolveImageMapAreaBounds } from './image-map-geometry';
 import { getOpenOrClosedShadowRoot } from './shadow-dom';
 import { isExtensionOverlay } from './viewport-overlay-host';
 import type { CandidateOffsetRange } from './candidate-cycling';
@@ -155,6 +156,13 @@ function isElementInteractionDisabled(el: Element): boolean {
 
 export function isElementVisuallyUnavailable(el: Element): boolean {
   const isImageMapArea = el instanceof HTMLAreaElement;
+  const targetStyle = isImageMapArea ? null : getComputedStyle(el);
+  if (
+    targetStyle &&
+    (hasComputedVisibilityUnavailable(targetStyle) || targetStyle.display === 'contents')
+  ) {
+    return true;
+  }
   let current: Element | null = el;
   while (current) {
     // <area> and its <map> tree have no rendered boxes; the associated <img>
@@ -163,12 +171,7 @@ export function isElementVisuallyUnavailable(el: Element): boolean {
     if (!isImageMapArea) {
       const style = getComputedStyle(current);
       if (
-        style.display === 'none' ||
-        (current === el && style.display === 'contents') ||
-        style.visibility === 'hidden' ||
-        style.visibility === 'collapse' ||
-        (style.opacity !== '' && Number(style.opacity) === 0) ||
-        style.contentVisibility === 'hidden'
+        hasOwnSubtreeVisualUnavailableState(style)
       ) {
         return true;
       }
@@ -278,14 +281,21 @@ function hasOwnInteractionDisabledState(el: Element): boolean {
   );
 }
 
-function hasOwnVisualUnavailableState(style: CSSStyleDeclaration): boolean {
+/** Visual states that suppress an entire rendered subtree. Unlike
+ * `visibility`, descendants cannot override any of these states. */
+function hasOwnSubtreeVisualUnavailableState(style: CSSStyleDeclaration): boolean {
   return (
     style.display === 'none' ||
-    style.visibility === 'hidden' ||
-    style.visibility === 'collapse' ||
     (style.opacity !== '' && Number(style.opacity) === 0) ||
     style.contentVisibility === 'hidden'
   );
+}
+
+/** `visibility` is inherited but explicitly overridable by descendants, so
+ * only the current element's computed value is authoritative. Accumulating a
+ * hidden ancestor would incorrectly discard `visibility: visible` children. */
+function hasComputedVisibilityUnavailable(style: CSSStyleDeclaration): boolean {
+  return style.visibility === 'hidden' || style.visibility === 'collapse';
 }
 
 /** Builds the composed ancestor chain and all inherited state once per hit-test.
@@ -301,12 +311,12 @@ function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
 
   const entries = new Array<AnalyzedElement>(elements.length);
   let interactionUnavailable = false;
-  let visualUnavailable = false;
+  let subtreeVisuallyUnavailable = false;
   for (let index = elements.length - 1; index >= 0; index -= 1) {
     const element = elements[index];
     const style = getComputedStyle(element);
     interactionUnavailable ||= hasOwnInteractionDisabledState(element);
-    visualUnavailable ||= hasOwnVisualUnavailableState(style);
+    subtreeVisuallyUnavailable ||= hasOwnSubtreeVisualUnavailableState(style);
     entries[index] = {
       element,
       style,
@@ -316,7 +326,9 @@ function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
       // associated image rather than their non-rendered <map> ancestry.
       visuallyUnavailable: element instanceof HTMLAreaElement
         ? false
-        : visualUnavailable || style.display === 'contents',
+        : subtreeVisuallyUnavailable ||
+          hasComputedVisibilityUnavailable(style) ||
+          style.display === 'contents',
     };
   }
   return entries;
@@ -434,6 +446,30 @@ export interface SelectedVisualTargetCandidate extends VisualTargetCandidate {
   offsetRange: CandidateOffsetRange;
 }
 
+/**
+ * Browser recording has two different targeting contracts:
+ *
+ * - annotation: choose the visible UI surface, optionally looking through a
+ *   completely blank hit-test shim (the browser equivalent of an accessibility
+ *   API omitting a non-semantic overlay);
+ * - activation: preserve the page's actual top hit surface, because replaying a
+ *   click on an element hidden underneath an overlay changes page behaviour.
+ */
+export interface VisualTargetPolicy {
+  pierceTransparentOccluders: boolean;
+  preserveHitSurface: boolean;
+}
+
+export const ANNOTATION_TARGETING_POLICY: Readonly<VisualTargetPolicy> = Object.freeze({
+  pierceTransparentOccluders: true,
+  preserveHitSurface: false,
+});
+
+export const ACTIVATION_TARGETING_POLICY: Readonly<VisualTargetPolicy> = Object.freeze({
+  pierceTransparentOccluders: false,
+  preserveHitSurface: true,
+});
+
 function visualBoundsKey(bounds: Bounds): string {
   return [bounds.x, bounds.y, bounds.width, bounds.height]
     .map((value) => Math.round(value * 2))
@@ -455,12 +491,16 @@ function hasSamePerceivedBoundary(a: Bounds, b: Bounds): boolean {
   );
 }
 
-function isVisuallySelectableEntry(entry: AnalyzedElement): boolean {
+function isVisuallySelectableEntry(
+  entry: AnalyzedElement,
+  isHit: boolean,
+  policy: Readonly<VisualTargetPolicy>,
+): boolean {
   const tag = entry.element.tagName.toLowerCase();
   return (
     !NON_SELECTABLE_VISUAL_TAGS.has(tag) &&
     (!DECORATIVE_SVG_TAGS.has(tag) || (entry.kind !== null && entry.kind !== 'cursor')) &&
-    !entry.visuallyUnavailable
+    (!entry.visuallyUnavailable || (isHit && policy.preserveHitSurface))
   );
 }
 
@@ -474,28 +514,109 @@ function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: numbe
   return entry.highlightBounds;
 }
 
+function overflowClipBoundsFromEntry(
+  entry: AnalyzedElement,
+  viewport: { width: number; height: number },
+): Bounds {
+  const el = entry.element;
+  if (el === document.body || el === document.documentElement || el === document.scrollingElement) {
+    return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+  }
+  const rect = boundingRect(entry);
+  if (!(el instanceof HTMLElement) || el.clientWidth <= 0 || el.clientHeight <= 0) {
+    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+  }
+  const scaleX = rect.width / (el.offsetWidth || rect.width || 1);
+  const scaleY = rect.height / (el.offsetHeight || rect.height || 1);
+  return {
+    x: rect.left + el.clientLeft * scaleX,
+    y: rect.top + el.clientTop * scaleY,
+    width: el.clientWidth * scaleX,
+    height: el.clientHeight * scaleY,
+  };
+}
+
+/** Candidate-chain variant of `getVisibleHighlightBounds`. It reuses the
+ * styles and rectangles already measured for this hit test, which lets visual
+ * dedup compare the actual on-screen boxes without multiplying layout reads. */
+function visibleHighlightBoundsFromEntries(
+  entries: AnalyzedElement[],
+  index: number,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+): Bounds | null {
+  // An <area> paints through its associated <img>, not through its <map>
+  // ancestry. Use the canonical path so clipping starts at the image tree.
+  if (entries[index].element instanceof HTMLAreaElement) {
+    return getVisibleHighlightBounds(entries[index].element, clientX, clientY, viewport);
+  }
+
+  let visible = highlightBounds(entries[index], clientX, clientY);
+  if (!visible) return null;
+  visible = intersectBounds(visible, { x: 0, y: 0, width: viewport.width, height: viewport.height });
+  if (!visible) return null;
+
+  for (let ancestorIndex = index + 1; ancestorIndex < entries.length; ancestorIndex += 1) {
+    const ancestor = entries[ancestorIndex];
+    const style = ancestor.style;
+    const overflowX = style.overflowX || style.overflow;
+    const overflowY = style.overflowY || style.overflow;
+    const clipsX = Boolean(overflowX && overflowX !== 'visible');
+    const clipsY = Boolean(overflowY && overflowY !== 'visible');
+    if (clipsX || clipsY) {
+      const rect = overflowClipBoundsFromEntry(ancestor, viewport);
+      visible = intersectBounds(visible, {
+        x: clipsX ? rect.x : visible.x,
+        y: clipsY ? rect.y : visible.y,
+        width: clipsX ? rect.width : visible.width,
+        height: clipsY ? rect.height : visible.height,
+      });
+      if (!visible) return null;
+    }
+    if (clipsPaint(style)) {
+      const rect = boundingRect(ancestor);
+      visible = intersectBounds(visible, {
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+      if (!visible) return null;
+    }
+  }
+  return visible;
+}
+
 interface ChainAnalysis {
   targets: VisualTargetCandidates;
-  /** Reuses the style and geometry already measured for the top hit when the
-   * occlusion fallback needs to classify it. */
-  hit: AnalyzedElement;
   /** The control the chain resolves to, or null when it holds none. */
   interactive: Element | null;
+  /** Deepest-first composed branch, retained so occlusion fallback can inspect
+   * only the part that sits above a deeper target. Shared app/body ancestors do
+   * not occlude one sibling branch with another and must not block piercing. */
+  entries: AnalyzedElement[];
 }
 
 /** Builds the visually distinct target chain under a point, from the deepest
  * rendered element toward its composed ancestors. Semantic controls remain
  * the default even when the pointer lands on a nested label or icon. */
-function analyzeChain(hit: Element, clientX: number, clientY: number): ChainAnalysis {
+function analyzeChain(
+  hit: Element,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+  policy: Readonly<VisualTargetPolicy>,
+): ChainAnalysis {
   const entries = analyzeElements(elementAndComposedAncestors(hit));
   const interactive = findInteractiveTargetFromEntries(entries);
   const candidates: VisualTargetCandidate[] = [];
   const indexByBounds = new Map<string, number>();
 
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     const element = entry.element;
-    if (!isVisuallySelectableEntry(entry)) continue;
-    const bounds = highlightBounds(entry, clientX, clientY);
+    if (!isVisuallySelectableEntry(entry, index === 0, policy)) continue;
+    const bounds = visibleHighlightBoundsFromEntries(entries, index, clientX, clientY, viewport);
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue;
 
     const key = visualBoundsKey(bounds);
@@ -527,16 +648,21 @@ function analyzeChain(hit: Element, clientX: number, clientY: number): ChainAnal
     : -1;
   return {
     targets: { candidates, defaultIndex: interactiveIndex >= 0 ? interactiveIndex : 0 },
-    hit: entries[0],
     interactive,
+    entries,
   };
 }
 
 /** How far down the paint stack a blank occluder is searched past. */
 const OCCLUDER_STACK_LIMIT = 8;
-/** A large empty layer is almost always a modal backdrop or drag shield even
- * when its CSS paint cannot be classified reliably. */
-const OCCLUDER_COVERAGE_RATIO = 0.6;
+/** A hostile or unusually large component tree must not turn one pointer move
+ * into an unbounded DOM walk. Reaching the cap means the branch cannot be
+ * proven blank, so targeting conservatively keeps the upper surface. */
+const OCCLUDER_SUBTREE_SCAN_LIMIT = 256;
+/** Containing-block discovery is repeated inside the bounded subtree scan, so
+ * cap each ancestor walk as well. Exceeding it leaves the pseudo unproven. */
+const PSEUDO_CONTAINING_BLOCK_SCAN_LIMIT = 64;
+const GENERATED_PSEUDO_ELEMENTS = ['::before', '::after'] as const;
 
 function cssColorIsTransparent(color: string): boolean {
   const normalized = color.replace(/\s+/g, '').toLowerCase();
@@ -568,7 +694,13 @@ function hasNoOwnVisualPaint(el: Element, style: CSSStyleDeclaration): boolean {
   if (role && role !== 'none' && role !== 'presentation' && role !== 'generic') return false;
   if (Number(style.opacity) === 0) return true;
   if (!cssColorIsTransparent(style.backgroundColor) || !cssPaintIsAbsent(style.backgroundImage)) return false;
-  if (!cssPaintIsAbsent(style.boxShadow) || !cssPaintIsAbsent(style.outlineStyle)) return false;
+  if (
+    !cssPaintIsAbsent(style.boxShadow) ||
+    !cssPaintIsAbsent(style.outlineStyle) ||
+    !cssPaintIsAbsent(style.filter)
+  ) {
+    return false;
+  }
 
   const extended = style as CSSStyleDeclaration & {
     backdropFilter?: string;
@@ -594,27 +726,367 @@ function hasNoOwnVisualPaint(el: Element, style: CSSStyleDeclaration): boolean {
   return true;
 }
 
-/**
- * A transparent shim, drag layer or modal backdrop can swallow hit testing
- * without being the thing users see. PixPin-like targeting follows visible UI
- * boundaries, so a small transparent layer is just as pass-through as a
- * full-viewport one. Text/accessible labels and painted surfaces stay real
- * targets; viewport coverage remains a fallback for browser-specific CSS that
- * cannot be classified from computed style.
- */
-function looksLikeBlankOccluder(entry: AnalyzedElement, viewport: { width: number; height: number }): boolean {
-  const el = entry.element;
-  if (
+function hasSurfaceDescription(el: Element): boolean {
+  return (
     (el.textContent ?? '').trim().length > 0 ||
     (el.getAttribute('aria-label') ?? '').trim().length > 0 ||
     (el.getAttribute('aria-labelledby') ?? '').trim().length > 0 ||
     (el.getAttribute('title') ?? '').trim().length > 0
-  ) {
+  );
+}
+
+/**
+ * A transparent shim or drag layer can swallow hit testing without being the
+ * thing users see. Annotation targeting follows visible UI boundaries, so a
+ * small transparent layer is just as pass-through as a full-viewport one.
+ * Text, accessible semantics and any painted surface — notably a modal
+ * backdrop — stay real targets regardless of their size.
+ */
+function looksLikeBlankOccluder(entry: AnalyzedElement): boolean {
+  return !hasSurfaceDescription(entry.element) && hasNoOwnVisualPaint(entry.element, entry.style);
+}
+
+function rectContainsPoint(rect: DOMRect, clientX: number, clientY: number): boolean {
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
+}
+
+function elementHasBoxAtPoint(el: Element, clientX: number, clientY: number): boolean {
+  try {
+    return Array.from(el.getClientRects()).some((rect) => rectContainsPoint(rect, clientX, clientY));
+  } catch {
+    // A layout read that cannot be completed means the branch is not safely
+    // classifiable as blank. The caller treats this sentinel as painted.
+    return true;
+  }
+}
+
+function browserSupportsPseudoComputedStyle(): boolean {
+  try {
+    return (
+      typeof CSS !== 'undefined' &&
+      typeof CSS.supports === 'function' &&
+      CSS.supports('selector(::before)')
+    );
+  } catch {
     return false;
   }
-  const rect = boundingRect(entry);
-  const coversViewport = rect.width * rect.height >= viewport.width * viewport.height * OCCLUDER_COVERAGE_RATIO;
-  return hasNoOwnVisualPaint(el, entry.style) || coversViewport;
+}
+
+function generatedContentPaints(style: CSSStyleDeclaration): boolean {
+  if (hasOwnSubtreeVisualUnavailableState(style) || hasComputedVisibilityUnavailable(style)) {
+    return false;
+  }
+
+  const content = style.content.trim();
+  const hasVisibleTextContent =
+    content !== '' && content !== 'none' && content !== 'normal' && content !== '""' && content !== "''";
+  if (hasVisibleTextContent) return true;
+
+  if (!cssColorIsTransparent(style.backgroundColor) || !cssPaintIsAbsent(style.backgroundImage)) return true;
+  if (
+    !cssPaintIsAbsent(style.boxShadow) ||
+    !cssPaintIsAbsent(style.outlineStyle) ||
+    !cssPaintIsAbsent(style.filter)
+  ) {
+    return true;
+  }
+
+  const extended = style as CSSStyleDeclaration & {
+    backdropFilter?: string;
+    maskImage?: string;
+    webkitBackdropFilter?: string;
+    webkitMaskImage?: string;
+  };
+  if (
+    !cssPaintIsAbsent(extended.backdropFilter) ||
+    !cssPaintIsAbsent(extended.webkitBackdropFilter) ||
+    !cssPaintIsAbsent(extended.maskImage) ||
+    !cssPaintIsAbsent(extended.webkitMaskImage)
+  ) {
+    return true;
+  }
+
+  for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
+    const width = Number.parseFloat(style[`border${side}Width`]);
+    const borderStyle = style[`border${side}Style`];
+    const color = style[`border${side}Color`];
+    if (width > 0 && borderStyle !== 'none' && !cssColorIsTransparent(color)) return true;
+  }
+  return false;
+}
+
+function computedPixelLength(value: string | undefined): number | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === '0') return 0;
+  if (!normalized.endsWith('px')) return null;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function elementPaddingBounds(el: Element): Bounds | null {
+  try {
+    const rect = el.getBoundingClientRect();
+    if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)) return null;
+    if (!(el instanceof HTMLElement) || el.clientWidth <= 0 || el.clientHeight <= 0) {
+      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    }
+    const scaleX = rect.width / (el.offsetWidth || rect.width || 1);
+    const scaleY = rect.height / (el.offsetHeight || rect.height || 1);
+    return {
+      x: rect.left + el.clientLeft * scaleX,
+      y: rect.top + el.clientTop * scaleY,
+      width: el.clientWidth * scaleX,
+      height: el.clientHeight * scaleY,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function establishesAbsoluteContainingBlock(style: CSSStyleDeclaration): boolean {
+  const containment = style.contain.split(/\s+/);
+  return (
+    (style.position !== '' && style.position !== 'static') ||
+    (style.transform !== '' && style.transform !== 'none') ||
+    (style.perspective !== '' && style.perspective !== 'none') ||
+    containment.some((value) => value === 'layout' || value === 'paint' || value === 'content' || value === 'strict')
+  );
+}
+
+function positionedPseudoContainingBounds(
+  el: Element,
+  position: string,
+  viewport: { width: number; height: number },
+): Bounds | null {
+  if (position === 'fixed') return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+  if (position !== 'absolute') return null;
+
+  let ancestor: Element | null = el;
+  let scanned = 0;
+  while (ancestor) {
+    scanned += 1;
+    if (scanned > PSEUDO_CONTAINING_BLOCK_SCAN_LIMIT) return null;
+    try {
+      if (establishesAbsoluteContainingBlock(getComputedStyle(ancestor))) {
+        return elementPaddingBounds(ancestor);
+      }
+    } catch {
+      return null;
+    }
+    ancestor = getComposedParent(ancestor);
+  }
+
+  // With no positioned ancestor, an absolutely positioned pseudo uses the
+  // initial containing block. Client coordinates make the visible viewport the
+  // useful, bounded approximation for deciding whether the pointer can be hit.
+  return { x: 0, y: 0, width: viewport.width, height: viewport.height };
+}
+
+function pseudoOuterSize(style: CSSStyleDeclaration, axis: 'horizontal' | 'vertical'): number | null {
+  const size = computedPixelLength(axis === 'horizontal' ? style.width : style.height);
+  if (size === null) return null;
+  if (style.boxSizing === 'border-box') return Math.max(0, size);
+
+  const sides = axis === 'horizontal' ? (['Left', 'Right'] as const) : (['Top', 'Bottom'] as const);
+  let outerSize = size;
+  for (const side of sides) {
+    outerSize += computedPixelLength(style[`padding${side}`]) ?? 0;
+    outerSize += computedPixelLength(style[`border${side}Width`]) ?? 0;
+  }
+  return Math.max(0, outerSize);
+}
+
+function positionedPseudoAxisRange(
+  containingStart: number,
+  containingSize: number,
+  startValue: string,
+  endValue: string,
+  outerSize: number | null,
+): [number, number] | null {
+  const start = computedPixelLength(startValue);
+  const end = computedPixelLength(endValue);
+  if (start !== null && end !== null) {
+    const lower = containingStart + start;
+    const upper = containingStart + containingSize - end;
+    return upper >= lower ? [lower, upper] : null;
+  }
+  if (outerSize === null) return null;
+  if (start !== null) {
+    const lower = containingStart + start;
+    return [lower, lower + outerSize];
+  }
+  if (end !== null) {
+    const upper = containingStart + containingSize - end;
+    return [upper - outerSize, upper];
+  }
+  return null;
+}
+
+/**
+ * Pseudo-elements expose computed styles but no DOM geometry. For paint outside
+ * the originating box, accept only positioned boxes whose used pixel insets or
+ * size produce a finite axis-aligned bound. This catches common fixed/absolute
+ * backdrops without treating unrelated generated text elsewhere as if it
+ * covered every pointer position. Unsupported transforms or intrinsic sizing
+ * remain non-evidence rather than causing an unbounded DOM/style search.
+ */
+function positionedPseudoMayCoverPoint(
+  el: Element,
+  style: CSSStyleDeclaration,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+): boolean {
+  if (style.transform && style.transform !== 'none') return false;
+  const containing = positionedPseudoContainingBounds(el, style.position, viewport);
+  if (!containing) return false;
+
+  const horizontal = positionedPseudoAxisRange(
+    containing.x,
+    containing.width,
+    style.left,
+    style.right,
+    pseudoOuterSize(style, 'horizontal'),
+  );
+  const vertical = positionedPseudoAxisRange(
+    containing.y,
+    containing.height,
+    style.top,
+    style.bottom,
+    pseudoOuterSize(style, 'vertical'),
+  );
+  return Boolean(
+    horizontal &&
+      vertical &&
+      clientX >= horizontal[0] &&
+      clientX <= horizontal[1] &&
+      clientY >= vertical[0] &&
+      clientY <= vertical[1],
+  );
+}
+
+function elementHasGeneratedPaintAtPoint(
+  el: Element,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+): boolean {
+  if (!browserSupportsPseudoComputedStyle()) return false;
+  const hostCoversPoint = elementHasBoxAtPoint(el, clientX, clientY);
+
+  for (const pseudo of GENERATED_PSEUDO_ELEMENTS) {
+    try {
+      const style = getComputedStyle(el, pseudo);
+      if (
+        generatedContentPaints(style) &&
+        (hostCoversPoint || positionedPseudoMayCoverPoint(el, style, clientX, clientY, viewport))
+      ) {
+        return true;
+      }
+    } catch {
+      // Modern target browsers expose pseudo-element computed style. If a page
+      // makes that inspection fail, piercing would no longer be evidence-based.
+      return true;
+    }
+  }
+  return false;
+}
+
+function composedElementChildren(el: Element): Element[] {
+  const children = Array.from(el.children);
+  const shadowRoot = getOpenOrClosedShadowRoot(el);
+  if (shadowRoot) children.push(...Array.from(shadowRoot.children));
+  return children;
+}
+
+/**
+ * `elementsFromPoint()` cannot report a painted descendant with
+ * `pointer-events:none`, and it reports the originating element rather than a
+ * `::before`/`::after` box. Before piercing an otherwise blank branch, inspect
+ * its composed subtree for pixels or semantics at the pointer. The scan is
+ * deliberately conservative: an incomplete style/layout read, or a tree over
+ * the bounded budget, means the branch is kept rather than clicked through.
+ */
+function branchOwnsPaintAtPoint(
+  branchRoot: Element,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+  analyzedStyles: ReadonlyMap<Element, CSSStyleDeclaration>,
+): boolean {
+  const pending = [branchRoot];
+  const visited = new Set<Element>();
+  let scanned = 0;
+
+  while (pending.length > 0) {
+    const element = pending.pop()!;
+    if (visited.has(element)) continue;
+    visited.add(element);
+    scanned += 1;
+    if (scanned > OCCLUDER_SUBTREE_SCAN_LIMIT) return true;
+
+    let style = analyzedStyles.get(element);
+    if (!style) {
+      try {
+        style = getComputedStyle(element);
+      } catch {
+        return true;
+      }
+    }
+    if (hasOwnSubtreeVisualUnavailableState(style)) continue;
+
+    const coversPoint = elementHasBoxAtPoint(element, clientX, clientY);
+    if (
+      coversPoint &&
+      !hasComputedVisibilityUnavailable(style) &&
+      (hasSurfaceDescription(element) || !hasNoOwnVisualPaint(element, style))
+    ) {
+      return true;
+    }
+    if (elementHasGeneratedPaintAtPoint(element, clientX, clientY, viewport)) return true;
+
+    pending.push(...composedElementChildren(element));
+  }
+  return false;
+}
+
+/**
+ * Whether every element unique to an upper paint-stack branch is a genuinely
+ * blank hit-test shim. The first composed ancestor shared with the target
+ * branch is structural context (for example a painted application root), not
+ * an intervening surface, so it and the rest of the shared ancestry are
+ * deliberately excluded.
+ */
+function hasOnlyBlankExclusiveOccluders(
+  occludingEntries: AnalyzedElement[],
+  targetElements: ReadonlySet<Element>,
+  clientX: number,
+  clientY: number,
+  viewport: { width: number; height: number },
+): boolean {
+  const exclusiveEntries: AnalyzedElement[] = [];
+  for (const entry of occludingEntries) {
+    if (targetElements.has(entry.element)) break;
+    if (!looksLikeBlankOccluder(entry)) return false;
+    exclusiveEntries.push(entry);
+  }
+
+  // The last exclusive entry is the branch root immediately below the first
+  // shared composed ancestor, so one bounded subtree walk covers all paint the
+  // upper branch owns without inspecting unrelated siblings or the app root.
+  const branchRoot = exclusiveEntries.at(-1)?.element;
+  const analyzedStyles = new Map(exclusiveEntries.map((entry) => [entry.element, entry.style]));
+  return branchRoot
+    ? !branchOwnsPaintAtPoint(branchRoot, clientX, clientY, viewport, analyzedStyles)
+    : true;
 }
 
 /**
@@ -628,22 +1100,38 @@ export function findVisualTargetCandidatesAtPoint(
   clientX: number,
   clientY: number,
   viewport: { width: number; height: number } = { width: window.innerWidth, height: window.innerHeight },
+  policy: Readonly<VisualTargetPolicy> = ANNOTATION_TARGETING_POLICY,
 ): VisualTargetCandidates {
-  const top = analyzeChain(hit, clientX, clientY);
+  const top = analyzeChain(hit, clientX, clientY, viewport, policy);
   if (
+    !policy.pierceTransparentOccluders ||
     top.interactive ||
-    typeof document.elementsFromPoint !== 'function' ||
-    !looksLikeBlankOccluder(top.hit, viewport)
+    typeof document.elementsFromPoint !== 'function'
   ) {
     return top.targets;
   }
 
-  const analyzed = new Set(elementAndComposedAncestors(hit));
+  const occludingBranches: AnalyzedElement[][] = [top.entries];
+  const analyzed = new Set(top.entries.map((entry) => entry.element));
   for (const occluded of document.elementsFromPoint(clientX, clientY).slice(0, OCCLUDER_STACK_LIMIT)) {
     if (analyzed.has(occluded) || isExtensionOverlay(occluded)) continue;
-    const deeper = analyzeChain(descendShadowRoots(occluded, clientX, clientY), clientX, clientY);
-    if (deeper.interactive) return deeper.targets;
-    for (const element of elementAndComposedAncestors(occluded)) analyzed.add(element);
+    const deeper = analyzeChain(
+      descendShadowRoots(occluded, clientX, clientY),
+      clientX,
+      clientY,
+      viewport,
+      policy,
+    );
+    for (const entry of deeper.entries) analyzed.add(entry.element);
+    if (deeper.interactive) {
+      const targetElements = new Set(deeper.entries.map((entry) => entry.element));
+      return occludingBranches.every((branch) =>
+        hasOnlyBlankExclusiveOccluders(branch, targetElements, clientX, clientY, viewport)
+      )
+        ? deeper.targets
+        : top.targets;
+    }
+    occludingBranches.push(deeper.entries);
   }
   return top.targets;
 }
@@ -670,11 +1158,18 @@ export function resolveVisualTargetAtPoint(
   clientX: number,
   clientY: number,
   candidateOffset = 0,
+  policy: Readonly<VisualTargetPolicy> = ANNOTATION_TARGETING_POLICY,
 ): SelectedVisualTargetCandidate | null {
   const hit = deepElementFromPoint(clientX, clientY);
   if (!hit) return null;
   return selectVisualTargetCandidate(
-    findVisualTargetCandidatesAtPoint(hit, clientX, clientY),
+    findVisualTargetCandidatesAtPoint(
+      hit,
+      clientX,
+      clientY,
+      { width: window.innerWidth, height: window.innerHeight },
+      policy,
+    ),
     candidateOffset,
   );
 }
@@ -700,13 +1195,22 @@ export const INTERACTIVE_CANDIDATE_SELECTOR = [
   ...ARIA_WIDGET_STATE_ATTRIBUTES.map(attributeSelector),
 ].join(',');
 
-/**
- * Returns the precise border-box fragment clicked by the user. A multiline
- * inline element has multiple client rects; getBoundingClientRect() is their
- * union and can enclose unrelated whitespace, so it is not appropriate for a
- * click annotation by itself.
- */
-export function getHighlightBounds(el: Element, clientX: number, clientY: number): Bounds | null {
+interface HighlightGeometry {
+  bounds: Bounds;
+  /** The rendered element whose composed ancestors clip these bounds. */
+  paintElement: Element;
+}
+
+function resolveHighlightGeometry(
+  el: Element,
+  clientX: number,
+  clientY: number,
+): HighlightGeometry | null {
+  if (el instanceof HTMLAreaElement) {
+    const resolved = resolveImageMapAreaBounds(el, clientX, clientY);
+    return resolved ? { bounds: resolved.bounds, paintElement: resolved.image } : null;
+  }
+
   const rects = Array.from(el.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
   if (rects.length === 0) return null;
 
@@ -717,7 +1221,20 @@ export function getHighlightBounds(el: Element, clientX: number, clientY: number
     candidate.width * candidate.height < smallest.width * smallest.height ? candidate : smallest,
   );
 
-  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  return {
+    bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    paintElement: el,
+  };
+}
+
+/**
+ * Returns the precise painted fragment clicked by the user. A multiline inline
+ * element uses its smallest relevant client rect; an image-map <area> uses its
+ * region projected through the associated image because the area itself has no
+ * layout box.
+ */
+export function getHighlightBounds(el: Element, clientX: number, clientY: number): Bounds | null {
+  return resolveHighlightGeometry(el, clientX, clientY)?.bounds ?? null;
 }
 
 export function intersectBounds(a: Bounds, b: Bounds): Bounds | null {
@@ -770,12 +1287,13 @@ export function getVisibleHighlightBounds(
   clientY: number,
   viewport: { width: number; height: number } = { width: window.innerWidth, height: window.innerHeight },
 ): Bounds | null {
-  let visible = getHighlightBounds(el, clientX, clientY);
-  if (!visible) return null;
+  const geometry = resolveHighlightGeometry(el, clientX, clientY);
+  if (!geometry) return null;
+  let visible: Bounds | null = geometry.bounds;
   visible = intersectBounds(visible, { x: 0, y: 0, width: viewport.width, height: viewport.height });
   if (!visible) return null;
 
-  let ancestor = getComposedParent(el);
+  let ancestor = getComposedParent(geometry.paintElement);
   while (ancestor) {
     const style = getComputedStyle(ancestor);
     const overflowX = style.overflowX || style.overflow;

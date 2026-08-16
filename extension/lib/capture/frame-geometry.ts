@@ -21,6 +21,11 @@ export interface BorderBoxCoordinateMapper {
   toParentBounds(bounds: Bounds): Bounds;
 }
 
+export interface BorderBoxSize {
+  width: number;
+  height: number;
+}
+
 export interface FrameCoordinateMapper {
   toChildPoint(point: Point): Point;
   toParentBounds(bounds: Bounds): Bounds;
@@ -28,6 +33,47 @@ export interface FrameCoordinateMapper {
 
 function isFinitePoint(point: Point): boolean {
   return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function finiteCssPixels(value: string): number | null {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computedBorderBoxDimension(
+  style: CSSStyleDeclaration,
+  dimension: 'width' | 'height',
+): number | null {
+  const contentOrBorderSize = finiteCssPixels(style[dimension]);
+  if (contentOrBorderSize === null) return null;
+  if (style.boxSizing === 'border-box') return contentOrBorderSize;
+
+  const additions = dimension === 'width'
+    ? [style.paddingLeft, style.paddingRight, style.borderLeftWidth, style.borderRightWidth]
+    : [style.paddingTop, style.paddingBottom, style.borderTopWidth, style.borderBottomWidth];
+  return additions.reduce((total, value) => total + (finiteCssPixels(value) ?? 0), contentOrBorderSize);
+}
+
+/**
+ * Returns the element's pre-transform border-box size in CSS pixels. CSSOM
+ * offset metrics are integer-valued and therefore cannot be the authority for
+ * fractional layout (percentage/grid/flex sizing or zoom). Computed width and
+ * height retain that fractional used value; offset metrics remain a defensive
+ * fallback for non-browser mocks and unusual unresolved styles.
+ */
+export function getUntransformedBorderBoxSize(element: HTMLElement): BorderBoxSize {
+  const fallback = { width: element.offsetWidth, height: element.offsetHeight };
+  try {
+    const style = getComputedStyle(element);
+    const width = computedBorderBoxDimension(style, 'width');
+    const height = computedBorderBoxDimension(style, 'height');
+    return {
+      width: width !== null && width > 0 ? width : fallback.width,
+      height: height !== null && height > 0 ? height : fallback.height,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 function transformedBasisFromComputedStyle(
@@ -104,9 +150,12 @@ export function createFrameCoordinateMapper(frame: HTMLIFrameElement): FrameCoor
 }
 
 /** General border-box mapper shared by iframes and replaced elements. */
-export function createBorderBoxCoordinateMapper(element: HTMLElement): BorderBoxCoordinateMapper | null {
-  const borderWidth = element.offsetWidth;
-  const borderHeight = element.offsetHeight;
+export function createBorderBoxCoordinateMapper(
+  element: HTMLElement,
+  borderBoxSize: BorderBoxSize = getUntransformedBorderBoxSize(element),
+): BorderBoxCoordinateMapper | null {
+  const borderWidth = borderBoxSize.width;
+  const borderHeight = borderBoxSize.height;
   if (borderWidth <= 0 || borderHeight <= 0) return null;
 
   let origin: Point;

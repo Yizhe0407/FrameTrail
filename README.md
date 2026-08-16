@@ -32,11 +32,11 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 
 - 兩種模式都從座標命中的最深可見元素建立 composed ancestor 候選鏈，並辨識原生控制項、有效 ARIA role、click handler、可聚焦元素、contenteditable 與 `cursor: pointer`；語意控制項會優先於內層圖示或文字，一般文字、圖片與容器也能成為目標。
 - 候選只沿命中點的 DOM／composed ancestor 深度處理，不掃描整份文件；完全相同或邊界僅相差 2 CSS px 的近似視覺框會合併，避免元件內層 wrapper 產生多個肉眼無法區分的層級；純裝飾 SVG geometry 會提升到可框選的 SVG 容器。兩種模式都可從工具列、鍵盤或滾輪切換不同視覺框的父子候選；步驟模式使用 `Alt+滾輪`，避免攔截原頁捲動。使用者主動切換後會鎖定候選意圖，在選定表面內移動或跨過微小邊界時不會立刻跳回最深節點。
-- 無文字、無 accessible label 且不自行繪製背景、邊框、陰影或影像的透明 hit-test shim 會被穿透，即使它只覆蓋局部區域；有實際畫面或語意的上層元素仍優先，避免誤選被遮住的控制項。
-- 支援 open shadow root、語意化 SVG、canvas、custom element 與 HTML image map。image map 支援 `rect`、`circle`、`poly`、`default`，並處理圖片 border、padding、`object-fit`、`object-position` 與 CSS transform。
+- 兩種模式採用不同的遮擋策略：**操作流程**忠實保留瀏覽器實際命中的最上層 surface，即使它完全透明，也不會越過 overlay 去重播底層控制項；**單頁標註**只會穿透已證明無文字、無 accessible label、無互動語意，且整個 exclusive branch 都沒有背景、邊框、陰影、影像、filter、mask、backdrop、painted descendant 或 generated pseudo paint 的透明 hit-test shim。任何有實際畫面或語意的上層元素（包含全畫面 modal backdrop）在兩種模式都會保持為目標。
+- 支援 open shadow root，以及瀏覽器 privileged accessor 可取得的 closed shadow root；也支援語意化 SVG、canvas、custom element 與 HTML image map。image map 支援 `rect`、`circle`、`poly`、`default`；座標依瀏覽器規格使用圖片顯示後 border box 的 CSS pixels，不會再按 intrinsic size、`object-fit` 或 `object-position` 二次縮放，圖片本身的 2D CSS transform 則會映射回 viewport。
 - 兩種模式都能標記可見的 `disabled`、`inert` 與 `aria-disabled="true"` 元素，但會使用「標記」而不是「點擊」描述。隱藏、透明、`display: contents` 或零面積元素仍會排除；沒有 `href` 的連結與沒有對應控制項的 label 也可被標記。
 - 多行 inline 元素會選擇點擊位置所在的 client rect，而不是整個文字 union；標註範圍也會裁切到 viewport、overflow scrollport、paint containment 與可見祖先範圍。
-- 快照模式會把 content script 注入所有可存取 frame。巢狀與跨來源 iframe 透過有 timeout 的 `MessageChannel` 遞迴探測；`getBoxQuads()`、DOMMatrix 與 border-box fallback 負責縮放、旋轉、斜切、邊框與祖先 transform 的仿射座標轉換。子 frame 無法注入或 120 ms 內未回應時，會退回標註 iframe 的可見外框，不會阻塞整個錄製流程。
+- 快照模式會把 content script 注入所有可存取 frame。巢狀與跨來源 iframe 透過有 timeout 的 `MessageChannel` 遞迴探測；`getBoxQuads()` 可用時採用實際 affine border-box basis，fallback 則可靠處理 axis-aligned scale／zoom 與元素自身的 2D transform。子 frame 無法注入或 120 ms 內未回應時，會退回標註 iframe 的可見外框，不會阻塞整個錄製流程。
 
 ### 標註布局
 
@@ -156,8 +156,10 @@ Chromium E2E 覆蓋：
 - `captureVisibleTab` 只能取得目前可視區域，無法直接取得整頁。步驟模式會把畫面外元素捲入 viewport 後截圖，並在截圖完成、重播點擊前把捲動位置還原到使用者原本所在，因此不再殘留位移。
 - 步驟模式重播的 click 不是 trusted event。一般控制項與 SPA handler 可正常運作，但檔案選擇器、部分剪貼簿、全螢幕或其他要求即時 user activation 的 API 可能拒絕執行。
 - 快照 shield 隔離的是使用者輸入，不是停用 JavaScript 引擎。頁面的 timer、網路回應、動畫或程式性 DOM 更新仍可能改變畫面；iframe 取得焦點也可能產生 `focus`/`blur`。導覽會停止該次快照錄製，viewport、捲動位置或 DPR 改變則會拒絕新增標註。
-- closed shadow root 無法從外部檢查，會退回其可見 host；canvas 內部物件沒有 DOM 語意，因此只能標註整個 canvas。`pointer-events: none` 元素與 pseudo-element 不會成為一般 DOM hit-test 目標；非矩形 clip-path 與圓形/多邊形 image-map 最終以矩形 bounding box 表示。
-- 未取得跨來源 frame 權限、子 frame 未載入探測器或探測逾時時，只能標註 iframe 可見外框。
+- content script 會優先使用瀏覽器提供給擴充功能的 privileged open-or-closed shadow-root accessor；若該 API 不存在、拒絕存取或節點狀態使呼叫失敗，closed shadow root 才會退回其可見 host。canvas 內部物件沒有 DOM 語意，因此只能標註整個 canvas；`pointer-events: none` 元素與 pseudo-element 不會成為獨立 DOM hit-test 目標，但其可辨識 paint 會阻止快照穿透；非矩形 clip-path 與圓形／多邊形 image-map 最終以矩形 bounding box 表示。
+- 未取得跨來源 frame 權限、子 frame 未載入探測器或探測逾時時，只能標註 iframe 可見外框。沒有 `getBoxQuads()` 時，巢狀 rotated／skewed ancestors 或 3D perspective 可能只能退回 axis-aligned bounding box，無法保證完整仿射反解。
+- 操作流程的子 frame relay 只讓 page-visible `postMessage` 傳遞 hop-local 幾何與一次性 token：原始 child content script 先透過 extension runtime 向 background 建立綁定 active run／tab／frame 的授權，top content script 必須 claim 並消耗 token 才能截圖，background 再換發不暴露給頁面的 settle token，最後以指定 `frameId` 的 runtime message 直接通知原始 child 是否重播。頁面 script 可觀察或偽造 public hop，但無法自行 mint runtime authorization，因此不能在沒有 trusted gesture 時觸發錄製；`event.source` 只負責 iframe 幾何路由。closed-shadow iframe 仍無法由目前的 relay frame scan 定位，因此操作流程暫不支援其內部步驟轉送。
+- 快照鍵盤候選目前只列舉 top document 的一般 DOM；shadow tree 與跨 frame 目標仍可用滑鼠命中，但尚未加入完整的跨樹／跨 frame 鍵盤 traversal。
 - 極端密度下若 viewport 連一個徽章都放不下，或標註數超過幾何上可用槽位，位置會確定性重用，無法保證完全不重疊；演算法仍保證不產生無限值、不無限搜尋，也不讓工作量失控。
 - Chrome Web Store、`chrome://`、`edge://`、`about:` 與其他瀏覽器受限頁面禁止擴充功能注入或截圖。
 - 原始截圖會留在本機 IndexedDB；敏感資訊遮罩是輸出保護，不是安全刪除或加密儲存。若裝置或瀏覽器 profile 本身遭到入侵，FrameTrail 無法保護本機原始資料。

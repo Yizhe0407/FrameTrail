@@ -71,6 +71,149 @@ test.describe('frames and recording lifecycle', () => {
     await stopRecording(popupPage);
   });
 
+  test('rejects a page-forged cross-origin child-frame step relay', async ({
+    appPage,
+    popupPage,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    const outer = appPage.frameLocator('#cross-origin-frame');
+    const button = outer.locator('#frame-button');
+    await expect(button).toBeVisible();
+    await button.evaluate((element) => {
+      element.setAttribute('data-click-count', '0');
+      element.addEventListener('click', () => {
+        const count = Number(element.getAttribute('data-click-count') ?? '0');
+        element.setAttribute('data-click-count', String(count + 1));
+      });
+    });
+    await startRecording(appPage, popupPage, 'steps');
+
+    await button.evaluate((element, messageType) => {
+      const rect = element.getBoundingClientRect();
+      window.parent.postMessage({
+        type: messageType,
+        captureId: 'forged-capture-id',
+        relayToken: 'forged-relay-token',
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      }, '*');
+    }, `frame_trail_step_frame_click_${extensionId}`);
+
+    await expectSteady(async () => (await readSteps(popupPage)).length, 0);
+
+    // A genuine click proves the recorder was live while the forged public hop
+    // was ignored. Waiting for replay also provides a deterministic barrier for
+    // any capture the forged message could otherwise have queued first.
+    await button.click();
+    await expect.poll(() => button.getAttribute('data-click-count')).toBe('1');
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
+    await stopRecording(popupPage);
+  });
+
+  test('ignores a synthetic pointerdown dispatched by child-frame page script', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    const button = appPage.frameLocator('#cross-origin-frame').locator('#frame-button');
+    await expect(button).toBeVisible();
+    await button.evaluate((element) => {
+      element.setAttribute('data-click-count', '0');
+      element.setAttribute('data-pointerdown-count', '0');
+      element.addEventListener('click', () => {
+        const count = Number(element.getAttribute('data-click-count') ?? '0');
+        element.setAttribute('data-click-count', String(count + 1));
+      });
+      element.addEventListener('pointerdown', () => {
+        const count = Number(element.getAttribute('data-pointerdown-count') ?? '0');
+        element.setAttribute('data-pointerdown-count', String(count + 1));
+      });
+    });
+    await startRecording(appPage, popupPage, 'steps');
+
+    const syntheticWasTrusted = await button.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const event = new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        button: 0,
+        buttons: 1,
+        clientX: rect.x + rect.width / 2,
+        clientY: rect.y + rect.height / 2,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+      });
+      element.dispatchEvent(event);
+      return event.isTrusted;
+    });
+
+    expect(syntheticWasTrusted).toBe(false);
+    expect(await button.getAttribute('data-pointerdown-count')).toBe('1');
+    await expectSteady(async () => (await readSteps(popupPage)).length, 0);
+
+    // The following trusted browser input must still record and replay once,
+    // proving the zero-step result was the trust check rather than missing child
+    // instrumentation.
+    await button.click();
+    await expect.poll(() => button.getAttribute('data-click-count')).toBe('1');
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
+    await stopRecording(popupPage);
+  });
+
+  test('records and replays real cross-origin and nested-frame clicks exactly once', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    const outer = appPage.frameLocator('#cross-origin-frame');
+    const outerButton = outer.locator('#frame-button');
+    const nestedText = outer.frameLocator('#nested-frame').locator('#nested-text');
+    await expect(outerButton).toBeVisible();
+    await expect(nestedText).toBeVisible();
+    for (const target of [outerButton, nestedText]) {
+      await target.evaluate((element) => {
+        element.setAttribute('data-click-count', '0');
+        element.addEventListener('click', () => {
+          const count = Number(element.getAttribute('data-click-count') ?? '0');
+          element.setAttribute('data-click-count', String(count + 1));
+        });
+      });
+    }
+    await startRecording(appPage, popupPage, 'steps');
+
+    await outerButton.click();
+    await expect.poll(() => outerButton.getAttribute('data-click-count')).toBe('1');
+    await expectSteady(async () => (await readSteps(popupPage)).length, 1);
+
+    const outerFrameMetrics = await appPage.locator('#cross-origin-frame').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, borderLeft: element.clientLeft, borderTop: element.clientTop };
+    });
+    const nestedFrameMetrics = await outer.locator('#nested-frame').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, borderLeft: element.clientLeft, borderTop: element.clientTop };
+    });
+    const nestedTargetMetrics = await nestedText.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
+    await appPage.mouse.click(
+      outerFrameMetrics.x + outerFrameMetrics.borderLeft + nestedFrameMetrics.x +
+        nestedFrameMetrics.borderLeft + nestedTargetMetrics.x + nestedTargetMetrics.width / 2,
+      outerFrameMetrics.y + outerFrameMetrics.borderTop + nestedFrameMetrics.y +
+        nestedFrameMetrics.borderTop + nestedTargetMetrics.y + nestedTargetMetrics.height / 2,
+    );
+    await expect.poll(() => nestedText.getAttribute('data-click-count')).toBe('1');
+    await expectSteady(async () => (await readSteps(popupPage)).length, 2);
+    await expectSteady(async () => outerButton.getAttribute('data-click-count'), '1');
+    await stopRecording(popupPage);
+  });
+
   test('falls back to the visible iframe box when a sandboxed frame is inaccessible', async ({
     appPage,
     popupPage,

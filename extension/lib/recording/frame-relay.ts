@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { type Bounds } from '../storage/models';
 import {
+  ACTIVATION_TARGETING_POLICY,
   getVisibleHighlightBounds,
   intersectBounds,
   isElementVisuallyUnavailable,
@@ -9,7 +10,6 @@ import {
 } from '../capture/selector-utils';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
-  closePortQuietly,
   createFrameProbeRateLimiter,
   type FrameProbeRateLimiter,
 } from '../capture/frame-probe';
@@ -33,23 +33,34 @@ import {
   STEP_LATE_CLICK_SUPPRESS_MS,
 } from './content-script-constants';
 import { isFiniteRect } from '../shared/validation';
-import type { FrameTrailStopMessage } from '../runtime/messages';
+import type {
+  FrameTrailStepFrameResultMessage,
+  FrameTrailStopMessage,
+  StepFrameRelayAbortMessage,
+  StepFrameRelayBeginMessage,
+  StepFrameRelayBeginResult,
+  StepFrameRelayClaimResult,
+  StepFrameRelayMutationResult,
+  StepFrameRelayRejectMessage,
+} from '../runtime/messages';
 
 /**
- * Step-mode child frames capture their own clicks and relay them toward the
- * top frame, mapping the target rect into the receiving frame's viewport at
- * every hop. The relayed payload deliberately carries NO run-scoped secret:
- * the parent's origin is unknown to a child frame, so an upward postMessage
- * must use '*', and embedding the runId there would hand it to ancestor page
- * scripts that never legitimately learn it. Authentication instead relies on
- * every hop verifying that the sending window is one of its own child iframes
- * plus strict payload validation and a fixed-window rate limit. The capture
- * confirmation travels back over a transferred MessagePort, which page
- * scripts cannot observe.
+ * Child-frame step recording uses two channels with deliberately different
+ * trust contracts:
+ *
+ * - browser.runtime authenticates the originating extension content script,
+ *   binds an opaque one-time token to the active run/frame, and returns replay
+ *   results directly to that frame;
+ * - window.postMessage carries only the token plus hop-local geometry so each
+ *   parent can map the rect through its own iframe element.
+ *
+ * Page scripts can observe or forge the second channel, but cannot mint the
+ * first channel's authorization. The top frame consumes the token with the
+ * background before it requests a screenshot, and a private replacement token
+ * is used for settlement. Synthetic page events are rejected at the trusted
+ * pointer boundary as an additional invariant.
  */
 
-const STEP_FRAME_TEXT_LIMIT = 200;
-const STEP_FRAME_TAG_LIMIT = 100;
 const STEP_FRAME_COORDINATE_LIMIT = 1_000_000;
 /** Slightly above the top frame's CAPTURE_FAILSAFE_MS so a healthy capture
  * always beats this local budget; when the relay chain is broken the click is
@@ -59,6 +70,9 @@ const STEP_FRAME_RELAY_MAX_CONCURRENT = 8;
 const STEP_FRAME_RELAY_MAX_REQUESTS_PER_WINDOW = 90;
 const STEP_FRAME_RELAY_RATE_WINDOW_MS = 10_000;
 const MAX_SHADOW_SCAN_DEPTH = 8;
+const RUNTIME_ID_LIMIT = 128;
+const STEP_FRAME_TEXT_LIMIT = 200;
+const STEP_FRAME_TAG_LIMIT = 100;
 
 export function stepFrameClickMessageType(runtimeId: string): string {
   return `frame_trail_step_frame_click_${runtimeId}`;
@@ -68,53 +82,73 @@ export function snapshotFrameScrollPingType(runtimeId: string): string {
   return `frame_trail_snapshot_frame_scroll_${runtimeId}`;
 }
 
-export interface StepFrameClickPayload {
+/** Page-visible payload; metadata stays in the background authorization. */
+export interface StepFrameHopPayload {
   type: string;
+  captureId: string;
+  relayToken: string;
   /** Target rect in the SENDING frame's viewport coordinates. */
   rect: Bounds;
-  text: string;
-  tagName: string;
-  interactive: boolean;
-}
-
-export interface StepFrameClickResponse {
-  replay: boolean;
 }
 
 function isRelayRect(value: unknown): value is Bounds {
   return isFiniteRect(value, { maxMagnitude: STEP_FRAME_COORDINATE_LIMIT });
 }
 
-export function isStepFrameClickPayload(value: unknown, messageType: string): value is StepFrameClickPayload {
+function isBoundedRuntimeId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= RUNTIME_ID_LIMIT;
+}
+
+export function isStepFrameHopPayload(value: unknown, messageType: string): value is StepFrameHopPayload {
   if (!value || typeof value !== 'object') return false;
-  const payload = value as Partial<StepFrameClickPayload>;
+  const payload = value as Partial<StepFrameHopPayload>;
   return (
     payload.type === messageType &&
-    isRelayRect(payload.rect) &&
-    typeof payload.text === 'string' &&
-    payload.text.length <= STEP_FRAME_TEXT_LIMIT &&
-    typeof payload.tagName === 'string' &&
-    payload.tagName.length > 0 &&
-    payload.tagName.length <= STEP_FRAME_TAG_LIMIT &&
-    typeof payload.interactive === 'boolean'
+    isBoundedRuntimeId(payload.captureId) &&
+    isBoundedRuntimeId(payload.relayToken) &&
+    isRelayRect(payload.rect)
   );
 }
 
-export function isStepFrameClickResponse(value: unknown): value is StepFrameClickResponse {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      typeof (value as { replay?: unknown }).replay === 'boolean',
+export function isStepFrameRelayBeginResult(value: unknown): value is StepFrameRelayBeginResult {
+  if (!value || typeof value !== 'object' || typeof (value as { ok?: unknown }).ok !== 'boolean') return false;
+  const result = value as { ok: boolean; relayToken?: unknown };
+  return result.ok ? isBoundedRuntimeId(result.relayToken) : result.relayToken === undefined;
+}
+
+export function isStepFrameRelayClaimResult(value: unknown): value is StepFrameRelayClaimResult {
+  if (!value || typeof value !== 'object' || typeof (value as { ok?: unknown }).ok !== 'boolean') return false;
+  const result = value as {
+    ok: boolean;
+    settleToken?: unknown;
+    target?: { text?: unknown; tagName?: unknown; interactive?: unknown };
+  };
+  if (!result.ok) return result.settleToken === undefined && result.target === undefined;
+  return (
+    isBoundedRuntimeId(result.settleToken) &&
+    Boolean(result.target) &&
+    typeof result.target?.text === 'string' &&
+    result.target.text.length <= STEP_FRAME_TEXT_LIMIT &&
+    typeof result.target.tagName === 'string' &&
+    result.target.tagName.length > 0 &&
+    result.target.tagName.length <= STEP_FRAME_TAG_LIMIT &&
+    typeof result.target.interactive === 'boolean'
   );
 }
 
-export function respondToStepFrameClick(port: MessagePort, replay: boolean): void {
-  try {
-    port.postMessage({ replay } satisfies StepFrameClickResponse);
-  } catch {
-    // The originating frame may already be gone; its local failsafe replays.
-  }
-  closePortQuietly(port);
+export function isStepFrameRelayMutationResult(value: unknown): value is StepFrameRelayMutationResult {
+  return Boolean(value && typeof value === 'object' && typeof (value as { ok?: unknown }).ok === 'boolean');
+}
+
+export function isFrameTrailStepFrameResultMessage(value: unknown): value is FrameTrailStepFrameResultMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Partial<FrameTrailStepFrameResultMessage>;
+  return (
+    message.type === 'FRAME_TRAIL_STEP_FRAME_RESULT' &&
+    isBoundedRuntimeId(message.runId) &&
+    isBoundedRuntimeId(message.captureId) &&
+    typeof message.replay === 'boolean'
+  );
 }
 
 function findIframeInNode(root: ParentNode, source: unknown, depth: number): HTMLIFrameElement | null {
@@ -131,9 +165,9 @@ function findIframeInNode(root: ParentNode, source: unknown, depth: number): HTM
   return null;
 }
 
-/** Locates the iframe element in this document whose browsing context sent a
- * message. This is the authentication anchor of the relay: page scripts in
- * this frame post with THIS window as their source, never a child's. */
+/** Locates the direct iframe browsing context that supplied hop geometry. This
+ * is a routing check only; authorization is consumed separately through the
+ * extension runtime/background broker. */
 export function findIframeForWindow(source: unknown): HTMLIFrameElement | null {
   if (!source || source === window) return null;
   return findIframeInNode(document, source, 0);
@@ -156,48 +190,31 @@ function mapChildRectIntoFrameViewport(frame: HTMLIFrameElement, rect: Bounds): 
   return intersectBounds(mapped, visibleFrame);
 }
 
-export interface RelayedStepFrameClick {
-  payload: StepFrameClickPayload;
-  port: MessagePort;
-  /** The direct child iframe (in this document) that relayed the click. */
+export interface RelayedStepFrameHop {
+  payload: StepFrameHopPayload;
+  /** The direct child iframe (in this document) that supplied this hop. */
   frame: HTMLIFrameElement;
   /** Payload rect mapped into this frame's viewport; null when the sending
    * iframe is not visible here. */
   rect: Bounds | null;
 }
 
-/**
- * Validates and maps one relayed child-frame click. Returns null (after
- * closing or answering the port) for anything that must not propagate:
- * malformed payloads, windows that are not our own child iframes, and
- * messages beyond the rate budget.
- */
-export function resolveRelayedStepFrameClick(
+/** Validates and maps page-visible geometry. Authorization is intentionally
+ * not inferred from MessageEvent.source; the top frame separately claims the
+ * opaque token through browser.runtime before capture. */
+export function resolveRelayedStepFrameHop(
   event: MessageEvent,
   messageType: string,
   limiter: FrameProbeRateLimiter,
-): RelayedStepFrameClick | null {
-  const port = event.ports[0];
-  if (!port) return null;
-  if (!isStepFrameClickPayload(event.data, messageType)) {
-    closePortQuietly(port);
-    return null;
-  }
+): RelayedStepFrameHop | null {
+  if (!event.isTrusted || !isStepFrameHopPayload(event.data, messageType)) return null;
   const release = limiter.tryAcquire();
-  if (!release) {
-    respondToStepFrameClick(port, false);
-    return null;
-  }
-  // Admission control here bounds request volume (and the O(document) frame
-  // scan below); the actual capture concurrency is bounded by the top frame's
-  // single-flight gesture.
+  if (!release) return null;
+  // Admission control bounds request volume and the O(document) frame scan.
   release();
   const frame = findIframeForWindow(event.source);
-  if (!frame) {
-    closePortQuietly(port);
-    return null;
-  }
-  return { payload: event.data, port, frame, rect: mapChildRectIntoFrameViewport(frame, event.data.rect) };
+  if (!frame) return null;
+  return { payload: event.data, frame, rect: mapChildRectIntoFrameViewport(frame, event.data.rect) };
 }
 
 export function createStepFrameRelayLimiter(): FrameProbeRateLimiter {
@@ -209,10 +226,10 @@ export function createStepFrameRelayLimiter(): FrameProbeRateLimiter {
 }
 
 /**
- * Installs the step-mode recorder for one child frame: it swallows the local
- * gesture, sends the resolved target up the relay, and replays the click only
- * after the top frame's screenshot has settled (or the failsafe expired). It
- * also relays clicks arriving from its own nested frames toward the top.
+ * Installs the step recorder for one child frame. A trusted pointerdown is
+ * swallowed locally, authenticated with the background, and then sent upward
+ * as geometry-only hops. Replay arrives over browser.runtime, never over a
+ * page-visible MessagePort.
  */
 export function installStepFrameRecorder(runId: string, initiallyPaused: boolean): void {
   if (window.top === window) return;
@@ -221,25 +238,39 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   let removed = false;
   let gestureActive = false;
   let gestureCancelled = false;
+  let activeCaptureId: string | null = null;
+  let settleActiveRelay: ((replay: boolean) => void) | null = null;
+  let activeFailsafe: ReturnType<typeof setTimeout> | null = null;
   const dedup = createStepCaptureDedup<Element>(STEP_DEDUP_MS);
   const lateClicks = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
   const relayLimiter = createStepFrameRelayLimiter();
 
   const replayInto = (el: Element) => replayClickWithSuppression(el, lateClicks);
 
+  const abortRelay = (captureId: string) => {
+    void browser.runtime.sendMessage({
+      type: 'FRAME_TRAIL_STEP_FRAME_ABORT',
+      runId,
+      captureId,
+    } satisfies StepFrameRelayAbortMessage).catch(() => {});
+  };
+
   const onPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || !event.isPrimary) return;
-    // A new trusted press ends the previous gesture's trailing-click era; any
-    // click after it is genuine and must be delivered (double-click fix).
-    if (event.isTrusted) lateClicks.onTrustedPointerDown();
+    if (event.button !== 0 || !event.isPrimary || !event.isTrusted) return;
+    // Trusted events are ordered: this press ends the previous gesture's
+    // trailing-click era, so a real rapid second click remains deliverable.
+    lateClicks.onTrustedPointerDown();
     if (paused) return;
     if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
     if (isPointInAnyScrollGutter(event.clientX, event.clientY)) return;
-    const el = resolveVisualTargetAtPoint(event.clientX, event.clientY)?.element ?? null;
+    const el = resolveVisualTargetAtPoint(
+      event.clientX,
+      event.clientY,
+      0,
+      ACTIVATION_TARGETING_POLICY,
+    )?.element ?? null;
     if (!el) return;
     if (gestureActive) {
-      // A relayed capture is still in flight; swallow the gesture so it cannot
-      // mutate the page before that screenshot lands.
       event.preventDefault();
       event.stopImmediatePropagation();
       return;
@@ -250,43 +281,70 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
 
     const rect = getVisibleHighlightBounds(el, event.clientX, event.clientY);
     if (!rect) {
-      // Nothing capturable, but the gesture was already consumed: replay so
-      // the activation is not lost.
       replayInto(el);
       return;
     }
 
     gestureActive = true;
     gestureCancelled = false;
-    const payload: StepFrameClickPayload = {
-      type: clickType,
-      rect,
-      text: describeElement(el),
-      tagName: el.tagName.toLowerCase(),
-      interactive: isInteractiveElement(el),
-    };
-    const channel = new MessageChannel();
+    const captureId = crypto.randomUUID();
+    activeCaptureId = captureId;
     let settled = false;
-    let failsafe: ReturnType<typeof setTimeout> | null = null;
     const settle = (replay: boolean) => {
-      if (settled) return;
+      if (settled || activeCaptureId !== captureId) return;
       settled = true;
-      if (failsafe !== null) clearTimeout(failsafe);
-      closePortQuietly(channel.port1);
+      if (activeFailsafe !== null) clearTimeout(activeFailsafe);
+      activeFailsafe = null;
+      settleActiveRelay = null;
+      activeCaptureId = null;
       gestureActive = false;
       if (removed || gestureCancelled) return;
       if (replay) replayInto(el);
     };
-    failsafe = setTimeout(() => settle(true), STEP_FRAME_CLICK_FAILSAFE_MS);
-    channel.port1.onmessage = (response) => {
-      settle(isStepFrameClickResponse(response.data) ? response.data.replay : true);
-    };
-    channel.port1.start();
-    try {
-      window.parent.postMessage(payload, '*', [channel.port2]);
-    } catch {
+    settleActiveRelay = settle;
+    activeFailsafe = setTimeout(() => {
+      abortRelay(captureId);
       settle(true);
-    }
+    }, STEP_FRAME_CLICK_FAILSAFE_MS);
+
+    void (async () => {
+      let result: unknown;
+      try {
+        result = await browser.runtime.sendMessage({
+          type: 'FRAME_TRAIL_STEP_FRAME_BEGIN',
+          runId,
+          captureId,
+          rect,
+          text: describeElement(el),
+          tagName: el.tagName.toLowerCase(),
+          interactive: isInteractiveElement(el),
+        } satisfies StepFrameRelayBeginMessage);
+      } catch {
+        settle(true);
+        return;
+      }
+      if (!isStepFrameRelayBeginResult(result) || !result.ok) {
+        settle(true);
+        return;
+      }
+      if (settled || removed || gestureCancelled || activeCaptureId !== captureId) {
+        abortRelay(captureId);
+        settle(false);
+        return;
+      }
+      const payload: StepFrameHopPayload = {
+        type: clickType,
+        captureId,
+        relayToken: result.relayToken,
+        rect,
+      };
+      try {
+        window.parent.postMessage(payload, '*');
+      } catch {
+        abortRelay(captureId);
+        settle(true);
+      }
+    })();
   };
 
   const onFollowup = createStepFollowupHandler(lateClicks, {
@@ -296,34 +354,59 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     },
   });
 
+  const rejectRelay = (payload: StepFrameHopPayload) => {
+    void browser.runtime.sendMessage({
+      type: 'FRAME_TRAIL_STEP_FRAME_REJECT',
+      runId,
+      captureId: payload.captureId,
+      relayToken: payload.relayToken,
+    } satisfies StepFrameRelayRejectMessage).catch(() => {});
+  };
+
   const onRelayMessage = (event: MessageEvent) => {
-    const relayed = resolveRelayedStepFrameClick(event, clickType, relayLimiter);
+    const relayed = resolveRelayedStepFrameHop(event, clickType, relayLimiter);
     if (!relayed) return;
     if (relayed.rect === null) {
-      respondToStepFrameClick(relayed.port, false);
+      rejectRelay(relayed.payload);
       return;
     }
-    const forwarded: StepFrameClickPayload = { ...relayed.payload, rect: relayed.rect };
     try {
-      window.parent.postMessage(forwarded, '*', [relayed.port]);
+      window.parent.postMessage({ ...relayed.payload, rect: relayed.rect } satisfies StepFrameHopPayload, '*');
     } catch {
-      respondToStepFrameClick(relayed.port, false);
+      rejectRelay(relayed.payload);
     }
   };
 
-  const onStop = (message: FrameTrailStopMessage) => {
-    if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+  const onRuntimeMessage = (message: unknown) => {
+    if ((message as FrameTrailStopMessage | null)?.type === 'FRAME_TRAIL_STOP') {
+      cleanup();
+      return;
+    }
+    if (
+      isFrameTrailStepFrameResultMessage(message) &&
+      message.runId === runId &&
+      message.captureId === activeCaptureId
+    ) {
+      settleActiveRelay?.(message.replay);
+    }
   };
+
   let unsubscribe = () => {};
   function cleanup() {
     if (removed) return;
     removed = true;
     lateClicks.clear();
+    if (activeCaptureId) abortRelay(activeCaptureId);
+    if (activeFailsafe !== null) clearTimeout(activeFailsafe);
+    activeFailsafe = null;
+    settleActiveRelay = null;
+    activeCaptureId = null;
+    gestureActive = false;
     document.removeEventListener('pointerdown', onPointerDown, { capture: true });
     for (const type of STEP_FOLLOWUP_EVENTS) document.removeEventListener(type, onFollowup, { capture: true });
     window.removeEventListener('message', onRelayMessage);
     document.removeEventListener(CLEANUP_EVENT, cleanup);
-    browser.runtime.onMessage.removeListener(onStop);
+    browser.runtime.onMessage.removeListener(onRuntimeMessage);
     unsubscribe();
   }
   unsubscribe = onRecordingStateChange((state) => {
@@ -338,15 +421,14 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   for (const type of STEP_FOLLOWUP_EVENTS) document.addEventListener(type, onFollowup, { capture: true });
   window.addEventListener('message', onRelayMessage);
   document.addEventListener(CLEANUP_EVENT, cleanup);
-  browser.runtime.onMessage.addListener(onStop);
+  browser.runtime.onMessage.addListener(onRuntimeMessage);
 }
 
 /**
  * Freezes a snapshot child frame and reports pixel-shifting scrolls upward.
- * The top frame cannot observe iframe-internal scrolling, so each frame pings
- * its parent (relayed hop by hop, each hop re-verifying the sending window)
- * and the top frame force-invalidates the frozen snapshot. The ping carries
- * no secret, so '*' is a safe target origin.
+ * The scroll ping is an invalidation signal only: a page can already invalidate
+ * a snapshot by moving pixels, so it is intentionally not part of the trusted
+ * step-capture relay described above.
  */
 export function installSnapshotFrameFreeze(): void {
   if (window.top === window) return;
@@ -369,8 +451,6 @@ export function installSnapshotFrameFreeze(): void {
     }
   };
   const onScroll = (event: Event) => {
-    // Element scrolls always shift pixels; a window-level scroll event only
-    // matters when the scroll offset actually moved off the frozen baseline.
     if (event.target === document && window.scrollX === baseline.x && window.scrollY === baseline.y) return;
     ping();
   };

@@ -12,6 +12,8 @@ import {
 const MAX_ID_LENGTH = PERSISTED_STEP_LIMITS.maxIdLength;
 const MAX_URL_LENGTH = 8_192;
 const MAX_TEXT_LENGTH = 10_000;
+const MAX_STEP_FRAME_TEXT_LENGTH = 200;
+const MAX_STEP_FRAME_TAG_LENGTH = 100;
 const MAX_COORDINATE_MAGNITUDE = 10_000_000;
 const MAX_DEVICE_PIXEL_RATIO = 32;
 
@@ -148,6 +150,27 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         isHttpUrl(value.url) &&
         isTimestamp(value.timestamp)
       );
+    case 'FRAME_TRAIL_STEP_FRAME_BEGIN':
+      return (
+        isString(value.runId) &&
+        isString(value.captureId) &&
+        isRect(value.rect) &&
+        typeof value.text === 'string' && value.text.length <= MAX_STEP_FRAME_TEXT_LENGTH &&
+        isString(value.tagName, MAX_STEP_FRAME_TAG_LENGTH) &&
+        typeof value.interactive === 'boolean'
+      );
+    case 'FRAME_TRAIL_STEP_FRAME_CLAIM':
+    case 'FRAME_TRAIL_STEP_FRAME_REJECT':
+      return isString(value.runId) && isString(value.captureId) && isString(value.relayToken);
+    case 'FRAME_TRAIL_STEP_FRAME_SETTLE':
+      return (
+        isString(value.runId) &&
+        isString(value.captureId) &&
+        isString(value.settleToken) &&
+        typeof value.replay === 'boolean'
+      );
+    case 'FRAME_TRAIL_STEP_FRAME_ABORT':
+      return isString(value.runId) && isString(value.captureId);
     case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
       return isString(value.sessionId) && isTarget(value.target);
     case 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION':

@@ -11,8 +11,9 @@ import {
   findIframeForWindow,
   installSnapshotFrameFreeze,
   installStepFrameRecorder,
-  resolveRelayedStepFrameClick,
-  respondToStepFrameClick,
+  isStepFrameRelayClaimResult,
+  isStepFrameRelayMutationResult,
+  resolveRelayedStepFrameHop,
   snapshotFrameScrollPingType,
   stepFrameClickMessageType,
 } from '@/lib/recording/frame-relay';
@@ -93,6 +94,8 @@ import type {
   RecordingControlResult,
   SnapshotInvalidatedMessage,
   SnapshotRecorderFailureMessage,
+  StepFrameRelayClaimMessage,
+  StepFrameRelaySettleMessage,
 } from '@/lib/runtime/messages';
 import type { RecordingState } from '@/lib/storage/recording-state';
 
@@ -621,7 +624,7 @@ export default defineContentScript({
 
       const onPointerDown = async (event: Event) => {
         const pe = event as PointerEvent;
-        if (pe.button !== 0 || !pe.isPrimary) return;
+        if (!pe.isTrusted || pe.button !== 0 || !pe.isPrimary) return;
         // Trusted events are ordered: the previous gesture's trailing click (if
         // any) has already been dispatched before a new trusted press arrives.
         // Disarming here keeps a rapid second click on the same element from
@@ -679,56 +682,98 @@ export default defineContentScript({
       };
 
       // Clicks inside child frames never bubble into this document. Instrumented
-      // child frames capture them locally and relay them here with rects already
-      // mapped hop-by-hop into the top viewport; this handler records the step
-      // and only then confirms the replay back to the originating frame.
+      // child frames authenticate each trusted press with the background, then
+      // relay only a one-time token and hop-local geometry through postMessage.
+      // This top-frame handler must consume that authorization before capture;
+      // page scripts can forge the public hop but cannot mint a valid token.
       const stepFrameClickType = stepFrameClickMessageType(browser.runtime.id);
       const stepFrameRelayLimiter = createStepFrameRelayLimiter();
       const onStepFrameClickMessage = (event: MessageEvent) => {
-        const relayed = resolveRelayedStepFrameClick(event, stepFrameClickType, stepFrameRelayLimiter);
+        const relayed = resolveRelayedStepFrameHop(event, stepFrameClickType, stepFrameRelayLimiter);
         if (!relayed) return;
-        const rect = relayed.rect;
-        if (!rect || recorderPaused || manualRegionCapture?.isActive() || stepGesture) {
-          respondToStepFrameClick(relayed.port, false);
-          return;
-        }
-        const now = Date.now();
-        if (!shouldCaptureTarget(`frame:${snapshotRectKey(rect)}`, now)) {
-          // The child swallowed its gesture and replays only on confirmation:
-          // deliver the activation without recording a duplicate step.
-          respondToStepFrameClick(relayed.port, true);
-          return;
-        }
-        preview.suspend();
-        const gesture = beginStepGesture(relayed.frame);
-        let replayConfirmed = false;
-        void orchestrateStepCapture(
-          makeStepOrchestrationHandlers(gesture, relayed.frame, {
-            capture: () => {
-              // Pin the iframe's scrollable ancestor chain exactly like the
-              // element path so the screenshot pixels match the relayed rect.
-              setCaptureScrollLock(readScrollSnapshot(relayed.frame));
-              return sendCapture(
-                rect,
-                { text: relayed.payload.text, tagName: relayed.payload.tagName },
-                relayed.payload.interactive ? 'click' : 'mark',
-                now,
-                gesture.captureId,
-              );
-            },
-            replay: () => {
-              // The click replays inside the child frame; confirming over the
-              // port preserves capture-before-replay ordering across frames.
-              replayConfirmed = true;
-              respondToStepFrameClick(relayed.port, true);
-            },
-          }),
-        ).then((outcome) => {
-          if (!replayConfirmed) respondToStepFrameClick(relayed.port, false);
-          if (outcome === 'timeout') {
-            console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
+
+        void (async () => {
+          let claimResult: unknown;
+          try {
+            claimResult = await browser.runtime.sendMessage({
+              type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
+              runId,
+              captureId: relayed.payload.captureId,
+              relayToken: relayed.payload.relayToken,
+            } satisfies StepFrameRelayClaimMessage);
+          } catch {
+            return;
           }
-        });
+          if (!isStepFrameRelayClaimResult(claimResult) || !claimResult.ok) return;
+
+          let settlementStarted = false;
+          const settleRelay = async (replay: boolean) => {
+            if (settlementStarted) return;
+            settlementStarted = true;
+            try {
+              const result: unknown = await browser.runtime.sendMessage({
+                type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
+                runId,
+                captureId: relayed.payload.captureId,
+                settleToken: claimResult.settleToken,
+                replay,
+              } satisfies StepFrameRelaySettleMessage);
+              if (!isStepFrameRelayMutationResult(result) || !result.ok) {
+                console.warn('[frametrail] child-frame relay settlement was rejected');
+              }
+            } catch {
+              // The child frame's local failsafe releases the gesture if the
+              // background worker disappears before settlement is delivered.
+            }
+          };
+
+          try {
+            const rect = relayed.rect;
+            if (!rect || recorderPaused || manualRegionCapture?.isActive() || stepGesture) {
+              await settleRelay(false);
+              return;
+            }
+            const now = Date.now();
+            if (!shouldCaptureTarget(`frame:${snapshotRectKey(rect)}`, now)) {
+              // The child swallowed its gesture and replays only on confirmation:
+              // deliver the activation without recording a duplicate step.
+              await settleRelay(true);
+              return;
+            }
+            preview.suspend();
+            const gesture = beginStepGesture(relayed.frame);
+            let replayConfirmed = false;
+            const outcome = await orchestrateStepCapture(
+              makeStepOrchestrationHandlers(gesture, relayed.frame, {
+                capture: () => {
+                  // Pin the iframe's scrollable ancestor chain exactly like the
+                  // element path so the screenshot pixels match the relayed rect.
+                  setCaptureScrollLock(readScrollSnapshot(relayed.frame));
+                  return sendCapture(
+                    rect,
+                    { text: claimResult.target.text, tagName: claimResult.target.tagName },
+                    claimResult.target.interactive ? 'click' : 'mark',
+                    now,
+                    gesture.captureId,
+                  );
+                },
+                replay: () => {
+                  // Settlement returns over extension runtime directly to the
+                  // originating child frame, preserving capture-before-replay.
+                  replayConfirmed = true;
+                  void settleRelay(true);
+                },
+              }),
+            );
+            if (!replayConfirmed) await settleRelay(false);
+            if (outcome === 'timeout') {
+              console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
+            }
+          } catch (error) {
+            await settleRelay(false);
+            console.warn('[frametrail] child-frame relay handling failed', error);
+          }
+        })();
       };
 
       const onStepFollowup = createStepFollowupHandler(lateClickSuppressor, {

@@ -16,11 +16,11 @@ export interface SnapshotSelectionSet {
 }
 
 /**
- * Pure bookkeeping for which snapshot targets are already annotated. A target
- * is tracked three ways at once — live element (survives text changes),
- * string identity (survives element replacement), and rect key (dedups
- * region/element overlap) — so duplicate detection cannot be dodged by any
- * single dimension drifting.
+ * Pure bookkeeping for which snapshot targets are already annotated. Ordinary
+ * targets are tracked by live element (survives text changes), string identity
+ * (survives element replacement), and rect key (dedups region/element overlap).
+ * Composite targets may opt out of the live-element dimension while retaining
+ * their composite identity and rect membership.
  */
 export function createSnapshotSelectionSet(): SnapshotSelectionSet {
   const identities = new Set<string>();
@@ -29,10 +29,14 @@ export function createSnapshotSelectionSet(): SnapshotSelectionSet {
   const history: ResolvedSnapshotTarget[] = [];
   let undoneTarget: ResolvedSnapshotTarget | null = null;
 
+  const dedupeElementFor = (target: ResolvedSnapshotTarget): Element | null =>
+    target.dedupeElement === undefined ? (target.element ?? null) : target.dedupeElement;
+
   return {
     isSelected(target) {
+      const dedupeElement = dedupeElementFor(target);
       return (
-        (target.element ? elements.has(target.element) : false) ||
+        (dedupeElement ? elements.has(dedupeElement) : false) ||
         identities.has(target.identity) ||
         rectKeys.has(snapshotRectKey(target.rect))
       );
@@ -41,8 +45,9 @@ export function createSnapshotSelectionSet(): SnapshotSelectionSet {
       return rectKeys.has(snapshotRectKey(rect));
     },
     add(target) {
+      const dedupeElement = dedupeElementFor(target);
       identities.add(target.identity);
-      if (target.element) elements.add(target.element);
+      if (dedupeElement) elements.add(dedupeElement);
       rectKeys.add(snapshotRectKey(target.rect));
       history.push(target);
       undoneTarget = null;
@@ -50,8 +55,9 @@ export function createSnapshotSelectionSet(): SnapshotSelectionSet {
     undoLast() {
       const target = history.pop() ?? null;
       if (target) {
+        const dedupeElement = dedupeElementFor(target);
         identities.delete(target.identity);
-        if (target.element) elements.delete(target.element);
+        if (dedupeElement) elements.delete(dedupeElement);
         rectKeys.delete(snapshotRectKey(target.rect));
         undoneTarget = target;
       }
@@ -60,8 +66,9 @@ export function createSnapshotSelectionSet(): SnapshotSelectionSet {
     restoreUndone() {
       if (!undoneTarget) return null;
       const target = undoneTarget;
+      const dedupeElement = dedupeElementFor(target);
       identities.add(target.identity);
-      if (target.element) elements.add(target.element);
+      if (dedupeElement) elements.add(dedupeElement);
       rectKeys.add(snapshotRectKey(target.rect));
       history.push(target);
       undoneTarget = null;

@@ -10,28 +10,177 @@
       body { margin: 0; padding: 40px; background: #f5f5f4; color: #1c1917; font-family: Arial, sans-serif; }
       #closed-host { position: relative; display: block; width: 320px; height: 160px; margin-bottom: 28px; background: #e0e7ff; }
       .delegated { width: 280px; margin-bottom: 28px; background: #fff7ed; padding: 16px; }
-      #covered-button { display: block; width: 220px; height: 48px; }
-      #small-overlay-wrap { position: relative; width: 220px; height: 48px; margin-top: 28px; }
-      #small-covered-button { display: block; width: 220px; height: 48px; }
-      #small-blank-overlay { position: absolute; inset: 0; display: none; background: transparent; }
-      body.small-overlay-armed #small-blank-overlay { display: block; }
-      /* A transparent shim that swallows the hit test while showing nothing of
-         its own: the shape a drag layer or modal backdrop takes. Armed from the
-         test so the rest of the page stays clickable. */
-      #blank-overlay { position: fixed; inset: 0; display: none; background: transparent; }
-      body.overlay-armed #blank-overlay { display: block; }
+      #image-map-image { position: absolute; left: 400px; top: 40px; width: 240px; height: 120px; }
+      .overlay-case { position: relative; width: 300px; height: 96px; margin-top: 28px; background: #e7e5e4; }
+      .overlay-case button { position: absolute; left: 60px; top: 24px; width: 180px; height: 48px; }
+      .test-overlay { position: absolute; inset: 0; z-index: 1; display: none; background: transparent; }
+      body.activation-overlay-armed #activation-transparent-overlay { display: block; }
+      body.annotation-overlay-armed #annotation-transparent-shim { display: block; }
+      #painted-ancestor-case { position: absolute; left: 680px; top: 40px; margin-top: 0; }
+      #painted-intermediate-case { position: absolute; left: 680px; top: 164px; margin-top: 0; }
+      #painted-descendant-case { position: absolute; left: 680px; top: 288px; margin-top: 0; }
+      #pseudo-painted-case { position: absolute; left: 680px; top: 412px; margin-top: 0; }
+      #pseudo-overflow-case { position: absolute; left: 680px; top: 536px; margin-top: 0; }
+      #painted-ancestor-overlay,
+      #painted-intermediate-layer,
+      #painted-intermediate-shim,
+      #painted-descendant-overlay,
+      #pseudo-painted-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+      }
+      #painted-ancestor-overlay { z-index: 1; background: rgba(30, 41, 59, 0.42); }
+      #painted-ancestor-hit-surface { position: absolute; inset: 0; background: transparent; }
+      #painted-intermediate-layer { z-index: 1; background: rgba(30, 41, 59, 0.42); }
+      #painted-intermediate-shim { z-index: 2; background: transparent; }
+      body.painted-ancestor-armed #painted-ancestor-overlay { display: block; }
+      body.painted-intermediate-armed #painted-intermediate-layer,
+      body.painted-intermediate-armed #painted-intermediate-shim { display: block; }
+      #painted-descendant-overlay,
+      #pseudo-painted-overlay { z-index: 1; background: transparent; }
+      #painted-descendant-surface {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: rgba(30, 41, 59, 0.42);
+      }
+      #pseudo-painted-overlay::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: rgba(30, 41, 59, 0.42);
+      }
+      body.painted-descendant-armed #painted-descendant-overlay,
+      body.pseudo-painted-armed #pseudo-painted-overlay { display: block; }
+      #pseudo-overflow-host {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1px;
+        height: 1px;
+        z-index: 1;
+        display: none;
+        background: transparent;
+      }
+      #pseudo-overflow-host::before {
+        content: "";
+        position: absolute;
+        left: 60px;
+        top: 24px;
+        width: 180px;
+        height: 48px;
+        background: rgba(30, 41, 59, 0.42);
+      }
+      body.pseudo-overflow-armed #pseudo-overflow-host { display: block; }
+      #painted-covered-button { display: block; width: 220px; height: 48px; margin-top: 28px; }
+      #painted-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: none;
+        background: rgba(15, 23, 42, 0.58);
+      }
+      body.painted-backdrop-armed #painted-backdrop { display: block; }
     </style>
   </head>
   <body>
     <div id="closed-host"></div>
     <div id="jsaction-card" class="delegated" jsaction="keydown:card.key;click:card.open">jsaction 卡片</div>
     <div id="stimulus-card" class="delegated" data-action="card#open">Stimulus 卡片</div>
-    <button id="covered-button" type="button">被遮住的按鈕</button>
-    <div id="small-overlay-wrap">
-      <button id="small-covered-button" type="button">被小型遮罩蓋住的按鈕</button>
-      <div id="small-blank-overlay"></div>
+
+    <img
+      id="image-map-image"
+      width="240"
+      height="120"
+      alt="Image map fixture"
+      usemap="detection.html#shared-hotspots"
+      src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12' viewBox='0 0 24 12'%3E%3Crect width='24' height='12' fill='%23dbeafe'/%3E%3Cpath d='M0 6h24M12 0v12' stroke='%2360a5fa'/%3E%3C/svg%3E"
+    />
+    <map name="shared-hotspots">
+      <area
+        id="image-map-area"
+        shape="rect"
+        coords="32,24,128,88"
+        href="#image-map-target"
+        alt="Image map hotspot"
+        onclick="event.preventDefault(); window.detectionProbe.noteImageMapClick()"
+      />
+    </map>
+
+    <div id="activation-overlay-case" class="overlay-case">
+      <button
+        id="activation-covered-button"
+        type="button"
+        onclick="window.detectionProbe.noteActivationButtonClick()"
+      >Steps 底層按鈕</button>
+      <div
+        id="activation-transparent-overlay"
+        class="test-overlay"
+        aria-label="透明操作遮罩"
+        onclick="window.detectionProbe.noteActivationOverlayClick()"
+      ></div>
     </div>
-    <div id="blank-overlay"></div>
+
+    <div id="annotation-overlay-case" class="overlay-case">
+      <button
+        id="annotation-covered-button"
+        type="button"
+        onclick="window.detectionProbe.noteAnnotationButtonClick()"
+      >Snapshot 底層按鈕</button>
+      <!-- No role, label, focusability, cursor, inline handler, or paint: this
+           is deliberately a semantic-free annotation shim. The script-only
+           listener below observes accidental dispatch without changing its
+           DOM-visible targeting evidence. -->
+      <div id="annotation-transparent-shim" class="test-overlay"></div>
+    </div>
+
+    <div id="painted-ancestor-case" class="overlay-case">
+      <button id="painted-ancestor-button" type="button">Painted ancestor 底層按鈕</button>
+      <!-- The deepest hit is blank, but its exclusive parent paints. Snapshot
+           targeting must inspect the whole upper branch, not only this child. -->
+      <div id="painted-ancestor-overlay"><span id="painted-ancestor-hit-surface"></span></div>
+    </div>
+
+    <div id="painted-intermediate-case" class="overlay-case">
+      <button id="painted-intermediate-button" type="button">Painted middle 底層按鈕</button>
+      <!-- A blank top shim must not jump through a separate painted layer that
+           still sits above the button in the browser's paint stack. -->
+      <div id="painted-intermediate-layer"></div>
+      <div id="painted-intermediate-shim"></div>
+    </div>
+
+    <div id="painted-descendant-case" class="overlay-case">
+      <button id="painted-descendant-button" type="button">Painted child 底層按鈕</button>
+      <!-- elementFromPoint returns the blank parent because its painted child
+           deliberately opts out of hit testing. -->
+      <div id="painted-descendant-overlay"><span id="painted-descendant-surface"></span></div>
+    </div>
+
+    <div id="pseudo-painted-case" class="overlay-case">
+      <button id="pseudo-painted-button" type="button">Pseudo backdrop 底層按鈕</button>
+      <!-- Generated paint has no DOM hit-test node; Chromium reports this
+           otherwise blank originating element. -->
+      <div id="pseudo-painted-overlay"></div>
+    </div>
+
+    <div id="pseudo-overflow-case" class="overlay-case">
+      <button id="pseudo-overflow-button" type="button">Overflow pseudo 底層按鈕</button>
+      <!-- The host is only 1x1. Its generated box paints and hit-tests over the
+           button well outside the host's own client rect. -->
+      <div id="pseudo-overflow-host"></div>
+    </div>
+
+    <button
+      id="painted-covered-button"
+      type="button"
+      onclick="window.detectionProbe.notePaintedButtonClick()"
+    >Painted backdrop 底層按鈕</button>
+    <!-- Deliberately no role, label, focusability, cursor, or inline handler:
+         its rgba background alone must make it a real visual surface. -->
+    <div id="painted-backdrop"></div>
+
     <script>
       const host = document.getElementById('closed-host');
       // Closed mode: host.shadowRoot stays null, so only an extension-privileged
@@ -41,17 +190,70 @@
         '<style>button { position: absolute; left: 70px; top: 58px; width: 180px; height: 44px; }</style>' +
         '<button id="shadow-button" type="button">影子按鈕</button>';
 
+      const counters = {
+        activationOverlayClicks: 0,
+        activationButtonClicks: 0,
+        annotationShimClicks: 0,
+        annotationButtonClicks: 0,
+        paintedBackdropClicks: 0,
+        paintedButtonClicks: 0,
+        imageMapClicks: 0,
+      };
+
+      document.getElementById('annotation-transparent-shim').addEventListener('click', () => {
+        counters.annotationShimClicks++;
+      });
+      document.getElementById('painted-backdrop').addEventListener('click', () => {
+        counters.paintedBackdropClicks++;
+      });
+
       window.detectionProbe = {
         rectOf(id) {
           const element = id === 'shadow-button' ? shadowRoot.getElementById(id) : document.getElementById(id);
           const rect = element.getBoundingClientRect();
           return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
         },
-        armOverlay() {
-          document.body.classList.add('overlay-armed');
+        armActivationOverlay() {
+          document.body.classList.add('activation-overlay-armed');
         },
-        armSmallOverlay() {
-          document.body.classList.add('small-overlay-armed');
+        armAnnotationOverlay() {
+          document.body.classList.add('annotation-overlay-armed');
+        },
+        armPaintedAncestor() {
+          document.body.classList.add('painted-ancestor-armed');
+        },
+        armPaintedIntermediate() {
+          document.body.classList.add('painted-intermediate-armed');
+        },
+        armPaintedDescendant() {
+          document.body.classList.add('painted-descendant-armed');
+        },
+        armPseudoPainted() {
+          document.body.classList.add('pseudo-painted-armed');
+        },
+        armPseudoOverflow() {
+          document.body.classList.add('pseudo-overflow-armed');
+        },
+        armPaintedBackdrop() {
+          document.body.classList.add('painted-backdrop-armed');
+        },
+        noteActivationOverlayClick() {
+          counters.activationOverlayClicks++;
+        },
+        noteActivationButtonClick() {
+          counters.activationButtonClicks++;
+        },
+        noteAnnotationButtonClick() {
+          counters.annotationButtonClicks++;
+        },
+        notePaintedButtonClick() {
+          counters.paintedButtonClicks++;
+        },
+        noteImageMapClick() {
+          counters.imageMapClicks++;
+        },
+        readCounters() {
+          return { ...counters };
         },
       };
     </script>

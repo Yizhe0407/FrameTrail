@@ -99,6 +99,77 @@ describe('createSnapshotTargetResolver', () => {
     const reset = await resolver.resolveAt(200, 50, 0, 1);
     expect(reset?.element).toBe(nestedText);
   });
+
+  it('resolves image-map regions in displayed CSS pixels for image and area hits', async () => {
+    const image = document.createElement('img');
+    image.setAttribute('usemap', '#DiagramMap');
+    Object.defineProperty(image, 'offsetWidth', { configurable: true, value: 200 });
+    Object.defineProperty(image, 'offsetHeight', { configurable: true, value: 100 });
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 1_000 });
+    Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 500 });
+    stubRect(image, { x: 10, y: 20, width: 200, height: 100 });
+    Object.defineProperty(image, 'getClientRects', {
+      configurable: true,
+      value: () => [image.getBoundingClientRect()],
+    });
+
+    const map = document.createElement('map');
+    map.name = 'DiagramMap';
+    const area = document.createElement('area');
+    area.href = '#details';
+    area.shape = 'rectangle';
+    area.coords = '50,\t10 100,\n50';
+    map.append(area);
+    document.body.append(image, map);
+
+    stubElementFromPoint(() => image);
+    const imageHit = await createSnapshotTargetResolver('run-image').resolveAt(75, 40);
+    expect(imageHit?.element).toBe(area);
+    expect(imageHit?.dedupeElement).toBeNull();
+    expect(imageHit?.identity).toContain('::image-map::');
+    expect(imageHit?.rect).toEqual({ x: 60, y: 30, width: 50, height: 40 });
+
+    stubElementFromPoint(() => area);
+    const areaHit = await createSnapshotTargetResolver('run-area').resolveAt(75, 40);
+    expect(areaHit?.element).toBe(area);
+    expect(areaHit?.dedupeElement).toBeNull();
+    expect(areaHit?.identity).toBe(imageHit?.identity);
+    expect(areaHit?.rect).toEqual({ x: 60, y: 30, width: 50, height: 40 });
+  });
+
+  it('uses area+image composite identities when multiple images share one map', async () => {
+    const firstImage = document.createElement('img');
+    const secondImage = document.createElement('img');
+    for (const image of [firstImage, secondImage]) {
+      image.setAttribute('usemap', '#shared-map');
+      Object.defineProperty(image, 'offsetWidth', { configurable: true, value: 100 });
+      Object.defineProperty(image, 'offsetHeight', { configurable: true, value: 50 });
+    }
+    stubRect(firstImage, { x: 10, y: 20, width: 100, height: 50 });
+    stubRect(secondImage, { x: 210, y: 20, width: 100, height: 50 });
+
+    const map = document.createElement('map');
+    map.name = 'shared-map';
+    const area = document.createElement('area');
+    area.href = '#details';
+    area.shape = 'rect';
+    area.coords = '0,0,100,50';
+    map.append(area);
+    document.body.append(firstImage, secondImage, map);
+
+    stubElementFromPoint((x) => (x < 150 ? firstImage : secondImage));
+    const resolver = createSnapshotTargetResolver('run-shared-map');
+    const firstTarget = await resolver.resolveAt(25, 30);
+    const repeatedFirstTarget = await resolver.resolveAt(25, 30);
+    const secondTarget = await resolver.resolveAt(225, 30);
+
+    expect(firstTarget?.element).toBe(area);
+    expect(firstTarget?.dedupeElement).toBeNull();
+    expect(repeatedFirstTarget?.identity).toBe(firstTarget?.identity);
+    expect(secondTarget?.element).toBe(area);
+    expect(secondTarget?.dedupeElement).toBeNull();
+    expect(secondTarget?.identity).not.toBe(firstTarget?.identity);
+  });
 });
 
 describe('SNAPSHOT_FREEZE_EVENTS', () => {

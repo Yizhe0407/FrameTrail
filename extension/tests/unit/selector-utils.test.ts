@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ACTIVATION_TARGETING_POLICY,
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
   findVisualTargetCandidatesAtPoint,
+  getHighlightBounds,
   getVisibleHighlightBounds,
   INTERACTIVE_CANDIDATE_SELECTOR,
   isInteractiveElement,
@@ -151,6 +153,52 @@ describe('findVisualTargetCandidatesAtPoint', () => {
     expect(isInteractiveElement(button)).toBe(false);
     expect(isElementVisuallyUnavailable(button)).toBe(false);
     expect(selectVisualTargetCandidate(targets, 0)?.element).toBe(button);
+  });
+
+  it('keeps a visibility-visible child selectable under a visibility-hidden parent', () => {
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    parent.style.visibility = 'hidden';
+    child.style.visibility = 'visible';
+    parent.append(child);
+    document.body.append(parent);
+    makeVisible(parent, { x: 10, y: 10, width: 180, height: 80 });
+    makeVisible(child, { x: 20, y: 20, width: 120, height: 40 });
+
+    const targets = findVisualTargetCandidatesAtPoint(child, 30, 30);
+
+    expect(isElementVisuallyUnavailable(parent)).toBe(true);
+    expect(isElementVisuallyUnavailable(child)).toBe(false);
+    expect(targets.candidates.map((candidate) => candidate.element)).toEqual([child]);
+  });
+
+  it('deduplicates parent and child by their overflow-clipped visible bounds', () => {
+    const clip = document.createElement('div');
+    const parent = document.createElement('div');
+    const child = document.createElement('span');
+    clip.style.overflowX = 'hidden';
+    clip.style.overflowY = 'hidden';
+    parent.append(child);
+    clip.append(parent);
+    document.body.append(clip);
+    makeVisible(clip, { x: 10, y: 10, width: 140, height: 80 });
+    makeVisible(parent, { x: 0, y: 0, width: 220, height: 120 });
+    makeVisible(child, { x: -20, y: -20, width: 260, height: 160 });
+    for (const [name, value] of Object.entries({
+      offsetWidth: 140,
+      offsetHeight: 80,
+      clientLeft: 10,
+      clientTop: 10,
+      clientWidth: 120,
+      clientHeight: 60,
+    })) {
+      Object.defineProperty(clip, name, { configurable: true, value });
+    }
+
+    const targets = findVisualTargetCandidatesAtPoint(child, 30, 30, { width: 400, height: 300 });
+
+    expect(targets.candidates.map((candidate) => candidate.element)).toEqual([child, clip]);
+    expect(targets.candidates[0].bounds).toEqual({ x: 20, y: 20, width: 120, height: 60 });
   });
 
   it('collapses identical child and control boxes to the semantic control', () => {
@@ -322,6 +370,65 @@ describe('getVisibleHighlightBounds', () => {
       height: 50,
     });
   });
+
+
+  it('uses an image-map area region and the associated image paint ancestry', () => {
+    const imageClip = document.createElement('div');
+    imageClip.style.overflowX = 'hidden';
+    imageClip.style.overflowY = 'hidden';
+    const image = document.createElement('img');
+    image.setAttribute('usemap', 'prefix#Hotspots');
+    Object.defineProperty(image, 'offsetWidth', { configurable: true, value: 200 });
+    Object.defineProperty(image, 'offsetHeight', { configurable: true, value: 100 });
+    imageClip.append(image);
+
+    const mapClip = document.createElement('div');
+    mapClip.style.contain = 'paint';
+    const map = document.createElement('map');
+    map.name = 'Hotspots';
+    const area = document.createElement('area');
+    area.href = '#details';
+    area.shape = 'rect';
+    area.coords = '10,10,100,80';
+    map.append(area);
+    mapClip.append(map);
+    document.body.append(imageClip, mapClip);
+
+    makeVisible(image, { x: 100, y: 50, width: 200, height: 100 });
+    makeVisible(imageClip, { x: 120, y: 65, width: 60, height: 35 });
+    // If clipping followed <map> ancestry, this unrelated paint container
+    // would erase the area instead of clipping through imageClip.
+    makeVisible(mapClip, { x: 0, y: 0, width: 5, height: 5 });
+
+    expect(Array.from(area.getClientRects())).toHaveLength(0);
+    expect(getHighlightBounds(area, 130, 70)).toEqual({
+      x: 110,
+      y: 60,
+      width: 90,
+      height: 70,
+    });
+    expect(getVisibleHighlightBounds(area, 130, 70, { width: 400, height: 300 })).toEqual({
+      x: 120,
+      y: 65,
+      width: 60,
+      height: 35,
+    });
+
+    const selected = selectVisualTargetCandidate(
+      findVisualTargetCandidatesAtPoint(
+        area,
+        130,
+        70,
+        { width: 400, height: 300 },
+        ACTIVATION_TARGETING_POLICY,
+      ),
+      0,
+    );
+    expect(selected).toMatchObject({
+      element: area,
+      bounds: { x: 120, y: 65, width: 60, height: 35 },
+    });
+  });
 });
 
 describe('isInteractiveElement', () => {
@@ -441,10 +548,246 @@ describe('shadow and occlusion aware hit testing', () => {
     expect(findVisualTargetCandidatesAtPoint(overlay, 30, 30, viewport).candidates[0].element).toBe(overlay);
   });
 
-  it('looks past a small transparent hit-test shim', () => {
+  it('does not pierce a blank child whose exclusive overlay ancestor paints', () => {
+    const shared = document.createElement('main');
+    const overlay = document.createElement('div');
+    const hitSurface = document.createElement('span');
+    const button = document.createElement('button');
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    button.textContent = '底下按鈕';
+    overlay.append(hitSurface);
+    shared.append(overlay, button);
+    document.body.append(shared);
+    makeVisible(shared, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(overlay, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(hitSurface, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [hitSurface, overlay, button, shared, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      hitSurface,
+      30,
+      30,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates.some((candidate) => candidate.element === button)).toBe(false);
+    expect(targets.candidates[0].element).toBe(hitSurface);
+  });
+
+  it('does not pierce an otherwise blank branch whose pointer-events-none descendant paints', () => {
+    const overlay = document.createElement('div');
+    const paintedChild = document.createElement('div');
+    const button = document.createElement('button');
+    paintedChild.style.position = 'absolute';
+    paintedChild.style.inset = '0';
+    paintedChild.style.pointerEvents = 'none';
+    paintedChild.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    button.textContent = '底下按鈕';
+    overlay.append(paintedChild);
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(paintedChild, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      // Chromium omits paintedChild because pointer-events:none and reports
+      // its otherwise blank hit-test ancestor instead.
+      value: () => [overlay, button, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      overlay,
+      30,
+      30,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates.some((candidate) => candidate.element === button)).toBe(false);
+    expect(targets.candidates[0].element).toBe(overlay);
+  });
+
+  it('does not pierce a branch painted by a generated backdrop', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    button.textContent = '底下按鈕';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, button, document.body],
+    });
+
+    const originalGetComputedStyle = window.getComputedStyle.bind(window);
+    const blankPseudoStyle = document.createElement('div').style;
+    const paintedPseudoStyle = document.createElement('div').style;
+    paintedPseudoStyle.content = '""';
+    paintedPseudoStyle.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    vi.stubGlobal('CSS', { supports: (query: string) => query === 'selector(::before)' });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+      if (element === overlay && pseudoElement === '::before') return paintedPseudoStyle;
+      if (pseudoElement) return blankPseudoStyle;
+      return originalGetComputedStyle(element);
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      overlay,
+      30,
+      30,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates.some((candidate) => candidate.element === button)).toBe(false);
+    expect(targets.candidates[0].element).toBe(overlay);
+  });
+
+  it('does not pierce fixed generated paint outside its originating element box', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    overlay.style.position = 'absolute';
+    button.textContent = '底下按鈕';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 1, height: 1 });
+    makeVisible(button, { x: 200, y: 200, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      // Chromium reports the originating element when its generated box is hit,
+      // even though the pointer is outside the host's own client rects.
+      value: () => [overlay, button, document.body],
+    });
+
+    const originalGetComputedStyle = window.getComputedStyle.bind(window);
+    const blankPseudoStyle = document.createElement('div').style;
+    const paintedPseudoStyle = document.createElement('div').style;
+    paintedPseudoStyle.content = '""';
+    paintedPseudoStyle.position = 'fixed';
+    paintedPseudoStyle.top = '0px';
+    paintedPseudoStyle.right = '0px';
+    paintedPseudoStyle.bottom = '0px';
+    paintedPseudoStyle.left = '0px';
+    paintedPseudoStyle.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    vi.stubGlobal('CSS', { supports: (query: string) => query === 'selector(::before)' });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+      if (element === overlay && pseudoElement === '::before') return paintedPseudoStyle;
+      if (pseudoElement) return blankPseudoStyle;
+      return originalGetComputedStyle(element);
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      overlay,
+      220,
+      220,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates.some((candidate) => candidate.element === button)).toBe(false);
+    expect(targets.candidates[0].element).toBe(overlay);
+  });
+
+  it('does not treat positioned generated paint elsewhere as covering the pointer', () => {
+    const overlay = document.createElement('div');
+    const button = document.createElement('button');
+    overlay.style.position = 'absolute';
+    button.textContent = '底下按鈕';
+    document.body.append(overlay, button);
+    makeVisible(overlay, { x: 10, y: 10, width: 1, height: 1 });
+    makeVisible(button, { x: 200, y: 200, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, button, document.body],
+    });
+
+    const originalGetComputedStyle = window.getComputedStyle.bind(window);
+    const blankPseudoStyle = document.createElement('div').style;
+    const paintedPseudoStyle = document.createElement('div').style;
+    paintedPseudoStyle.content = '"elsewhere"';
+    paintedPseudoStyle.position = 'fixed';
+    paintedPseudoStyle.top = '0px';
+    paintedPseudoStyle.left = '0px';
+    paintedPseudoStyle.width = '20px';
+    paintedPseudoStyle.height = '20px';
+    paintedPseudoStyle.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    vi.stubGlobal('CSS', { supports: (query: string) => query === 'selector(::before)' });
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+      if (element === overlay && pseudoElement === '::before') return paintedPseudoStyle;
+      if (pseudoElement) return blankPseudoStyle;
+      return originalGetComputedStyle(element);
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      overlay,
+      220,
+      220,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates[0].element).toBe(button);
+  });
+
+  it('pierces a blank overlay branch even when its shared app ancestor paints', () => {
+    const shared = document.createElement('main');
+    const overlay = document.createElement('div');
+    const hitSurface = document.createElement('span');
+    const button = document.createElement('button');
+    shared.style.backgroundColor = 'white';
+    button.textContent = '底下按鈕';
+    overlay.append(hitSurface);
+    shared.append(overlay, button);
+    document.body.append(shared);
+    makeVisible(shared, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(overlay, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(hitSurface, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [hitSurface, overlay, button, shared, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      hitSurface,
+      30,
+      30,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates[0].element).toBe(button);
+  });
+
+  it('does not pierce a painted non-interactive layer below a blank shim', () => {
+    const shim = document.createElement('div');
+    const backdrop = document.createElement('div');
+    const button = document.createElement('button');
+    backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    button.textContent = '底下按鈕';
+    document.body.append(shim, backdrop, button);
+    makeVisible(shim, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(backdrop, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [shim, backdrop, button, document.body],
+    });
+
+    const targets = findVisualTargetCandidatesAtPoint(
+      shim,
+      30,
+      30,
+      { width: 1024, height: 768 },
+    );
+
+    expect(targets.candidates.some((candidate) => candidate.element === button)).toBe(false);
+    expect(targets.candidates[0].element).toBe(shim);
+  });
+
+  it('pierces a transparent hit-test shim for annotation but preserves it for activation', () => {
     const overlay = document.createElement('div');
     const button = document.createElement('button');
     button.textContent = '送出';
+    overlay.style.opacity = '0';
     document.body.append(overlay, button);
     makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
     makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
@@ -453,11 +796,47 @@ describe('shadow and occlusion aware hit testing', () => {
       value: () => [overlay, button, document.body],
     });
     const styleSpy = vi.spyOn(window, 'getComputedStyle');
+    const viewport = { width: 1024, height: 768 };
 
-    const targets = findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 });
+    const annotationTargets = findVisualTargetCandidatesAtPoint(overlay, 30, 30, viewport);
+    const activationTargets = findVisualTargetCandidatesAtPoint(
+      overlay,
+      30,
+      30,
+      viewport,
+      ACTIVATION_TARGETING_POLICY,
+    );
 
-    expect(targets.candidates[0].element).toBe(button);
-    expect(styleSpy.mock.calls.filter(([element]) => element === overlay)).toHaveLength(1);
+    expect(annotationTargets.candidates[0].element).toBe(button);
+    expect(activationTargets.candidates[0].element).toBe(overlay);
+    expect(styleSpy.mock.calls.filter(([element]) => element === overlay)).toHaveLength(2);
+  });
+
+  it('preserves a painted fullscreen backdrop for annotation and activation', () => {
+    const backdrop = document.createElement('div');
+    const button = document.createElement('button');
+    backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+    button.textContent = '底下按鈕';
+    document.body.append(backdrop, button);
+    makeVisible(backdrop, { x: 0, y: 0, width: 1024, height: 768 });
+    makeVisible(button, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [backdrop, button, document.body],
+    });
+    const viewport = { width: 1024, height: 768 };
+
+    const annotationTargets = findVisualTargetCandidatesAtPoint(backdrop, 30, 30, viewport);
+    const activationTargets = findVisualTargetCandidatesAtPoint(
+      backdrop,
+      30,
+      30,
+      viewport,
+      ACTIVATION_TARGETING_POLICY,
+    );
+
+    expect(annotationTargets.candidates[0].element).toBe(backdrop);
+    expect(activationTargets.candidates[0].element).toBe(backdrop);
   });
 
   it('does not click through a small painted or accessibly named surface', () => {
@@ -485,6 +864,12 @@ describe('shadow and occlusion aware hit testing', () => {
 
     overlay.removeAttribute('aria-label');
     overlay.setAttribute('role', 'region');
+    expect(
+      findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 }).candidates[0].element,
+    ).toBe(overlay);
+
+    overlay.removeAttribute('role');
+    overlay.style.filter = 'blur(2px)';
     expect(
       findVisualTargetCandidatesAtPoint(overlay, 30, 30, { width: 1024, height: 768 }).candidates[0].element,
     ).toBe(overlay);

@@ -3,7 +3,7 @@ import type { RecordingMode, StepRecaptureTarget, Viewport } from '../storage/re
 type CaptureIntent = 'click' | 'mark';
 
 /** Clicked element rect in CSS px, relative to the viewport at capture time. */
-interface CaptureRect {
+export interface CaptureRect {
   x: number;
   y: number;
   width: number;
@@ -136,6 +136,78 @@ export interface ClickCaptureResult {
   ok: boolean;
 }
 
+/**
+ * Child-frame step gestures use an extension-authenticated runtime handshake
+ * before their geometry is allowed onto the page-visible hop channel. Page
+ * scripts may observe or forge hop messages, but cannot mint this authorization.
+ */
+export interface StepFrameRelayBeginMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_BEGIN';
+  runId: string;
+  captureId: string;
+  /** Target rect in the originating child frame's viewport coordinates. */
+  rect: CaptureRect;
+  text: string;
+  tagName: string;
+  interactive: boolean;
+}
+
+export type StepFrameRelayBeginResult =
+  | { ok: true; relayToken: string }
+  | { ok: false };
+
+/** The top-frame content script consumes the page-visible token exactly once. */
+export interface StepFrameRelayClaimMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_CLAIM';
+  runId: string;
+  captureId: string;
+  relayToken: string;
+}
+
+export type StepFrameRelayClaimResult =
+  | {
+      ok: true;
+      settleToken: string;
+      target: { text: string; tagName: string; interactive: boolean };
+    }
+  | { ok: false };
+
+/** A non-top relay hop could not map the target into its parent viewport. */
+export interface StepFrameRelayRejectMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_REJECT';
+  runId: string;
+  captureId: string;
+  relayToken: string;
+}
+
+/** The top frame reports whether the swallowed child gesture may replay. */
+export interface StepFrameRelaySettleMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_SETTLE';
+  runId: string;
+  captureId: string;
+  settleToken: string;
+  replay: boolean;
+}
+
+/** The originating frame timed out/cancelled before the relay completed. */
+export interface StepFrameRelayAbortMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_ABORT';
+  runId: string;
+  captureId: string;
+}
+
+export interface StepFrameRelayMutationResult {
+  ok: boolean;
+}
+
+/** Background-to-origin completion; delivered with tabs.sendMessage(frameId). */
+export interface FrameTrailStepFrameResultMessage {
+  type: 'FRAME_TRAIL_STEP_FRAME_RESULT';
+  runId: string;
+  captureId: string;
+  replay: boolean;
+}
+
 interface CancelCaptureMessage {
   type: 'FRAME_TRAIL_CANCEL_CAPTURE';
   runId: string;
@@ -264,6 +336,11 @@ export type FocusStepRecaptureSourceResult =
 
 export type BackgroundMessage =
   | ClickCapture
+  | StepFrameRelayBeginMessage
+  | StepFrameRelayClaimMessage
+  | StepFrameRelayRejectMessage
+  | StepFrameRelaySettleMessage
+  | StepFrameRelayAbortMessage
   | CancelCaptureMessage
   | SnapshotInvalidatedMessage
   | SnapshotRecorderFailureMessage

@@ -1,5 +1,8 @@
 import { createStepPreview } from '../capture/step-preview';
-import { getComposedParent } from '../capture/selector-utils';
+import {
+  ACTIVATION_TARGETING_POLICY,
+  getComposedParent,
+} from '../capture/selector-utils';
 import { candidateCyclingState } from '../capture/candidate-cycling';
 import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isExtensionOverlay } from '../capture/viewport-overlay-host';
@@ -55,7 +58,7 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
   const preview = createStepPreview();
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
-  const candidateTarget = createCandidateTargetLock();
+  const candidateTarget = createCandidateTargetLock(ACTIVATION_TARGETING_POLICY);
   let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
   let observedTarget: Element | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
