@@ -54,6 +54,7 @@ pnpm compile
 pnpm lint
 pnpm validate
 pnpm validate:architecture
+pnpm benchmark:detection
 pnpm build
 pnpm build:firefox
 ```
@@ -67,6 +68,7 @@ pnpm build:firefox
 - `pnpm lint`：以 ESLint（`--max-warnings 0`）檢查整個原始碼樹；CI 在 compile 後也會執行。
 - `pnpm validate`：依序執行型別、ESLint、架構、完整 Vitest、Chrome／Firefox production build、產物與 Firefox lint 檢查。
 - `pnpm validate:architecture`：檢查 alias import cycle 與 `shared`、`ui`、storage model 的依賴邊界；CI 在 compile 後也會執行這個檢查。
+- `pnpm benchmark:detection`：在真實 Chromium 與 production extension build 上執行 element-target accuracy、hover latency、capture bounds 與 replay exactly-once benchmark；詳細指標與 baseline 流程見 [tests/README.md](./tests/README.md)。
 - `pnpm build`：建立 Chrome MV3 production 版本到 `.output/chrome-mv3`。
 - `pnpm build:firefox`：建立 Firefox MV2 production 版本到 `.output/firefox-mv2`。
 

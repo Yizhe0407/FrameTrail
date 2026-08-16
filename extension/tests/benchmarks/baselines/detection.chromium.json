@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "thresholds": {
+    "activationSemanticAccuracy": 0.95,
+    "annotationSemanticAccuracy": 0.95,
+    "overallMedianIoU": 0.9,
+    "replayExactlyOnceRate": 0.95,
+    "replayMedianBoundsIoU": 0.9
+  },
+  "reference": {
+    "activationSemanticAccuracy": 1,
+    "annotationSemanticAccuracy": 1,
+    "overallMedianIoU": 1,
+    "replayExactlyOnceRate": 1,
+    "replayMedianBoundsIoU": 1,
+    "activationHoverP95Ms": 14.37,
+    "annotationHoverP95Ms": 26.62,
+    "replayP95Ms": 60.98
+  }
+}

@@ -21,12 +21,15 @@ type Options = {
    * suite keeps the scrollbar-free geometry Chromium's headless mode gives it.
    */
   nativeScrollbars: boolean;
+  /** Disable trace collection for latency-sensitive benchmark runs. */
+  recordTrace: boolean;
 };
 
 export const test = base.extend<Fixtures & Options>({
   nativeScrollbars: [false, { option: true }],
+  recordTrace: [true, { option: true }],
 
-  extensionContext: async ({ nativeScrollbars }, use, testInfo) => {
+  extensionContext: async ({ nativeScrollbars, recordTrace }, use, testInfo) => {
     const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'frametrail-playwright-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
@@ -47,15 +50,19 @@ export const test = base.extend<Fixtures & Options>({
       ],
     });
     await mkdir(testInfo.outputPath('browser'), { recursive: true });
-    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+    if (recordTrace) {
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+    }
     try {
       await use(context);
       if (testInfo.status !== testInfo.expectedStatus) {
         for (const [index, page] of context.pages().entries()) {
           await page.screenshot({ path: testInfo.outputPath(`browser/page-${index}.png`), fullPage: true }).catch(() => {});
         }
-        await context.tracing.stop({ path: testInfo.outputPath('browser/trace.zip') }).catch(() => {});
-      } else {
+        if (recordTrace) {
+          await context.tracing.stop({ path: testInfo.outputPath('browser/trace.zip') }).catch(() => {});
+        }
+      } else if (recordTrace) {
         await context.tracing.stop().catch(() => {});
       }
     } finally {
