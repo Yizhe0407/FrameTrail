@@ -61,6 +61,40 @@ export interface OpenEditorMessage {
   entryId?: string;
 }
 
+export interface OpenLibraryMessage {
+  type: 'OPEN_LIBRARY';
+}
+
+export type OpenLibraryResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * An extension page telling the background which tab it occupies. The
+ * background cannot discover its own pages with tabs.query — see the
+ * permission analysis in lib/recording/background/extension-page-tabs.ts — and
+ * the page kind is derived from the authenticated sender URL, never from a
+ * payload, so this message needs no fields.
+ */
+export interface RegisterExtensionPageMessage {
+  type: 'REGISTER_EXTENSION_PAGE';
+}
+
+/**
+ * Background-to-editor handoff, delivered with tabs.sendMessage before the
+ * background reuses an existing editor tab. Only the page knows which Guide it
+ * currently displays and whether it holds unsaved work, so it answers whether
+ * it is already showing this target (`ready`), consents to being navigated
+ * there, or must keep its draft.
+ */
+export interface EditorHandoffMessage {
+  type: 'EDITOR_HANDOFF';
+  sessionId: string;
+  entryId?: string;
+}
+
+export type EditorHandoffResult =
+  | { ok: true; ready: boolean }
+  | { ok: false; error: string };
+
 export interface ResetGuideMessage {
   type: 'RESET_GUIDE';
   sessionId: string;
@@ -108,7 +142,6 @@ export interface SnapshotRecorderFailureMessage {
 export interface FinishResult {
   sessionId: string;
   entryId: string | null;
-  groupId: string | null;
   itemCount: number;
 }
 
@@ -347,6 +380,8 @@ export type BackgroundMessage =
   | StartRecordingMessage
   | StopRecordingMessage
   | OpenEditorMessage
+  | OpenLibraryMessage
+  | RegisterExtensionPageMessage
   | ResetGuideMessage
   | RecordingControlMessage
   | RecorderReadyMessage

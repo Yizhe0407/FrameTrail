@@ -1,6 +1,5 @@
 import { browser } from 'wxt/browser';
 
-
 /** Reads the Guide identity carried by an editor URL. The caller can pass the
  * result to useRecordingSession so URL navigation, not mutable global capture
  * state, chooses which Guide the editor renders. */
@@ -23,21 +22,4 @@ export function getEditorSessionIdFromUrl(url: string | URL): string | null {
 export async function focusTab(tabId: number, windowId?: number | null): Promise<void> {
   await browser.tabs.update(tabId, { active: true });
   if (windowId != null) await browser.windows.update(windowId, { focused: true });
-}
-
-async function openOrFocusExtensionPage(path: '/library.html'): Promise<void> {
-  const url = browser.runtime.getURL(path);
-  // Prefix match, like openOrFocusEditor: an exact-URL comparison misses tabs
-  // that gained query params or a hash and would open a duplicate page.
-  const tabs = await browser.tabs.query({ url: `${url}*` });
-  const existing = tabs.find((tab) => tab.id != null);
-  if (existing?.id != null) {
-    await focusTab(existing.id, existing.windowId);
-    return;
-  }
-  await browser.tabs.create({ url });
-}
-
-export function openLibrary(): Promise<void> {
-  return openOrFocusExtensionPage('/library.html');
 }

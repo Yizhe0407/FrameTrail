@@ -67,8 +67,6 @@ function context(): StepRecaptureContext {
     target: { kind: 'single', stepId: 'step-1' },
     entryId: 'entry-1',
     phase: 'awaiting-target',
-    editorTabId: 1,
-    editorWindowId: null,
     sourceTabId: 2,
     sourceWindowId: 3,
     sourceUrl: 'https://example.com/',

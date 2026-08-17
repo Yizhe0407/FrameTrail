@@ -58,6 +58,14 @@ export default defineConfig({
     browser_specific_settings: {
       gecko: {
         id: 'frametrail@local',
+        // No strict_min_version. The highest Gecko constraint the extension
+        // actually has is storage.session (Firefox 115), which the
+        // extension-page tab registry depends on — tab ids are only valid
+        // within one browsing session, so the record must be cleared on restart
+        // and storage.local cannot express that. Declaring 115 would be both
+        // redundant and wrong: data_collection_permissions below is itself a
+        // 140+ key, so an explicit 115 floor claims support for versions that
+        // do not understand this manifest (web-ext flags exactly that).
         data_collection_permissions: {
           required: ['none'],
         },

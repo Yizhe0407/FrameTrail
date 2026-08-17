@@ -37,6 +37,12 @@ export function makeBackgroundMocks() {
     tabsRemove: vi.fn(),
     tabsSendMessage: vi.fn(),
     windowsUpdate: vi.fn(),
+    // browser.storage.session holds the extension-page tab registry. The
+    // implementations are passed to vi.fn so vi.clearAllMocks keeps them:
+    // suites that never open a page then need no registry setup at all.
+    sessionGet: vi.fn(async (_keys?: string | string[]): Promise<Record<string, unknown>> => ({})),
+    sessionSet: vi.fn(async (): Promise<void> => undefined),
+    sessionRemove: vi.fn(async (): Promise<void> => undefined),
     executeScript: vi.fn(),
     insertCSS: vi.fn(),
     savePendingUndoRecord: vi.fn(),
@@ -94,6 +100,9 @@ export async function mockWxtBrowserModule(
       tabsSendMessage: mocks.tabsSendMessage,
       tabsUpdate: mocks.tabsUpdate,
       windowsUpdate: mocks.windowsUpdate,
+      sessionGet: mocks.sessionGet,
+      sessionSet: mocks.sessionSet,
+      sessionRemove: mocks.sessionRemove,
       executeScript: mocks.executeScript,
       insertCSS: mocks.insertCSS,
       ...extraHandles,

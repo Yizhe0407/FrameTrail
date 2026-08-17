@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   isCancelStepRecaptureResult,
   isClickCaptureResult,
+  isEditorHandoffResult,
   isFocusStepRecaptureSourceResult,
   isOpenEditorResult,
+  isOpenLibraryResult,
   isPreflightGuideContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
   isRecordingControlResult,
@@ -48,6 +50,10 @@ describe('runtime response contracts', () => {
     ['start recording', isStartRecordingResult, { ok: true, sessionId: 'guide-1', runId: 'run-1' }],
     ['reset Guide', isResetGuideResult, { ok: true, contentRevision: 3 }],
     ['open editor', isOpenEditorResult, { ok: false, error: 'cannot open' }],
+    ['open library', isOpenLibraryResult, { ok: true }],
+    ['editor handoff consenting to navigation', isEditorHandoffResult, { ok: true, ready: false }],
+    ['editor handoff already showing the target', isEditorHandoffResult, { ok: true, ready: true }],
+    ['editor handoff refused by a draft', isEditorHandoffResult, { ok: false, error: '請先確認草稿。' }],
     [
       'recording control',
       isRecordingControlResult,
@@ -55,7 +61,7 @@ describe('runtime response contracts', () => {
         ok: true,
         undoToken: 'undo-1',
         removedItemNumber: 2,
-        finish: { sessionId: 'guide-1', entryId: 'step-1', groupId: null, itemCount: 2 },
+        finish: { sessionId: 'guide-1', entryId: 'step-1', itemCount: 2 },
       },
     ],
     [
@@ -91,10 +97,18 @@ describe('runtime response contracts', () => {
     ['start recording without a run id', isStartRecordingResult, { ok: true, sessionId: 'guide-1' }],
     ['reset with a fractional revision', isResetGuideResult, { ok: true, contentRevision: 1.5 }],
     ['open editor with undeclared payload', isOpenEditorResult, { ok: true, error: 'hidden' }],
+    // The background must be able to tell "not our editor page" from consent.
+    ['editor handoff omitting readiness', isEditorHandoffResult, { ok: true }],
+    ['editor handoff with non-boolean readiness', isEditorHandoffResult, { ok: true, ready: 'yes' }],
     [
       'recording control with a malformed finish payload',
       isRecordingControlResult,
-      { ok: true, finish: { sessionId: 'guide-1', entryId: null, groupId: null, itemCount: -1 } },
+      { ok: true, finish: { sessionId: 'guide-1', entryId: null, itemCount: -1 } },
+    ],
+    [
+      'recording control whose finish payload carries a retired field',
+      isRecordingControlResult,
+      { ok: true, finish: { sessionId: 'guide-1', entryId: null, groupId: null, itemCount: 1 } },
     ],
     [
       'recapture preflight with unsupported error code',

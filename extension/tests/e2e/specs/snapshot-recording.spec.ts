@@ -176,7 +176,10 @@ test.describe('snapshot recording', () => {
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
-    expect(editor.url()).toContain('groupId=');
+    // Finishing hands the editor the snapshot group, not its last annotation:
+    // entryId is the anchor id, which is the timeline entry the rail selects.
+    const finishedAnchor = (await readSteps(popupPage)).find((step) => step.bounds === null);
+    expect(new URL(editor.url()).searchParams.get('entryId')).toBe(finishedAnchor?.id);
     await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
   });
 
@@ -353,7 +356,9 @@ test.describe('snapshot recording', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
-    expect(editor.url()).toContain('groupId=');
+    // The rebuilt group is the run's newest entry, so that anchor is what the
+    // editor is handed.
+    expect(new URL(editor.url()).searchParams.get('entryId')).toBe(newestAnchor.id);
   });
 
   test('reuses committed SVG nodes while relayout moves existing annotations', async ({

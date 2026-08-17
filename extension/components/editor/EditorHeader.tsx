@@ -4,7 +4,7 @@ import { type Step } from '@/lib/storage/models';
 import type { ActiveOperation } from '@/lib/storage/recording-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { openLibrary } from '@/lib/runtime/navigation';
+import { openLibrary } from '@/lib/runtime/actions';
 
 interface Props {
   operationActive: boolean;

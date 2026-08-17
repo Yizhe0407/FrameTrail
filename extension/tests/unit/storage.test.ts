@@ -24,8 +24,6 @@ describe('recording state normalization', () => {
         target: { kind: 'single', stepId: 'step-1' },
         entryId: 'step-1',
         phase: 'awaiting-target',
-        editorTabId: 10,
-        editorWindowId: 2,
         sourceTabId: 11,
         sourceWindowId: 3,
         sourceUrl: 'https://example.com/page',
@@ -38,6 +36,34 @@ describe('recording state normalization', () => {
     expect(normalized.isRecording).toBe(false);
     expect(normalized.phase).toBe('idle');
     expect(normalized.recapture?.target).toEqual({ kind: 'single', stepId: 'step-1' });
+  });
+
+  it('ignores retired recapture fields left behind by an older build', () => {
+    // editorTabId/editorWindowId were dropped when the editor gained a single
+    // shared tab. A state written before that must still normalize, because the
+    // normalizer rebuilds the context from the fields it knows.
+    const normalized = normalizeRecordingState({
+      operation: 'recapture',
+      recapture: {
+        runId: 'recapture-1',
+        sessionId: 'session-1',
+        target: { kind: 'single', stepId: 'step-1' },
+        entryId: 'step-1',
+        phase: 'awaiting-target',
+        editorTabId: 10,
+        editorWindowId: 2,
+        sourceTabId: 11,
+        sourceWindowId: 3,
+        sourceUrl: 'https://example.com/page',
+        sourceTabCreated: false,
+        startedAt: 123,
+      } as never,
+    });
+
+    expect(normalized.operation).toBe('recapture');
+    expect(normalized.recapture).not.toHaveProperty('editorTabId');
+    expect(normalized.recapture).not.toHaveProperty('editorWindowId');
+    expect(normalized.recapture?.sourceTabId).toBe(11);
   });
 
   it('fails closed when a persisted recapture context is incomplete', () => {

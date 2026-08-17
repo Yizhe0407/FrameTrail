@@ -55,8 +55,6 @@ export interface StepRecaptureContext {
   /** Timeline entry that the editor should reselect after the workflow ends. */
   entryId: string;
   phase: RecapturePhase;
-  editorTabId: number;
-  editorWindowId: number | null;
   sourceTabId: number;
   sourceWindowId: number;
   sourceUrl: string;

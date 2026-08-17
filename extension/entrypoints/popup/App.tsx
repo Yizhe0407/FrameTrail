@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import type { OpenEditorResult } from '@/lib/runtime/messages';
 import type { RecordingMode } from '@/lib/storage/recording-state';
-import { openLibrary } from '@/lib/runtime/navigation';
+import { openLibrary } from '@/lib/runtime/actions';
 import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { getGuide } from '@/lib/storage/guide-repository';
 import OnboardingDialog from '@/components/popup/OnboardingDialog';

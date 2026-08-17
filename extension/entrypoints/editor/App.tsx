@@ -27,6 +27,9 @@ import { exportImagesAsZip } from '@/lib/export/export-images';
 import { throwIfAborted } from '@/lib/shared/abort';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 import { useEditorEntryWorkspace } from '@/lib/editor/use-editor-entry-workspace';
+import { useEditorHandoff } from '@/lib/editor/use-editor-handoff';
+import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
+import { DESCRIPTION_SAVE_RETRY_MESSAGE } from '@/lib/runtime/user-messages';
 import {
   ackStepRecaptureResult,
   cancelStepRecapture,
@@ -120,6 +123,12 @@ function EditorApp() {
     syncWithSelection(selectedEntryId, sessionId);
   }, [syncWithSelection, selectedEntryId, sessionId]);
 
+  // The two halves of "there is only ever one editor tab": tell the background
+  // where this page lives, and answer its handoff when it is asked to open a
+  // Guide while this tab is already open.
+  useExtensionPageRegistration();
+  useEditorHandoff({ viewedSessionId: sessionId, flushDescriptions, selectEntry });
+
   // A lightbox with no entry to show must not stay armed: if every entry
   // disappears while zoomed (deletion elsewhere, Guide reload), leaving
   // `zoomOpen` true would pop the lightbox open unexpectedly as soon as
@@ -170,7 +179,7 @@ function EditorApp() {
       setOperationError(
         saveError instanceof DraftConfirmationRequiredError
           ? saveError.message
-          : '尚有說明無法儲存。請重試後再繼續。',
+          : DESCRIPTION_SAVE_RETRY_MESSAGE,
       );
       throw saveError;
     }

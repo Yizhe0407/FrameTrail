@@ -88,6 +88,8 @@ describe('background runtime message validation', () => {
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', autoCreatedGuide: true },
     { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'snapshot', autoCreatedGuide: false },
     { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: 'guide-1' },
+    { type: 'OPEN_LIBRARY' },
+    { type: 'REGISTER_EXTENSION_PAGE' },
   ])('accepts a structurally valid message %#', (message) => {
     expect(isBackgroundMessage(message)).toBe(true);
   });
@@ -314,6 +316,8 @@ describe('background sender authorization', () => {
       { type: 'STOP_RECORDING' },
       { type: 'RESET_GUIDE', sessionId: 'guide-1' },
       { type: 'OPEN_EDITOR' },
+      { type: 'OPEN_LIBRARY' },
+      { type: 'REGISTER_EXTENSION_PAGE' },
     ];
     const recordingControls: BackgroundMessage[] = [
       { type: 'PAUSE_RECORDING', runId: 'run-1' },

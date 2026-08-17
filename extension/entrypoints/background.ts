@@ -63,7 +63,12 @@ import {
 } from '@/lib/recording/background/pending-undo-store';
 import { createKeepAlivePortHandler } from '@/lib/runtime/keep-alive';
 import { createEditorOpen } from '@/lib/recording/background/editor-open';
-import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
+import {
+  forgetClosedExtensionPage,
+  openLibraryPage,
+  registerExtensionPage,
+} from '@/lib/recording/background/extension-page-tabs';
+import { EDITOR_OPEN_FAILED_MESSAGE, LIBRARY_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
 import { withMessageFailureFallback } from '@/lib/runtime/background-message-fallback';
 import { getRecordingState, resetRunStateToIdle, setRecordingState } from '@/lib/storage/storage';
@@ -77,6 +82,7 @@ import type {
   FocusStepRecaptureSourceResult,
   FrameTrailSnapshotActiveMessage,
   OpenEditorResult,
+  OpenLibraryResult,
   PreflightGuideContinuationSourcePermissionErrorCode,
   PreflightGuideContinuationSourcePermissionMessage,
   PreflightGuideContinuationSourcePermissionResult,
@@ -124,16 +130,17 @@ let pendingUndo: PendingUndoRecord | null = null;
 // 強制控制流程在第一個 await 前同步失效。
 const control = createControlPlane({ discardPendingUndo });
 
+const editorOpen = createEditorOpen({ control });
+
 // 步驟擷取與補拍共用取消及提交標記。
 const recaptureFlow = createRecaptureFlow({
   control,
   runtime: recorderRuntime,
   captureScreenshotWithGuard,
+  openEditor: editorOpen.openEditor,
 });
 
 const followMode = createFollowMode({ control, runtime: recorderRuntime });
-
-const editorOpen = createEditorOpen({ control });
 
 /** 同步使復原失效，再刪除持久化的截圖副本。 */
 function discardPendingUndo(): void {
@@ -1233,13 +1240,12 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   const result: FinishResult = {
     sessionId: state.sessionId,
     entryId: lastItem?.groupId ?? lastItem?.id ?? null,
-    groupId: lastItem?.groupId ?? null,
     itemCount: runItems.length,
   };
 
   const version = control.bumpVersion();
-  // No reclaim on FINISH even at zero items: openOrFocusEditor below opens
-  // this very Guide, and the user reaches it visibly in the editor.
+  // No reclaim on FINISH even at zero items: openEditor below opens this very
+  // Guide, and the user reaches it visibly in the editor.
   const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
   if (!stopped) return controlFailure('無法完成錄製，請再試一次。');
 
@@ -1249,7 +1255,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   await deleteEmptySnapshotAnchorBestEffort(state);
   await recorderRuntime.stopRecorderInTab(state.tabId);
   try {
-    await editorOpen.openOrFocusEditor(result);
+    await editorOpen.openEditor({ sessionId: result.sessionId, entryId: result.entryId });
   } catch (error) {
     console.error('[frametrail] failed to open editor after recording', error);
     await control.writeStateForControl(version, markEditorOpenFailed);
@@ -1755,6 +1761,18 @@ export default defineBackground(() => {
           'open editor request failed',
           { ok: false, error: EDITOR_OPEN_FAILED_MESSAGE } satisfies OpenEditorResult,
         );
+      case 'OPEN_LIBRARY':
+        return withMessageFailureFallback(
+          openLibraryPage(),
+          'open library request failed',
+          { ok: false, error: LIBRARY_OPEN_FAILED_MESSAGE } satisfies OpenLibraryResult,
+        );
+      case 'REGISTER_EXTENSION_PAGE':
+        return withMessageFailureFallback(
+          registerExtensionPage(sender),
+          'extension page registration failed',
+          false,
+        );
       case 'PAUSE_RECORDING':
       case 'RESUME_RECORDING':
       case 'UNDO_LAST_CAPTURE':
@@ -2028,6 +2046,9 @@ export default defineBackground(() => {
 
   browser.tabs.onRemoved.addListener((tabId) => {
     void (async () => {
+      // Unconditionally first: a closed extension page must stop being the tab
+      // that later opens reuse, whatever else this removal means.
+      await forgetClosedExtensionPage(tabId);
       if (await recaptureFlow.handleSourceTabRemoved(tabId)) return;
       const expectedControlVersion = control.controlVersion;
       const active = await readActiveRunForTab(tabId, expectedControlVersion);

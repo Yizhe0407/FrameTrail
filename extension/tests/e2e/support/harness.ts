@@ -225,6 +225,39 @@ export async function resetExtensionData(popup: Page): Promise<void> {
   await popup.reload({ waitUntil: 'domcontentloaded' });
 }
 
+/**
+ * Adds one more pristine Guide — the same row shape resetExtensionData seeds —
+ * and selects it, so a spec can record its next run into a *different* Guide,
+ * the way a popup start always does.
+ */
+export async function seedAndSelectGuide(popup: Page, title: string): Promise<string> {
+  return popup.evaluate(async ({ scribeDb, activeGuideIdKey, guideTemplate, guideTitle }) => {
+    const guideId = crypto.randomUUID();
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(scribeDb.name, scribeDb.version);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction('guides', 'readwrite');
+        tx.objectStore('guides').add({ id: guideId, ...guideTemplate, title: guideTitle, updatedAt: Date.now() });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error('Guide seed transaction was aborted.'));
+      };
+    });
+    await chrome.storage.local.set({ [activeGuideIdKey]: guideId });
+    return guideId;
+  }, {
+    scribeDb: SCRIBE_DB,
+    activeGuideIdKey: ACTIVE_GUIDE_ID_KEY,
+    guideTemplate: E2E_GUIDE_TEMPLATE,
+    guideTitle: title,
+  });
+}
+
 export async function readRecordingState(popup: Page): Promise<Record<string, unknown>> {
   return popup.evaluate(async (recordingStateKey) => {
     const result = await chrome.storage.local.get(recordingStateKey);

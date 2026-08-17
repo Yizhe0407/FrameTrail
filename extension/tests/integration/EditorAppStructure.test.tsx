@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
+import { DESCRIPTION_SAVE_RETRY_MESSAGE } from '@/lib/runtime/user-messages';
 
 const database = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeEditorDatabaseMocks());
 
@@ -15,6 +16,8 @@ const browserApi = vi.hoisted(() => ({
   tabsGet: vi.fn(),
   tabsUpdate: vi.fn(),
   windowsUpdate: vi.fn(),
+  /** The editor page's handoff listener, captured on mount. */
+  messageListener: null as null | ((message: unknown, sender: unknown) => unknown),
 }));
 
 const editorSave = vi.hoisted(() => ({
@@ -26,23 +29,29 @@ const rendered = vi.hoisted(() => ({
   stepStageProps: null as any,
 }));
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: vi.fn((path: string) => `chrome-extension://frametrail${path}`),
-      sendMessage: browserApi.sendMessage,
+vi.mock('wxt/browser', async () => {
+  const { makeExtensionPageRuntimeMock } = await import('../setup/browser-mocks');
+  return {
+    browser: {
+      runtime: makeExtensionPageRuntimeMock({
+        sendMessage: browserApi.sendMessage,
+        onMessage: (listener) => {
+          browserApi.messageListener = listener;
+        },
+        extensionHost: 'frametrail',
+      }),
+      tabs: {
+        create: vi.fn(),
+        get: browserApi.tabsGet,
+        query: browserApi.tabsQuery,
+        sendMessage: vi.fn(),
+        update: browserApi.tabsUpdate,
+      },
+      windows: { update: browserApi.windowsUpdate },
+      permissions: { request: browserApi.requestPermission },
     },
-    tabs: {
-      create: vi.fn(),
-      get: browserApi.tabsGet,
-      query: browserApi.tabsQuery,
-      sendMessage: vi.fn(),
-      update: browserApi.tabsUpdate,
-    },
-    windows: { update: browserApi.windowsUpdate },
-    permissions: { request: browserApi.requestPermission },
-  },
-}));
+  };
+});
 
 vi.mock('@/lib/storage/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/storage/models')>()),
@@ -117,6 +126,8 @@ vi.mock('@/components/editor/UndoSnackbar', () => ({ default: () => null }));
 vi.mock('@/components/editor/PublishGuideDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
+// Resolves to the mocked module above, so `instanceof` in the handoff matches.
+import { DraftConfirmationRequiredError } from '@/lib/editor/editor-autosave';
 
 const entries = [
   {
@@ -231,6 +242,7 @@ beforeEach(() => {
     entries,
     entryIds: entries.map(database.entryId),
   });
+  browserApi.messageListener = null;
   browserApi.sendMessage.mockReset();
   browserApi.requestPermission.mockReset();
   browserApi.requestPermission.mockResolvedValue(true);
@@ -548,5 +560,89 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     }));
     expect(browserApi.requestPermission).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+/**
+ * The page half of the single-editor-tab contract. The background reuses this
+ * tab based purely on these answers, so what the page replies is the whole
+ * decision — mocked opener tests cannot stand in for it.
+ */
+describe('editor handoff answers (單一編輯器分頁)', () => {
+  async function mountEditor() {
+    render(<EditorApp />);
+    await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1'));
+    await waitFor(() => expect(browserApi.messageListener).not.toBeNull());
+    expect(browserApi.sendMessage).toHaveBeenCalledWith({ type: 'REGISTER_EXTENSION_PAGE' });
+  }
+
+  function handoff(message: unknown, sender: unknown = {}): Promise<unknown> | undefined {
+    return browserApi.messageListener?.(message, sender) as Promise<unknown> | undefined;
+  }
+
+  it('reports ready and switches entry itself when it already shows the target Guide', async () => {
+    await mountEditor();
+
+    const reply = await act(async () =>
+      handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-1', entryId: 'entry-3' }));
+
+    expect(reply).toEqual({ ok: true, ready: true });
+    expect(editorSave.flushAll).toHaveBeenCalled();
+    expect(screen.getByTestId('rail-selected').textContent).toBe('entry-3');
+  });
+
+  it('consents to being navigated to another Guide once its descriptions are saved', async () => {
+    await mountEditor();
+
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+
+    expect(reply).toEqual({ ok: true, ready: false });
+    expect(editorSave.flushAll).toHaveBeenCalled();
+    // Navigation belongs to the background alone; the page still shows guide-1.
+    expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1');
+  });
+
+  it('refuses to leave another Guide while a draft awaits confirmation', async () => {
+    silenceIntentionalErrorLogs();
+    await mountEditor();
+    // The confirmation error carries its own zh-Hant explanation of what to
+    // resolve, and the reply must relay exactly that rather than a generic one.
+    const draftConfirmation = new DraftConfirmationRequiredError();
+    draftConfirmation.message = '覆寫已儲存的說明前，需要先確認要保留哪一份草稿。';
+    editorSave.flushAll.mockRejectedValue(draftConfirmation);
+
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+
+    expect(reply).toEqual({ ok: false, error: draftConfirmation.message });
+  });
+
+  it('refuses with a retry message when saving genuinely failed', async () => {
+    silenceIntentionalErrorLogs();
+    await mountEditor();
+    editorSave.flushAll.mockRejectedValue(new Error('IndexedDB is unavailable'));
+
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+
+    expect(reply).toEqual({ ok: false, error: DESCRIPTION_SAVE_RETRY_MESSAGE });
+  });
+
+  it('still reports ready for its own Guide when the save is blocked, because nothing will navigate', async () => {
+    silenceIntentionalErrorLogs();
+    await mountEditor();
+    editorSave.flushAll.mockRejectedValue(new Error('IndexedDB is unavailable'));
+
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-1' }));
+
+    expect(reply).toEqual({ ok: true, ready: true });
+  });
+
+  it.each<[string, unknown, unknown]>([
+    ['another message type', { type: 'FRAME_TRAIL_STOP' }, {}],
+    ['a handoff without a Guide', { type: 'EDITOR_HANDOFF' }, {}],
+    ['a handoff relayed from a tab rather than the background', { type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }, { tab: { id: 9 } }],
+  ])('leaves %s untouched instead of answering it', async (_label, message, sender) => {
+    await mountEditor();
+
+    expect(handoff(message, sender)).toBeUndefined();
   });
 });

@@ -1,28 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  tabsQuery: vi.fn(),
-  tabsCreate: vi.fn(),
   tabsUpdate: vi.fn(),
   windowsUpdate: vi.fn(),
-  getURL: vi.fn(),
 }));
 
 vi.mock('wxt/browser', () => ({
   browser: {
-    runtime: { getURL: mocks.getURL },
-    tabs: { query: mocks.tabsQuery, create: mocks.tabsCreate, update: mocks.tabsUpdate },
+    tabs: { update: mocks.tabsUpdate },
     windows: { update: mocks.windowsUpdate },
   },
 }));
 
-import { focusTab, getEditorSessionIdFromUrl, openLibrary } from '@/lib/runtime/navigation';
+import { focusTab, getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getURL.mockImplementation((path: string) => `chrome-extension://extension-id${path}`);
-  mocks.tabsQuery.mockResolvedValue([]);
-  mocks.tabsCreate.mockResolvedValue(undefined);
   mocks.tabsUpdate.mockResolvedValue(undefined);
   mocks.windowsUpdate.mockResolvedValue(undefined);
 });
@@ -66,27 +59,5 @@ describe('focusTab', () => {
     await focusTab(7, 0);
 
     expect(mocks.windowsUpdate).toHaveBeenCalledExactlyOnceWith(0, { focused: true });
-  });
-});
-
-describe('openLibrary', () => {
-  it('focuses an existing library tab instead of opening a duplicate', async () => {
-    mocks.tabsQuery.mockResolvedValue([
-      { id: 11, windowId: 3, url: 'chrome-extension://extension-id/library.html?x=1' },
-    ]);
-
-    await openLibrary();
-
-    expect(mocks.tabsQuery).toHaveBeenCalledWith({ url: 'chrome-extension://extension-id/library.html*' });
-    expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(11, { active: true });
-    expect(mocks.windowsUpdate).toHaveBeenCalledExactlyOnceWith(3, { focused: true });
-    expect(mocks.tabsCreate).not.toHaveBeenCalled();
-  });
-
-  it('opens a new library tab when none exists', async () => {
-    await openLibrary();
-
-    expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({ url: 'chrome-extension://extension-id/library.html' });
-    expect(mocks.tabsUpdate).not.toHaveBeenCalled();
   });
 });

@@ -117,6 +117,12 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return true;
     case 'OPEN_EDITOR':
       return isOptionalString(value.sessionId) && isOptionalString(value.entryId);
+    case 'OPEN_LIBRARY':
+      return true;
+    case 'REGISTER_EXTENSION_PAGE':
+      // Which page registered is derived from the authenticated sender, so the
+      // payload carries nothing that could be forged.
+      return true;
     case 'RESET_GUIDE':
       return isString(value.sessionId);
     case 'SNAPSHOT_INVALIDATED':
@@ -263,5 +269,7 @@ export function isExtensionPageOnlyMessage(message: BackgroundMessage): boolean 
   return message.type === 'START_RECORDING' ||
     message.type === 'STOP_RECORDING' ||
     message.type === 'RESET_GUIDE' ||
-    message.type === 'OPEN_EDITOR';
+    message.type === 'OPEN_EDITOR' ||
+    message.type === 'OPEN_LIBRARY' ||
+    message.type === 'REGISTER_EXTENSION_PAGE';
 }

@@ -66,8 +66,6 @@ function capturingRecaptureState(): RecordingState {
       target: { kind: 'single', stepId: 'step-1' },
       entryId: 'step-1',
       phase: 'capturing',
-      editorTabId: 7,
-      editorWindowId: 3,
       sourceTabId: 11,
       sourceWindowId: 5,
       sourceUrl: 'https://persisted.example/path',

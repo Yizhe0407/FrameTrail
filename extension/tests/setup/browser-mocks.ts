@@ -35,6 +35,35 @@ export function dispatchRuntimeMessage(
   return listener(message, sender, respond) === true ? response : undefined;
 }
 
+export interface ExtensionPageRuntimeHandles {
+  sendMessage?: Mock;
+  /** Captures the page's runtime.onMessage listener, already wrapped so
+   * `await handles.messageListener(message, sender)` yields the value the page
+   * passed to sendResponse. */
+  onMessage?: (listener: (message: unknown, sender: unknown) => unknown) => void;
+  /** Extension host used by getURL; defaults to `extension-id`. */
+  extensionHost?: string;
+}
+
+/**
+ * The runtime surface every extension page needs: the request channel to the
+ * background (page registration, OPEN_LIBRARY, …) plus the onMessage listener
+ * the editor answers the single-tab handoff on.
+ */
+export function makeExtensionPageRuntimeMock(handles: ExtensionPageRuntimeHandles = {}) {
+  const host = handles.extensionHost ?? 'extension-id';
+  return {
+    getURL: vi.fn((path: string) => `chrome-extension://${host}${path}`),
+    sendMessage: handles.sendMessage ?? vi.fn().mockResolvedValue(undefined),
+    onMessage: {
+      addListener: (listener: RuntimeOnMessageListener) => {
+        handles.onMessage?.((message, sender) => dispatchRuntimeMessage(listener, message, sender));
+      },
+      removeListener: vi.fn(),
+    },
+  };
+}
+
 export interface BackgroundBrowserMockHandles {
   /** Captures the background's runtime.onMessage listener for direct dispatch.
    * The captured function already wraps the raw listener in
@@ -57,6 +86,11 @@ export interface BackgroundBrowserMockHandles {
   windowsUpdate?: Mock;
   executeScript?: Mock;
   insertCSS?: Mock;
+  /** browser.storage.session, where the extension-page tab registry lives.
+   * Defaults to an empty registry, i.e. no page has announced itself. */
+  sessionGet?: Mock;
+  sessionSet?: Mock;
+  sessionRemove?: Mock;
 }
 
 /** MV3 service-worker surface used by entrypoints/background.ts under test. */
@@ -92,6 +126,13 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
     windows: {
       onFocusChanged: { addListener: handles.onWindowFocusChanged ?? vi.fn() },
       update: handles.windowsUpdate ?? vi.fn(),
+    },
+    storage: {
+      session: {
+        get: handles.sessionGet ?? vi.fn().mockResolvedValue({}),
+        set: handles.sessionSet ?? vi.fn().mockResolvedValue(undefined),
+        remove: handles.sessionRemove ?? vi.fn().mockResolvedValue(undefined),
+      },
     },
     scripting: {
       executeScript: handles.executeScript ?? vi.fn(),

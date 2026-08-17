@@ -53,9 +53,12 @@ vi.mock('@/lib/storage/storage', () => storage);
 vi.mock('@/lib/export/project-archive-serialize', () => ({ exportProjectArchive: archive.exportProjectArchive }));
 vi.mock('@/lib/export/project-archive-import', () => ({ importProjectArchive: archive.importProjectArchive }));
 vi.mock('@/lib/export/project-archive-contract', () => ({ PROJECT_ARCHIVE_LIMITS: archive.PROJECT_ARCHIVE_LIMITS }));
-vi.mock('wxt/browser', () => ({
-  browser: { downloads },
-}));
+vi.mock('wxt/browser', async () => {
+  const { makeExtensionPageRuntimeMock } = await import('../setup/browser-mocks');
+  return {
+    browser: { downloads, runtime: makeExtensionPageRuntimeMock() },
+  };
+});
 
 import LibraryApp from '@/entrypoints/library/App';
 

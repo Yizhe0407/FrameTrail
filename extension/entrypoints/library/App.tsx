@@ -33,6 +33,7 @@ import { importProjectArchive } from '@/lib/export/project-archive-import';
 import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
 import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
+import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -81,6 +82,9 @@ export default function App() {
       if (showLoading) setLoading(false);
     }
   }
+
+  // Lets "回到作品庫" reuse this tab instead of opening a second library.
+  useExtensionPageRegistration();
 
   useEffect(() => {
     void refresh();

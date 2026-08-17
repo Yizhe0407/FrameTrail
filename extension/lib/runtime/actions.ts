@@ -2,11 +2,13 @@ import { browser } from 'wxt/browser';
 import type {
   CancelStepRecaptureResult,
   FocusStepRecaptureSourceResult,
+  OpenLibraryResult,
   ResetGuideResult,
 } from './messages';
 import {
   isCancelStepRecaptureResult,
   isFocusStepRecaptureSourceResult,
+  isOpenLibraryResult,
   isResetGuideResult,
   requireRuntimeMessageResult,
 } from './runtime-message-result';
@@ -20,6 +22,20 @@ export async function resetSession(sessionId: string): Promise<void> {
       sessionId,
     }),
     isResetGuideResult,
+  );
+  if (!result.ok) throw new Error(result.error);
+}
+
+/**
+ * Asks the background to bring up the library. Only the background can find an
+ * already-open library tab — an extension page cannot read tab URLs, and
+ * neither can the background without the `tabs` permission, so discovery lives
+ * with the registry in lib/recording/background/extension-page-tabs.ts.
+ */
+export async function openLibrary(): Promise<void> {
+  const result = requireRuntimeMessageResult<OpenLibraryResult>(
+    await browser.runtime.sendMessage({ type: 'OPEN_LIBRARY' }),
+    isOpenLibraryResult,
   );
   if (!result.ok) throw new Error(result.error);
 }

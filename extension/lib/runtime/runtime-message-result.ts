@@ -1,8 +1,10 @@
 import type {
   CancelStepRecaptureResult,
   ClickCaptureResult,
+  EditorHandoffResult,
   FocusStepRecaptureSourceResult,
   OpenEditorResult,
+  OpenLibraryResult,
   PreflightGuideContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingControlResult,
@@ -94,12 +96,26 @@ export function isOpenEditorResult(value: unknown): value is OpenEditorResult {
   return isFailureResult(value);
 }
 
+export function isOpenLibraryResult(value: unknown): value is OpenLibraryResult {
+  return isOpenEditorResult(value);
+}
+
+/**
+ * The editor page's answer to a handoff. An unshaped or absent reply is exactly
+ * what the background must be able to distinguish from consent, because a
+ * discarded or reloading tab answers nothing at all.
+ */
+export function isEditorHandoffResult(value: unknown): value is EditorHandoffResult {
+  if (!isRecord(value)) return false;
+  if (value.ok === true) return hasOnlyKeys(value, ['ok', 'ready']) && typeof value.ready === 'boolean';
+  return isFailureResult(value);
+}
+
 function isFinishResult(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ['sessionId', 'entryId', 'groupId', 'itemCount'])) return false;
+  if (!isRecord(value) || !hasOnlyKeys(value, ['sessionId', 'entryId', 'itemCount'])) return false;
   return (
     isId(value.sessionId) &&
     (value.entryId === null || isId(value.entryId)) &&
-    (value.groupId === null || isId(value.groupId)) &&
     isSafeNonNegativeInteger(value.itemCount, MAX_GUIDE_ITEMS)
   );
 }

@@ -8,15 +8,15 @@ const database = await vi.hoisted(async () => (await import('../setup/editor-app
 
 const recordingSession = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeRecordingSessionMocks());
 
-vi.mock('wxt/browser', () => ({
-  browser: {
-    runtime: {
-      getURL: vi.fn((path: string) => `chrome-extension://frametrail${path}`),
-      sendMessage: vi.fn(),
+vi.mock('wxt/browser', async () => {
+  const { makeExtensionPageRuntimeMock } = await import('../setup/browser-mocks');
+  return {
+    browser: {
+      runtime: makeExtensionPageRuntimeMock({ extensionHost: 'frametrail' }),
+      permissions: { request: vi.fn() },
     },
-    permissions: { request: vi.fn() },
-  },
-}));
+  };
+});
 
 vi.mock('@/lib/storage/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/storage/models')>()),

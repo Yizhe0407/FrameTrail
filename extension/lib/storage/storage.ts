@@ -132,8 +132,6 @@ function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null 
     !isBoundedString(context.sessionId, MAX_STATE_ID_LENGTH) ||
     !isBoundedString(context.entryId, MAX_STATE_ID_LENGTH) ||
     !VALID_RECAPTURE_PHASES.has(context.phase) ||
-    !isSafeId(context.editorTabId) ||
-    (context.editorWindowId !== null && !isSafeId(context.editorWindowId)) ||
     !isSafeId(context.sourceTabId) ||
     !isSafeId(context.sourceWindowId) ||
     !normalizeSourceUrl(context.sourceUrl) ||
@@ -148,8 +146,6 @@ function normalizeRecaptureContext(value: unknown): StepRecaptureContext | null 
     target,
     entryId: context.entryId,
     phase: context.phase as StepRecaptureContext['phase'],
-    editorTabId: context.editorTabId!,
-    editorWindowId: context.editorWindowId ?? null,
     sourceTabId: context.sourceTabId!,
     sourceWindowId: context.sourceWindowId!,
     sourceUrl: normalizeSourceUrl(context.sourceUrl)!,

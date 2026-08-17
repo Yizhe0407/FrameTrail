@@ -2,20 +2,86 @@ import { browser } from 'wxt/browser';
 import { getGuide } from '../../storage/guide-repository';
 import { getSteps } from '../../storage/step-repository';
 import { getRecordingState } from '../../storage/storage';
-import { focusTab } from '../../runtime/navigation';
 import { describeBrowserError } from '../../runtime/browser-errors';
+import { isEditorHandoffResult } from '../../runtime/runtime-message-result';
 import { EDITOR_OPEN_FAILED_MESSAGE } from '../../runtime/user-messages';
+import {
+  createExtensionPage,
+  extensionPageUrl,
+  findExtensionPage,
+  forgetExtensionPage,
+  showExtensionPage,
+} from './extension-page-tabs';
 import {
   clearEditorRecovery,
   markEditorOpenFailed,
   needsEditorRecovery,
 } from '../recording-recovery';
 import type { ControlPlane } from './control-plane';
-import type { FinishResult, OpenEditorMessage, OpenEditorResult } from '../../runtime/messages';
+import type { EditorHandoffMessage, OpenEditorMessage, OpenEditorResult } from '../../runtime/messages';
 import type { RecordingState } from '../../storage/recording-state';
 
+/** What an editor tab should end up showing. */
+export interface EditorTarget {
+  /** Omitted only by recovery that has no Guide left to name. */
+  sessionId?: string;
+  entryId?: string | null;
+}
+
+/** How a remembered editor tab can be reused for a target. */
+type EditorReuse =
+  | { action: 'focus' | 'navigate' }
+  /** The page is holding a draft it needs the user to resolve first. */
+  | { action: 'blocked'; error: string }
+  /** The record no longer names a live tab. */
+  | { action: 'discard' };
+
+function editorUrl(target: EditorTarget): string {
+  const url = new URL(extensionPageUrl('editor'));
+  // The query params remain the load-time contract: recapture-guards
+  // authenticates editor senders by the sessionId carried in their URL, and the
+  // page reads its initial entry from the URL on mount.
+  if (target.sessionId) {
+    url.searchParams.set('sessionId', target.sessionId);
+    if (target.entryId) url.searchParams.set('entryId', target.entryId);
+  }
+  return url.href;
+}
+
+async function editorTabStillExists(tabId: number): Promise<boolean> {
+  try {
+    await browser.tabs.get(tabId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Opening (or focusing) the editor for a stored session, including the
+ * Asks the open editor to take over the target Guide. The page decides, because
+ * it is the only component that knows what it is displaying and whether it has
+ * unsaved work — which is also why the discovery record never has to store a
+ * session id.
+ */
+async function negotiateEditorReuse(tabId: number, message: EditorHandoffMessage): Promise<EditorReuse> {
+  let reply: unknown;
+  try {
+    reply = await browser.tabs.sendMessage(tabId, message);
+  } catch {
+    // Nothing answered: the tab was discarded, is mid-reload, or no longer
+    // holds an editor. If the tab is still there it has no live page state to
+    // protect, so reuse it; otherwise the record is stale.
+    return (await editorTabStillExists(tabId)) ? { action: 'navigate' } : { action: 'discard' };
+  }
+  // An unshaped or absent reply means whatever answered is not our editor page,
+  // so again there is no draft to protect.
+  if (!isEditorHandoffResult(reply)) return { action: 'navigate' };
+  if (!reply.ok) return { action: 'blocked', error: reply.error };
+  return { action: reply.ready ? 'focus' : 'navigate' };
+}
+
+/**
+ * Opening (or reusing) the editor for a stored session, including the
  * editor-recovery bookkeeping in the run state. The runtime.onMessage listener
  * stays wired in the background entrypoint, mirroring follow-mode's
  * listener/logic split; state writes go through the injected control plane.
@@ -23,45 +89,46 @@ import type { RecordingState } from '../../storage/recording-state';
 export function createEditorOpen(deps: { control: ControlPlane }) {
   const { control } = deps;
 
-  async function openOrFocusEditor(result?: FinishResult): Promise<void> {
-    const editorBase = browser.runtime.getURL('/editor.html');
-    const editorUrl = new URL(editorBase);
-    if (result) {
-      editorUrl.searchParams.set('sessionId', result.sessionId);
-      if (result.entryId) editorUrl.searchParams.set('entryId', result.entryId);
-      if (result.groupId) editorUrl.searchParams.set('groupId', result.groupId);
+  /**
+   * The one way the editor ever opens: finishing a run, the OPEN_EDITOR
+   * message, and returning from a recapture all come through here, so the
+   * product keeps exactly one editor tab.
+   */
+  async function openEditor(target: EditorTarget = {}): Promise<OpenEditorResult> {
+    const url = editorUrl(target);
+    const existing = await findExtensionPage('editor');
+    if (!existing) {
+      await createExtensionPage(url);
+      return { ok: true };
+    }
+    if (!target.sessionId) {
+      // Recovery with no Guide to name: whatever the open editor shows beats a
+      // second, contentless tab, so focus it without negotiating anything.
+      await showExtensionPage('editor', existing, { url, navigate: false });
+      return { ok: true };
     }
 
-    // Never redirect an editor that may contain an unsaved description for a
-    // different Guide. Focus an existing same-Guide editor or open a new tab.
-    const editors = await browser.tabs.query({ url: `${editorBase}*` });
-    const existing = result
-      ? editors.find((tab) => {
-          if (tab.id == null || !tab.url) return false;
-          try {
-            return new URL(tab.url).searchParams.get('sessionId') === result.sessionId;
-          } catch {
-            return false;
-          }
-        })
-      : editors.find((tab) => tab.id != null && tab.url === editorBase);
-    if (existing?.id != null) {
-      await focusTab(existing.id, existing.windowId);
-      return;
+    const reuse = await negotiateEditorReuse(existing.tabId, {
+      type: 'EDITOR_HANDOFF',
+      sessionId: target.sessionId,
+      ...(target.entryId ? { entryId: target.entryId } : {}),
+    });
+    if (reuse.action === 'discard') {
+      await forgetExtensionPage('editor');
+      await createExtensionPage(url);
+      return { ok: true };
     }
-    await browser.tabs.create({ url: editorUrl.href, active: true });
+    await showExtensionPage('editor', existing, { url, navigate: reuse.action === 'navigate' });
+    // The editor is in front either way. A blocked page kept its draft and is
+    // showing what needs confirming; the caller's UI repeats the reason.
+    return reuse.action === 'blocked' ? { ok: false, error: reuse.error } : { ok: true };
   }
 
-  async function latestFinishResult(sessionId: string): Promise<FinishResult> {
+  /** The newest capture in a Guide: where an interrupted run resumes. */
+  async function latestEntryId(sessionId: string): Promise<string | null> {
     const steps = await getSteps(sessionId);
-    const items = steps.filter((step) => step.bounds !== null);
-    const lastItem = items.at(-1) ?? null;
-    return {
-      sessionId,
-      entryId: lastItem?.groupId ?? lastItem?.id ?? null,
-      groupId: lastItem?.groupId ?? null,
-      itemCount: items.length,
-    };
+    const lastItem = steps.filter((step) => step.bounds !== null).at(-1) ?? null;
+    return lastItem?.groupId ?? lastItem?.id ?? null;
   }
 
   async function openEditorForStoredSession(message: OpenEditorMessage): Promise<OpenEditorResult> {
@@ -71,10 +138,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
     try {
       state = await getRecordingState();
       targetSessionId ??= state.sessionId ?? undefined;
-      if (!targetSessionId) {
-        await openOrFocusEditor();
-        return { ok: true };
-      }
+      if (!targetSessionId) return await openEditor();
       const guide = await getGuide(targetSessionId);
       if (!guide) return { ok: false, error: '找不到這份內容。' };
       // Only a hand-off continues where the capture stopped: finishing a run, or
@@ -83,18 +147,16 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
       // made every "open editor" land on the last step.
       const resumesInterruptedRun =
         state.sessionId === targetSessionId && needsEditorRecovery(state.recoverableError);
-      const result: FinishResult = resumesInterruptedRun
-        ? await latestFinishResult(targetSessionId)
-        : { sessionId: targetSessionId, entryId: null, groupId: null, itemCount: 0 };
-      if (message.entryId) result.entryId = message.entryId;
-      await openOrFocusEditor(result);
+      const entryId =
+        message.entryId ?? (resumesInterruptedRun ? await latestEntryId(targetSessionId) : null);
+      const result = await openEditor({ sessionId: targetSessionId, entryId });
       if (state.sessionId === targetSessionId) {
         await control.writeStateForControl(expectedControlVersion, (current) => {
           if (current.sessionId !== targetSessionId) return current;
           return clearEditorRecovery(current);
         });
       }
-      return { ok: true };
+      return result;
     } catch (error) {
       console.error('[frametrail] failed to open editor:', describeBrowserError(error), error);
       if (state?.sessionId === targetSessionId) {
@@ -115,7 +177,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
     }
   }
 
-  return { openOrFocusEditor, openEditorForStoredSession };
+  return { openEditor, openEditorForStoredSession };
 }
 
 export type EditorOpen = ReturnType<typeof createEditorOpen>;

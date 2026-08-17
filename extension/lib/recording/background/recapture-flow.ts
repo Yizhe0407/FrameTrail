@@ -136,27 +136,6 @@ async function validateRecaptureTarget(
   return { target, entryId: anchor.id, sourceUrl: anchor.url };
 }
 
-async function returnToRecaptureEditor(context: RecordingState['recapture']): Promise<void> {
-  if (!context) return;
-  try {
-    await focusTab(context.editorTabId, context.editorWindowId);
-    return;
-  } catch {
-    // The initiating editor was closed. Reuse another editor or recreate it.
-  }
-  const editorBase = browser.runtime.getURL('/editor.html');
-  const [existing] = await browser.tabs.query({ url: `${editorBase}*` });
-  if (existing?.id != null) {
-    await focusTab(existing.id, existing.windowId);
-    return;
-  }
-  const editorUrl = new URL(editorBase);
-  editorUrl.searchParams.set('sessionId', context.sessionId);
-  editorUrl.searchParams.set('entryId', context.entryId);
-  editorUrl.searchParams.set('recaptureRunId', context.runId);
-  await browser.tabs.create({ url: editorUrl.href, active: true });
-}
-
 async function wasRecaptureCommitted(context: NonNullable<RecordingState['recapture']>): Promise<boolean> {
   const ownerId = context.target.kind === 'single' ? context.target.stepId : context.target.anchorId;
   const owner = await getStep(ownerId);
@@ -188,6 +167,9 @@ export interface RecaptureFlowDeps {
     windowId: number,
     assertContext: () => Promise<void>,
   ): Promise<{ blob: Blob; scale: number }>;
+  /** The single editor opener, so settling a recapture returns the user to the
+   * one editor tab rather than growing a second one. */
+  openEditor(target: { sessionId: string; entryId: string }): Promise<unknown>;
 }
 
 /**
@@ -255,7 +237,8 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       });
     }
     try {
-      await returnToRecaptureEditor(context);
+      // Back to the single editor tab, at the entry this recapture worked on.
+      await deps.openEditor({ sessionId: context.sessionId, entryId: context.entryId });
     } catch (error) {
       console.error('[frametrail] failed to return to editor after recapture', error);
     }
@@ -433,8 +416,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     await waitForQueuedClicks();
     if (version !== control.controlVersion) return recaptureFailure('ACTIVE_OPERATION', OPERATION_CHANGED_MESSAGE);
 
-    const editorTab = sender.tab;
-    if (!isEditorSenderForSession(sender, message.sessionId) || editorTab?.id == null) {
+    if (!isEditorSenderForSession(sender, message.sessionId)) {
       return recaptureFailure('INVALID_EDITOR', EDITOR_ONLY_RECAPTURE_START_MESSAGE);
     }
     const current = await getRecordingState();
@@ -486,8 +468,6 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
         target: validated.target,
         entryId: validated.entryId,
         phase: 'starting' as const,
-        editorTabId: editorTab.id!,
-        editorWindowId: editorTab.windowId ?? null,
         sourceTabId: sourceTab.id,
         sourceWindowId: sourceTab.windowId,
         sourceUrl: validated.sourceUrl,
