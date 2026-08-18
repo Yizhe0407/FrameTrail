@@ -105,7 +105,11 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => shield.evaluate(() => document.hasFocus())).toBe(true);
     await expect.poll(() => appPage.evaluate(() => document.activeElement?.hasAttribute('data-frametrail-snapshot-shield'))).toBe(true);
     const initialStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    // The shield uses the same Alt+wheel binding as step mode, so there is one
+    // shortcut to learn for both recorders.
+    await appPage.keyboard.down('Alt');
     await appPage.mouse.wheel(0, -100);
+    await appPage.keyboard.up('Alt');
     await expect.poll(async () => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(initialStyle);
 
     await clickSnapshotTarget(appPage, point);
@@ -130,7 +134,9 @@ test.describe('snapshot recording', () => {
     await appPage.mouse.move(shallow.x, shallow.y);
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
     const narrowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    await appPage.keyboard.down('Alt');
     await appPage.mouse.wheel(0, -100);
+    await appPage.keyboard.up('Alt');
     await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
     const widenedStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
 
@@ -486,8 +492,8 @@ test.describe('snapshot recording', () => {
     // The controls live in the shield toolbar, which already occupies its own
     // pixels: an affordance next to the box would cover the content being
     // annotated, and a text hint there went unnoticed.
-    const widen = shield.getByRole('button', { name: '選取更大範圍（↑）' });
-    const narrow = shield.getByRole('button', { name: '選取更小範圍（↓）' });
+    const widen = shield.getByRole('button', { name: '選取更大範圍（Alt+↑）' });
+    const narrow = shield.getByRole('button', { name: '選取更小範圍（Alt+↓）' });
 
     const nested = await targetCenter(appPage, '#plain-text');
     await appPage.mouse.move(nested.x, nested.y);
@@ -503,7 +509,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
     await expect(narrow).toBeEnabled();
 
-    await appPage.keyboard.press('ArrowDown');
+    await appPage.keyboard.press('Alt+ArrowDown');
     await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(narrowStyle);
 
     await clickSnapshotTarget(appPage, nested);

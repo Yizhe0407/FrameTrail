@@ -1,20 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { AlertCircle, Library, Loader2, PencilLine } from 'lucide-react';
+import { AlertCircle, Library } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import OpenEditorButton from '@/components/popup/OpenEditorButton';
 import RecordControls from '@/components/popup/RecordControls';
 import ResetButton from '@/components/shared/ResetButton';
 import { Button } from '@/components/ui/button';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import type { OpenEditorResult } from '@/lib/runtime/messages';
-import type { RecordingMode } from '@/lib/storage/recording-state';
 import { openLibrary } from '@/lib/runtime/actions';
 import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { getGuide } from '@/lib/storage/guide-repository';
-import OnboardingDialog from '@/components/popup/OnboardingDialog';
 import { reportError } from '@/components/shared/report-error';
-import { markOnboardingComplete, openLocalPracticePage, shouldShowOnboarding } from '@/lib/runtime/onboarding';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 
@@ -26,7 +24,6 @@ function App() {
     useRecordingSession(undefined, { withSteps: false });
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
   // Whether the reset target holds any content. `recording.itemCount` cannot
   // answer this: it is per-run and zeroed when a run finishes, while the guide
   // row's denormalized counts are a metadata-only read (no screenshot Blobs).
@@ -54,58 +51,6 @@ function App() {
     };
     // phase re-runs the read after a run finishes and bumps the counts.
   }, [sessionId, recording.phase]);
-
-  useEffect(() => {
-    let active = true;
-
-    void shouldShowOnboarding()
-      .then((show) => {
-        if (active) setOnboardingOpen(show);
-      })
-      .catch((onboardingError) => {
-        // If local storage is temporarily unavailable, prefer showing the
-        // self-contained guide over silently hiding first-run help.
-        console.error('[frametrail] failed to read onboarding state', onboardingError);
-        if (active) setOnboardingOpen(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Guards double persistence: footer actions persist through onComplete and
-  // then close the dialog, which triggers the dismissal path below again.
-  const onboardingPersisted = useRef(false);
-
-  async function completeOnboarding() {
-    if (onboardingPersisted.current) return;
-    onboardingPersisted.current = true;
-    try {
-      await markOnboardingComplete();
-    } catch (persistError) {
-      onboardingPersisted.current = false;
-      throw persistError;
-    }
-  }
-
-  function handleOnboardingOpenChange(open: boolean) {
-    setOnboardingOpen(open);
-    // Any explicit dismissal (X, ESC, outside click) counts as "seen".
-    // Re-opening the guide on every popup visit until a footer button is
-    // pressed would punish the standard close affordances. A failed write only
-    // logs — the dialog is already closing and will simply show again next time.
-    if (!open) {
-      void completeOnboarding().catch((persistError) => {
-        console.error('[frametrail] failed to persist onboarding dismissal', persistError);
-      });
-    }
-  }
-
-  async function startPractice(mode: RecordingMode) {
-    await openLocalPracticePage(mode);
-    window.close();
-  }
 
   async function openLibraryView() {
     setEditorOpenError(null);
@@ -157,12 +102,6 @@ function App() {
 
   return (
     <div className="flex w-[320px] flex-col gap-[18px] border border-border/80 bg-card p-[22px_20px] dark:border-white/10">
-      <OnboardingDialog
-        open={onboardingOpen}
-        onOpenChange={handleOnboardingOpenChange}
-        onComplete={completeOnboarding}
-        onStartPractice={startPractice}
-      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[9px]">
           <span className="text-[14px] font-bold text-foreground dark:text-white">FrameTrail</span>
@@ -195,15 +134,13 @@ function App() {
 
       {!editorRecovery && !isRecording && (
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
+          <OpenEditorButton
+            label="開啟編輯器"
+            pending={openingEditor}
+            onOpen={openEditor}
             className="flex w-full items-center justify-center gap-[8px] rounded-md border border-border/80 bg-card py-[11px] text-[13px] font-medium text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-50 dark:border-white/14 dark:bg-transparent dark:text-white dark:hover:bg-white/8"
-            onClick={() => void openEditor()}
-            disabled={openingEditor}
-          >
-            {openingEditor ? <Loader2 className="size-[15px] animate-spin" /> : <PencilLine className="size-[15px]" />}
-            {openingEditor ? '正在開啟編輯器' : '開啟編輯器'}
-          </button>
+            iconClassName="size-[15px]"
+          />
           <div className="grid grid-cols-2 gap-[8px]">
             <Button
               variant="outline"

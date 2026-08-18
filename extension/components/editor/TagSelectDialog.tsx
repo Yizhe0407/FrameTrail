@@ -11,8 +11,7 @@ import { Input } from '@/components/ui/input';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-model';
-
-const PRESET_TAGS = ['入門', '團隊', '專案', '整合', '報表', '行動', '說明', '設定'];
+import { getGuideSummaries } from '@/lib/storage/guide-repository';
 
 interface Props {
   open: boolean;
@@ -22,6 +21,11 @@ interface Props {
   onSave: (tags: string[]) => void | Promise<void>;
 }
 
+/**
+ * Add-only: removing a tag belongs to the inline chips on the stage behind this
+ * dialog, which the user reaches without opening anything. Keeping a second
+ * remove button here would mean two independent paths to the same write.
+ */
 export default function TagSelectDialog({
   open,
   selectedTags,
@@ -30,45 +34,56 @@ export default function TagSelectDialog({
 }: Props) {
   const [customInput, setCustomInput] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [usedTags, setUsedTags] = useState<readonly string[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setCustomInput('');
     setSaveError(null);
+    let stale = false;
+    // Guide summaries are denormalized rows; the read opens no step cursor and
+    // no screenshot Blob, so offering tags the user has actually used before is
+    // cheap enough to do on open — and unlike a hardcoded vocabulary it is a
+    // real signal about how this library is organised.
+    void getGuideSummaries()
+      .then((summaries) => {
+        if (stale) return;
+        setUsedTags([...new Set(summaries.flatMap((summary) => summary.tags))]
+          .sort((first, second) => first.localeCompare(second, 'zh-TW')));
+      })
+      .catch((loadFailure) => {
+        // Suggestions are a shortcut, not the feature: free text entry still
+        // works, so a failed read must not be reported as a save failure.
+        console.warn('[frametrail] failed to read previously used guide tags', loadFailure);
+      });
+    return () => { stale = true; };
   }, [open]);
 
   // `selectedTags` stays the only source of truth. The owner persists first and
   // re-renders with the stored value, so a refused or failed write can never
   // leave this dialog showing a tag that was not saved — which a local mirror
   // of the selection did.
-  async function apply(tags: string[]) {
+  async function addTag(tag: string) {
+    if (selectedTags.includes(tag) || selectedTags.length >= GUIDE_TAG_LIMITS.maxTags) return;
     setSaveError(null);
     try {
-      await onSave(tags);
+      await onSave([...selectedTags, tag]);
     } catch (saveFailure) {
       setSaveError(reportError('更新標籤失敗', saveFailure, '標籤儲存失敗，請再試一次。'));
     }
   }
 
-  function toggleTag(tag: string) {
-    if (selectedTags.includes(tag)) {
-      void apply(selectedTags.filter((selected) => selected !== tag));
-      return;
-    }
-    if (selectedTags.length >= GUIDE_TAG_LIMITS.maxTags) return;
-    void apply([...selectedTags, tag]);
-  }
-
   function handleAddCustom() {
     const nextTag = sanitizeGuideTag(customInput);
     setCustomInput('');
-    if (!nextTag || selectedTags.includes(nextTag) || selectedTags.length >= GUIDE_TAG_LIMITS.maxTags) return;
-    void apply([...selectedTags, nextTag]);
+    if (!nextTag) return;
+    void addTag(nextTag);
   }
 
-  const allAvailable = Array.from(new Set([...PRESET_TAGS, ...selectedTags]));
+  const limitReached = selectedTags.length >= GUIDE_TAG_LIMITS.maxTags;
+  const suggestions = usedTags.filter((tag) => !selectedTags.includes(tag));
   const customTag = sanitizeGuideTag(customInput);
-  const canAddCustom = Boolean(customTag) && !selectedTags.includes(customTag) && selectedTags.length < GUIDE_TAG_LIMITS.maxTags;
+  const canAddCustom = Boolean(customTag) && !selectedTags.includes(customTag) && !limitReached;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,7 +100,7 @@ export default function TagSelectDialog({
               <X className="size-4" />
             </button>
           </div>
-          <DialogDescription className="sr-only">新增、移除或設定顯示於作品庫的標籤。</DialogDescription>
+          <DialogDescription className="sr-only">新增顯示於作品庫的標籤；要移除標籤，請關閉這個視窗並使用標題列上標籤的移除按鈕。</DialogDescription>
 
           {saveError && <InlineAlert>{saveError}</InlineAlert>}
 
@@ -103,6 +118,7 @@ export default function TagSelectDialog({
                 }
               }}
               placeholder="輸入後按 Enter"
+              aria-label="新增標籤名稱"
               className="min-w-0 flex-1 text-xs md:text-xs"
             />
             <button
@@ -116,41 +132,47 @@ export default function TagSelectDialog({
             </button>
           </div>
 
-          <div className="my-1 border-t border-border/80 dark:border-white/8" />
+          {limitReached && (
+            <p className="text-[11px] text-muted-foreground">
+              已達 {GUIDE_TAG_LIMITS.maxTags} 個標籤上限，請先移除再新增。
+            </p>
+          )}
 
-          {/* Tags Pills list */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {allAvailable.map((tag) => {
-              const isSelected = selectedTags.includes(tag);
-              const selectionLimitReached = !isSelected && selectedTags.length >= GUIDE_TAG_LIMITS.maxTags;
-              return (
-                <Badge
-                  key={tag}
-                  variant={isSelected ? 'tagEditable' : 'tagEditableAvailable'}
-                  className="max-w-full select-none"
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleTag(tag)}
-                    disabled={selectionLimitReached}
-                    className="min-w-0 truncate rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {tag}
-                  </button>
-                  {isSelected && (
+          {selectedTags.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">目前標籤</span>
+              {/* Shown, not editable: without it a user could type a tag that is
+                  already applied and see the add silently do nothing. */}
+              <div className="flex flex-wrap gap-2">
+                {selectedTags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="max-w-full select-none">
+                    <span className="min-w-0 truncate">{tag}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {suggestions.length > 0 && !limitReached && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">曾經使用過</span>
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((tag) => (
+                  <Badge key={tag} asChild variant="tagEditableAvailable" className="max-w-full select-none">
                     <button
                       type="button"
-                      onClick={() => toggleTag(tag)}
-                      aria-label={`移除 ${tag} 標籤`}
-                      className="flex size-4 items-center justify-center rounded-full bg-foreground/10 text-foreground/70 transition-colors hover:bg-destructive/20 hover:text-destructive dark:bg-white/15 dark:text-white/70 dark:hover:bg-rose-500/30 dark:hover:text-rose-300"
+                      onClick={() => void addTag(tag)}
+                      aria-label={`新增 ${tag} 標籤`}
+                      title={tag}
+                      className="min-w-0 truncate outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <X className="size-2.5 stroke-[2.5]" />
+                      {tag}
                     </button>
-                  )}
-                </Badge>
-              );
-            })}
-          </div>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

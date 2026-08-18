@@ -151,7 +151,7 @@ test.describe('editor workflows', () => {
     await expect.poll(async () => (await readSteps(popupPage))[0]?.description).toBe('更新後的步驟說明');
 
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByRole('main').getByText('快照模式 · 2 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照 · 2 個標註', { exact: true })).toBeVisible();
     const annotations = editor.getByPlaceholder('輸入標註說明…');
     await annotations.nth(0).fill('更新後的快照標註');
     await expect.poll(async () => (await readSteps(popupPage)).some(
@@ -167,7 +167,7 @@ test.describe('editor workflows', () => {
     )).toBe(true);
 
     await editor.getByRole('button', { name: '刪除標註 2' }).click();
-    await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照 · 1 個標註', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(3);
     expect((await readSteps(popupPage)).filter((step) => step.groupId && step.bounds)).toHaveLength(1);
   });
@@ -187,7 +187,7 @@ test.describe('editor workflows', () => {
     expect(annotation).toBeDefined();
 
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
-    await expect(editor.getByRole('main').getByText('快照模式 · 1 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照 · 1 個標註', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '刪除標註 1' }).click();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
@@ -284,7 +284,7 @@ test.describe('editor workflows', () => {
     await editor.reload();
     await expect(editor.getByText('步驟 · 3', { exact: true })).toBeVisible();
     await editor.getByRole('button', { name: '開啟步驟 2' }).click();
-    await expect(editor.getByRole('main').getByText('快照模式 · 3 個標註', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('main').getByText('快照 · 3 個標註', { exact: true })).toBeVisible();
     const annotationPanel = editor.locator('aside');
     const annotationHandles = annotationPanel.getByRole('button', { name: '拖曳排序' });
     await expect(annotationHandles).toHaveCount(3);

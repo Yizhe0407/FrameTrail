@@ -33,7 +33,11 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
-import { candidateCyclingState, createCandidateWheelCycler } from '@/lib/capture/candidate-cycling';
+import {
+  candidateCyclingState,
+  createCandidateWheelCycler,
+  isCandidateCycleModifier,
+} from '@/lib/capture/candidate-cycling';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
@@ -264,8 +268,13 @@ function tryInitialize(event: MessageEvent): void {
 
   const wheelCycler = createCandidateWheelCycler(tryAdjustCandidate);
 
+  // Alt+wheel and Alt+arrows, the same binding the live page uses in step mode.
+  // The shield could afford bare gestures (its page is frozen), but one
+  // shortcut across both modes beats two, and bare Tab/Enter/Delete keyboard
+  // traversal is unaffected because it owns different keys.
   const onCandidateWheel = (event: WheelEvent) => {
     if (regionCapture?.isActive()) return;
+    if (!isCandidateCycleModifier(event)) return;
     if (
       event.target instanceof Element &&
       event.target.closest(
@@ -280,6 +289,7 @@ function tryInitialize(event: MessageEvent): void {
 
   const onCandidateKeyDown = (event: KeyboardEvent) => {
     if (regionCapture?.isActive()) return;
+    if (!isCandidateCycleModifier(event)) return;
     // Only the drag handle owns the arrows (it moves the toolbar). Every other
     // toolbar control leaves them free, so cycling keeps working right after a
     // resize button was clicked and took focus.
@@ -335,7 +345,7 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
-          candidateCycling={cycling && { ...cycling, modifier: '', onAdjust: tryAdjustCandidate }}
+          candidateCycling={cycling && { ...cycling, onAdjust: tryAdjustCandidate }}
         />
       ) : null,
     );

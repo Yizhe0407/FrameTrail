@@ -26,7 +26,7 @@ import {
 import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
 import {
   createCandidateWheelCycler,
-  STEP_CYCLE_MODIFIER,
+  isCandidateCycleModifier,
 } from '@/lib/capture/candidate-cycling';
 import {
   isOutOfViewport,
@@ -436,7 +436,6 @@ export default defineContentScript({
         onCandidateCycling: (cycling) => recordingToolbar?.setCandidateCycling(
           cycling && {
             ...cycling,
-            modifier: STEP_CYCLE_MODIFIER,
             onAdjust: (delta) => preview.adjustCandidateOffset(delta),
           },
         ),
@@ -783,15 +782,17 @@ export default defineContentScript({
 
       // Alt is the modifier because the page stays live in step mode: bare
       // arrows and wheel gestures must keep scrolling it and moving the caret.
+      // The snapshot shield binds the same combination so there is one shortcut
+      // to learn across both modes.
       const onCandidateKeyDown = (event: KeyboardEvent) => {
-        if (!event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!isCandidateCycleModifier(event)) return;
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         if (!preview.adjustCandidateOffset(event.key === 'ArrowUp' ? 1 : -1)) return;
         event.preventDefault();
       };
       const wheelCycler = createCandidateWheelCycler((delta) => preview.adjustCandidateOffset(delta));
       const onCandidateWheel = (event: WheelEvent) => {
-        if (!event.altKey || event.ctrlKey || event.metaKey) return;
+        if (!isCandidateCycleModifier(event)) return;
         if (!wheelCycler.handle(event.deltaX, event.deltaY, event.timeStamp)) return;
         event.preventDefault();
         event.stopImmediatePropagation();

@@ -11,7 +11,6 @@ import {
   Expand,
   Loader2,
   Minimize2,
-  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -23,6 +22,7 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-state';
 import { cycleActionLabel } from '@/lib/capture/candidate-cycling';
+import { recordingModeCopy } from './recording-mode-copy';
 import { RECORDING_CHANNEL_LOST_MESSAGE } from './content-script-constants';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
@@ -54,8 +54,6 @@ interface Props {
 export interface CandidateCyclingControls {
   canWiden: boolean;
   canNarrow: boolean;
-  /** Shortcut prefix the labels teach ('' in snapshot mode, 'Alt+' in step). */
-  modifier: string;
   onAdjust(delta: number): void;
 }
 
@@ -74,15 +72,14 @@ export default function RecordingToolbar({
   const [announcement, setAnnouncement] = useState('');
   const [undo, setUndo] = useState<{ token: string; itemNumber: number } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const previousCount = useRef(state.itemCount);
   const pendingRef = useRef<ToolbarAction | null>(null);
   const floatingRef = useRef<HTMLElement | null>(null);
   const cancelDiscardRef = useRef<HTMLButtonElement | null>(null);
-  const menuId = useId();
   const confirmTitleId = useId();
   const confirmDescriptionId = useId();
+  const modeCopy = recordingModeCopy(state.mode);
 
   const {
     corner,
@@ -107,7 +104,7 @@ export default function RecordingToolbar({
 
   useEffect(() => {
     if (state.itemCount > previousCount.current) {
-      const noun = state.mode === 'steps' ? '步驟' : '標註';
+      const noun = recordingModeCopy(state.mode).itemNoun;
       setAnnouncement(`已${state.mode === 'steps' ? '建立' : '加入'}${noun} ${state.itemCount}`);
       setShowSuccess(true);
       const timer = window.setTimeout(() => setShowSuccess(false), 800);
@@ -162,7 +159,7 @@ export default function RecordingToolbar({
     if (!result.ok || !result.undoToken || !result.removedItemNumber) return;
     onUndoApplied?.();
     setUndo({ token: result.undoToken, itemNumber: result.removedItemNumber });
-    setAnnouncement(`已移除${state.mode === 'steps' ? '步驟' : '標註'} ${result.removedItemNumber}`);
+    setAnnouncement(`已移除${modeCopy.itemNoun} ${result.removedItemNumber}`);
   }
 
   async function handleRestore() {
@@ -176,10 +173,7 @@ export default function RecordingToolbar({
 
   const handleDiscard = async () => {
     const result = await run('DISCARD_CURRENT_RECORDING');
-    if (result.ok) {
-      setConfirmDiscard(false);
-      setMenuOpen(false);
-    }
+    if (result.ok) setConfirmDiscard(false);
   };
 
   const handleConfirmKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -197,7 +191,6 @@ export default function RecordingToolbar({
     }
   };
 
-  const modeLabel = state.mode === 'steps' ? '操作流程' : '單頁標註';
   const paused = state.phase === 'paused';
   const preparingNext = state.mode === 'snapshot' && state.phase === 'preparing-next';
   const invalidated = state.mode === 'snapshot' && state.phase === 'invalidated';
@@ -218,7 +211,6 @@ export default function RecordingToolbar({
         className="ft-layer"
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pendingRef.current) return;
-          setMenuOpen(false);
           setConfirmDiscard(false);
         }}
       >
@@ -247,39 +239,8 @@ export default function RecordingToolbar({
           )}
           {undo && (
             <div className="ft-snackbar" role="status">
-              <span>已移除{state.mode === 'steps' ? '步驟' : '標註'} {undo.itemNumber}</span>
+              <span>已移除{modeCopy.itemNoun} {undo.itemNumber}</span>
               <button type="button" onClick={handleRestore} disabled={busy}>還原</button>
-            </div>
-          )}
-          {menuOpen && !confirmDiscard && (
-            <div className="ft-menu" id={menuId} role="menu" aria-label="更多錄製動作">
-              {!invalidated && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={busy}
-                  onClick={() => {
-                    setCollapsed(true);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <Minimize2 aria-hidden="true" />
-                  收合控制器
-                </button>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                data-danger="true"
-                disabled={busy}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmDiscard(true);
-                }}
-              >
-                <Trash2 aria-hidden="true" />
-                放棄這次錄製
-              </button>
             </div>
           )}
           {confirmDiscard && (
@@ -322,7 +283,7 @@ export default function RecordingToolbar({
               type="button"
               className="ft-collapsed"
               data-frametrail-toolbar-position=""
-              aria-label={`${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆；展開錄製控制`}
+              aria-label={`${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆；展開錄製控制`}
               title="展開控制器"
               onPointerDown={handlePositionPointerDown}
               onPointerMove={handlePositionPointerMove}
@@ -357,18 +318,20 @@ export default function RecordingToolbar({
                     <span className="ft-invalidated-copy">畫面尺寸已改變，需建立新快照才能繼續。</span>
                   </div>
                   <div className="ft-invalidated-actions">
+                    {/* The invalidated shell has no collapse control (collapsing
+                        would hide the only way out of the dead run), so discard
+                        sits directly in the row instead of behind a menu whose
+                        only item it was. */}
                     <button
                       type="button"
                       className="ft-button"
-                      aria-label="更多錄製動作"
-                      title="更多"
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
-                      aria-controls={menuOpen ? menuId : undefined}
+                      data-danger="true"
+                      aria-label="放棄這次錄製"
+                      title="放棄這次錄製"
                       disabled={busy}
-                      onClick={() => setMenuOpen((open) => !open)}
+                      onClick={() => setConfirmDiscard(true)}
                     >
-                      <MoreHorizontal />
+                      <Trash2 size={17} />
                     </button>
                     <button
                       type="button"
@@ -395,7 +358,7 @@ export default function RecordingToolbar({
                     type="button"
                     className="ft-status"
                     data-frametrail-toolbar-position=""
-                    aria-label={`${preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeLabel}，${state.itemCount} 筆`}；拖曳或使用方向鍵移動`}
+                    aria-label={`${preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆`}；拖曳或使用方向鍵移動`}
                     title="拖曳或使用方向鍵移動錄製控制"
                     onPointerDown={handlePositionPointerDown}
                     onPointerMove={handlePositionPointerMove}
@@ -418,7 +381,7 @@ export default function RecordingToolbar({
                         { direction: 'narrow', delta: -1, enabled: candidateCycling.canNarrow, Icon: Shrink },
                         { direction: 'widen', delta: 1, enabled: candidateCycling.canWiden, Icon: Expand },
                       ] as const).map(({ direction, delta, enabled, Icon }) => {
-                        const label = cycleActionLabel(direction, candidateCycling.modifier);
+                        const label = cycleActionLabel(direction);
                         return (
                           <button
                             key={direction}

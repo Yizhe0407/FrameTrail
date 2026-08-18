@@ -97,6 +97,40 @@ describe('recording toolbar', () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '收合控制器' }));
 
-    expect(screen.getByRole('button', { name: /錄製中，操作流程，2 筆；展開錄製控制/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /錄製中，步驟，2 筆；展開錄製控制/ })).toBeTruthy();
+  });
+
+  // The 更多 menu only ever rendered in the invalidated shell, where its
+  // collapse item was gated off — so it held exactly one action. Discard now
+  // sits directly in that row.
+  it('offers discard directly in the invalidated shell, with no overflow menu', async () => {
+    const onCommand = vi.fn().mockResolvedValue({ ok: true });
+    render(
+      <RecordingToolbar
+        state={{ ...state, mode: 'snapshot', phase: 'invalidated' }}
+        onCommand={onCommand}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '更多錄製動作' })).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: '保留並重建' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '放棄這次錄製' }));
+    expect(screen.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '放棄錄製' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('DISCARD_CURRENT_RECORDING', undefined));
+  });
+
+  it('names the recording mode with the shared vocabulary in the snapshot undo snackbar', async () => {
+    const onCommand = vi.fn().mockResolvedValue({ ok: true, undoToken: 'undo-1', removedItemNumber: 1 });
+    render(<RecordingToolbar state={{ ...state, mode: 'snapshot' }} onCommand={onCommand} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '復原上一個' }));
+
+    // The snackbar and the live-region announcement now read the item noun from
+    // the same map, so both say 標註 rather than one of them saying 步驟.
+    expect(await screen.findAllByText('已移除標註 1')).toHaveLength(2);
   });
 });

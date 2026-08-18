@@ -128,10 +128,56 @@ describe('作品庫', () => {
     render(<LibraryApp />);
 
     expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getAllByRole('button', { name: '新增' })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '新增' }) as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => { resolveState({ operation: null, isRecording: false }); });
-    await waitFor(() => expect((screen.getAllByRole('button', { name: '新增' })[0] as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole('button', { name: '新增' }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  // The card grid used to close with a dashed "add" tile, a third way to reach
+  // the same action. The header button is the one that is always visible.
+  it('作品卡片格線只保留標題列的新增入口', async () => {
+    render(<LibraryApp />);
+    await screen.findByDisplayValue('安全教學');
+
+    guideActions.createAndSelectGuide.mockResolvedValue({ id: 'new-guide' });
+    const createButtons = screen.getAllByRole('button', { name: '新增' });
+    expect(createButtons).toHaveLength(1);
+    fireEvent.click(createButtons[0]);
+
+    await waitFor(() => expect(guideActions.createAndSelectGuide).toHaveBeenCalledOnce());
+    expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('new-guide');
+  });
+
+  it('作品庫只顯示必要的作品資訊', async () => {
+    render(<LibraryApp />);
+    await screen.findByDisplayValue('安全教學');
+
+    expect(screen.queryByText('所有內容只保存在這個瀏覽器設定檔中。')).toBeNull();
+    expect(screen.queryByText('1 份作品 · 100 B')).toBeNull();
+    expect(screen.queryByText('100 B')).toBeNull();
+    expect(screen.queryByText(/更新於/)).toBeNull();
+
+    const counts = screen.getByText('2 個畫面').parentElement!;
+    expect(counts.textContent).toBe('2 個畫面2 標註');
+    expect(counts.getAttribute('title')).toBeNull();
+  });
+
+  it('作品沒有說明時不加入預設提示文字', async () => {
+    database.getGuideSummaries.mockResolvedValue([{ ...guide, description: '' }]);
+    render(<LibraryApp />);
+
+    await screen.findByDisplayValue('安全教學');
+    expect(screen.queryByText('尚未加入作品說明')).toBeNull();
+  });
+
+  // Different situation: an otherwise empty page needs its own call to action.
+  it('作品庫為空時額外提供空狀態的新增 CTA', async () => {
+    database.getGuideSummaries.mockResolvedValue([]);
+    render(<LibraryApp />);
+
+    await screen.findByRole('heading', { name: '建立第一份作品' });
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '新增' })).toHaveLength(2));
   });
 
   it('即時訂閱全域 operation lock，避免錄製中修改作品庫', async () => {

@@ -14,10 +14,10 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 
 ### 錄製模式
 
-- **操作流程**（內部值 `steps`）：游標滑過任意可見元素時先顯示預覽框，每次選取都建立一張截圖與一個標註。content script 會在 `pointerdown` 同步攔截原始 gesture 並隱藏預覽，等待兩個 paint frame 後才截圖，避免把 hover 樣式烤進底圖；互動控制項優先於內層文字或圖示。截圖尚未真正完成前，預覽不會重新出現，重播的 `element.click()` 也一定排在截圖之後，因此不會拍到點擊後或帶預覽框的畫面；截圖期間會鎖住捲動位置，讓儲存的座標與截圖像素一致。原始滑鼠 gesture 只是被延後重播，捲動、拖曳與瀏覽器捲軸都維持可用；落在捲軸溝槽的 `pointerdown` 會被忽略，不攔截也不記錄。背景截圖若異常卡住，failsafe 會在時限後照常重播點擊以維持頁面可用，但該步驟會被捨棄。
-- **單頁標註**（內部值 `snapshot`）：錄製啟動時只建立一張底圖，游標滑過任意可見元素時先顯示預覽框，之後的選取只在同一張圖新增座標；上下方向鍵或滾輪可在游標下的父子層級間切換。成功選取後紅框會持續顯示；同一 DOM 節點、穩定元素路徑或視覺框不會重複加入。
+- **步驟**（內部值 `steps`）：游標滑過任意可見元素時先顯示預覽框，每次選取都建立一張截圖與一個標註。content script 會在 `pointerdown` 同步攔截原始 gesture 並隱藏預覽，等待兩個 paint frame 後才截圖，避免把 hover 樣式烤進底圖；互動控制項優先於內層文字或圖示。截圖尚未真正完成前，預覽不會重新出現，重播的 `element.click()` 也一定排在截圖之後，因此不會拍到點擊後或帶預覽框的畫面；截圖期間會鎖住捲動位置，讓儲存的座標與截圖像素一致。原始滑鼠 gesture 只是被延後重播，捲動、拖曳與瀏覽器捲軸都維持可用；落在捲軸溝槽的 `pointerdown` 會被忽略，不攔截也不記錄。背景截圖若異常卡住，failsafe 會在時限後照常重播點擊以維持頁面可用，但該步驟會被捨棄。
+- **快照**（內部值 `snapshot`）：錄製啟動時只建立一張底圖，游標滑過任意可見元素時先顯示預覽框，之後的選取只在同一張圖新增座標；`Alt+↑↓` 或 `Alt+滾輪` 可在游標下的父子層級間切換。成功選取後紅框會持續顯示；同一 DOM 節點、穩定元素路徑或視覺框不會重複加入。
 - 同一個 session 可以混用兩種模式；每次重新啟動快照錄製都會建立新的快照群組，不會沿用上一輪底圖。只有「重置」會清除整個 session。
-- Popup 只負責選擇模式、是否顯示順序編號與跨頁權限。開始後由頁面右下控制器顯示本輪計數；操作流程可暫停／繼續，兩種模式都可復原上一筆、在 5 秒內還原並完成錄製。
+- Popup 只負責選擇模式、是否顯示順序編號與跨頁權限。開始後由頁面右下控制器顯示本輪計數；步驟模式可暫停／繼續，兩種模式都可復原上一筆、在 5 秒內還原並完成錄製。
 - 完成後會開啟或聚焦單一 Editor tab，並自動選中本輪最新步驟或快照群組。錄製控制器、hover preview 與 shield UI 都會在截圖前隱藏，不會出現在成品中。
 
 ### 快照輸入隔離
@@ -31,8 +31,8 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 ### 元素與框選偵測
 
 - 兩種模式都從座標命中的最深可見元素建立 composed ancestor 候選鏈，並辨識原生控制項、有效 ARIA role、click handler、可聚焦元素、contenteditable 與 `cursor: pointer`；語意控制項會優先於內層圖示或文字，一般文字、圖片與容器也能成為目標。
-- 候選只沿命中點的 DOM／composed ancestor 深度處理，不掃描整份文件；完全相同或邊界僅相差 2 CSS px 的近似視覺框會合併，避免元件內層 wrapper 產生多個肉眼無法區分的層級；純裝飾 SVG geometry 會提升到可框選的 SVG 容器。兩種模式都可從工具列、鍵盤或滾輪切換不同視覺框的父子候選；步驟模式使用 `Alt+滾輪`，避免攔截原頁捲動。使用者主動切換後會鎖定候選意圖，在選定表面內移動或跨過微小邊界時不會立刻跳回最深節點。
-- 兩種模式採用不同的遮擋策略：**操作流程**忠實保留瀏覽器實際命中的最上層 surface，即使它完全透明，也不會越過 overlay 去重播底層控制項；**單頁標註**只會穿透已證明無文字、無 accessible label、無互動語意，且整個 exclusive branch 都沒有背景、邊框、陰影、影像、filter、mask、backdrop、painted descendant 或 generated pseudo paint 的透明 hit-test shim。任何有實際畫面或語意的上層元素（包含全畫面 modal backdrop）在兩種模式都會保持為目標。
+- 候選只沿命中點的 DOM／composed ancestor 深度處理，不掃描整份文件；完全相同或邊界僅相差 2 CSS px 的近似視覺框會合併，避免元件內層 wrapper 產生多個肉眼無法區分的層級；純裝飾 SVG geometry 會提升到可框選的 SVG 容器。兩種模式都可從工具列、鍵盤或滾輪切換不同視覺框的父子候選，並統一使用 `Alt+↑↓` 與 `Alt+滾輪`：步驟模式的原頁仍是活的，需要 Alt 才不會攔截捲動與輸入，快照模式沿用同一組按鍵，讓兩種模式只需學一次。使用者主動切換後會鎖定候選意圖，在選定表面內移動或跨過微小邊界時不會立刻跳回最深節點。
+- 兩種模式採用不同的遮擋策略：**步驟**忠實保留瀏覽器實際命中的最上層 surface，即使它完全透明，也不會越過 overlay 去重播底層控制項；**快照**只會穿透已證明無文字、無 accessible label、無互動語意，且整個 exclusive branch 都沒有背景、邊框、陰影、影像、filter、mask、backdrop、painted descendant 或 generated pseudo paint 的透明 hit-test shim。任何有實際畫面或語意的上層元素（包含全畫面 modal backdrop）在兩種模式都會保持為目標。
 - 支援 open shadow root，以及瀏覽器 privileged accessor 可取得的 closed shadow root；也支援語意化 SVG、canvas、custom element 與 HTML image map。image map 支援 `rect`、`circle`、`poly`、`default`；座標依瀏覽器規格使用圖片顯示後 border box 的 CSS pixels，不會再按 intrinsic size、`object-fit` 或 `object-position` 二次縮放，圖片本身的 2D CSS transform 則會映射回 viewport。
 - 兩種模式都能標記可見的 `disabled`、`inert` 與 `aria-disabled="true"` 元素，但會使用「標記」而不是「點擊」描述。隱藏、透明、`display: contents` 或零面積元素仍會排除；沒有 `href` 的連結與沒有對應控制項的 label 也可被標記。
 - 多行 inline 元素會選擇點擊位置所在的 client rect，而不是整個文字 union；標註範圍也會裁切到 viewport、overflow scrollport、paint containment 與可見祖先範圍。
@@ -68,7 +68,7 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - `captureVisibleTab` 至少間隔 500 ms，quota 錯誤最多重試 5 次並逐步延長等待；每次真正截圖前都重新驗證作用中分頁、URL 與錄製 run。
 - 錄製期間以 keep-alive port 維持 MV3 service worker；補拍的 capture replacement、result handoff 與 ACK 也使用 durable state，避免 worker 暫停造成半完成狀態。
 - 編輯與補拍使用 `captureRevision` compare-and-set；Guide 結構操作另使用 `contentRevision` CAS 與單一 `guides + steps` transaction。stale reorder／delete／restore／move／duplicate／numbering／section mutation 會整筆 rollback，不會把省略的舊 row 默默 append。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
-- StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。首次使用提供版本化 onboarding，並可開啟完全本機、無網路傳輸的練習頁。
+- StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。
 
 ## 編輯與補拍工作流程
 
@@ -137,13 +137,13 @@ Chromium E2E 覆蓋：
 
 ## 手動端到端測試
 
-1. 載入開發版，在一般網站選「操作流程」並開始錄製。
+1. 載入開發版，在一般網站選「步驟」並開始錄製。
 2. 將游標移到按鈕、連結、表單控制、純文字、圖片、一般容器、disabled/inert、open shadow DOM 與多行 inline 元素；確認都先顯示預覽框，選取後產生步驟，互動目標使用「點擊」描述，其餘使用「標記」。
 3. 點擊會導覽的連結，確認保存的是導覽前畫面，完成後頁面互動才被重播。
 4. 從頁面控制器測試暫停、繼續、復原與還原，再按「完成」；確認 Editor 自動開啟並選中最新步驟。
 5. 測試說明 autosave、拖曳、刪除還原、複製、Lightbox 與 ZIP 匯出取消／成功摘要；再以 320px 與 768px 寬度確認底部 StepRail、圖片及標註面板不重疊或水平溢出。
-6. 選「單頁標註」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
-7. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；用上下方向鍵或滾輪（步驟模式為 `Alt+滾輪`）切換父子層級，移動游標確認選定層級保持穩定，點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。
+6. 選「快照」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
+7. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；用 `Alt+↑↓` 或 `Alt+滾輪` 切換父子層級，移動游標確認選定層級保持穩定，點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。
 8. 從 shield 內控制器測試復原、還原與「完成快照」，確認 Editor 自動定位到該群組。
 9. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；完成後確認頁面 overlay 全部消失。
 10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
@@ -158,7 +158,7 @@ Chromium E2E 覆蓋：
 - 快照 shield 隔離的是使用者輸入，不是停用 JavaScript 引擎。頁面的 timer、網路回應、動畫或程式性 DOM 更新仍可能改變畫面；iframe 取得焦點也可能產生 `focus`/`blur`。導覽會停止該次快照錄製，viewport、捲動位置或 DPR 改變則會拒絕新增標註。
 - content script 會優先使用瀏覽器提供給擴充功能的 privileged open-or-closed shadow-root accessor；若該 API 不存在、拒絕存取或節點狀態使呼叫失敗，closed shadow root 才會退回其可見 host。canvas 內部物件沒有 DOM 語意，因此只能標註整個 canvas；`pointer-events: none` 元素與 pseudo-element 不會成為獨立 DOM hit-test 目標，但其可辨識 paint 會阻止快照穿透；非矩形 clip-path 與圓形／多邊形 image-map 最終以矩形 bounding box 表示。
 - 未取得跨來源 frame 權限、子 frame 未載入探測器或探測逾時時，只能標註 iframe 可見外框。沒有 `getBoxQuads()` 時，巢狀 rotated／skewed ancestors 或 3D perspective 可能只能退回 axis-aligned bounding box，無法保證完整仿射反解。
-- 操作流程的子 frame relay 只讓 page-visible `postMessage` 傳遞 hop-local 幾何與一次性 token：原始 child content script 先透過 extension runtime 向 background 建立綁定 active run／tab／frame 的授權，top content script 必須 claim 並消耗 token 才能截圖，background 再換發不暴露給頁面的 settle token，最後以指定 `frameId` 的 runtime message 直接通知原始 child 是否重播。頁面 script 可觀察或偽造 public hop，但無法自行 mint runtime authorization，因此不能在沒有 trusted gesture 時觸發錄製；`event.source` 只負責 iframe 幾何路由。closed-shadow iframe 仍無法由目前的 relay frame scan 定位，因此操作流程暫不支援其內部步驟轉送。
+- 步驟模式的子 frame relay 只讓 page-visible `postMessage` 傳遞 hop-local 幾何與一次性 token：原始 child content script 先透過 extension runtime 向 background 建立綁定 active run／tab／frame 的授權，top content script 必須 claim 並消耗 token 才能截圖，background 再換發不暴露給頁面的 settle token，最後以指定 `frameId` 的 runtime message 直接通知原始 child 是否重播。頁面 script 可觀察或偽造 public hop，但無法自行 mint runtime authorization，因此不能在沒有 trusted gesture 時觸發錄製；`event.source` 只負責 iframe 幾何路由。closed-shadow iframe 仍無法由目前的 relay frame scan 定位，因此步驟模式暫不支援其內部步驟轉送。
 - 快照鍵盤候選目前只列舉 top document 的一般 DOM；shadow tree 與跨 frame 目標仍可用滑鼠命中，但尚未加入完整的跨樹／跨 frame 鍵盤 traversal。
 - 極端密度下若 viewport 連一個徽章都放不下，或標註數超過幾何上可用槽位，位置會確定性重用，無法保證完全不重疊；演算法仍保證不產生無限值、不無限搜尋，也不讓工作量失控。
 - Chrome Web Store、`chrome://`、`edge://`、`about:` 與其他瀏覽器受限頁面禁止擴充功能注入或截圖。

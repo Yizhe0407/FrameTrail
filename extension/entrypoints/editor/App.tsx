@@ -15,7 +15,6 @@ import StepStage from '@/components/editor/StepStage';
 import AppToaster from '@/components/shared/AppToaster';
 import EmptyState from '@/components/shared/EmptyState';
 import Lightbox from '@/components/editor/Lightbox';
-import StepStepper from '@/components/editor/StepStepper';
 import RecaptureProgressDialog from '@/components/editor/RecaptureProgressDialog';
 import SourcePermissionDialog from '@/components/editor/SourcePermissionDialog';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
@@ -415,33 +414,23 @@ function EditorApp() {
               reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive}
             />
             {selectedEntry ? (
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <StepStage
-                  key={entryId(selectedEntry)}
-                  entry={selectedEntry}
-                  index={selectedIndex}
-                  guideTitle={guide?.title}
-                  guideTags={guide?.tags}
-                  onTitleChange={(title) => updateGuideMetadata({ title })}
-                  onTagsChange={(tags) => updateGuideMetadata({ tags })}
-                  onChange={refresh}
-                  onDelete={deleteEntry}
-                  onDeleteAnnotation={handleDeleteAnnotation}
-                  onZoom={() => setZoomOpen(true)}
-                  onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
-                  onRecapture={handleRecapture}
-                  onSetNumbered={setSelectedEntryNumbered}
-                  editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
-                />
-                {entries.length > 1 && (
-                  <StepStepper
-                    current={selectedIndex + 1}
-                    total={entries.length}
-                    onPrev={() => selectEntrySafely(entryId(entries[selectedIndex - 1]))}
-                    onNext={() => selectEntrySafely(entryId(entries[selectedIndex + 1]))}
-                  />
-                )}
-              </div>
+              <StepStage
+                key={entryId(selectedEntry)}
+                entry={selectedEntry}
+                index={selectedIndex}
+                guideTitle={guide?.title}
+                guideTags={guide?.tags}
+                onTitleChange={(title) => updateGuideMetadata({ title })}
+                onTagsChange={(tags) => updateGuideMetadata({ tags })}
+                onChange={refresh}
+                onDelete={deleteEntry}
+                onDeleteAnnotation={handleDeleteAnnotation}
+                onZoom={() => setZoomOpen(true)}
+                onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
+                onRecapture={handleRecapture}
+                onSetNumbered={setSelectedEntryNumbered}
+                editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
+              />
             ) : (
               <main className="flex min-w-0 flex-1 items-center justify-center p-8 pb-36 text-center lg:pb-8">
                 <div className="max-w-sm text-muted-foreground">

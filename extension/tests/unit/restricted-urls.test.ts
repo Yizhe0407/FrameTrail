@@ -22,7 +22,7 @@ describe('isRestrictedUrl', () => {
   });
 
   it('blocks every chrome-extension:// page, including this extension itself', () => {
-    // The editor/library/practice pages are chrome-extension:// URLs; no layer
+    // The editor/library pages are chrome-extension:// URLs; no layer
     // may ever offer to record them, so there is no extension-page escape hatch.
     expect(isRestrictedUrl('chrome-extension://abcdefghijklmnop/editor.html')).toBe(true);
     expect(isRestrictedUrl('chrome-extension://otherextensionid/popup.html')).toBe(true);

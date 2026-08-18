@@ -28,12 +28,12 @@ pnpm dev:firefox
 - 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
 - 發佈支援 PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
 - `.frametrail` 是包含原始未遮罩圖的可編輯匯出檔案，不應當作公開輸出。
-- 首次導覽、練習頁與縮圖 lazy mounting 均不需要網路或後端。
+- 錄製、編輯、發佈與縮圖 lazy mounting 全部在本機執行，不需要網路或後端。
 
 ## 原始碼分類
 
 - `components/editor/`：Editor 畫面與編輯工作流元件。
-- `components/popup/`：Popup 專用的錄製、匯出與 onboarding 元件。
+- `components/popup/`：Popup 專用的錄製與匯出元件。
 - `components/shared/`：跨入口共用元件；`components/ui/` 保留無領域狀態的 UI primitives。
 - `lib/capture/`：DOM 候選、座標、frame probe 與擷取流程。
 - `lib/editor/`、`lib/export/`、`lib/guide/`：各功能領域的純邏輯與 hooks。

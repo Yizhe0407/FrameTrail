@@ -10,7 +10,6 @@ const SCRIBE_DB = { name: 'frametrail', version: 1 } as const;
 // chrome.storage.local.get overloads still apply inside evaluate bodies.
 const RECORDING_STATE_KEY = 'frametrail:recordingState' as const;
 const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId' as const;
-const ONBOARDING_STORAGE_KEY = 'frametrail:onboarding:v1' as const;
 
 /**
  * Pristine guide row seeded by resetExtensionData. The authoritative shape is
@@ -170,7 +169,7 @@ export interface StoredStep {
 }
 
 export async function resetExtensionData(popup: Page): Promise<void> {
-  await popup.evaluate(async ({ scribeDb, recordingStateKey, activeGuideIdKey, onboardingKey, guideTemplate }) => {
+  await popup.evaluate(async ({ scribeDb, recordingStateKey, activeGuideIdKey, guideTemplate }) => {
     const guideId = crypto.randomUUID();
     const state = await chrome.storage.local.get(recordingStateKey);
     if (state[recordingStateKey]?.isRecording) {
@@ -212,14 +211,12 @@ export async function resetExtensionData(popup: Page): Promise<void> {
     });
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
-      [onboardingKey]: { version: 1, completed: true, completedAt: 0 },
       [activeGuideIdKey]: guideId,
     });
   }, {
     scribeDb: SCRIBE_DB,
     recordingStateKey: RECORDING_STATE_KEY,
     activeGuideIdKey: ACTIVE_GUIDE_ID_KEY,
-    onboardingKey: ONBOARDING_STORAGE_KEY,
     guideTemplate: E2E_GUIDE_TEMPLATE,
   });
   await popup.reload({ waitUntil: 'domcontentloaded' });

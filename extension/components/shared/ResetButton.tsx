@@ -11,7 +11,6 @@ interface Props {
   sessionId: string | null;
   className?: string;
   variant?: ComponentProps<typeof Button>['variant'];
-  compact?: boolean;
   disabled?: boolean;
   onReset?: () => void | Promise<void>;
 }
@@ -21,7 +20,6 @@ export default function ResetButton({
   sessionId,
   className,
   variant = 'ghost',
-  compact = false,
   disabled = false,
   onReset,
 }: Props) {
@@ -52,7 +50,6 @@ export default function ResetButton({
       <div className="flex flex-col items-end gap-1">
         <Button
           variant={variant}
-          size={compact ? 'icon' : undefined}
           onClick={() => {
             setResetError(null);
             setConfirmationOpen(true);
@@ -67,7 +64,7 @@ export default function ResetButton({
           )}
         >
           {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-          <span className={compact ? 'sr-only' : undefined}>{resetting ? '重置中' : '重置'}</span>
+          <span>{resetting ? '重置中' : '重置'}</span>
         </Button>
       </div>
       <ConfirmationDialog

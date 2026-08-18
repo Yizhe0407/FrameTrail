@@ -43,48 +43,28 @@ export default function EditorHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+        {/* One control per action at every width: the icon always shows and the
+            label appears from `sm` up. The `aria-label` carries the accessible
+            name so the icon-only state below `sm` is never unlabelled. */}
         <Button
           variant="outline"
           title="回到作品庫"
-          size="icon"
-          aria-label="回到作品庫"
-          className="size-9 sm:hidden"
+          aria-label="作品庫"
+          className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[13px]"
           onClick={() => void openLibrary()}
         >
-          <Library className="size-4" />
-        </Button>
-        <Button
-          variant="outline"
-          title="回到作品庫"
-          className="hidden h-[36px] gap-[7px] rounded-md px-[13px] text-[13px] font-medium sm:inline-flex"
-          onClick={() => void openLibrary()}
-        >
-          <Library className="size-4" />作品庫
+          <Library className="size-4" /><span className="hidden sm:inline">作品庫</span>
         </Button>
         <span className="hidden h-[22px] w-[1px] bg-border sm:block" aria-hidden="true" />
-        <div className="sm:hidden">
-          <ResetButton compact hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
-        </div>
-        <div className="hidden sm:block">
-          <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
-        </div>
+        <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
         <Button
           variant="default"
-          size="icon"
           aria-label="匯出"
-          className="size-9 sm:hidden"
+          className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[15px]"
           onClick={onOpenPublish}
           disabled={unavailable || steps.length === 0 || !onOpenPublish}
         >
-          <Download className="size-3.5" />
-        </Button>
-        <Button
-          variant="default"
-          className="hidden h-[36px] gap-[7px] rounded-md px-[15px] text-[13px] font-medium sm:inline-flex"
-          onClick={onOpenPublish}
-          disabled={unavailable || steps.length === 0 || !onOpenPublish}
-        >
-          <Download className="size-3.5" />匯出
+          <Download className="size-3.5" /><span className="hidden sm:inline">匯出</span>
         </Button>
       </div>
     </header>

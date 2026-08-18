@@ -50,7 +50,6 @@ const htmlEntrypoints = [
   'popup.html',
   'editor.html',
   'library.html',
-  'practice.html',
   'snapshot-shield.html',
 ];
 

@@ -101,7 +101,7 @@ export const recordingToolbarStyles = `
   .ft-button[data-danger="true"]:hover:not(:disabled) { background: var(--ft-btn-danger-hover-bg); color: var(--ft-btn-danger-hover-text); }
   .ft-button:disabled { opacity: .42; cursor: default; }
   .ft-button:focus-visible, .ft-status:focus-visible, .ft-collapsed:focus-visible, .ft-finish:focus-visible,
-  .ft-secondary:focus-visible, .ft-menu button:focus-visible, .ft-confirm button:focus-visible,
+  .ft-secondary:focus-visible, .ft-confirm button:focus-visible,
   .ft-snackbar button:focus-visible {
     outline: 2px solid var(--ft-focus); outline-offset: 2px;
   }
@@ -126,7 +126,7 @@ export const recordingToolbarStyles = `
     box-shadow: var(--ft-shadow); cursor: pointer; touch-action: none;
   }
   .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--ft-btn-hover-bg); color: var(--ft-text); }
-  .ft-message, .ft-snackbar, .ft-menu, .ft-confirm {
+  .ft-message, .ft-snackbar, .ft-confirm {
     position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; max-width: min(320px, calc(100vw - 32px));
     padding: 10px 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
     color: var(--ft-text); box-shadow: 0 8px 24px rgba(28, 25, 23, .18); font-size: 12px;
@@ -137,20 +137,10 @@ export const recordingToolbarStyles = `
   .ft-snackbar button { border: 0; background: transparent; color: var(--ft-link); font-weight: 700; cursor: pointer; }
   .ft-position[data-vertical="top"] .ft-message,
   .ft-position[data-vertical="top"] .ft-snackbar,
-  .ft-position[data-vertical="top"] .ft-menu,
   .ft-position[data-vertical="top"] .ft-confirm { top: calc(100% + 8px); bottom: auto; }
   .ft-position[data-horizontal="left"] .ft-message,
   .ft-position[data-horizontal="left"] .ft-snackbar,
-  .ft-position[data-horizontal="left"] .ft-menu,
   .ft-position[data-horizontal="left"] .ft-confirm { left: 0; right: auto; }
-  .ft-menu { min-width: 190px; padding: 4px; }
-  .ft-menu button {
-    width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-    border: 0; border-radius: var(--ft-radius); background: transparent; color: var(--ft-text); text-align: left; cursor: pointer;
-  }
-  .ft-menu button:hover:not(:disabled) { background: var(--ft-btn-hover-bg); }
-  .ft-menu button[data-danger="true"] { color: var(--ft-error-text); }
-  .ft-menu svg { width: 17px; height: 17px; flex: none; }
   .ft-confirm { width: min(300px, calc(100vw - 32px)); padding: 16px; }
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
   .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; line-height: 1.5; }
@@ -160,7 +150,7 @@ export const recordingToolbarStyles = `
     background: transparent; color: var(--ft-text); font-weight: 600; cursor: pointer;
   }
   .ft-confirm button[data-danger="true"] { border-color: var(--ft-recording); background: var(--ft-recording); color: #fff; }
-  .ft-confirm button:disabled, .ft-menu button:disabled { opacity: .5; cursor: wait; }
+  .ft-confirm button:disabled { opacity: .5; cursor: wait; }
   .ft-success { width: 18px; height: 18px; color: var(--ft-link); }
   .ft-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   @media (max-width: 520px) {

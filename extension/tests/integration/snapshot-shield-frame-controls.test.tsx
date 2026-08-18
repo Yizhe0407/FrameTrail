@@ -98,9 +98,11 @@ describe('snapshot shield frame controls', () => {
         offsetRange: { min: 0, max: 2 },
       },
     } as MessageEvent<SnapshotShieldFrameMessage>);
+    // Alt+wheel, the same binding step mode uses on a live page.
     document.body.dispatchEvent(new WheelEvent('wheel', {
       bubbles: true,
       cancelable: true,
+      altKey: true,
       deltaY: -100,
     }));
     await vi.advanceTimersByTimeAsync(16);

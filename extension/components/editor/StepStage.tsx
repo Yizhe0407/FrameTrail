@@ -10,6 +10,7 @@ import TagSelectDialog from './TagSelectDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
+import { recordingItemCountLabel, RECORDING_MODE_COPY } from '@/lib/recording/recording-mode-copy';
 import {
   MULTI_ANNOTATION_RECAPTURE_BLOCKED,
   PRIVACY_REVIEW_REQUIRED_NOTICE,
@@ -114,7 +115,7 @@ export default function StepStage({
               type="button"
               onClick={() => setTagDialogOpen(true)}
               disabled={editingDisabled}
-              title="設定標籤（顯示於作品庫）"
+              title="新增標籤（顯示於作品庫）"
             >
               <Plus className="size-3.5 stroke-[2.5]" />
               標籤
@@ -149,7 +150,12 @@ export default function StepStage({
     <div className="flex shrink-0 items-center justify-between gap-3 mb-3.5">
       <div className="flex items-center gap-3">
         <span className="text-xs font-semibold text-muted-foreground/80">
-          {entry.kind === 'single' ? '步驟模式' : `快照模式 · ${entry.annotations.length} 個標註`}
+          {/* A single entry came from steps mode, a group from snapshot mode, so
+              the stage names them with the same vocabulary as the popup and the
+              recording toolbar. */}
+          {entry.kind === 'single'
+            ? RECORDING_MODE_COPY.steps.label
+            : `${RECORDING_MODE_COPY.snapshot.label} · ${recordingItemCountLabel('snapshot', entry.annotations.length)}`}
         </span>
       </div>
       <div className="flex items-center gap-3">

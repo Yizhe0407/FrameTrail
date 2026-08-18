@@ -7,7 +7,6 @@ import {
   Loader2,
   PencilLine,
   Plus,
-  RotateCcw,
   Search,
   Trash2,
   Upload,
@@ -34,17 +33,6 @@ import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
 import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
-}
-
-function formatDate(timestamp: number): string {
-  return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp);
-}
 
 /** Derives the .frametrail archive name from the same stem the publication
  * exporters use, so the library and editor name files identically. The stem
@@ -119,8 +107,6 @@ export default function App() {
       return !normalized || `${guide.title}\n${guide.description}`.toLocaleLowerCase('zh-TW').includes(normalized);
     });
   }, [deferredQuery, filterTags, guides]);
-
-  const storageBytes = useMemo(() => guides.reduce((sum, guide) => sum + guide.storageBytes, 0), [guides]);
 
   async function run(id: string, action: () => Promise<void>, options: { refreshAfter?: boolean } = {}) {
     if (loading || operationLocked) return false;
@@ -208,20 +194,12 @@ export default function App() {
       <AppToaster />
       <header className="border-b border-border/80 bg-card">
         <div className="mx-auto flex max-w-7xl flex-wrap items-start justify-between gap-4 px-6 pt-[30px] pb-[22px] sm:px-10">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-[11px]">
-              <span className="text-[15px] font-bold">FrameTrail</span>
-              <span className="size-[5px] rounded-full bg-brand" aria-hidden="true" />
-              <h1 className="text-[22px] font-bold text-foreground">作品庫</h1>
-            </div>
-            <p className="text-[13px] text-muted-foreground/90">
-              所有內容只保存在這個瀏覽器設定檔中。
-            </p>
+          <div className="flex items-center gap-[11px]">
+            <span className="text-[15px] font-bold">FrameTrail</span>
+            <span className="size-[5px] rounded-full bg-brand" aria-hidden="true" />
+            <h1 className="text-[22px] font-bold text-foreground">作品庫</h1>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="mr-0.5 max-w-full text-[12.5px] font-medium text-muted-foreground/80 sm:whitespace-nowrap">
-              {guides.length} 份作品 · {formatBytes(storageBytes)}
-            </span>
             <input
               ref={importInput}
               type="file"
@@ -395,22 +373,15 @@ export default function App() {
                       }}
                       className="w-full rounded-md border border-transparent px-1 py-0.5 -ml-1 text-[15px] font-semibold leading-[1.35] text-foreground hover:border-border focus:border-border focus:bg-background focus:ring-2 focus:ring-ring disabled:opacity-70"
                     />
-                    <p className="line-clamp-2 min-h-10 text-[12.5px] leading-[1.55] text-muted-foreground">
-                      {guide.description || '尚未加入作品說明'}
-                    </p>
-                    <div
-                      className="mt-0.5 flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground"
-                      title={`${guide.entryCount} 個畫面／${guide.stepCount} 個標註 · ${formatBytes(guide.storageBytes)}`}
-                    >
+                    {guide.description && (
+                      <p className="line-clamp-2 text-[12.5px] leading-[1.55] text-muted-foreground">
+                        {guide.description}
+                      </p>
+                    )}
+                    <div className="mt-0.5 flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
                       <span>{guide.entryCount} 個畫面</span>
                       <span className="size-[3px] rounded-full bg-current opacity-40" />
                       <span>{guide.stepCount} 標註</span>
-                      <span className="size-[3px] rounded-full bg-current opacity-40" />
-                      <span>{formatBytes(guide.storageBytes)}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70">
-                      <span className="size-3 opacity-60"><RotateCcw className="size-3" /></span>
-                      更新於 {formatDate(guide.updatedAt)}
                     </div>
                     <div className="flex-1" />
                     <div className="mt-1.5 flex items-center gap-[5px] border-t border-border/70 pt-[12px]">
@@ -461,21 +432,6 @@ export default function App() {
                 </li>
               );
             })}
-            {filterTags.length === 0 && (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => void createNewGuide()}
-                  disabled={loading || operationLocked || pendingId !== null}
-                  className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3 rounded-md border-[1.5px] border-dashed border-border/80 bg-transparent text-muted-foreground transition-all duration-200 hover:border-brand hover:bg-brand-bg-soft hover:text-brand-text"
-                >
-                  <span className="flex size-11 items-center justify-center rounded-full bg-foreground/5">
-                    <Plus className="size-5" />
-                  </span>
-                  <span className="text-xs font-semibold">新增</span>
-                </button>
-              </li>
-            )}
           </ul>
         )}
       </main>

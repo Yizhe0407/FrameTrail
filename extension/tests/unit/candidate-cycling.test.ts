@@ -3,8 +3,8 @@ import {
   candidateCyclingState,
   createCandidateWheelCycler,
   cycleActionLabel,
+  isCandidateCycleModifier,
   isPointWithinCandidateLock,
-  STEP_CYCLE_MODIFIER,
 } from '@/lib/capture/candidate-cycling';
 
 describe('candidateCyclingState', () => {
@@ -19,11 +19,21 @@ describe('candidateCyclingState', () => {
 });
 
 describe('cycleActionLabel', () => {
-  it('teaches the binding each mode uses', () => {
-    expect(cycleActionLabel('widen')).toBe('選取更大範圍（↑）');
-    expect(cycleActionLabel('narrow')).toBe('選取更小範圍（↓）');
-    // The live page keeps plain arrows, so step mode's label spells out Alt.
-    expect(cycleActionLabel('widen', STEP_CYCLE_MODIFIER)).toBe('選取更大範圍（Alt+↑）');
+  it('teaches one binding for both recorders', () => {
+    // Step mode needs Alt because its page stays live; the snapshot shield
+    // follows the same binding so there is a single shortcut to learn.
+    expect(cycleActionLabel('widen')).toBe('選取更大範圍（Alt+↑）');
+    expect(cycleActionLabel('narrow')).toBe('選取更小範圍（Alt+↓）');
+  });
+});
+
+describe('isCandidateCycleModifier', () => {
+  it('accepts Alt alone and rejects bare or over-modified gestures', () => {
+    expect(isCandidateCycleModifier({ altKey: true, ctrlKey: false, metaKey: false })).toBe(true);
+    expect(isCandidateCycleModifier({ altKey: false, ctrlKey: false, metaKey: false })).toBe(false);
+    // Alt+Ctrl and Alt+Cmd belong to the browser and the OS.
+    expect(isCandidateCycleModifier({ altKey: true, ctrlKey: true, metaKey: false })).toBe(false);
+    expect(isCandidateCycleModifier({ altKey: true, ctrlKey: false, metaKey: true })).toBe(false);
   });
 });
 

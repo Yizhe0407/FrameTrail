@@ -3,7 +3,7 @@
  * them. This list is policy shared by the background lifecycle and the popup's
  * pre-flight check — two copies of it used to drift apart, which would let the
  * popup offer to record a page the background then rejects. The extension's
- * own pages (editor, library, practice) fall under chrome-extension:// and are
+ * own pages (editor, library) fall under chrome-extension:// and are
  * deliberately restricted too: every layer rejects recording them, so the
  * popup must never present them as recordable.
  */

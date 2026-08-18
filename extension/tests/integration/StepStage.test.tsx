@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { type ScreenshotStep, type Step, type StepEntry } from '@/lib/storage/models';
 vi.mock('@/components/editor/HighlightThumbnail', () => ({
@@ -34,6 +34,9 @@ vi.mock('@/components/editor/AnnotationList', () => ({
 }));
 vi.mock('@/components/editor/StepActions', () => ({ default: () => null }));
 
+const database = vi.hoisted(() => ({ getGuideSummaries: vi.fn() }));
+vi.mock('@/lib/storage/guide-repository', () => ({ getGuideSummaries: database.getGuideSummaries }));
+
 import StepStage from '@/components/editor/StepStage';
 
 interface StageOptions {
@@ -41,6 +44,8 @@ interface StageOptions {
   editingDisabled?: boolean;
   onSetNumbered?: (entryId: string, next: boolean) => Promise<void>;
   onZoom?: () => void;
+  guideTags?: readonly string[];
+  onTagsChange?: (tags: string[]) => Promise<void>;
 }
 
 function makeStep(changes: Partial<Step> = {}): Step {
@@ -97,11 +102,15 @@ function stage({
   editingDisabled = false,
   onSetNumbered = vi.fn().mockResolvedValue(undefined),
   onZoom = vi.fn(),
+  guideTags,
+  onTagsChange,
 }: StageOptions = {}) {
   return (
     <StepStage
       entry={entry}
       index={0}
+      guideTags={guideTags}
+      onTagsChange={onTagsChange}
       onChange={vi.fn()}
       onDelete={vi.fn().mockResolvedValue(undefined)}
       onDeleteAnnotation={vi.fn().mockResolvedValue(undefined)}
@@ -118,9 +127,44 @@ function renderStage(options: StageOptions = {}) {
   return render(stage(options));
 }
 
+beforeEach(() => {
+  database.getGuideSummaries.mockResolvedValue([]);
+});
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe('StepStage tags', () => {
+  // Adding happens in the dialog the ＋標籤 chip opens; removing happens on the
+  // inline chips, which the user reaches without opening anything. Neither
+  // action has a second implementation on the other surface.
+  it('keeps the inline chip as the only way to remove a tag', async () => {
+    const onTagsChange = vi.fn().mockResolvedValue(undefined);
+    renderStage({ guideTags: ['驗收', '交付'], onTagsChange });
+
+    fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
+
+    await waitFor(() => expect(onTagsChange).toHaveBeenCalledWith(['交付']));
+
+    // The dialog behind that chip adds only; it must not offer its own remove.
+    fireEvent.click(screen.getByRole('button', { name: '標籤' }));
+    expect(await screen.findByPlaceholderText('輸入後按 Enter')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '移除 交付 標籤' })).toBeNull();
+  });
+
+  it('reports a refused tag write on the stage rather than losing it', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const onTagsChange = vi.fn().mockRejectedValue(new Error('目前有其他操作進行中，請稍後再修改。'));
+    renderStage({ guideTags: ['驗收'], onTagsChange });
+
+    fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('目前有其他操作進行中');
+    // The chip is driven by the stored value, so a refused write leaves it.
+    expect(screen.getByRole('button', { name: '移除 驗收 標籤' })).toBeTruthy();
+  });
 });
 
 describe('StepStage numbered snapshots', () => {

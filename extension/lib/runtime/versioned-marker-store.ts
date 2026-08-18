@@ -6,8 +6,7 @@ import { isRecord } from '../shared/validation';
  * `{ version, <flag>: true, <at>: timestamp }` under the key
  * `frametrail:<name>:v<version>`. Incrementing the version gives the marker a
  * brand-new key, so an older marker never suppresses a newer flow (a v1
- * onboarding completion does not hide a v2 onboarding, a v1 permission
- * decline does not silence a v2 ask).
+ * permission decline does not silence a v2 ask).
  */
 export type VersionedMarkerState<
   Version extends number,

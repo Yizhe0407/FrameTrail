@@ -46,9 +46,7 @@ const SELECTED_GUIDE_WITH_CONTENT = {
   stepCount: 3,
 };
 
-const NEW_GUIDE_HINT = /每次錄製都會建立新作品/;
-
-/** Marks `guide` as the current UI selection (what getSelectedGuide reads). */
+/** Marks `guide` as the current UI selection. */
 function selectGuideInStorage(guide: { id: string } & Record<string, unknown>) {
   mocks.storageGet.mockResolvedValue({ [ACTIVE_GUIDE_ID_KEY]: guide.id });
   mocks.getGuide.mockImplementation(async (id: string) => (id === guide.id ? guide : undefined));
@@ -132,18 +130,17 @@ describe('popup start always records into a fresh guide', () => {
     expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
-  it('explains the new-guide model when the selected guide already has content', async () => {
+  // The idle popup never shows which guide it is about to record into, so it
+  // cannot usefully explain the new-guide-per-recording model either. The hint
+  // and the guide-summary read that only decided whether to show it are gone;
+  // the idle form now offers the mode chips and the start button alone.
+  it('does not read the selected guide just to narrate the data model', async () => {
     selectGuideInStorage(SELECTED_GUIDE_WITH_CONTENT);
     render(<RecordControls recording={IDLE_RECORDING} />);
+    await waitFor(() => expect(mocks.query).toHaveBeenCalled());
 
-    expect(await screen.findByText(NEW_GUIDE_HINT)).toBeTruthy();
-  });
-
-  it('stays quiet about the new-guide model when nothing with content is selected', async () => {
-    selectGuideInStorage({ id: 'guide-empty', entryCount: 0, stepCount: 0 });
-    render(<RecordControls recording={IDLE_RECORDING} />);
-    await waitFor(() => expect(mocks.getGuide).toHaveBeenCalled());
-
-    expect(screen.queryByText(NEW_GUIDE_HINT)).toBeNull();
+    expect(screen.queryByText(/接續錄製/)).toBeNull();
+    expect(mocks.getGuide).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '開始錄製' })).toBeTruthy();
   });
 });
