@@ -1,8 +1,8 @@
 import { browser } from 'wxt/browser';
 import {
   collectKeyboardCandidateAnchors,
-  createSnapshotTargetResolver,
   installSnapshotFrameProbe,
+  resolveSnapshotTargetAtPoint,
   type ResolvedSnapshotTarget,
   waitForNextFrame,
 } from '@/lib/recording/snapshot-targeting';
@@ -25,10 +25,6 @@ import {
 } from '@/lib/capture/selector-utils';
 import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
 import {
-  createCandidateWheelCycler,
-  isCandidateCycleModifier,
-} from '@/lib/capture/candidate-cycling';
-import {
   isOutOfViewport,
   readRegionScrollSnapshot,
   readScrollSnapshot,
@@ -50,7 +46,6 @@ import {
   isPointInAnyScrollGutter,
 } from '@/lib/recording/recording-guards';
 import {
-  NO_CANDIDATE_CYCLING,
   snapshotRectKey,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
@@ -161,7 +156,6 @@ export default defineContentScript({
     let snapshotDprQuery: MediaQueryList | null = null;
     let hoverPreview: StepHoverPreview | null = null;
     const snapshotSelection = createSnapshotSelectionSet();
-    const snapshotTargetResolver = shouldFreezeSnapshot ? createSnapshotTargetResolver(runId) : null;
 
     const readSnapshotViewport = (): ClickCapture['viewport'] => ({
       width: window.innerWidth,
@@ -279,39 +273,23 @@ export default defineContentScript({
       point: SnapshotShieldPointerMoveMessage,
     ): Promise<SnapshotShieldPreviewResult> => {
       const shield = snapshotShield;
-      if (!shield || !snapshotTargetResolver || !snapshotInteractionsActive) {
-        return { rect: null, candidateOffset: point.candidateOffset, offsetRange: NO_CANDIDATE_CYCLING };
-      }
+      if (!shield || !shouldFreezeSnapshot || !snapshotInteractionsActive) return { rect: null };
       const target = await shield.runWithoutShield(() =>
-        snapshotTargetResolver.resolveAt(
-          point.clientX,
-          point.clientY,
-          point.candidateOffset,
-          point.candidateEpoch,
-        ),
+        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY),
       );
       if (!snapshotInteractionsActive || !target || snapshotSelection.isSelected(target)) {
-        return {
-          rect: null,
-          candidateOffset: target?.candidateOffset ?? point.candidateOffset,
-          offsetRange: target?.offsetRange ?? NO_CANDIDATE_CYCLING,
-        };
+        return { rect: null };
       }
-      return { rect: target.rect, candidateOffset: target.candidateOffset, offsetRange: target.offsetRange };
+      return { rect: target.rect };
     };
 
     const onSnapshotPoint = async (
       point: SnapshotShieldPointerDownMessage,
     ): Promise<SnapshotShieldSelection | null> => {
       const shield = snapshotShield;
-      if (!shield || !snapshotTargetResolver || !snapshotInteractionsActive) return null;
+      if (!shield || !shouldFreezeSnapshot || !snapshotInteractionsActive) return null;
       const target = await shield.runWithoutShield(() =>
-        snapshotTargetResolver.resolveAt(
-          point.clientX,
-          point.clientY,
-          point.candidateOffset,
-          point.candidateEpoch,
-        ),
+        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY),
       );
       const now = Date.now();
       if (!snapshotInteractionsActive || !target) return null;
@@ -338,8 +316,6 @@ export default defineContentScript({
         identity: `region:${snapshotRectKey(message.rect)}`,
         text: '',
         tagName: 'region',
-        candidateOffset: 0,
-        offsetRange: NO_CANDIDATE_CYCLING,
       };
       const label = await commitSnapshotAnnotation(message.rect, target, 'region', Date.now());
       if (label === null) return null;
@@ -433,12 +409,6 @@ export default defineContentScript({
         isPaused: () => recorderPaused,
         isGestureActive: () => stepGesture !== null,
         isRegionCaptureActive: () => manualRegionCapture?.isActive() ?? false,
-        onCandidateCycling: (cycling) => recordingToolbar?.setCandidateCycling(
-          cycling && {
-            ...cycling,
-            onAdjust: (delta) => preview.adjustCandidateOffset(delta),
-          },
-        ),
       });
       hoverPreview = preview;
 
@@ -637,8 +607,8 @@ export default defineContentScript({
         if (isInScrollbarGutter(pe.clientX, pe.clientY, document.documentElement)) return;
         if (isPointInAnyScrollGutter(pe.clientX, pe.clientY)) return;
 
-        // The same candidate the highlight is showing, including any offset
-        // the user cycled to with Alt+arrows.
+        // Resolved through the preview so the captured element is exactly the
+        // box the highlight was showing when the user pressed.
         const el = preview.resolveTargetAt(pe.clientX, pe.clientY);
         if (!el) return;
         if (stepGesture) {
@@ -780,26 +750,6 @@ export default defineContentScript({
         cancel: () => stepGesture?.cancel(),
       });
 
-      // Alt is the modifier because the page stays live in step mode: bare
-      // arrows and wheel gestures must keep scrolling it and moving the caret.
-      // The snapshot shield binds the same combination so there is one shortcut
-      // to learn across both modes.
-      const onCandidateKeyDown = (event: KeyboardEvent) => {
-        if (!isCandidateCycleModifier(event)) return;
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-        if (!preview.adjustCandidateOffset(event.key === 'ArrowUp' ? 1 : -1)) return;
-        event.preventDefault();
-      };
-      const wheelCycler = createCandidateWheelCycler((delta) => preview.adjustCandidateOffset(delta));
-      const onCandidateWheel = (event: WheelEvent) => {
-        if (!isCandidateCycleModifier(event)) return;
-        if (!wheelCycler.handle(event.deltaX, event.deltaY, event.timeStamp)) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      };
-
-      window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
-      window.addEventListener('wheel', onCandidateWheel, { capture: true, passive: false });
       window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
       window.addEventListener('pointerout', preview.handlers.onPointerOut, { capture: true, passive: true });
       window.addEventListener('pointerleave', preview.handlers.onPointerLeave, { capture: true, passive: true });
@@ -822,8 +772,6 @@ export default defineContentScript({
       // resources: cleanup() owns their removal (recordingToolbar?.remove(),
       // hoverPreview?.destroy()); this uninstaller only detaches listeners.
       return () => {
-        window.removeEventListener('keydown', onCandidateKeyDown, { capture: true });
-        window.removeEventListener('wheel', onCandidateWheel, { capture: true });
         document.removeEventListener('pointerdown', onPointerDown, { capture: true });
         window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
         window.removeEventListener('pointerout', preview.handlers.onPointerOut, { capture: true });
@@ -946,7 +894,6 @@ export default defineContentScript({
 
     const cleanup = () => {
       uninstallModeRecorder();
-      snapshotTargetResolver?.clear();
       manualRegionCapture?.cancel('removed');
       manualRegionCapture = null;
       snapshotShield?.remove();

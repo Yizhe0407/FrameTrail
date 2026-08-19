@@ -12,7 +12,7 @@ vi.mock('wxt/browser', () => ({
 
 import {
   collectKeyboardCandidateAnchors,
-  createSnapshotTargetResolver,
+  resolveSnapshotTargetAtPoint,
 } from '@/lib/recording/snapshot-targeting';
 import { SNAPSHOT_FREEZE_EVENTS } from '@/lib/recording/content-script-constants';
 import { describeElement, replayElementClick } from '@/lib/capture/element-description';
@@ -66,8 +66,8 @@ afterEach(() => {
 });
 
 
-describe('createSnapshotTargetResolver', () => {
-  it('uses the shared Element identity lock instead of reapplying an offset to each hit chain', async () => {
+describe('resolveSnapshotTargetAtPoint', () => {
+  it('resolves each point independently to the box under it', async () => {
     const card = document.createElement('div');
     const shallowText = document.createElement('span');
     const wrapper = document.createElement('div');
@@ -86,18 +86,23 @@ describe('createSnapshotTargetResolver', () => {
       });
     }
     stubElementFromPoint((x) => (x < 150 ? shallowText : nestedText));
-    const resolver = createSnapshotTargetResolver('run-1');
 
-    const widened = await resolver.resolveAt(40, 40, 1, 0);
-    expect(widened?.element).toBe(card);
+    const first = await resolveSnapshotTargetAtPoint('run-1', 40, 40);
+    expect(first?.element).toBe(shallowText);
+    expect(first?.rect).toEqual({ x: 30, y: 30, width: 90, height: 24 });
 
-    // Offset 1 on nestedText's fresh chain would select wrapper. The retained
-    // concrete identity must continue selecting card instead.
-    const retained = await resolver.resolveAt(200, 50, 1, 0);
-    expect(retained?.element).toBe(card);
+    // No state carries between probes, so a second point answers with its own
+    // box and returning to the first answers with the original one again.
+    const second = await resolveSnapshotTargetAtPoint('run-1', 200, 50);
+    expect(second?.element).toBe(nestedText);
+    expect((await resolveSnapshotTargetAtPoint('run-1', 40, 40))?.element).toBe(shallowText);
+  });
 
-    const reset = await resolver.resolveAt(200, 50, 0, 1);
-    expect(reset?.element).toBe(nestedText);
+  it('rejects points outside the viewport', async () => {
+    stubElementFromPoint(() => document.body);
+
+    expect(await resolveSnapshotTargetAtPoint('run-1', -1, 40)).toBeNull();
+    expect(await resolveSnapshotTargetAtPoint('run-1', 40, window.innerHeight)).toBeNull();
   });
 
   it('resolves image-map regions in displayed CSS pixels for image and area hits', async () => {
@@ -123,14 +128,14 @@ describe('createSnapshotTargetResolver', () => {
     document.body.append(image, map);
 
     stubElementFromPoint(() => image);
-    const imageHit = await createSnapshotTargetResolver('run-image').resolveAt(75, 40);
+    const imageHit = await resolveSnapshotTargetAtPoint('run-image', 75, 40);
     expect(imageHit?.element).toBe(area);
     expect(imageHit?.dedupeElement).toBeNull();
     expect(imageHit?.identity).toContain('::image-map::');
     expect(imageHit?.rect).toEqual({ x: 60, y: 30, width: 50, height: 40 });
 
     stubElementFromPoint(() => area);
-    const areaHit = await createSnapshotTargetResolver('run-area').resolveAt(75, 40);
+    const areaHit = await resolveSnapshotTargetAtPoint('run-area', 75, 40);
     expect(areaHit?.element).toBe(area);
     expect(areaHit?.dedupeElement).toBeNull();
     expect(areaHit?.identity).toBe(imageHit?.identity);
@@ -158,10 +163,9 @@ describe('createSnapshotTargetResolver', () => {
     document.body.append(firstImage, secondImage, map);
 
     stubElementFromPoint((x) => (x < 150 ? firstImage : secondImage));
-    const resolver = createSnapshotTargetResolver('run-shared-map');
-    const firstTarget = await resolver.resolveAt(25, 30);
-    const repeatedFirstTarget = await resolver.resolveAt(25, 30);
-    const secondTarget = await resolver.resolveAt(225, 30);
+    const firstTarget = await resolveSnapshotTargetAtPoint('run-shared-map', 25, 30);
+    const repeatedFirstTarget = await resolveSnapshotTargetAtPoint('run-shared-map', 25, 30);
+    const secondTarget = await resolveSnapshotTargetAtPoint('run-shared-map', 225, 30);
 
     expect(firstTarget?.element).toBe(area);
     expect(firstTarget?.dedupeElement).toBeNull();

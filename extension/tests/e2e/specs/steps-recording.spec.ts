@@ -1,5 +1,6 @@
 import { test, expect, FIXTURE_URL } from '../support/fixture';
 import {
+  clickRecordingToolbarButton,
   clickTarget,
   expectSteady,
   getStepPreviewStyle,
@@ -46,33 +47,37 @@ test.describe('step recording', () => {
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(0);
   });
 
-  test('cycles the highlight to an ancestor with Alt+wheel before capturing', async ({
+  test('records a manually cropped region when the auto-detected box is wrong', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'steps');
-    const point = await targetCenter(appPage, '#plain-text');
-    const span = await appPage.locator('#plain-text').boundingBox();
-    const card = await appPage.locator('#plain-card').boundingBox();
-    await appPage.mouse.move(point.x, point.y);
-    await expect.poll(async () => (await getStepPreviewStyle(appPage)).hidden).toBe(false);
+    // Region capture is the only in-page recourse for a box the detector got
+    // wrong, so it has to survive as a working path end to end.
+    await clickRecordingToolbarButton(appPage, '裁切擷取區域');
+    const region = appPage.locator('[data-frametrail-region-capture]');
+    await expect(region).toHaveCount(1);
+    await expect(region.locator('.ft-region-blocker')).toBeVisible();
 
-    // Alt keeps the live page's ordinary wheel scrolling intact; one upward
-    // notch widens the highlight from the span to the card that contains it. The rendered box
-    // carries the highlight frame's padding, so the capture bounds below are
-    // what pins the exact target.
-    const narrowStyle = (await getStepPreviewStyle(appPage)).style;
-    await appPage.keyboard.down('Alt');
-    await appPage.mouse.wheel(0, -100);
-    await appPage.keyboard.up('Alt');
-    await expect.poll(async () => (await getStepPreviewStyle(appPage)).style).not.toBe(narrowStyle);
+    await appPage.mouse.move(120, 140);
+    await appPage.mouse.down();
+    await appPage.mouse.move(300, 260, { steps: 8 });
+    await expect(region.locator('.ft-region-selection')).toHaveAttribute('data-visible', 'true');
+    await appPage.mouse.up();
 
-    await appPage.mouse.click(point.x, point.y);
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     const [step] = await readSteps(popupPage);
-    expect(Math.round(step.bounds!.width)).toBe(Math.round(card!.width));
-    expect(Math.round(step.bounds!.width)).not.toBe(Math.round(span!.width));
+    // A region carries no DOM target, so it lands as a mark with no text.
+    expect(step.description).toBe('標記頁面區域');
+    expect(step.hasScreenshot).toBe(true);
+    expect(Math.round(step.bounds!.width)).toBe(180);
+    expect(Math.round(step.bounds!.height)).toBe(120);
+
+    // The overlay closes itself once the capture settles, leaving the ordinary
+    // hover highlight in charge again.
+    await expect.poll(() => appPage.locator('[data-frametrail-region-capture]').count()).toBe(0);
+    await hoverTarget(appPage, '#plain-text');
 
     await stopRecording(popupPage);
   });

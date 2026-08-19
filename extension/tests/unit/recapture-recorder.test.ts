@@ -88,7 +88,6 @@ const TARGET = {
   identity: 'button#save',
   text: 'Save',
   tagName: 'button',
-  candidateOffset: 0,
 };
 
 class TestPointerEvent extends MouseEvent {

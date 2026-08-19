@@ -68,11 +68,7 @@ describe('createSnapshotShield', () => {
     vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue({ postMessage } as unknown as Window);
     const selection = { rect: { x: 20, y: 30, width: 100, height: 40 }, label: 1 };
     const onPoint = vi.fn().mockResolvedValue(selection);
-    const onHover = vi.fn(() => ({
-      rect: selection.rect,
-      candidateOffset: 1,
-      offsetRange: { min: -1, max: 2 },
-    }));
+    const onHover = vi.fn(() => ({ rect: selection.rect }));
     const regionSelection = { rect: { x: 12, y: 18, width: 80, height: 60 }, label: 2 };
     const onRegion = vi.fn().mockResolvedValue(regionSelection);
     const shield = createSnapshotShield(onPoint, onHover, undefined, onRegion);
@@ -119,8 +115,6 @@ describe('createSnapshotShield', () => {
       requestId: 7,
       clientX: 50,
       clientY: 70,
-      candidateOffset: 1,
-      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onHover).toHaveBeenCalledOnce());
     await vi.waitFor(() =>
@@ -129,7 +123,6 @@ describe('createSnapshotShield', () => {
           type: SNAPSHOT_SHIELD_PREVIEW,
           requestId: 7,
           rect: selection.rect,
-          candidateOffset: 1,
         }),
       ),
     );
@@ -140,11 +133,9 @@ describe('createSnapshotShield', () => {
       captureId: 1,
       clientX: 50,
       clientY: 70,
-      candidateOffset: 1,
-      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
-    expect(onPoint).toHaveBeenCalledWith(expect.objectContaining({ candidateOffset: 1 }));
+    expect(onPoint).toHaveBeenCalledWith(expect.objectContaining({ clientX: 50, clientY: 70 }));
     await vi.waitFor(() =>
       expect(frameMessages).toContainEqual(
         expect.objectContaining({
@@ -223,8 +214,6 @@ describe('createSnapshotShield', () => {
       captureId: 4,
       clientX: 90,
       clientY: 110,
-      candidateOffset: 0,
-      candidateEpoch: 0,
     });
     await vi.waitFor(() => expect(onPoint).toHaveBeenCalledOnce());
 
@@ -236,8 +225,6 @@ describe('createSnapshotShield', () => {
       captureId: 5,
       clientX: 50,
       clientY: 70,
-      candidateOffset: 0,
-      candidateEpoch: 0,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onPoint).not.toHaveBeenCalled();

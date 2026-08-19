@@ -2,24 +2,22 @@ import { browser } from 'wxt/browser';
 import {
   buildSnapshotTargetIdentity,
   deepElementFromPoint,
+  findVisualTargetCandidatesAtPoint,
   getVisibleHighlightBounds,
   INTERACTIVE_CANDIDATE_SELECTOR,
   intersectBounds,
   isElementVisuallyUnavailable,
   isInteractiveElement,
+  selectVisualTargetCandidate,
 } from '../capture/selector-utils';
 import { describeElement } from '../capture/element-description';
 import {
   SNAPSHOT_KEYBOARD_LABEL_LIMIT,
   SNAPSHOT_REGION_COORDINATE_LIMIT,
-  SNAPSHOT_TARGET_OFFSET_LIMIT,
-  NO_CANDIDATE_CYCLING,
-  isCandidateOffsetRange,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
 } from './snapshot-shield-protocol';
 import { orderKeyboardCandidates, type RawKeyboardCandidate } from '../capture/snapshot-candidates';
-import type { CandidateOffsetRange } from '../capture/candidate-cycling';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
   childFrameProbeTimeout,
@@ -30,7 +28,6 @@ import {
   resolveFrameProbeTargetOrigin,
 } from '../capture/frame-probe';
 import { findImageForArea, resolveImageMapTargetAtPoint } from './image-map-resolver';
-import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isFiniteRect } from '../shared/validation';
 import { CLEANUP_EVENT } from './content-script-constants';
 import type { FrameTrailStopMessage } from '../runtime/messages';
@@ -78,11 +75,6 @@ interface SnapshotProbeResult {
   identity: string;
   text: string;
   tagName: string;
-  candidateOffset: number;
-  /** See SelectedVisualTargetCandidate.offsetRange. Targets resolved without a
-   * candidate chain (an opaque child frame, an image-map area) report an empty
-   * range so the shield never advertises cycling that would do nothing. */
-  offsetRange: CandidateOffsetRange;
 }
 
 export interface ResolvedSnapshotTarget extends SnapshotProbeResult {
@@ -101,16 +93,12 @@ interface SnapshotProbeRequest {
   timeoutMs: number;
   clientX: number;
   clientY: number;
-  candidateOffset: number;
-  candidateEpoch: number;
 }
 
 function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<SnapshotProbeResult>;
-  const candidateOffset = result.candidateOffset;
   return (
-    isCandidateOffsetRange(result.offsetRange) &&
     isFiniteRect(result.rect, { maxMagnitude: SNAPSHOT_REGION_COORDINATE_LIMIT }) &&
     typeof result.identity === 'string' &&
     result.identity.length > 0 &&
@@ -119,18 +107,13 @@ function isSnapshotProbeResult(value: unknown): value is SnapshotProbeResult {
     result.text.length <= 200 &&
     typeof result.tagName === 'string' &&
     result.tagName.length > 0 &&
-    result.tagName.length <= 100 &&
-    candidateOffset !== undefined &&
-    Number.isSafeInteger(candidateOffset) &&
-    Math.abs(candidateOffset) <= SNAPSHOT_TARGET_OFFSET_LIMIT
+    result.tagName.length <= 100
   );
 }
 
 function resolvedElement(
   el: Element,
   rect: SnapshotShieldRect | null,
-  candidateOffset = 0,
-  offsetRange: CandidateOffsetRange = NO_CANDIDATE_CYCLING,
 ): ResolvedSnapshotTarget | null {
   if (!rect) return null;
   return {
@@ -139,8 +122,6 @@ function resolvedElement(
     identity: buildSnapshotTargetIdentity(el),
     text: describeElement(el),
     tagName: el.tagName.toLowerCase(),
-    candidateOffset,
-    offsetRange,
   };
 }
 
@@ -156,8 +137,6 @@ function resolvedImageMapTarget(
     identity: `${buildSnapshotTargetIdentity(area)}::image-map::${buildSnapshotTargetIdentity(image)}`,
     text: describeElement(area),
     tagName: area.tagName.toLowerCase(),
-    candidateOffset: 0,
-    offsetRange: NO_CANDIDATE_CYCLING,
   };
 }
 
@@ -167,8 +146,6 @@ async function probeChildFrame(
   clientX: number,
   clientY: number,
   timeoutMs: number,
-  candidateOffset: number,
-  candidateEpoch: number,
 ): Promise<ResolvedSnapshotTarget | null> {
   if (!frame.contentWindow || isElementVisuallyUnavailable(frame)) return null;
   const visibleFrame = getVisibleHighlightBounds(frame, clientX, clientY);
@@ -216,8 +193,6 @@ async function probeChildFrame(
     timeoutMs: childFrameProbeTimeout(timeoutMs, FRAME_PROBE_CHILD_BUDGET_MS),
     clientX: childPoint.x,
     clientY: childPoint.y,
-    candidateOffset,
-    candidateEpoch,
   };
   try {
     frame.contentWindow.postMessage(request, targetOrigin, [channel.port2]);
@@ -246,126 +221,55 @@ async function probeChildFrame(
         identity: `${buildSnapshotTargetIdentity(frame)}::frame::${child.identity}`,
         text: child.text,
         tagName: child.tagName,
-        candidateOffset: child.candidateOffset,
-        offsetRange: child.offsetRange,
       }
     : null;
 }
 
-export interface SnapshotTargetResolver {
-  resolveAt(
-    clientX: number,
-    clientY: number,
-    candidateOffset?: number,
-    candidateEpoch?: number,
-    frameProbeTimeoutMs?: number,
-  ): Promise<ResolvedSnapshotTarget | null>;
-  clear(): void;
-}
-
 /**
- * Creates the sole stateful snapshot targeting pipeline for one recording run.
- * Candidate offsets are merely addresses into the retained chain; concrete
- * Element identity and the 6px hysteresis boundary live in CandidateTargetLock.
+ * Resolves the annotation target at one viewport point for a snapshot run.
+ *
+ * Every probe is independent: the point alone decides the target, so the same
+ * coordinates always answer with the same box. Child frames, image-map areas
+ * and ordinary elements are each dispatched from the single top hit, in that
+ * order, because a frame or an area can never also be a candidate chain.
  */
-export function createSnapshotTargetResolver(runId: string): SnapshotTargetResolver {
-  const candidateTarget = createCandidateTargetLock();
-  let currentEpoch: number | null = null;
-
-  const clear = () => {
-    candidateTarget.clear();
-    currentEpoch = null;
-  };
-
-  const resolveAt = async (
-    clientX: number,
-    clientY: number,
-    candidateOffset = 0,
-    candidateEpoch = 0,
-    frameProbeTimeoutMs = FRAME_PROBE_TIMEOUT_MS,
-  ): Promise<ResolvedSnapshotTarget | null> => {
-    if (currentEpoch !== candidateEpoch) {
-      candidateTarget.clear();
-      currentEpoch = candidateEpoch;
-    }
-    if (clientX < 0 || clientY < 0 || clientX >= window.innerWidth || clientY >= window.innerHeight) {
-      candidateTarget.clear();
-      return null;
-    }
-
-    const hadLock = candidateTarget.hasLock();
-    const retained = candidateTarget.resolveLockedAt(clientX, clientY, candidateOffset);
-    if (retained) {
-      return resolvedElement(
-        retained.element,
-        retained.bounds,
-        retained.candidateOffset,
-        retained.offsetRange,
-      );
-    }
-
-    // Once an identity lock leaves its hysteresis boundary, its numeric offset
-    // must not be applied to an unrelated chain at the new point.
-    const effectiveOffset = hadLock ? 0 : candidateOffset;
-    const hit = deepElementFromPoint(clientX, clientY);
-    if (!hit) return null;
-    if (hit instanceof HTMLIFrameElement) {
-      return probeChildFrame(
-        hit,
-        runId,
-        clientX,
-        clientY,
-        frameProbeTimeoutMs,
-        effectiveOffset,
-        candidateEpoch,
-      );
-    }
-    if (hit instanceof HTMLAreaElement) {
-      const image = findImageForArea(hit, clientX, clientY);
-      if (image) {
-        const target = resolveImageMapTargetAtPoint(image, clientX, clientY);
-        return target ? resolvedImageMapTarget(target.area, target.image, target.bounds) : null;
-      }
-    }
-    if (hit instanceof HTMLImageElement && hit.useMap) {
-      const target = resolveImageMapTargetAtPoint(hit, clientX, clientY);
-      if (target) return resolvedImageMapTarget(target.area, target.image, target.bounds);
-    }
-
-    const selected = candidateTarget.resolveFromHit(hit, clientX, clientY, effectiveOffset);
-    return selected
-      ? resolvedElement(
-          selected.element,
-          selected.bounds,
-          selected.candidateOffset,
-          selected.offsetRange,
-        )
-      : null;
-  };
-
-  return { resolveAt, clear };
-}
-
-/** Stateless compatibility helper for callers that need a single probe. */
 export async function resolveSnapshotTargetAtPoint(
   runId: string,
   clientX: number,
   clientY: number,
-  candidateOffset = 0,
   frameProbeTimeoutMs = FRAME_PROBE_TIMEOUT_MS,
-  candidateEpoch = 0,
 ): Promise<ResolvedSnapshotTarget | null> {
-  return createSnapshotTargetResolver(runId).resolveAt(
-    clientX,
-    clientY,
-    candidateOffset,
-    candidateEpoch,
-    frameProbeTimeoutMs,
+  if (clientX < 0 || clientY < 0 || clientX >= window.innerWidth || clientY >= window.innerHeight) {
+    return null;
+  }
+
+  const hit = deepElementFromPoint(clientX, clientY);
+  if (!hit) return null;
+  if (hit instanceof HTMLIFrameElement) {
+    return probeChildFrame(hit, runId, clientX, clientY, frameProbeTimeoutMs);
+  }
+  if (hit instanceof HTMLAreaElement) {
+    const image = findImageForArea(hit, clientX, clientY);
+    if (image) {
+      const target = resolveImageMapTargetAtPoint(image, clientX, clientY);
+      return target ? resolvedImageMapTarget(target.area, target.image, target.bounds) : null;
+    }
+  }
+  if (hit instanceof HTMLImageElement && hit.useMap) {
+    const target = resolveImageMapTargetAtPoint(hit, clientX, clientY);
+    if (target) return resolvedImageMapTarget(target.area, target.image, target.bounds);
+  }
+
+  const selected = selectVisualTargetCandidate(
+    findVisualTargetCandidatesAtPoint(hit, clientX, clientY, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }),
   );
+  return selected ? resolvedElement(selected.element, selected.bounds) : null;
 }
 
 export function installSnapshotFrameProbe(runId: string): void {
-  const targetResolver = createSnapshotTargetResolver(runId);
   const admission = createFrameProbeRateLimiter({
     maxConcurrent: FRAME_PROBE_MAX_CONCURRENT_REQUESTS,
     maxRequestsPerWindow: FRAME_PROBE_MAX_REQUESTS_PER_WINDOW,
@@ -374,7 +278,7 @@ export function installSnapshotFrameProbe(runId: string): void {
   const onMessage = (event: MessageEvent) => {
     const request = event.data as Partial<SnapshotProbeRequest> | null;
     const port = event.ports[0];
-    const { timeoutMs, clientX, clientY, candidateOffset, candidateEpoch } = request ?? {};
+    const { timeoutMs, clientX, clientY } = request ?? {};
     if (
       event.source !== parent ||
       !port ||
@@ -387,13 +291,7 @@ export function installSnapshotFrameProbe(runId: string): void {
       clientX === undefined ||
       !Number.isFinite(clientX) ||
       clientY === undefined ||
-      !Number.isFinite(clientY) ||
-      candidateOffset === undefined ||
-      !Number.isSafeInteger(candidateOffset) ||
-      Math.abs(candidateOffset) > SNAPSHOT_TARGET_OFFSET_LIMIT ||
-      candidateEpoch === undefined ||
-      !Number.isSafeInteger(candidateEpoch) ||
-      candidateEpoch < 0
+      !Number.isFinite(clientY)
     ) {
       closePortQuietly(port);
       return;
@@ -414,21 +312,13 @@ export function installSnapshotFrameProbe(runId: string): void {
     void (async () => {
       let response: SnapshotProbeResult | null = null;
       try {
-        const target = await targetResolver.resolveAt(
-          clientX,
-          clientY,
-          candidateOffset,
-          candidateEpoch,
-          timeoutMs,
-        );
+        const target = await resolveSnapshotTargetAtPoint(runId, clientX, clientY, timeoutMs);
         response = target
           ? {
               rect: target.rect,
               identity: target.identity,
               text: target.text,
               tagName: target.tagName,
-              candidateOffset: target.candidateOffset,
-              offsetRange: target.offsetRange,
             }
           : null;
       } catch (error) {
@@ -445,7 +335,6 @@ export function installSnapshotFrameProbe(runId: string): void {
     })();
   };
   const cleanup = () => {
-    targetResolver.clear();
     window.removeEventListener('message', onMessage);
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);

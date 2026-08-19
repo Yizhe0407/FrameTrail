@@ -611,3 +611,44 @@ export async function getStepPreviewStyle(page: Page): Promise<{ hidden: boolean
   const style = styleIndex >= 0 ? attributes[styleIndex + 1] : null;
   return { hidden: style?.includes('display: none') ?? true, style };
 }
+/**
+ * Clicks a control in the in-page recording toolbar by its accessible name.
+ *
+ * The toolbar lives in a closed shadow root, which Playwright locators cannot
+ * pierce, so the node is located over CDP and pressed at its box centre — the
+ * same route the tests already use to read the step preview.
+ */
+export async function clickRecordingToolbarButton(page: Page, name: string): Promise<void> {
+  interface PiercedNode {
+    nodeId: number;
+    attributes?: string[];
+    children?: unknown[];
+    shadowRoots?: unknown[];
+    contentDocument?: unknown;
+  }
+  const client = await page.context().newCDPSession(page);
+  try {
+    const { root } = await client.send('DOM.getDocument', { depth: -1, pierce: true });
+    const find = (node: PiercedNode, predicate: (value: PiercedNode) => boolean): PiercedNode | null => {
+      if (predicate(node)) return node;
+      for (const collection of [node.children, node.shadowRoots, node.contentDocument ? [node.contentDocument] : undefined]) {
+        for (const child of collection ?? []) {
+          const found = find(child as PiercedNode, predicate);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const button = find(root as PiercedNode, (node) => {
+      const attributes = node.attributes ?? [];
+      const labelIndex = attributes.indexOf('aria-label');
+      return labelIndex >= 0 && attributes[labelIndex + 1] === name;
+    });
+    if (!button) throw new Error(`Recording toolbar has no control labelled ${name}`);
+    const { model } = await client.send('DOM.getBoxModel', { nodeId: button.nodeId });
+    const [left, top, , , right, bottom] = model.content;
+    await page.mouse.click((left + right) / 2, (top + bottom) / 2);
+  } finally {
+    await client.detach();
+  }
+}

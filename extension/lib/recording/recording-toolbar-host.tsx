@@ -1,8 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import RecordingToolbar, {
-  type CandidateCyclingControls,
-  type RecordingToolbarState,
-} from './recording-toolbar';
+import RecordingToolbar, { type RecordingToolbarState } from './recording-toolbar';
 import { createViewportOverlayHost } from '../capture/viewport-overlay-host';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
@@ -19,9 +16,6 @@ export interface MountedRecordingToolbar {
   host: HTMLElement;
   update(state: RecordingToolbarState): void;
   setRegionCaptureActive(active: boolean): void;
-  /** Selection-resize controls for the hovered point, rendered inside the
-   * toolbar so the affordance never covers page content. */
-  setCandidateCycling(controls: CandidateCyclingControls | null): void;
   remove(): void;
 }
 
@@ -40,7 +34,6 @@ export function mountRecordingToolbar(
   let removed = false;
   let currentState = initialState;
   let regionCaptureActive = false;
-  let candidateCycling: CandidateCyclingControls | null = null;
 
   const render = (state: RecordingToolbarState = currentState) => {
     currentState = state;
@@ -53,7 +46,6 @@ export function mountRecordingToolbar(
         onRestoreApplied={options.onRestoreApplied}
         onStartRegionCapture={options.onStartRegionCapture}
         regionCaptureActive={regionCaptureActive}
-        candidateCycling={candidateCycling}
       />,
     );
   };
@@ -67,11 +59,6 @@ export function mountRecordingToolbar(
     setRegionCaptureActive(active) {
       if (removed || regionCaptureActive === active) return;
       regionCaptureActive = active;
-      render();
-    },
-    setCandidateCycling(controls) {
-      if (removed) return;
-      candidateCycling = controls;
       render();
     },
     remove() {

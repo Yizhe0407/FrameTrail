@@ -2,10 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildSnapshotTargetIdentity } from '@/lib/capture/selector-utils';
 import { createSnapshotSelectionSet } from '@/lib/recording/snapshot-selection-set';
-import {
-  NO_CANDIDATE_CYCLING,
-  type SnapshotShieldRect,
-} from '@/lib/recording/snapshot-shield-protocol';
+import type { SnapshotShieldRect } from '@/lib/recording/snapshot-shield-protocol';
 import type { ResolvedSnapshotTarget } from '@/lib/recording/snapshot-targeting';
 
 function createTarget(
@@ -21,8 +18,6 @@ function createTarget(
     rect,
     text: '',
     tagName: element?.tagName.toLowerCase() ?? 'region',
-    candidateOffset: 0,
-    offsetRange: NO_CANDIDATE_CYCLING,
   };
 }
 

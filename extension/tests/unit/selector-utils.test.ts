@@ -10,6 +10,7 @@ import {
   INTERACTIVE_CANDIDATE_SELECTOR,
   isInteractiveElement,
   isElementVisuallyUnavailable,
+  resolveVisualTargetAtPoint,
   selectVisualTargetCandidate,
 } from '@/lib/capture/selector-utils';
 
@@ -46,7 +47,7 @@ afterEach(() => {
 });
 
 describe('findVisualTargetCandidatesAtPoint', () => {
-  it('selects non-interactive content and cycles through distinct parent boxes', () => {
+  it('selects non-interactive content and lists distinct parent boxes behind it', () => {
     const article = document.createElement('article');
     const paragraph = document.createElement('p');
     const text = document.createElement('span');
@@ -60,9 +61,8 @@ describe('findVisualTargetCandidatesAtPoint', () => {
     const targets = findVisualTargetCandidatesAtPoint(text, 40, 40);
 
     expect(targets.candidates.map((candidate) => candidate.element)).toEqual([text, paragraph, article]);
-    expect(selectVisualTargetCandidate(targets, 0)).toMatchObject({ element: text, candidateOffset: 0 });
-    expect(selectVisualTargetCandidate(targets, 1)).toMatchObject({ element: paragraph, candidateOffset: 1 });
-    expect(selectVisualTargetCandidate(targets, 99)).toMatchObject({ element: article, candidateOffset: 2 });
+    expect(targets.defaultIndex).toBe(0);
+    expect(selectVisualTargetCandidate(targets)).toMatchObject({ element: text });
   });
 
   it('collapses near-identical wrapper boxes into one perceived boundary', () => {
@@ -80,7 +80,7 @@ describe('findVisualTargetCandidatesAtPoint', () => {
 
     expect(targets.candidates).toHaveLength(1);
     expect(targets.candidates[0].element).toBe(label);
-    expect(selectVisualTargetCandidate(targets, 1)?.offsetRange).toEqual({ min: 0, max: 0 });
+    expect(selectVisualTargetCandidate(targets)?.element).toBe(label);
   });
 
   it('keeps the semantic control when fuzzy visual dedup merges its child box', () => {
@@ -95,10 +95,10 @@ describe('findVisualTargetCandidatesAtPoint', () => {
 
     expect(targets.candidates).toHaveLength(1);
     expect(targets.candidates[0].element).toBe(button);
-    expect(selectVisualTargetCandidate(targets, 0)?.element).toBe(button);
+    expect(selectVisualTargetCandidate(targets)?.element).toBe(button);
   });
 
-  it('keeps a semantic control as the default while allowing its child to be selected', () => {
+  it('prefers the semantic control over the deeper child box it contains', () => {
     const button = document.createElement('button');
     const icon = document.createElement('span');
     button.append(icon);
@@ -108,9 +108,9 @@ describe('findVisualTargetCandidatesAtPoint', () => {
 
     const targets = findVisualTargetCandidatesAtPoint(icon, 35, 30);
 
-    expect(selectVisualTargetCandidate(targets, 0)).toMatchObject({ element: button, candidateOffset: 0 });
-    expect(selectVisualTargetCandidate(targets, -1)).toMatchObject({ element: icon, candidateOffset: -1 });
-    expect(selectVisualTargetCandidate(targets, 1)).toMatchObject({ element: button, candidateOffset: 0 });
+    // The icon stays in the chain, but the control is what a point resolves to.
+    expect(targets.candidates.map((candidate) => candidate.element)).toEqual([icon, button]);
+    expect(selectVisualTargetCandidate(targets)).toMatchObject({ element: button });
   });
 
   it('reads each ancestor style and candidate rectangle once per hit-test', () => {
@@ -127,7 +127,7 @@ describe('findVisualTargetCandidatesAtPoint', () => {
     const rectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getBoundingClientRect'));
     const clientRectSpies = [button, wrapper, icon].map((element) => vi.spyOn(element, 'getClientRects'));
 
-    expect(selectVisualTargetCandidate(findVisualTargetCandidatesAtPoint(icon, 36, 32), 0)?.element).toBe(button);
+    expect(selectVisualTargetCandidate(findVisualTargetCandidatesAtPoint(icon, 36, 32))?.element).toBe(button);
 
     // body/html are part of the composed chain as well; no element is styled
     // more than once and candidate geometry is never recalculated for sorting.
@@ -152,7 +152,7 @@ describe('findVisualTargetCandidatesAtPoint', () => {
 
     expect(isInteractiveElement(button)).toBe(false);
     expect(isElementVisuallyUnavailable(button)).toBe(false);
-    expect(selectVisualTargetCandidate(targets, 0)?.element).toBe(button);
+    expect(selectVisualTargetCandidate(targets)?.element).toBe(button);
   });
 
   it('keeps a visibility-visible child selectable under a visibility-hidden parent', () => {
@@ -422,7 +422,6 @@ describe('getVisibleHighlightBounds', () => {
         { width: 400, height: 300 },
         ACTIVATION_TARGETING_POLICY,
       ),
-      0,
     );
     expect(selected).toMatchObject({
       element: area,
@@ -927,7 +926,7 @@ describe('buildSnapshotTargetIdentity', () => {
 });
 
 describe('selectVisualTargetCandidate', () => {
-  it('reports the offsets a point can still be cycled to', () => {
+  it('returns the chain entry defaultIndex points at', () => {
     const article = document.createElement('article');
     const paragraph = document.createElement('p');
     const text = document.createElement('span');
@@ -940,24 +939,61 @@ describe('selectVisualTargetCandidate', () => {
 
     const targets = findVisualTargetCandidatesAtPoint(text, 40, 40);
 
-    // Default is the deepest box, so only widening is available from there.
-    expect(selectVisualTargetCandidate(targets, 0)?.offsetRange).toEqual({ min: 0, max: 2 });
-    expect(selectVisualTargetCandidate(targets, 5)).toMatchObject({
-      candidateOffset: 2,
-      offsetRange: { min: 0, max: 2 },
-    });
+    expect(selectVisualTargetCandidate(targets)?.element).toBe(
+      targets.candidates[targets.defaultIndex].element,
+    );
   });
 
-  it('reports an empty range when the chain offers a single box', () => {
-    const button = document.createElement('button');
-    const label = document.createElement('span');
-    button.append(label);
-    document.body.append(button);
-    makeVisible(button);
-    makeVisible(label);
+  it('returns null for a point that resolved no candidate at all', () => {
+    expect(selectVisualTargetCandidate({ candidates: [], defaultIndex: 0 })).toBeNull();
+  });
+});
 
-    const targets = findVisualTargetCandidatesAtPoint(label, 35, 30);
+describe('resolveVisualTargetAtPoint', () => {
+  it('resolves the deepest distinct box under the point, statelessly', () => {
+    const article = document.createElement('article');
+    const card = document.createElement('div');
+    const text = document.createElement('span');
+    card.append(text);
+    article.append(card);
+    document.body.append(article);
+    makeVisible(article, { x: 0, y: 0, width: 600, height: 400 });
+    makeVisible(card, { x: 20, y: 20, width: 300, height: 120 });
+    makeVisible(text, { x: 30, y: 30, width: 90, height: 24 });
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => text });
 
-    expect(selectVisualTargetCandidate(targets, 0)?.offsetRange).toEqual({ min: 0, max: 0 });
+    // The point alone decides the target: nothing is retained between calls, so
+    // hovering the same pixel twice always answers with the same box.
+    expect(resolveVisualTargetAtPoint(40, 40)).toMatchObject({
+      element: text,
+      bounds: { x: 30, y: 30, width: 90, height: 24 },
+    });
+    expect(resolveVisualTargetAtPoint(40, 40)?.element).toBe(text);
+    expect(resolveVisualTargetAtPoint(200, 60)?.element).toBe(text);
+  });
+
+  it('honours the activation policy instead of piercing a transparent overlay', () => {
+    const overlay = document.createElement('div');
+    const underneath = document.createElement('button');
+    overlay.style.opacity = '0';
+    underneath.textContent = '底下按鈕';
+    document.body.append(overlay, underneath);
+    makeVisible(overlay, { x: 10, y: 10, width: 140, height: 60 });
+    makeVisible(underneath, { x: 20, y: 20, width: 120, height: 40 });
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => overlay });
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: () => [overlay, underneath, document.body],
+    });
+
+    expect(resolveVisualTargetAtPoint(30, 30, ACTIVATION_TARGETING_POLICY)?.element).toBe(overlay);
+    // The annotation policy is the one allowed to look past a blank occluder.
+    expect(resolveVisualTargetAtPoint(30, 30)?.element).toBe(underneath);
+  });
+
+  it('returns null when the point hits nothing', () => {
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => null });
+
+    expect(resolveVisualTargetAtPoint(40, 40)).toBeNull();
   });
 });

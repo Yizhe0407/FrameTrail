@@ -19,7 +19,6 @@ import {
   SNAPSHOT_SHIELD_REGION_CAPTURE,
   SNAPSHOT_SHIELD_TOOLBAR_STATE,
   SNAPSHOT_SHIELD_UNDO,
-  SNAPSHOT_TARGET_OFFSET_LIMIT,
   type SnapshotShieldKeyboardAnchor,
   type SnapshotShieldRect,
   type SnapshotShieldPortMessage,
@@ -33,11 +32,6 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
-import {
-  candidateCyclingState,
-  createCandidateWheelCycler,
-  isCandidateCycleModifier,
-} from '@/lib/capture/candidate-cycling';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
@@ -107,16 +101,6 @@ function tryInitialize(event: MessageEvent): void {
   let activeCaptureId = 0;
   let interactionsEnabled = false;
   let lastPreviewRect: SnapshotShieldRect | null = null;
-  // Rendered inside the toolbar rather than next to the box: the toolbar
-  // already occupies its pixels, so the affordance can never hide content the
-  // user is trying to annotate.
-  let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
-
-  const setCycling = (next: { canWiden: boolean; canNarrow: boolean } | null) => {
-    if (cycling?.canWiden === next?.canWiden && cycling?.canNarrow === next?.canNarrow) return;
-    cycling = next;
-    renderToolbar();
-  };
   let lastCommitViaKeyboard = false;
   let keyboardAnchors: SnapshotShieldKeyboardAnchor[] = [];
   let keyboardIndex = -1;
@@ -150,7 +134,6 @@ function tryInitialize(event: MessageEvent): void {
       post({ type: SNAPSHOT_SHIELD_POINTER_MOVE, ...request });
     },
     hoverTimeoutMs: SHIELD_HOVER_TIMEOUT_MS,
-    offsetLimit: SNAPSHOT_TARGET_OFFSET_LIMIT,
   });
 
   const clearCaptureTimeout = () => {
@@ -202,7 +185,6 @@ function tryInitialize(event: MessageEvent): void {
   const clearHover = () => {
     hover.clear();
     overlay.preview(null);
-    setCycling(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
@@ -212,7 +194,8 @@ function tryInitialize(event: MessageEvent): void {
       return;
     }
     // Over the toolbar the highlight freezes on its last target instead of
-    // clearing, so the resize controls still act on what the user was aiming at.
+    // clearing: reaching undo or the crop control means crossing the frozen
+    // page, and retargeting on the way would drop the box the user aimed at.
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     ensureKeyboardFocus();
     hover.pointerMove(event.clientX, event.clientY);
@@ -223,7 +206,7 @@ function tryInitialize(event: MessageEvent): void {
     capturing = true;
     activeCaptureId = ++captureSequence;
     lastCommitViaKeyboard = viaKeyboard;
-    const candidate = hover.beginCapture(clientX, clientY);
+    hover.beginCapture(clientX, clientY);
     overlay.preview(null);
     lastPreviewRect = null;
     armCaptureTimeout(activeCaptureId);
@@ -232,8 +215,6 @@ function tryInitialize(event: MessageEvent): void {
       captureId: activeCaptureId,
       clientX,
       clientY,
-      candidateOffset: candidate.candidateOffset,
-      candidateEpoch: candidate.candidateEpoch,
     });
     if (!posted) clearCaptureTimeout();
   };
@@ -255,48 +236,8 @@ function tryInitialize(event: MessageEvent): void {
   const onScrollKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || !isDocumentScrollingKey(event.key, event.target)) return;
     // Only the browser's scroll is cancelled; the event still reaches the
-    // toolbar and the candidate handler below.
+    // toolbar and the traversal handler below.
     event.preventDefault();
-  };
-
-  const tryAdjustCandidate = (delta: number): boolean => {
-    if (!interactionsEnabled || capturing || !hover.hasPoint()) return false;
-    if (delta > 0 ? !cycling?.canWiden : !cycling?.canNarrow) return false;
-    hover.adjustOffset(delta);
-    return true;
-  };
-
-  const wheelCycler = createCandidateWheelCycler(tryAdjustCandidate);
-
-  // Alt+wheel and Alt+arrows, the same binding the live page uses in step mode.
-  // The shield could afford bare gestures (its page is frozen), but one
-  // shortcut across both modes beats two, and bare Tab/Enter/Delete keyboard
-  // traversal is unaffected because it owns different keys.
-  const onCandidateWheel = (event: WheelEvent) => {
-    if (regionCapture?.isActive()) return;
-    if (!isCandidateCycleModifier(event)) return;
-    if (
-      event.target instanceof Element &&
-      event.target.closest(
-        '[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]',
-      )
-    ) {
-      return;
-    }
-    if (!wheelCycler.handle(event.deltaX, event.deltaY, event.timeStamp)) return;
-    consume(event);
-  };
-
-  const onCandidateKeyDown = (event: KeyboardEvent) => {
-    if (regionCapture?.isActive()) return;
-    if (!isCandidateCycleModifier(event)) return;
-    // Only the drag handle owns the arrows (it moves the toolbar). Every other
-    // toolbar control leaves them free, so cycling keeps working right after a
-    // resize button was clicked and took focus.
-    if (event.target instanceof Element && event.target.closest('[data-frametrail-toolbar-position]')) return;
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    consume(event);
-    tryAdjustCandidate(event.key === 'ArrowUp' ? 1 : -1);
   };
 
   // Keyboard-only annotation traversal (§9.5). Roving over the parent-supplied
@@ -345,7 +286,6 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
-          candidateCycling={cycling && { ...cycling, onAdjust: tryAdjustCandidate }}
         />
       ) : null,
     );
@@ -487,17 +427,11 @@ function tryInitialize(event: MessageEvent): void {
   port.onmessage = (event) => {
     if (!isSnapshotShieldFrameMessage(event.data, token)) return;
     if (event.data.type === SNAPSHOT_SHIELD_PREVIEW) {
-      const outcome = hover.resolvePreview({
-        requestId: event.data.requestId,
-        candidateOffset: event.data.candidateOffset,
-      });
+      const outcome = hover.resolvePreview({ requestId: event.data.requestId });
       if (outcome === 'ignored') return;
       if (outcome === 'accepted') {
         lastPreviewRect = event.data.rect;
         overlay.preview(event.data.rect);
-        setCycling(
-          event.data.rect ? candidateCyclingState(event.data.candidateOffset, event.data.offsetRange) : null,
-        );
       }
       hover.schedule();
       return;
@@ -584,10 +518,6 @@ function tryInitialize(event: MessageEvent): void {
   // itself has nothing to scroll), which invalidates the whole run.
   window.addEventListener('keydown', onScrollKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onShieldKeyDown, { capture: true, passive: false });
-  window.addEventListener('keydown', onCandidateKeyDown, { capture: true, passive: false });
-  // Registered before the generic freeze consumer so a snapshot wheel gesture
-  // can change candidate level while still remaining page-input-blind.
-  window.addEventListener('wheel', onCandidateWheel, { capture: true, passive: false });
   for (const type of FREEZE_EVENTS) {
     window.addEventListener(type, consume, { capture: true, passive: false });
   }

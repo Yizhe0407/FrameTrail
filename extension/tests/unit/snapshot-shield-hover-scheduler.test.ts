@@ -5,7 +5,6 @@ import {
 } from '@/entrypoints/snapshot-shield/hover-scheduler';
 
 const HOVER_TIMEOUT_MS = 1_000;
-const OFFSET_LIMIT = 8;
 
 function createHarness() {
   const frames = new Map<number, () => void>();
@@ -17,7 +16,6 @@ function createHarness() {
     isCapturing: () => state.capturing,
     post: (request) => posts.push(request),
     hoverTimeoutMs: HOVER_TIMEOUT_MS,
-    offsetLimit: OFFSET_LIMIT,
     requestFrame: (callback) => {
       const id = nextFrameId++;
       frames.set(id, callback);
@@ -50,7 +48,7 @@ describe('createHoverScheduler', () => {
     scheduler.pointerMove(11, 21);
     expect(frames.size).toBe(1);
     flushFrames();
-    expect(posts).toEqual([{ requestId: 1, clientX: 11, clientY: 21, candidateOffset: 0, candidateEpoch: 0 }]);
+    expect(posts).toEqual([{ requestId: 1, clientX: 11, clientY: 21 }]);
 
     // While the probe is pending, new input schedules but never posts.
     scheduler.pointerMove(30, 40);
@@ -59,7 +57,7 @@ describe('createHoverScheduler', () => {
 
     // The stale response releases the slot; the follow-up probe carries the
     // latest point.
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 0 })).toBe('stale');
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('stale');
     scheduler.schedule();
     flushFrames();
     expect(posts).toHaveLength(2);
@@ -70,19 +68,18 @@ describe('createHoverScheduler', () => {
     const { scheduler, posts, frames, flushFrames } = createHarness();
     scheduler.pointerMove(10, 20);
     flushFrames();
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 3 })).toBe('accepted');
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('accepted');
     scheduler.schedule();
     expect(frames.size).toBe(0);
     expect(posts).toHaveLength(1);
 
     // A settled capture may have changed the page under the cursor: the
-    // revision reset forces exactly one fresh probe of the same point, which
-    // carries the accepted candidate offset.
+    // revision reset forces exactly one fresh probe of the same point.
     scheduler.invalidateSentRevision();
     scheduler.schedule();
     flushFrames();
     expect(posts).toHaveLength(2);
-    expect(posts[1]).toEqual({ requestId: 2, clientX: 10, clientY: 20, candidateOffset: 3, candidateEpoch: 0 });
+    expect(posts[1]).toEqual({ requestId: 2, clientX: 10, clientY: 20 });
   });
 
   it('abandons an unanswered probe after the timeout and retries; the late response is ignored', () => {
@@ -97,7 +94,7 @@ describe('createHoverScheduler', () => {
     expect(posts[1]).toMatchObject({ requestId: 2, clientX: 10, clientY: 20 });
 
     // The original probe's response outlived its timeout: never applied.
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 5 })).toBe('ignored');
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('ignored');
   });
 
   it('rejects responses that no longer match the pending request, latest request, or point', () => {
@@ -106,15 +103,15 @@ describe('createHoverScheduler', () => {
     flushFrames();
 
     // Unknown request ids never touch pending state.
-    expect(scheduler.resolvePreview({ requestId: 99, candidateOffset: 5 })).toBe('ignored');
+    expect(scheduler.resolvePreview({ requestId: 99 })).toBe('ignored');
 
-    // The point moved after the probe was sent: the response is stale and its
-    // candidate offset is not adopted.
+    // The point moved after the probe was sent, so its rect no longer describes
+    // what is under the cursor.
     scheduler.pointerMove(30, 40);
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 5 })).toBe('stale');
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('stale');
     scheduler.schedule();
     flushFrames();
-    expect(posts[1]).toMatchObject({ clientX: 30, clientY: 40, candidateOffset: 0 });
+    expect(posts[1]).toMatchObject({ clientX: 30, clientY: 40 });
 
     // A capture bumped the latest request while this probe was pending.
     const { scheduler: second, posts: secondPosts, flushFrames: flushSecond, state } = createHarness();
@@ -124,7 +121,7 @@ describe('createHoverScheduler', () => {
     state.capturing = true;
     second.beginCapture(10, 20);
     state.capturing = false;
-    expect(second.resolvePreview({ requestId: 1, candidateOffset: 5 })).toBe('stale');
+    expect(second.resolvePreview({ requestId: 1 })).toBe('stale');
   });
 
   it('blocks probing while capturing and while disabled', () => {
@@ -141,47 +138,28 @@ describe('createHoverScheduler', () => {
     expect(posts).toHaveLength(0);
   });
 
-  it('carries the selected offset while page-side identity locking decides retention', () => {
-    const { scheduler, posts, flushFrames } = createHarness();
-    scheduler.pointerMove(10, 20);
-    scheduler.adjustOffset(2);
-    flushFrames();
-    expect(posts[0]).toMatchObject({ clientX: 10, clientY: 20, candidateOffset: 2, candidateEpoch: 0 });
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 2 })).toBe('accepted');
-
-    scheduler.pointerMove(12, 22);
-    flushFrames();
-    expect(posts[1]).toMatchObject({ clientX: 12, clientY: 22, candidateOffset: 2, candidateEpoch: 0 });
-
-    // The shield no longer owns rectangle-based retention. It keeps carrying
-    // the address; the page-side Element lock either retains it or responds 0.
-    expect(scheduler.resolvePreview({ requestId: 2, candidateOffset: 0 })).toBe('accepted');
-    scheduler.pointerMove(50, 60);
-    flushFrames();
-    expect(posts[2]).toMatchObject({ clientX: 50, clientY: 60, candidateOffset: 0, candidateEpoch: 0 });
-  });
-
-  it('beginCapture returns the current offset and epoch without a second targeting policy', () => {
+  it('beginCapture cancels the scheduled probe', () => {
     const { scheduler, posts, frames, flushFrames } = createHarness();
     scheduler.pointerMove(10, 20);
-    scheduler.adjustOffset(2);
     expect(frames.size).toBe(1);
 
-    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: 2, candidateEpoch: 0 });
+    scheduler.beginCapture(10, 20);
     flushFrames();
     expect(posts).toHaveLength(0);
-
-    scheduler.adjustOffset(2);
-    expect(scheduler.beginCapture(50, 60)).toEqual({ candidateOffset: 4, candidateEpoch: 0 });
   });
 
-  it('clamps keyboard offset cycling to the configured limit', () => {
-    const { scheduler } = createHarness();
-    scheduler.setAnchor(10, 20);
-    for (let i = 0; i < 20; i++) scheduler.adjustOffset(1);
-    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: OFFSET_LIMIT, candidateEpoch: 1 });
-    for (let i = 0; i < 40; i++) scheduler.adjustOffset(-1);
-    expect(scheduler.beginCapture(10, 20)).toEqual({ candidateOffset: -OFFSET_LIMIT, candidateEpoch: 1 });
+  it('setAnchor moves the point to a keyboard anchor and probes it', () => {
+    const { scheduler, posts, flushFrames } = createHarness();
+    scheduler.pointerMove(10, 20);
+    flushFrames();
+    expect(posts[0]).toMatchObject({ clientX: 10, clientY: 20 });
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('accepted');
+
+    // The anchor bumps the point revision, so the settled point is re-probed
+    // even though no pointer moved.
+    scheduler.setAnchor(50, 60);
+    flushFrames();
+    expect(posts[1]).toMatchObject({ clientX: 50, clientY: 60 });
   });
 
   it('clear drops the point and the pending probe', () => {
@@ -191,13 +169,13 @@ describe('createHoverScheduler', () => {
     expect(posts).toHaveLength(1);
     scheduler.clear();
     expect(scheduler.hasPoint()).toBe(false);
-    expect(scheduler.resolvePreview({ requestId: 1, candidateOffset: 0 })).toBe('ignored');
+    expect(scheduler.resolvePreview({ requestId: 1 })).toBe('ignored');
     scheduler.schedule();
     flushFrames();
     expect(posts).toHaveLength(1);
 
     scheduler.pointerMove(30, 40);
     flushFrames();
-    expect(posts[1]).toMatchObject({ candidateOffset: 0, candidateEpoch: 1 });
+    expect(posts[1]).toMatchObject({ clientX: 30, clientY: 40 });
   });
 });

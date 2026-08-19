@@ -2,7 +2,6 @@ import { type Bounds } from '../storage/models';
 import { resolveImageMapAreaBounds } from './image-map-geometry';
 import { getOpenOrClosedShadowRoot } from './shadow-dom';
 import { isExtensionOverlay } from './viewport-overlay-host';
-import type { CandidateOffsetRange } from './candidate-cycling';
 
 const INTERACTIVE_TAGS = new Set([
   'button',
@@ -126,7 +125,7 @@ const SELF_PAINTING_TAGS = new Set([
   'video',
 ]);
 /** Wrappers in component trees frequently differ by a one-pixel inset even
- * though users perceive one boundary. Visual cycling should move between
+ * though users perceive one boundary. The candidate chain should hold visually
  * distinct boxes, not every implementation wrapper. */
 const VISUAL_EDGE_MERGE_TOLERANCE = 2;
 
@@ -299,7 +298,8 @@ function hasComputedVisibilityUnavailable(style: CSSStyleDeclaration): boolean {
 }
 
 /** Builds the composed ancestor chain and all inherited state once per hit-test.
- * Entries remain deepest-first to preserve candidate cycling semantics. */
+ * Entries remain deepest-first, which is the order the candidate chain and its
+ * `defaultIndex` are expressed in. */
 function analyzeElements(nodes: Iterable<unknown>): AnalyzedElement[] {
   const elements: Element[] = [];
   const seen = new Set<Element>();
@@ -436,14 +436,6 @@ export interface VisualTargetCandidate {
 export interface VisualTargetCandidates {
   candidates: VisualTargetCandidate[];
   defaultIndex: number;
-}
-
-export interface SelectedVisualTargetCandidate extends VisualTargetCandidate {
-  candidateOffset: number;
-  /** Offsets the point can still be cycled to, relative to the default
-   * candidate. `min === max` means this point offers no alternative box, which
-   * is what the shield needs to know before advertising the shortcut. */
-  offsetRange: CandidateOffsetRange;
 }
 
 /**
@@ -627,8 +619,8 @@ function analyzeChain(
     }
 
     // Component libraries often nest icon/label/surface wrappers whose boxes
-    // differ by only one or two CSS pixels. Keeping all of them makes a single
-    // visible boundary take several cycling steps. Ancestors are visited in
+    // differ by only one or two CSS pixels. Keeping all of them would make one
+    // visible boundary occupy several chain entries. Ancestors are visited in
     // visual depth order, so the immediately preceding distinct box is the only
     // fuzzy comparison needed; exact non-adjacent repeats still use the map.
     const previousIndex = candidates.length - 1;
@@ -1136,30 +1128,23 @@ export function findVisualTargetCandidatesAtPoint(
   return top.targets;
 }
 
+/** Picks the chain's default candidate — the one box a point resolves to.
+ * `defaultIndex` is where the policy landed, so this is the single place that
+ * knows how to read a candidate list. */
 export function selectVisualTargetCandidate(
   targets: VisualTargetCandidates,
-  requestedOffset: number,
-): SelectedVisualTargetCandidate | null {
-  if (targets.candidates.length === 0) return null;
-  // `|| 0` keeps a default index of 0 from producing -0, which would travel
-  // through the shield channel and compare unequal under Object.is.
-  const minimumOffset = -targets.defaultIndex || 0;
-  const maximumOffset = targets.candidates.length - 1 - targets.defaultIndex;
-  const candidateOffset = Math.max(minimumOffset, Math.min(requestedOffset, maximumOffset));
-  const candidate = targets.candidates[targets.defaultIndex + candidateOffset];
-  return { ...candidate, candidateOffset, offsetRange: { min: minimumOffset, max: maximumOffset } };
+): VisualTargetCandidate | null {
+  return targets.candidates[targets.defaultIndex] ?? null;
 }
 
-/** Hit-tests a viewport point and resolves the candidate `candidateOffset`
- * selects there, clamped to what the point actually offers. Shared by the
- * top-frame step recorder and the child-frame relay so both frames pick
- * identical targets. */
+/** Hit-tests a viewport point and resolves the candidate it selects there.
+ * Shared by the top-frame step recorder and the child-frame relay so both
+ * frames pick identical targets. */
 export function resolveVisualTargetAtPoint(
   clientX: number,
   clientY: number,
-  candidateOffset = 0,
   policy: Readonly<VisualTargetPolicy> = ANNOTATION_TARGETING_POLICY,
-): SelectedVisualTargetCandidate | null {
+): VisualTargetCandidate | null {
   const hit = deepElementFromPoint(clientX, clientY);
   if (!hit) return null;
   return selectVisualTargetCandidate(
@@ -1170,7 +1155,6 @@ export function resolveVisualTargetAtPoint(
       { width: window.innerWidth, height: window.innerHeight },
       policy,
     ),
-    candidateOffset,
   );
 }
 

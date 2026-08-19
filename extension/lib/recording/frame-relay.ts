@@ -266,7 +266,6 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     const el = resolveVisualTargetAtPoint(
       event.clientX,
       event.clientY,
-      0,
       ACTIVATION_TARGETING_POLICY,
     )?.element ?? null;
     if (!el) return;

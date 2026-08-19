@@ -2,7 +2,6 @@ import type { RecordingControlMessage, RecordingControlResult } from '../runtime
 import type { RecordingMode, RecordingPhase } from '../storage/recording-state';
 import { REGION_CAPTURE_MIN_SIZE, isRegionRectLargeEnough } from '../capture/region-capture';
 import { isFiniteRect } from '../shared/validation';
-import type { CandidateOffsetRange } from '../capture/candidate-cycling';
 
 export const SNAPSHOT_SHIELD_INIT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_INIT';
 export const SNAPSHOT_SHIELD_READY = 'FRAME_TRAIL_SNAPSHOT_SHIELD_READY';
@@ -17,7 +16,6 @@ export const SNAPSHOT_SHIELD_CONTROL = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL';
 export const SNAPSHOT_SHIELD_CONTROL_RESULT = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CONTROL_RESULT';
 export const SNAPSHOT_SHIELD_CANDIDATES = 'FRAME_TRAIL_SNAPSHOT_SHIELD_CANDIDATES';
 export const SNAPSHOT_SHIELD_REGION_CAPTURE = 'FRAME_TRAIL_SNAPSHOT_SHIELD_REGION_CAPTURE';
-export const SNAPSHOT_TARGET_OFFSET_LIMIT = 4_096;
 export const SNAPSHOT_KEYBOARD_LABEL_LIMIT = 200;
 export const SNAPSHOT_REGION_COORDINATE_LIMIT = 1_000_000;
 
@@ -51,8 +49,6 @@ export type WithoutToken<M> = M extends { token: string } ? Omit<M, 'token'> : n
 
 export interface SnapshotShieldPreviewResult {
   rect: SnapshotShieldRect | null;
-  candidateOffset: number;
-  offsetRange: CandidateOffsetRange;
 }
 
 export interface SnapshotShieldInitMessage {
@@ -73,9 +69,6 @@ export interface SnapshotShieldPointerDownMessage {
   captureId: number;
   clientX: number;
   clientY: number;
-  candidateOffset: number;
-  /** Bumps whenever the shield deliberately starts a fresh candidate chain. */
-  candidateEpoch: number;
 }
 
 export interface SnapshotShieldPointerMoveMessage {
@@ -84,9 +77,6 @@ export interface SnapshotShieldPointerMoveMessage {
   requestId: number;
   clientX: number;
   clientY: number;
-  candidateOffset: number;
-  /** See SnapshotShieldPointerDownMessage.candidateEpoch. */
-  candidateEpoch: number;
 }
 
 export interface SnapshotShieldRegionCaptureMessage {
@@ -97,16 +87,11 @@ export interface SnapshotShieldRegionCaptureMessage {
   rect: SnapshotShieldRect;
 }
 
-/** The range a target with no alternative boxes reports. */
-export const NO_CANDIDATE_CYCLING: CandidateOffsetRange = { min: 0, max: 0 };
-
 export interface SnapshotShieldPreviewMessage {
   type: typeof SNAPSHOT_SHIELD_PREVIEW;
   token: string;
   requestId: number;
   rect: SnapshotShieldRect | null;
-  candidateOffset: number;
-  offsetRange: CandidateOffsetRange;
 }
 
 export interface SnapshotShieldCaptureCompleteMessage {
@@ -187,16 +172,6 @@ export type SnapshotShieldFrameMessage =
 
 function isRequestId(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function isCandidateOffset(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Math.abs(value as number) <= SNAPSHOT_TARGET_OFFSET_LIMIT;
-}
-
-export function isCandidateOffsetRange(value: unknown): value is CandidateOffsetRange {
-  if (!value || typeof value !== 'object') return false;
-  const { min, max } = value as Partial<CandidateOffsetRange>;
-  return isCandidateOffset(min) && isCandidateOffset(max) && min <= max;
 }
 
 function isRect(value: unknown): value is SnapshotShieldRect {
@@ -281,8 +256,6 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     captureId?: number;
     clientX?: number;
     clientY?: number;
-    candidateOffset?: number;
-    candidateEpoch?: number;
     action?: RecordingControlMessage['type'];
     undoToken?: string;
     rect?: SnapshotShieldRect;
@@ -318,19 +291,10 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
     clientX >= 0 &&
     clientY >= 0;
   if (message.type === SNAPSHOT_SHIELD_POINTER_DOWN) {
-    return (
-      hasPoint &&
-      isRequestId(message.captureId) &&
-      isCandidateOffset(message.candidateOffset) &&
-      isRequestId(message.candidateEpoch)
-    );
+    return hasPoint && isRequestId(message.captureId);
   }
   return (
-    message.type === SNAPSHOT_SHIELD_POINTER_MOVE &&
-    hasPoint &&
-    isRequestId(message.requestId) &&
-    isCandidateOffset(message.candidateOffset) &&
-    isRequestId(message.candidateEpoch)
+    message.type === SNAPSHOT_SHIELD_POINTER_MOVE && hasPoint && isRequestId(message.requestId)
   );
 }
 
@@ -342,8 +306,6 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     requestId?: number;
     captureId?: number;
     rect?: SnapshotShieldRect | null;
-    candidateOffset?: number;
-    offsetRange?: CandidateOffsetRange;
     selection?: (SnapshotShieldSelection & { id: number }) | null;
     state?: SnapshotShieldToolbarStateMessage['state'];
     result?: RecordingControlResult;
@@ -364,12 +326,7 @@ export function isSnapshotShieldFrameMessage(value: unknown, token: string): val
     );
   }
   if (message.type === SNAPSHOT_SHIELD_PREVIEW) {
-    return (
-      isRequestId(message.requestId) &&
-      isCandidateOffset(message.candidateOffset) &&
-      isCandidateOffsetRange(message.offsetRange) &&
-      (message.rect === null || isRect(message.rect))
-    );
+    return isRequestId(message.requestId) && (message.rect === null || isRect(message.rect));
   }
   if (message.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
     return isRequestId(message.captureId) && (message.selection === null || isSelection(message.selection));

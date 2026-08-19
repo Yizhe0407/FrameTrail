@@ -94,22 +94,18 @@ describe('snapshot shield frame controls', () => {
         token: 'test-token',
         requestId: 1,
         rect: { x: 10, y: 15, width: 120, height: 60 },
-        candidateOffset: 0,
-        offsetRange: { min: 0, max: 2 },
       },
     } as MessageEvent<SnapshotShieldFrameMessage>);
-    // Alt+wheel, the same binding step mode uses on a live page.
-    document.body.dispatchEvent(new WheelEvent('wheel', {
-      bubbles: true,
-      cancelable: true,
-      altKey: true,
-      deltaY: -100,
-    }));
+    // An answered probe on an unchanged point is not re-sent.
+    await vi.advanceTimersByTimeAsync(16);
+    expect(pointerMoves()).toHaveLength(1);
+
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 60, clientY: 70 }));
     await vi.advanceTimersByTimeAsync(16);
     expect(pointerMoves()).toHaveLength(2);
-    expect(pointerMoves()[1]).toMatchObject({ candidateOffset: 1 });
+    expect(pointerMoves()[1]).toMatchObject({ clientX: 60, clientY: 70 });
 
-    // The wheel-started probe is still covered by the normal timeout retry.
+    // An unanswered probe is abandoned after the hover timeout and retried.
     await vi.advanceTimersByTimeAsync(4_016);
     expect(pointerMoves()).toHaveLength(3);
 

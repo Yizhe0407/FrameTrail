@@ -2,6 +2,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStepHoverPreview, type StepHoverPreview } from '@/lib/recording/step-hover-preview';
 import { createViewportOverlayHost } from '@/lib/capture/viewport-overlay-host';
+import type { Bounds } from '@/lib/storage/models';
+
+// The highlight lives in a closed shadow root, so the only way to assert what
+// was painted is to observe the calls the preview makes into it.
+const stepPreview = vi.hoisted(() => ({
+  shown: [] as Bounds[],
+  hidden: 0,
+  removed: 0,
+}));
+
+vi.mock('@/lib/capture/step-preview', () => ({
+  createStepPreview: () => ({
+    show: (bounds: Bounds) => stepPreview.shown.push(bounds),
+    hide: () => {
+      stepPreview.hidden += 1;
+    },
+    prepareForCapture: () => Promise.resolve(),
+    remove: () => {
+      stepPreview.removed += 1;
+    },
+  }),
+}));
 
 function makeVisible(element: Element, rect: { x: number; y: number; width: number; height: number }): void {
   const box = {
@@ -20,30 +42,41 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-describe('step hover preview candidate cycling', () => {
+describe('step hover preview', () => {
   let preview: StepHoverPreview;
-  let cycling: Array<{ canWiden: boolean; canNarrow: boolean } | null>;
-  let card: HTMLElement;
+  let paused: boolean;
+  let gestureActive: boolean;
+  let regionCaptureActive: boolean;
   let text: HTMLElement;
+  let sibling: HTMLElement;
 
   beforeEach(() => {
     const article = document.createElement('article');
-    card = document.createElement('div');
+    const card = document.createElement('div');
     text = document.createElement('span');
-    card.append(text);
+    sibling = document.createElement('span');
+    card.append(text, sibling);
     article.append(card);
     document.body.append(article);
     makeVisible(article, { x: 0, y: 0, width: 600, height: 400 });
     makeVisible(card, { x: 20, y: 20, width: 300, height: 120 });
     makeVisible(text, { x: 30, y: 30, width: 90, height: 24 });
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => text });
+    makeVisible(sibling, { x: 200, y: 30, width: 80, height: 24 });
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: (clientX: number) => (clientX < 150 ? text : sibling),
+    });
 
-    cycling = [];
+    stepPreview.shown = [];
+    stepPreview.hidden = 0;
+    stepPreview.removed = 0;
+    paused = false;
+    gestureActive = false;
+    regionCaptureActive = false;
     preview = createStepHoverPreview({
-      isPaused: () => false,
-      isGestureActive: () => false,
-      isRegionCaptureActive: () => false,
-      onCandidateCycling: (state) => cycling.push(state),
+      isPaused: () => paused,
+      isGestureActive: () => gestureActive,
+      isRegionCaptureActive: () => regionCaptureActive,
     });
   });
 
@@ -58,90 +91,77 @@ describe('step hover preview candidate cycling', () => {
     await nextFrame();
   }
 
-  it('reports only the direction the point can still be cycled', async () => {
+  it('draws the highlight on the box under the pointer and captures the same box', async () => {
     await hover();
 
-    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: false });
+    expect(stepPreview.shown.at(-1)).toEqual({ x: 30, y: 30, width: 90, height: 24 });
     expect(preview.resolveTargetAt(40, 40)).toBe(text);
   });
 
-  it('widens the target and updates the hint, then refuses a dead-end key', async () => {
+  it('follows the pointer to a new box', async () => {
     await hover();
+    await hover(220, 40);
 
-    expect(preview.adjustCandidateOffset(1)).toBe(true);
-    expect(preview.resolveTargetAt(40, 40)).toBe(card);
-    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: true });
-
-    // Two more widens reach the outermost box; a third has nothing left, and
-    // saying so lets the content script leave the key to the page.
-    preview.adjustCandidateOffset(1);
-    preview.adjustCandidateOffset(1);
-    expect(preview.adjustCandidateOffset(1)).toBe(false);
-    expect(cycling.at(-1)).toEqual({ canWiden: false, canNarrow: true });
+    expect(stepPreview.shown.at(-1)).toEqual({ x: 200, y: 30, width: 80, height: 24 });
+    expect(preview.resolveTargetAt(220, 40)).toBe(sibling);
+    // Nothing is retained between points: the first box is reachable again.
+    expect(preview.resolveTargetAt(40, 40)).toBe(text);
   });
 
-  it('retains an explicitly selected level while moving inside its visual surface', async () => {
+  it('hides the highlight when suspended', async () => {
     await hover();
-    preview.adjustCandidateOffset(1);
-    expect(preview.resolveTargetAt(40, 40)).toBe(card);
+    const hiddenBefore = stepPreview.hidden;
 
-    await hover(41, 41);
-
-    expect(preview.resolveTargetAt(41, 41)).toBe(card);
-  });
-
-  it('locks target identity across descendants with different wrapper depths', async () => {
-    const nestedWrapper = document.createElement('div');
-    const nestedText = document.createElement('span');
-    nestedWrapper.append(nestedText);
-    card.append(nestedWrapper);
-    makeVisible(nestedWrapper, { x: 180, y: 30, width: 100, height: 50 });
-    makeVisible(nestedText, { x: 190, y: 40, width: 60, height: 20 });
-    Object.defineProperty(document, 'elementFromPoint', {
-      configurable: true,
-      value: (clientX: number) => (clientX < 150 ? text : nestedText),
-    });
-
-    await hover(40, 40);
-    preview.adjustCandidateOffset(1);
-    expect(preview.resolveTargetAt(40, 40)).toBe(card);
-
-    // Reusing offset 1 on the deeper chain would select nestedWrapper. The
-    // explicit lock must keep the card itself instead.
-    await hover(200, 50);
-    expect(preview.resolveTargetAt(200, 50)).toBe(card);
-  });
-
-  it('releases the selected level after leaving its hysteresis boundary', async () => {
-    await hover();
-    preview.adjustCandidateOffset(1);
-
-    // The card starts at x=20; six pixels of spill remain locked, the seventh
-    // starts a new chain from its default candidate.
-    await hover(14, 40);
-    expect(preview.resolveTargetAt(14, 40)).toBe(card);
-    await hover(13, 40);
-    expect(preview.resolveTargetAt(13, 40)).toBe(text);
-  });
-
-  it('drops the controls when the highlight goes away', async () => {
-    await hover();
     preview.suspend();
 
-    expect(cycling.at(-1)).toBeNull();
+    expect(stepPreview.hidden).toBe(hiddenBefore + 1);
+  });
+
+  it('stays hidden while a capture gesture is in flight', async () => {
+    await hover();
+    gestureActive = true;
+    const shownBefore = stepPreview.shown.length;
+
+    preview.schedule();
+    await nextFrame();
+
+    expect(stepPreview.shown).toHaveLength(shownBefore);
+  });
+
+  it('drops the highlight when the pointer leaves the window', async () => {
+    await hover();
+    const hiddenBefore = stepPreview.hidden;
+
+    preview.handlers.onPointerLeave({ clientX: -5, clientY: -5, relatedTarget: null } as PointerEvent);
+
+    expect(stepPreview.hidden).toBe(hiddenBefore + 1);
   });
 
   it('freezes on its last page target while the pointer is over recorder UI', async () => {
     await hover();
     const overlayHost = createViewportOverlayHost('data-frametrail-recording-toolbar');
     document.body.append(overlayHost);
+    makeVisible(overlayHost, { x: 400, y: 400, width: 200, height: 60 });
 
     preview.handlers.onPointerMove({ clientX: 500, clientY: 500, target: overlayHost } as unknown as PointerEvent);
     await nextFrame();
 
-    // The point never moved, so the toolbar's resize controls still act on the
-    // page element the user was aiming at — and the toolbar is never a target.
-    expect(cycling.at(-1)).toEqual({ canWiden: true, canNarrow: false });
+    // Reaching undo or the crop control means travelling across the page.
+    // Retargeting on the way would drop the box the user was aiming at.
+    expect(stepPreview.shown.at(-1)).toEqual({ x: 30, y: 30, width: 90, height: 24 });
     expect(preview.resolveTargetAt(40, 40)).toBe(text);
+  });
+
+  it('ignores pointer moves while paused or cropping a region', async () => {
+    await hover();
+    const shownBefore = stepPreview.shown.length;
+
+    paused = true;
+    await hover(220, 40);
+    paused = false;
+    regionCaptureActive = true;
+    await hover(220, 40);
+
+    expect(stepPreview.shown).toHaveLength(shownBefore);
   });
 });

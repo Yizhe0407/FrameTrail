@@ -2,18 +2,14 @@ import { createStepPreview } from '../capture/step-preview';
 import {
   ACTIVATION_TARGETING_POLICY,
   getComposedParent,
+  resolveVisualTargetAtPoint,
 } from '../capture/selector-utils';
-import { candidateCyclingState } from '../capture/candidate-cycling';
-import { createCandidateTargetLock } from '../capture/candidate-target-lock';
 import { isExtensionOverlay } from '../capture/viewport-overlay-host';
 import { isPointInsideViewport } from './recording-guards';
 
 const STEP_PREVIEW_FALLBACK_MS = 750;
 
 export interface StepHoverPreviewOptions {
-  /** Receives which resize directions the hovered point still offers, or null
-   * when it offers none, so the toolbar can enable its controls. */
-  onCandidateCycling?(state: { canWiden: boolean; canNarrow: boolean } | null): void;
   isPaused(): boolean;
   /** True while a step gesture's capture is in flight; the preview must stay
    * hidden until the screenshot lands. */
@@ -32,12 +28,8 @@ export interface StepHoverPreview {
   /** Event handlers the owner wires to window/document; kept explicit so the
    * recorder's lifecycle spine stays in charge of listener registration. */
   handlers: StepHoverPreviewHandlers;
-  /** Cycles the highlight through the candidate chain at the current point.
-   * Returns false when the point offers nothing in that direction, so the
-   * caller can leave the key to the page. */
-  adjustCandidateOffset(delta: number): boolean;
   /** The element a capture at this point must use — the same candidate the
-   * highlight is showing, offset included. */
+   * highlight is showing. */
   resolveTargetAt(clientX: number, clientY: number): Element | null;
   /** Coalesces a re-render of the hover highlight onto the next frame. */
   schedule(): void;
@@ -58,8 +50,6 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
   const preview = createStepPreview();
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
-  const candidateTarget = createCandidateTargetLock(ACTIVATION_TARGETING_POLICY);
-  let cycling: { canWiden: boolean; canNarrow: boolean } | null = null;
   let observedTarget: Element | null = null;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
   const observer = new MutationObserver(() => schedule());
@@ -118,30 +108,22 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     }, STEP_PREVIEW_FALLBACK_MS);
   };
 
-  const publishCycling = (next: { canWiden: boolean; canNarrow: boolean } | null) => {
-    if (cycling?.canWiden === next?.canWiden && cycling?.canNarrow === next?.canNarrow) return;
-    cycling = next;
-    options.onCandidateCycling?.(next);
-  };
+  const resolveAt = (clientX: number, clientY: number) =>
+    resolveVisualTargetAtPoint(clientX, clientY, ACTIVATION_TARGETING_POLICY);
 
   const render = () => {
     frame = null;
     if (options.isPaused() || !point || options.isGestureActive()) {
       disconnectObserver();
       preview.hide();
-      publishCycling(null);
       return;
     }
     const { clientX, clientY } = point;
-    const selected = candidateTarget.resolveAt(clientX, clientY);
-    const target = selected?.element ?? null;
+    const selected = resolveAt(clientX, clientY);
 
-    observeTarget(target);
+    observeTarget(selected?.element ?? null);
     if (selected) preview.show(selected.bounds);
     else preview.hide();
-    publishCycling(
-      selected ? candidateCyclingState(selected.candidateOffset, selected.offsetRange) : null,
-    );
     armFallback();
   };
 
@@ -156,14 +138,15 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
     disconnectObserver();
     stopFallback();
     preview.hide();
-    publishCycling(null);
   };
 
   const onPointerMove = (event: PointerEvent) => {
     if (options.isPaused() || options.isRegionCaptureActive()) return;
     // Over the recorder's own UI the highlight freezes on its last page target
-    // instead of following the pointer, so the toolbar's resize controls still
-    // act on what the user was aiming at.
+    // instead of following the pointer: reaching undo or the crop control means
+    // travelling across the page, and retargeting on the way would leave the
+    // highlight on whatever the pointer last crossed rather than on the element
+    // the user was aiming at.
     if (event.target instanceof Element && isExtensionOverlay(event.target)) return;
     point = { clientX: event.clientX, clientY: event.clientY };
     schedule();
@@ -185,14 +168,12 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       return;
     }
     point = null;
-    candidateTarget.clear();
     suspend();
   };
 
   const onPointerLeave = (event: PointerEvent) => {
     if (event.relatedTarget) return;
     point = null;
-    candidateTarget.clear();
     suspend();
   };
 
@@ -208,17 +189,8 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
 
   return {
     handlers: { onPointerMove, onPointerOut, onPointerLeave, onVisibilityChange },
-    adjustCandidateOffset(delta) {
-      if (!point || options.isPaused() || options.isGestureActive() || options.isRegionCaptureActive()) return false;
-      const current = candidateTarget.resolveAt(point.clientX, point.clientY);
-      if (!current) return false;
-      const selected = candidateTarget.adjustAt(point.clientX, point.clientY, delta);
-      if (!selected || selected.candidateOffset === current.candidateOffset) return false;
-      render();
-      return true;
-    },
     resolveTargetAt(clientX, clientY) {
-      return candidateTarget.resolveAt(clientX, clientY)?.element ?? null;
+      return resolveAt(clientX, clientY)?.element ?? null;
     },
     schedule,
     armFallback,
@@ -229,8 +201,6 @@ export function createStepHoverPreview(options: StepHoverPreviewOptions): StepHo
       frame = null;
       disconnectObserver();
       stopFallback();
-      candidateTarget.clear();
-      publishCycling(null);
       preview.remove();
     },
   };

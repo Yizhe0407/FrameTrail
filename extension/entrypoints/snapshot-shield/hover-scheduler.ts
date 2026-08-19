@@ -3,8 +3,8 @@
  *
  * The shield cannot hit-test the frozen page itself: every hover preview is a
  * round-trip over the shield channel. This state machine owns the interacting
- * pieces of that pipeline — the last pointer position, the candidate offset,
- * point revisions, and the single in-flight request — with three invariants:
+ * pieces of that pipeline — the last pointer position, point revisions, and
+ * the single in-flight request — with three invariants:
  *
  * - At most one probe is in flight; new input only bumps the point revision
  *   and the next probe is sent when the current one settles (or times out).
@@ -18,13 +18,10 @@ export interface HoverProbeRequest {
   requestId: number;
   clientX: number;
   clientY: number;
-  candidateOffset: number;
-  candidateEpoch: number;
 }
 
 export interface HoverPreviewResponse {
   requestId: number;
-  candidateOffset: number;
 }
 
 export type HoverPreviewOutcome = 'ignored' | 'stale' | 'accepted';
@@ -38,8 +35,6 @@ export interface HoverSchedulerDeps {
   post(request: HoverProbeRequest): void;
   /** Budget for one probe round-trip before it is abandoned and retried. */
   hoverTimeoutMs: number;
-  /** Clamp for candidate-offset adjustments (±limit). */
-  offsetLimit: number;
   /** Injectable for tests; defaults to requestAnimationFrame. */
   requestFrame?(callback: () => void): number;
   cancelFrame?(handle: number): void;
@@ -49,20 +44,17 @@ export interface HoverScheduler {
   /** Requests a probe on the next frame; no-ops while one is pending, while
    * capturing, without a point, or when the sent point is still current. */
   schedule(): void;
-  /** Pointer moved. The page-side identity lock decides whether the selected
-   * candidate remains valid at the new point. */
+  /** Pointer moved to a new point. */
   pointerMove(clientX: number, clientY: number): void;
-  /** Keyboard roving landed on an anchor: always resets the offset. */
+  /** Keyboard roving landed on an anchor: moves the point there. */
   setAnchor(clientX: number, clientY: number): void;
-  /** ArrowUp/ArrowDown candidate cycling at the current point. */
-  adjustOffset(delta: number): void;
   /** Capture bookkeeping for a commit at the given point: invalidates any
-   * scheduled probe and returns the page-side candidate state to carry. */
-  beginCapture(clientX: number, clientY: number): { candidateOffset: number; candidateEpoch: number };
+   * scheduled probe so a late preview cannot repaint during the capture. */
+  beginCapture(clientX: number, clientY: number): void;
   /** Drops the point and all pending work (pointer left, hover cleared). */
   clear(): void;
-  /** Classifies a preview response; 'accepted' has adopted its candidate
-   * offset and the caller should render the rect, then call schedule(). */
+  /** Classifies a preview response; on 'accepted' the caller should render the
+   * rect, then call schedule(). */
   resolvePreview(response: HoverPreviewResponse): HoverPreviewOutcome;
   /** Forces the next schedule() to re-probe the unchanged point (capture
    * settled or timed out, so the page under the cursor may have changed). */
@@ -76,8 +68,6 @@ export function createHoverScheduler(deps: HoverSchedulerDeps): HoverScheduler {
 
   let frame: number | null = null;
   let point: { clientX: number; clientY: number } | null = null;
-  let candidateOffset = 0;
-  let candidateEpoch = 0;
   let requestSequence = 0;
   let latestRequestId = 0;
   let pointRevision = 0;
@@ -136,8 +126,6 @@ export function createHoverScheduler(deps: HoverSchedulerDeps): HoverScheduler {
         requestId: latestRequestId,
         clientX: point.clientX,
         clientY: point.clientY,
-        candidateOffset,
-        candidateEpoch,
       });
     });
   };
@@ -150,17 +138,7 @@ export function createHoverScheduler(deps: HoverSchedulerDeps): HoverScheduler {
       schedule();
     },
     setAnchor(clientX, clientY) {
-      candidateOffset = 0;
-      candidateEpoch++;
       point = { clientX, clientY };
-      pointRevision++;
-      schedule();
-    },
-    adjustOffset(delta) {
-      candidateOffset = Math.max(
-        -deps.offsetLimit,
-        Math.min(candidateOffset + delta, deps.offsetLimit),
-      );
       pointRevision++;
       schedule();
     },
@@ -169,12 +147,9 @@ export function createHoverScheduler(deps: HoverSchedulerDeps): HoverScheduler {
       pointRevision++;
       latestRequestId = ++requestSequence;
       cancelScheduledFrame();
-      return { candidateOffset, candidateEpoch };
     },
     clear() {
       point = null;
-      candidateOffset = 0;
-      candidateEpoch++;
       pointRevision++;
       latestRequestId = ++requestSequence;
       cancelScheduledFrame();
@@ -191,7 +166,6 @@ export function createHoverScheduler(deps: HoverSchedulerDeps): HoverScheduler {
       ) {
         return 'stale';
       }
-      candidateOffset = response.candidateOffset;
       return 'accepted';
     },
     invalidateSentRevision() {

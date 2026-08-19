@@ -92,7 +92,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
   });
 
-  test('isolates page input and supports parent candidate navigation', async ({
+  test('isolates page input while the shield holds focus', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
@@ -104,13 +104,7 @@ test.describe('snapshot recording', () => {
     await shield.locator('body').hover({ position: point });
     await expect.poll(() => shield.evaluate(() => document.hasFocus())).toBe(true);
     await expect.poll(() => appPage.evaluate(() => document.activeElement?.hasAttribute('data-frametrail-snapshot-shield'))).toBe(true);
-    const initialStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
-    // The shield uses the same Alt+wheel binding as step mode, so there is one
-    // shortcut to learn for both recorders.
-    await appPage.keyboard.down('Alt');
-    await appPage.mouse.wheel(0, -100);
-    await appPage.keyboard.up('Alt');
-    await expect.poll(async () => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(initialStyle);
+    await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
 
     await clickSnapshotTarget(appPage, point);
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
@@ -119,7 +113,7 @@ test.describe('snapshot recording', () => {
     await stopRecording(popupPage);
   });
 
-  test('keeps a widened Element identity across descendants with different wrapper depths', async ({
+  test('resolves each pointer position independently across wrapper depths', async ({
     appPage,
     popupPage,
     browserErrors: _browserErrors,
@@ -133,23 +127,21 @@ test.describe('snapshot recording', () => {
 
     await appPage.mouse.move(shallow.x, shallow.y);
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
-    const narrowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
-    await appPage.keyboard.down('Alt');
-    await appPage.mouse.wheel(0, -100);
-    await appPage.keyboard.up('Alt');
-    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
-    const widenedStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
+    const shallowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
 
-    // Reusing offset 1 at #deep-text would select #deep-shell. The page-side
-    // lock must keep the concrete #plain-card Element selected instead.
+    // Nothing is retained between points: the deeply wrapped text answers with
+    // its own box, and returning to the first point restores the first box.
     await appPage.mouse.move(deep.x, deep.y);
-    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(widenedStyle);
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(shallowStyle);
+    await appPage.mouse.move(shallow.x, shallow.y);
+    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(shallowStyle);
 
+    await appPage.mouse.move(deep.x, deep.y);
     await clickSnapshotTarget(appPage, deep);
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
     const annotation = (await readSteps(popupPage)).find((step) => step.bounds !== null);
-    expect(Math.round(annotation!.bounds!.width)).toBe(Math.round(card!.width));
-    expect(Math.round(annotation!.bounds!.width)).not.toBe(Math.round(deepText!.width));
+    expect(Math.round(annotation!.bounds!.width)).toBe(Math.round(deepText!.width));
+    expect(Math.round(annotation!.bounds!.width)).not.toBe(Math.round(card!.width));
 
     await stopRecording(popupPage);
   });
@@ -482,42 +474,6 @@ test.describe('snapshot recording', () => {
     await stopRecording(popupPage);
   });
 
-  test('offers selection-resize controls only where another box exists', async ({
-    appPage,
-    popupPage,
-    browserErrors: _browserErrors,
-  }) => {
-    await startRecording(appPage, popupPage, 'snapshot');
-    const shield = await getSnapshotFrame(appPage);
-    // The controls live in the shield toolbar, which already occupies its own
-    // pixels: an affordance next to the box would cover the content being
-    // annotated, and a text hint there went unnoticed.
-    const widen = shield.getByRole('button', { name: '選取更大範圍（Alt+↑）' });
-    const narrow = shield.getByRole('button', { name: '選取更小範圍（Alt+↓）' });
-
-    const nested = await targetCenter(appPage, '#plain-text');
-    await appPage.mouse.move(nested.x, nested.y);
-    await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
-    await expect(widen).toBeEnabled();
-    await expect(narrow).toBeDisabled();
-
-    // Clicking the control widens the box the pointer left behind: the
-    // highlight freezes on its last page target while the pointer is on the
-    // toolbar, so pointer-only users get the same reach as the shortcut.
-    const narrowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
-    await widen.click();
-    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(narrowStyle);
-    await expect(narrow).toBeEnabled();
-
-    await appPage.keyboard.press('Alt+ArrowDown');
-    await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).toBe(narrowStyle);
-
-    await clickSnapshotTarget(appPage, nested);
-    await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
-
-    await stopRecording(popupPage);
-  });
-
   test('scrolling keys cannot move the frozen page out from under the snapshot', async ({
     appPage,
     popupPage,
@@ -525,10 +481,9 @@ test.describe('snapshot recording', () => {
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
     await getSnapshotFrame(appPage);
-    // Focus lands on a shield toolbar button, which the candidate handler
-    // deliberately leaves alone. The shield document cannot scroll, so any key
-    // the browser still acts on chains its scroll to the frozen page and
-    // invalidates the run.
+    // Focus lands on a shield toolbar button. The shield document cannot
+    // scroll, so any key the browser still acts on chains its scroll to the
+    // frozen page and invalidates the run.
     await appPage.mouse.move(400, 300);
 
     for (const key of ['ArrowDown', 'ArrowUp', 'PageDown', 'End', 'Home', 'Space']) {

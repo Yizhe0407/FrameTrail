@@ -32,7 +32,7 @@ describe('snapshot shield protocol', () => {
     expect(isSnapshotShieldPortMessage({ type: SNAPSHOT_SHIELD_READY, token }, token)).toBe(true);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: 120, clientY: 80 },
         token,
       ),
     ).toBe(true);
@@ -40,25 +40,25 @@ describe('snapshot shield protocol', () => {
     // completion, so it is rejected outright.
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, clientX: 120, clientY: 80 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: -1, clientX: 120, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: -1, clientX: 120, clientY: 80 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: Number.NaN, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: Number.NaN, clientY: 80 },
         token,
       ),
     ).toBe(false);
     expect(
       isSnapshotShieldPortMessage(
-        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: -1, clientY: 80, candidateOffset: 0, candidateEpoch: 0 },
+        { type: SNAPSHOT_SHIELD_POINTER_DOWN, token, captureId: 1, clientX: -1, clientY: 80 },
         token,
       ),
     ).toBe(false);
@@ -70,8 +70,6 @@ describe('snapshot shield protocol', () => {
           requestId: 4,
           clientX: 120,
           clientY: 80,
-          candidateOffset: 1,
-          candidateEpoch: 0,
         },
         token,
       ),
@@ -84,36 +82,6 @@ describe('snapshot shield protocol', () => {
           requestId: -1,
           clientX: 120,
           clientY: 80,
-          candidateOffset: 0,
-          candidateEpoch: 0,
-        },
-        token,
-      ),
-    ).toBe(false);
-    expect(
-      isSnapshotShieldPortMessage(
-        {
-          type: SNAPSHOT_SHIELD_POINTER_MOVE,
-          token,
-          requestId: 4,
-          clientX: 120,
-          clientY: 80,
-          candidateOffset: 4_097,
-          candidateEpoch: 0,
-        },
-        token,
-      ),
-    ).toBe(false);
-    expect(
-      isSnapshotShieldPortMessage(
-        {
-          type: SNAPSHOT_SHIELD_POINTER_MOVE,
-          token,
-          requestId: 4,
-          clientX: 120,
-          clientY: 80,
-          candidateOffset: 0,
-          candidateEpoch: -1,
         },
         token,
       ),
@@ -158,24 +126,18 @@ describe('snapshot shield protocol', () => {
     const rect = { x: 20, y: 30, width: 100, height: 40 };
     const selection = { id: 1, rect, label: 2 };
     expect(
-      isSnapshotShieldFrameMessage(
-        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 2, offsetRange: { min: -1, max: 3 } },
-        token,
-      ),
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect }, token),
     ).toBe(true);
-    // The offset range drives the shield's cycling hint, so a preview without
-    // one (or with an inverted one) is not a usable message.
+    // A preview clears the highlight by carrying a null rect, so that stays
+    // valid; anything without a usable request id does not.
     expect(
-      isSnapshotShieldFrameMessage(
-        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 2 },
-        token,
-      ),
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect: null }, token),
+    ).toBe(true);
+    expect(
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: -1, rect }, token),
     ).toBe(false);
     expect(
-      isSnapshotShieldFrameMessage(
-        { type: SNAPSHOT_SHIELD_PREVIEW, token, requestId: 3, rect, candidateOffset: 0, offsetRange: { min: 2, max: 1 } },
-        token,
-      ),
+      isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_PREVIEW, token: 'old-token', requestId: 3, rect }, token),
     ).toBe(false);
     expect(
       isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CAPTURE_COMPLETE, token, captureId: 5, selection }, token),
@@ -204,8 +166,6 @@ describe('snapshot shield protocol', () => {
           token,
           requestId: 3,
           rect: { ...rect, width: -1 },
-          candidateOffset: 0,
-          offsetRange: { min: 0, max: 0 },
         },
         token,
       ),

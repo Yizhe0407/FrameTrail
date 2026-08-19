@@ -10,7 +10,6 @@ import {
   SNAPSHOT_SHIELD_INIT,
   SNAPSHOT_SHIELD_POINTER_DOWN,
   SNAPSHOT_SHIELD_POINTER_MOVE,
-  NO_CANDIDATE_CYCLING,
   SNAPSHOT_SHIELD_PREVIEW,
   SNAPSHOT_SHIELD_READY,
   SNAPSHOT_SHIELD_REGION_CAPTURE,
@@ -254,24 +253,14 @@ export function createSnapshotShield(
   const isStale = (generation: number): boolean => removed || generation !== channelGeneration;
 
   const handleHover = async (message: SnapshotShieldPointerMoveMessage, generation: number): Promise<void> => {
-    let preview: SnapshotShieldPreviewResult = {
-      rect: null,
-      candidateOffset: message.candidateOffset,
-      offsetRange: NO_CANDIDATE_CYCLING,
-    };
+    let preview: SnapshotShieldPreviewResult = { rect: null };
     try {
       if (onHover) preview = await onHover(message);
     } catch (error) {
       console.error('[frametrail] failed to preview snapshot target', error);
     }
     if (isStale(generation)) return;
-    post({
-      type: SNAPSHOT_SHIELD_PREVIEW,
-      requestId: message.requestId,
-      rect: preview.rect,
-      offsetRange: preview.offsetRange,
-      candidateOffset: preview.candidateOffset,
-    });
+    post({ type: SNAPSHOT_SHIELD_PREVIEW, requestId: message.requestId, rect: preview.rect });
   };
 
   const completeSelection = (
