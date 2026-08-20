@@ -129,6 +129,26 @@ test.describe('step recording', () => {
     await stopRecording(popupPage);
   });
 
+  test('records every click in the same step recording session', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await startRecording(appPage, popupPage, 'steps');
+
+    await clickTarget(appPage, '#action-button span');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
+
+    await clickTarget(appPage, '#action-button span');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await expect.poll(() => appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(2);
+
+    const steps = await readSteps(popupPage);
+    expect(steps.map((step) => step.description)).toEqual(['點擊按鈕', '點擊按鈕']);
+
+    await stopRecording(popupPage);
+  });
+
   test('pauses, undoes, restores, and finishes from the in-page recording lifecycle', async ({
     appPage,
     popupPage,

@@ -32,9 +32,6 @@ export const STEP_FOLLOWUP_EVENTS = [
  * its slightly larger local failsafe from it (see frame-relay.ts). */
 export const CAPTURE_FAILSAFE_MS = 2_000;
 
-/** Same-target debounce window shared by the top-frame step recorder and the
- * child-frame relay so a rapid double gesture dedups identically everywhere. */
-export const STEP_DEDUP_MS = 400;
 /** Trailing-trusted-click suppression window, likewise shared by the top
  * frame and every instrumented child frame. */
 export const STEP_LATE_CLICK_SUPPRESS_MS = 2_000;

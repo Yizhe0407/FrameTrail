@@ -15,7 +15,6 @@ import {
 } from '../capture/frame-probe';
 import {
   createLateClickSuppressor,
-  createStepCaptureDedup,
   createStepFollowupHandler,
 } from '../capture/step-capture';
 import { describeElement, replayClickWithSuppression } from '../capture/element-description';
@@ -28,7 +27,6 @@ import {
   CAPTURE_FAILSAFE_MS,
   CLEANUP_EVENT,
   SNAPSHOT_FREEZE_EVENTS,
-  STEP_DEDUP_MS,
   STEP_FOLLOWUP_EVENTS,
   STEP_LATE_CLICK_SUPPRESS_MS,
 } from './content-script-constants';
@@ -241,7 +239,6 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   let activeCaptureId: string | null = null;
   let settleActiveRelay: ((replay: boolean) => void) | null = null;
   let activeFailsafe: ReturnType<typeof setTimeout> | null = null;
-  const dedup = createStepCaptureDedup<Element>(STEP_DEDUP_MS);
   const lateClicks = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
   const relayLimiter = createStepFrameRelayLimiter();
 
@@ -274,7 +271,6 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
       event.stopImmediatePropagation();
       return;
     }
-    if (!dedup.shouldCapture(el)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
 

@@ -12,34 +12,6 @@
 export type StepCaptureOutcome = 'captured' | 'failed' | 'cancelled' | 'timeout';
 const CANCEL_REQUEST_TIMEOUT_MS = 250;
 
-export interface StepCaptureDedup<K> {
-  /** Returns false when the key repeats within the dedup window; a true result
-   * records the key/time pair as the new dedup baseline. */
-  shouldCapture(key: K, at?: number): boolean;
-  /** @internal Test-only: clears the dedup baseline between scenarios. No
-   * production caller exists; recorders create a fresh dedup per install. */
-  reset(): void;
-}
-
-/** Same-target debounce for step gestures. Key equality is identity-based so
- * callers can mix DOM elements and string identities (cross-frame targets). */
-export function createStepCaptureDedup<K>(dedupMs: number, now: () => number = Date.now): StepCaptureDedup<K> {
-  let lastKey: K | null = null;
-  let lastTime = 0;
-  return {
-    shouldCapture(key, at = now()) {
-      if (lastKey !== null && key === lastKey && at - lastTime < dedupMs) return false;
-      lastKey = key;
-      lastTime = at;
-      return true;
-    },
-    reset() {
-      lastKey = null;
-      lastTime = 0;
-    },
-  };
-}
-
 export interface LateClickSuppressor<T> {
   /** Arms suppression for the replayed gesture's trailing trusted click. */
   arm(target: T): void;

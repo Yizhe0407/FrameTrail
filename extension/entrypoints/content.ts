@@ -34,7 +34,6 @@ import { createStepHoverPreview, type StepHoverPreview } from '@/lib/recording/s
 import { createSnapshotSelectionSet } from '@/lib/recording/snapshot-selection-set';
 import {
   createLateClickSuppressor,
-  createStepCaptureDedup,
   createStepFollowupHandler,
   orchestrateStepCapture,
   type ScrollSnapshot,
@@ -76,7 +75,6 @@ import {
   RECORDING_CHANNEL_LOST_MESSAGE,
   RECORDING_CONTROL_TIMEOUT_MS,
   SNAPSHOT_FREEZE_EVENTS,
-  STEP_DEDUP_MS,
   STEP_FOLLOWUP_EVENTS,
   STEP_LATE_CLICK_SUPPRESS_MS,
 } from '@/lib/recording/content-script-constants';
@@ -398,7 +396,6 @@ export default defineContentScript({
         cancel: () => void;
         cancelled: Promise<void>;
       } | null = null;
-      const stepDedup = createStepCaptureDedup<Element | string>(STEP_DEDUP_MS);
       const lateClickSuppressor = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
       // While a capture is in flight the stored rect is pinned to this scroll
       // position, so the screenshot pixels always match it. Null when idle.
@@ -424,8 +421,6 @@ export default defineContentScript({
         stepGesture = { target, captureId: crypto.randomUUID(), isCancelled: () => cancelledFlag, cancel, cancelled };
         return stepGesture;
       };
-
-      const shouldCaptureTarget = (key: Element | string, now: number) => stepDedup.shouldCapture(key, now);
 
       const onStepScroll = () => {
         // A queued capture is pinned to one viewport and every nested scrollport.
@@ -620,7 +615,6 @@ export default defineContentScript({
         }
 
         const now = Date.now();
-        if (!shouldCaptureTarget(el, now)) return;
         preview.suspend();
 
         // Event dispatch never waits for an async listener. Stop the original
@@ -703,12 +697,6 @@ export default defineContentScript({
               return;
             }
             const now = Date.now();
-            if (!shouldCaptureTarget(`frame:${snapshotRectKey(rect)}`, now)) {
-              // The child swallowed its gesture and replays only on confirmation:
-              // deliver the activation without recording a duplicate step.
-              await settleRelay(true);
-              return;
-            }
             preview.suspend();
             const gesture = beginStepGesture(relayed.frame);
             let replayConfirmed = false;

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createLateClickSuppressor,
-  createStepCaptureDedup,
   orchestrateStepCapture,
   type StepCaptureHandlers,
 } from '@/lib/capture/step-capture';
@@ -182,27 +181,6 @@ describe('orchestrateStepCapture', () => {
   });
 });
 
-describe('createStepCaptureDedup', () => {
-  it('declines a repeated key inside the window and accepts it after', () => {
-    let clock = 1_000;
-    const dedup = createStepCaptureDedup<string>(400, () => clock);
-    expect(dedup.shouldCapture('a')).toBe(true);
-    clock += 100;
-    expect(dedup.shouldCapture('a')).toBe(false);
-    clock += 400;
-    expect(dedup.shouldCapture('a')).toBe(true);
-  });
-
-  it('treats a different key as a fresh capture and supports explicit timestamps', () => {
-    const dedup = createStepCaptureDedup<string>(400, () => 0);
-    expect(dedup.shouldCapture('a', 1_000)).toBe(true);
-    expect(dedup.shouldCapture('b', 1_100)).toBe(true);
-    expect(dedup.shouldCapture('b', 1_200)).toBe(false);
-    dedup.reset();
-    expect(dedup.shouldCapture('b', 1_250)).toBe(true);
-  });
-});
-
 describe('createLateClickSuppressor', () => {
   const identity = (armed: string, target: unknown) => armed === target;
 
@@ -232,18 +210,11 @@ describe('createLateClickSuppressor', () => {
     expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
   });
 
-  it('delivers a rapid double-click even when the dedup window declines the capture', () => {
-    // 回歸：DEDUP_MS 內的第二次真實點擊曾被尚未解除的 suppressor 吞掉。
-    let clock = 0;
-    const dedup = createStepCaptureDedup<string>(400, () => clock);
-    const suppressor = createLateClickSuppressor<string>(2_000, () => clock);
-
-    expect(dedup.shouldCapture('button')).toBe(true);
+  it('does not suppress a new trusted gesture on the same target', () => {
+    // 真實 pointerdown 會先解除上一個手勢的 trailing-click 抑制。
+    const suppressor = createLateClickSuppressor<string>(2_000, () => 0);
     suppressor.arm('button');
-
-    clock = 150;
     suppressor.onTrustedPointerDown();
-    expect(dedup.shouldCapture('button')).toBe(false);
     expect(suppressor.shouldSuppress('button', true, identity)).toBe(false);
   });
 
