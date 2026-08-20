@@ -357,39 +357,45 @@ describe('collectKeyboardCandidateAnchors', () => {
 });
 
 describe('replayElementClick', () => {
-  it('focuses without scrolling and replays the native click exactly once', () => {
+  it('does not replay events into disabled controls', () => {
+    const button = document.createElement('button');
+    button.disabled = true;
+    document.body.append(button);
+    const events: string[] = [];
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      button.addEventListener(type, () => events.push(type));
+    }
+
+    replayElementClick(button);
+
+    expect(events).toEqual([]);
+  });
+
+  it('focuses without scrolling and replays a complete activation sequence exactly once', () => {
     const button = document.createElement('button');
     document.body.append(button);
     const focus = vi.spyOn(button, 'focus');
     const click = vi.spyOn(button, 'click');
+    const events: string[] = [];
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      button.addEventListener(type, () => events.push(type));
+    }
 
     replayElementClick(button);
 
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(click).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
   });
 
   it('dispatches a composed bubbling click for elements without a click method', () => {
-    // Vitest's jsdom globals reject `view: window` in MouseEventInit even
-    // though it is valid in a page; a minimal stand-in keeps the branch runnable.
-    vi.stubGlobal(
-      'MouseEvent',
-      class extends Event {
-        constructor(type: string, init: EventInit = {}) {
-          super(type, init);
-        }
-      },
-    );
+    // SVG 元素沒有原生 click 方法時，仍須提供等價的 bubbling click。
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     document.body.append(rect);
     const seen: Event[] = [];
     document.body.addEventListener('click', (event) => seen.push(event));
 
-    try {
-      replayElementClick(rect);
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    replayElementClick(rect);
 
     expect(seen).toHaveLength(1);
     expect(seen[0].bubbles).toBe(true);

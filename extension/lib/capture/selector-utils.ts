@@ -138,7 +138,7 @@ export function getComposedParent(el: Element): Element | null {
   return root instanceof ShadowRoot ? root.host : null;
 }
 
-function isElementInteractionDisabled(el: Element): boolean {
+export function isElementInteractionDisabled(el: Element): boolean {
   let current: Element | null = el;
   while (current) {
     if (

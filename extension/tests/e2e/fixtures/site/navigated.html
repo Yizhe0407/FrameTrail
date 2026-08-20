@@ -7,5 +7,9 @@
   </head>
   <body>
     <h1>已導覽到新文件</h1>
+    <button id="history-back" type="button">返回上一頁</button>
+    <script>
+      document.querySelector('#history-back').addEventListener('pointerup', () => history.back());
+    </script>
   </body>
 </html>

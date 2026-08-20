@@ -283,6 +283,19 @@ test.describe('frames and recording lifecycle', () => {
     await stopRecording(popupPage);
   });
 
+  test('captures a history back button and preserves its navigation', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await captureNavLinkClickStep(appPage, popupPage);
+    await clickTarget(appPage, '#history-back');
+
+    await appPage.waitForURL((url) => !url.pathname.endsWith('/navigated.html'));
+    await expectStepCount(popupPage, 2);
+    await stopRecording(popupPage);
+  });
+
   test('going back after the run ended does not resurrect a recorder on the restored page', async ({
     appPage,
     popupPage,

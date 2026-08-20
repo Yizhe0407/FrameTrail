@@ -415,6 +415,17 @@ test.describe('step recording', () => {
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'steps');
+    await appPage.evaluate(() => {
+      const disabled = document.querySelector('#disabled-button');
+      if (!disabled) throw new Error('Disabled fixture button is missing');
+      const state = window.fixtureState as typeof window.fixtureState & { disabledEvents: number };
+      state.disabledEvents = 0;
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        disabled.addEventListener(type, () => {
+          state.disabledEvents += 1;
+        });
+      }
+    });
     const selectors = ['#disabled-button', '#fixture-svg rect', '#fixture-canvas', '#visual-container strong'];
     for (const [index, selector] of selectors.entries()) {
       await clickTarget(appPage, selector);
@@ -432,6 +443,9 @@ test.describe('step recording', () => {
       '標記頁面區域',
       '標記頁面區域',
     ]);
+    expect(await appPage.evaluate(
+      () => (window.fixtureState as typeof window.fixtureState & { disabledEvents: number }).disabledEvents,
+    )).toBe(0);
 
     await stopRecording(popupPage);
   });

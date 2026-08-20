@@ -1,4 +1,5 @@
 import type { LateClickSuppressor } from './step-capture';
+import { isElementInteractionDisabled } from './selector-utils';
 
 function getVisibleText(el: Element): string {
   const text = el instanceof HTMLElement ? el.innerText : el.textContent;
@@ -25,14 +26,31 @@ export function describeElement(el: Element): string {
 }
 
 export function replayElementClick(el: Element): void {
+  if (isElementInteractionDisabled(el)) return;
   const focus = (el as Element & { focus?: (options?: FocusOptions) => void }).focus;
   focus?.call(el, { preventScroll: true });
+
+  const pointerInit: PointerEventInit = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    pointerId: 1,
+    pointerType: 'mouse',
+    isPrimary: true,
+    button: 0,
+    buttons: 1,
+  };
+  el.dispatchEvent(new PointerEvent('pointerdown', pointerInit));
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1 }));
+  el.dispatchEvent(new PointerEvent('pointerup', { ...pointerInit, buttons: 0 }));
+  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, composed: true, button: 0, buttons: 0 }));
+
   const click = (el as Element & { click?: () => void }).click;
   if (typeof click === 'function') {
     click.call(el);
     return;
   }
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: window }));
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
 }
 
 /** Replays a captured gesture's click with its trailing-duplicate guard armed.
