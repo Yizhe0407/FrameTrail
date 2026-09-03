@@ -153,6 +153,25 @@ export const recordingToolbarStyles = `
   .ft-confirm button:disabled { opacity: .5; cursor: wait; }
   .ft-success { width: 18px; height: 18px; color: var(--ft-link); }
   .ft-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  /* CSS-only tooltip: shows on hover/focus with no delay (unlike the browser's
+   * native title attribute, which is slow and unstyleable). Kept as plain CSS
+   * rather than the app's shadcn Tooltip because this toolbar renders in a
+   * closed shadow root and a separate iframe, neither of which load Tailwind. */
+  [data-tooltip] { position: relative; }
+  [data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 4;
+    padding: 5px 9px; border-radius: 6px; background: var(--ft-text); color: var(--ft-surface);
+    font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+    pointer-events: none; opacity: 0; visibility: hidden;
+    transform: translate(-50%, 2px); transition: opacity .08s ease, transform .08s ease;
+  }
+  [data-tooltip]:hover::after, [data-tooltip]:focus-visible::after {
+    opacity: 1; visibility: visible; transform: translate(-50%, 0);
+  }
+  .ft-position[data-vertical="top"] [data-tooltip]::after { bottom: auto; top: calc(100% + 8px); transform: translate(-50%, -2px); }
+  .ft-position[data-vertical="top"] [data-tooltip]:hover::after,
+  .ft-position[data-vertical="top"] [data-tooltip]:focus-visible::after { transform: translate(-50%, 0); }
   @media (max-width: 520px) {
     .ft-position { max-width: calc(100vw - 16px); }
     .ft-toolbar:not(.ft-toolbar--invalidated) {

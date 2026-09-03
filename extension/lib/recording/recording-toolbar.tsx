@@ -270,7 +270,7 @@ export default function RecordingToolbar({
               className="ft-collapsed"
               data-frametrail-toolbar-position=""
               aria-label={`${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆；展開錄製控制`}
-              title="展開控制器"
+              data-tooltip="展開控制器"
               onPointerDown={handlePositionPointerDown}
               onPointerMove={handlePositionPointerMove}
               onPointerUp={finishPositionDrag}
@@ -313,7 +313,7 @@ export default function RecordingToolbar({
                       className="ft-button"
                       data-danger="true"
                       aria-label="放棄這次錄製"
-                      title="放棄這次錄製"
+                      data-tooltip="放棄這次錄製"
                       disabled={busy}
                       onClick={() => setConfirmDiscard(true)}
                     >
@@ -345,7 +345,7 @@ export default function RecordingToolbar({
                     className="ft-status"
                     data-frametrail-toolbar-position=""
                     aria-label={`${preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆`}；拖曳或使用方向鍵移動`}
-                    title="拖曳或使用方向鍵移動錄製控制"
+                    data-tooltip="拖曳或使用方向鍵移動錄製控制"
                     onPointerDown={handlePositionPointerDown}
                     onPointerMove={handlePositionPointerMove}
                     onPointerUp={finishPositionDrag}
@@ -369,7 +369,7 @@ export default function RecordingToolbar({
                         type="button"
                         className="ft-button"
                         aria-label="復原上一個"
-                        title="復原上一步"
+                        data-tooltip="復原上一步"
                         disabled={busy || state.itemCount === 0}
                         onClick={handleUndo}
                       >
@@ -381,7 +381,7 @@ export default function RecordingToolbar({
                         type="button"
                         className="ft-button"
                         aria-label={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
-                        title={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
+                        data-tooltip={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
                         aria-pressed={regionCaptureActive}
                         disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
                         onClick={() => onStartRegionCapture()}
@@ -394,7 +394,7 @@ export default function RecordingToolbar({
                         type="button"
                         className="ft-button"
                         aria-label={paused ? '繼續錄製' : '暫停錄製'}
-                        title={paused ? '繼續錄製' : '暫停錄製'}
+                        data-tooltip={paused ? '繼續錄製' : '暫停錄製'}
                         disabled={busy}
                         onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
                       >
@@ -408,7 +408,7 @@ export default function RecordingToolbar({
                         type="button"
                         className="ft-button"
                         aria-label="完成並新增快照"
-                        title="完成並新增快照"
+                        data-tooltip="完成並新增快照"
                         disabled={busy}
                         onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
                       >
@@ -420,7 +420,7 @@ export default function RecordingToolbar({
                       className="ft-button"
                       data-danger="true"
                       aria-label="放棄這次錄製"
-                      title="放棄這次錄製"
+                      data-tooltip="放棄這次錄製"
                       disabled={busy}
                       onClick={() => setConfirmDiscard(true)}
                     >
@@ -430,7 +430,7 @@ export default function RecordingToolbar({
                       type="button"
                       className="ft-button"
                       aria-label="收合控制器"
-                      title="收合控制器"
+                      data-tooltip="收合控制器"
                       disabled={busy}
                       onClick={() => setCollapsed(true)}
                     >
