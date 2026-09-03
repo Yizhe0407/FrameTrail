@@ -87,6 +87,13 @@ export function createStepFollowupHandler(
       event.stopImmediatePropagation();
       return;
     }
+    // Only ever suppress the real user gesture. `isActive()` can stay true
+    // purely because another gesture is still queued behind the one that is
+    // wrapping up right now — and that one's own replayed (synthetic, thus
+    // untrusted) pointerdown/mousedown/pointerup/mouseup/click must reach the
+    // page, or the replay this handler exists to protect breaks the moment a
+    // backlog exists.
+    if (!event.isTrusted) return;
     if (!gesture.isActive()) return;
     event.preventDefault();
     event.stopImmediatePropagation();

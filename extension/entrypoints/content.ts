@@ -16,6 +16,8 @@ import {
   resolveRelayedStepFrameHop,
   snapshotFrameScrollPingType,
   stepFrameClickMessageType,
+  STEP_FRAME_CLICK_FAILSAFE_MS,
+  type RelayedStepFrameHop,
 } from '@/lib/recording/frame-relay';
 import { installRecorderLifecycle } from '@/lib/recording/recorder-lifecycle';
 import {
@@ -39,6 +41,7 @@ import {
   type ScrollSnapshot,
   type StepCaptureHandlers,
 } from '@/lib/capture/step-capture';
+import { createStepGestureQueue, type StepGesture, type StepGestureQueue } from '@/lib/capture/step-gesture-queue';
 import {
   isInScrollbarGutter,
   isMatchingSnapshotViewport,
@@ -153,6 +156,9 @@ export default defineContentScript({
     let snapshotInvalidationSent = recordingState.phase === 'invalidated';
     let snapshotDprQuery: MediaQueryList | null = null;
     let hoverPreview: StepHoverPreview | null = null;
+    // Set by installStepRecorder() so pause/teardown outside its closure
+    // (onRecordingStateChange below) can reach the backlog.
+    let stepGestureQueue: StepGestureQueue | null = null;
     const snapshotSelection = createSnapshotSelectionSet();
 
     const readSnapshotViewport = (): ClickCapture['viewport'] => ({
@@ -228,7 +234,7 @@ export default defineContentScript({
         '截圖服務回應格式無效，請重新整理頁面後再試一次。',
       );
       if (result.ok) return true;
-      console.warn('[frametrail] step was not captured');
+      console.warn('[frametrail] step was not captured:', result.error);
       return false;
     };
 
@@ -389,13 +395,8 @@ export default defineContentScript({
     };
 
     const installStepRecorder = (): (() => void) => {
-      let stepGesture: {
-        target: Element;
-        captureId: string;
-        isCancelled: () => boolean;
-        cancel: () => void;
-        cancelled: Promise<void>;
-      } | null = null;
+      const gestureQueue = createStepGestureQueue();
+      stepGestureQueue = gestureQueue;
       const lateClickSuppressor = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
       // While a capture is in flight the stored rect is pinned to this scroll
       // position, so the screenshot pixels always match it. Null when idle.
@@ -404,23 +405,10 @@ export default defineContentScript({
 
       const preview = createStepHoverPreview({
         isPaused: () => recorderPaused,
-        isGestureActive: () => stepGesture !== null,
+        isGestureActive: () => gestureQueue.isBusy(),
         isRegionCaptureActive: () => manualRegionCapture?.isActive() ?? false,
       });
       hoverPreview = preview;
-
-      const beginStepGesture = (target: Element) => {
-        let cancel!: () => void;
-        let cancelledFlag = false;
-        const cancelled = new Promise<void>((resolve) => {
-          cancel = () => {
-            cancelledFlag = true;
-            resolve();
-          };
-        });
-        stepGesture = { target, captureId: crypto.randomUUID(), isCancelled: () => cancelledFlag, cancel, cancelled };
-        return stepGesture;
-      };
 
       const onStepScroll = () => {
         // A queued capture is pinned to one viewport and every nested scrollport.
@@ -457,7 +445,7 @@ export default defineContentScript({
        * element path and the relayed child-frame path; only the capture and
        * replay actions differ between the two. */
       const makeStepOrchestrationHandlers = (
-        gesture: NonNullable<typeof stepGesture>,
+        gesture: StepGesture,
         scrollTarget: Element,
         actions: Pick<StepCaptureHandlers, 'capture' | 'replay'>,
       ): StepCaptureHandlers => ({
@@ -473,7 +461,7 @@ export default defineContentScript({
         endGesture: () => {
           // Capture window closed: stop swallowing page events. The scroll pin
           // stays installed until restoreScroll has copied every ancestor back.
-          if (stepGesture === gesture) stepGesture = null;
+          gesture.release();
         },
         restoreScroll: (origin) => {
           setCaptureScrollLock(null);
@@ -490,7 +478,7 @@ export default defineContentScript({
       });
 
       const startStepRegionCapture = () => {
-        if (recorderPaused || stepGesture || manualRegionCapture?.isActive()) return;
+        if (recorderPaused || gestureQueue.isBusy() || manualRegionCapture?.isActive()) return;
         preview.suspend();
         const captureId = crypto.randomUUID();
         let captureSent = false;
@@ -586,7 +574,7 @@ export default defineContentScript({
         }
       };
 
-      const onPointerDown = async (event: Event) => {
+      const onPointerDown = (event: Event) => {
         const pe = event as PointerEvent;
         if (!pe.isTrusted || pe.button !== 0 || !pe.isPrimary) return;
         // Trusted events are ordered: the previous gesture's trailing click (if
@@ -606,42 +594,44 @@ export default defineContentScript({
         // box the highlight was showing when the user pressed.
         const el = preview.resolveTargetAt(pe.clientX, pe.clientY);
         if (!el) return;
-        if (stepGesture) {
-          // A capture is still in flight; swallow the gesture so it cannot mutate
-          // the page before that screenshot lands.
-          pe.preventDefault();
-          pe.stopImmediatePropagation();
-          return;
-        }
 
         const now = Date.now();
-        preview.suspend();
+        const clientX = pe.clientX;
+        const clientY = pe.clientY;
 
         // Event dispatch never waits for an async listener. Stop the original
-        // gesture synchronously; it is replayed only after capture finishes.
+        // gesture synchronously regardless of whether it can start right away
+        // or has to wait its turn behind an earlier one still capturing; it is
+        // replayed once that turn comes either way.
         pe.preventDefault();
         pe.stopImmediatePropagation();
-        const gesture = beginStepGesture(el);
 
-        const outcome = await orchestrateStepCapture(
-          makeStepOrchestrationHandlers(gesture, el, {
-            capture: () =>
-              captureElement(
-                el,
-                pe.clientX,
-                pe.clientY,
-                isInteractiveElement(el) ? 'click' : 'mark',
-                now,
-                gesture.captureId,
-                gesture.isCancelled,
-              ),
-            replay: () => replayClickWithSuppression(el, lateClickSuppressor),
-          }),
-        );
-
-        if (outcome === 'timeout') {
-          console.warn('[frametrail] capture exceeded its failsafe budget; invalidated it before replaying the click');
-        }
+        gestureQueue.enqueue({
+          captureId: crypto.randomUUID(),
+          validate: () => el.isConnected,
+          onSkipped: () => replayClickWithSuppression(el, lateClickSuppressor),
+          start: async (gesture) => {
+            preview.suspend();
+            const outcome = await orchestrateStepCapture(
+              makeStepOrchestrationHandlers(gesture, el, {
+                capture: () =>
+                  captureElement(
+                    el,
+                    clientX,
+                    clientY,
+                    isInteractiveElement(el) ? 'click' : 'mark',
+                    now,
+                    gesture.captureId,
+                    gesture.isCancelled,
+                  ),
+                replay: () => replayClickWithSuppression(el, lateClickSuppressor),
+              }),
+            );
+            if (outcome === 'timeout') {
+              console.warn('[frametrail] capture exceeded its failsafe budget; invalidated it before replaying the click');
+            }
+          },
+        });
       };
 
       // Clicks inside child frames never bubble into this document. Instrumented
@@ -651,91 +641,122 @@ export default defineContentScript({
       // page scripts can forge the public hop but cannot mint a valid token.
       const stepFrameClickType = stepFrameClickMessageType(browser.runtime.id);
       const stepFrameRelayLimiter = createStepFrameRelayLimiter();
+
+      /** Runs one relayed hop's CLAIM -> orchestrate -> settle chain. The CLAIM
+       * round-trip (and the background's 10s claim TTL it starts) is
+       * deliberately made here, at the moment this hop's turn in the queue
+       * actually comes, rather than eagerly when the hop first arrived —
+       * otherwise a backlog ahead of it would burn down that TTL before it
+       * ever gets used. */
+      const runRelayedFrameGesture = async (gesture: StepGesture, relayed: RelayedStepFrameHop): Promise<void> => {
+        let claimResult: unknown;
+        try {
+          claimResult = await browser.runtime.sendMessage({
+            type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
+            runId,
+            captureId: relayed.payload.captureId,
+            relayToken: relayed.payload.relayToken,
+          } satisfies StepFrameRelayClaimMessage);
+        } catch {
+          gesture.release();
+          return;
+        }
+        if (!isStepFrameRelayClaimResult(claimResult) || !claimResult.ok) {
+          gesture.release();
+          return;
+        }
+
+        let settlementStarted = false;
+        const settleRelay = async (replay: boolean) => {
+          if (settlementStarted) return;
+          settlementStarted = true;
+          try {
+            const result: unknown = await browser.runtime.sendMessage({
+              type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
+              runId,
+              captureId: relayed.payload.captureId,
+              settleToken: claimResult.settleToken,
+              replay,
+            } satisfies StepFrameRelaySettleMessage);
+            if (!isStepFrameRelayMutationResult(result) || !result.ok) {
+              console.warn('[frametrail] child-frame relay settlement was rejected');
+            }
+          } catch {
+            // The child frame's local failsafe releases the gesture if the
+            // background worker disappears before settlement is delivered.
+          }
+        };
+
+        try {
+          const rect = relayed.rect;
+          if (!rect || recorderPaused || manualRegionCapture?.isActive()) {
+            gesture.release();
+            await settleRelay(false);
+            return;
+          }
+          const now = Date.now();
+          preview.suspend();
+          let replayConfirmed = false;
+          const outcome = await orchestrateStepCapture(
+            makeStepOrchestrationHandlers(gesture, relayed.frame, {
+              capture: () => {
+                // Pin the iframe's scrollable ancestor chain exactly like the
+                // element path so the screenshot pixels match the relayed rect.
+                setCaptureScrollLock(readScrollSnapshot(relayed.frame));
+                return sendCapture(
+                  rect,
+                  { text: claimResult.target.text, tagName: claimResult.target.tagName },
+                  claimResult.target.interactive ? 'click' : 'mark',
+                  now,
+                  gesture.captureId,
+                );
+              },
+              replay: () => {
+                // Settlement returns over extension runtime directly to the
+                // originating child frame, preserving capture-before-replay.
+                replayConfirmed = true;
+                void settleRelay(true);
+              },
+            }),
+          );
+          if (!replayConfirmed) await settleRelay(false);
+          if (outcome === 'timeout') {
+            console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
+          }
+        } catch (error) {
+          gesture.release();
+          await settleRelay(false);
+          console.warn('[frametrail] child-frame relay handling failed', error);
+        }
+      };
+
       const onStepFrameClickMessage = (event: MessageEvent) => {
         const relayed = resolveRelayedStepFrameHop(event, stepFrameClickType, stepFrameRelayLimiter);
         if (!relayed) return;
 
-        void (async () => {
-          let claimResult: unknown;
-          try {
-            claimResult = await browser.runtime.sendMessage({
-              type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
-              runId,
-              captureId: relayed.payload.captureId,
-              relayToken: relayed.payload.relayToken,
-            } satisfies StepFrameRelayClaimMessage);
-          } catch {
-            return;
-          }
-          if (!isStepFrameRelayClaimResult(claimResult) || !claimResult.ok) return;
-
-          let settlementStarted = false;
-          const settleRelay = async (replay: boolean) => {
-            if (settlementStarted) return;
-            settlementStarted = true;
-            try {
-              const result: unknown = await browser.runtime.sendMessage({
-                type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
-                runId,
-                captureId: relayed.payload.captureId,
-                settleToken: claimResult.settleToken,
-                replay,
-              } satisfies StepFrameRelaySettleMessage);
-              if (!isStepFrameRelayMutationResult(result) || !result.ok) {
-                console.warn('[frametrail] child-frame relay settlement was rejected');
-              }
-            } catch {
-              // The child frame's local failsafe releases the gesture if the
-              // background worker disappears before settlement is delivered.
-            }
-          };
-
-          try {
-            const rect = relayed.rect;
-            if (!rect || recorderPaused || manualRegionCapture?.isActive() || stepGesture) {
-              await settleRelay(false);
-              return;
-            }
-            const now = Date.now();
-            preview.suspend();
-            const gesture = beginStepGesture(relayed.frame);
-            let replayConfirmed = false;
-            const outcome = await orchestrateStepCapture(
-              makeStepOrchestrationHandlers(gesture, relayed.frame, {
-                capture: () => {
-                  // Pin the iframe's scrollable ancestor chain exactly like the
-                  // element path so the screenshot pixels match the relayed rect.
-                  setCaptureScrollLock(readScrollSnapshot(relayed.frame));
-                  return sendCapture(
-                    rect,
-                    { text: claimResult.target.text, tagName: claimResult.target.tagName },
-                    claimResult.target.interactive ? 'click' : 'mark',
-                    now,
-                    gesture.captureId,
-                  );
-                },
-                replay: () => {
-                  // Settlement returns over extension runtime directly to the
-                  // originating child frame, preserving capture-before-replay.
-                  replayConfirmed = true;
-                  void settleRelay(true);
-                },
-              }),
-            );
-            if (!replayConfirmed) await settleRelay(false);
-            if (outcome === 'timeout') {
-              console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
-            }
-          } catch (error) {
-            await settleRelay(false);
-            console.warn('[frametrail] child-frame relay handling failed', error);
-          }
-        })();
+        gestureQueue.enqueue({
+          captureId: relayed.payload.captureId,
+          // The sending child frame armed its own STEP_FRAME_CLICK_FAILSAFE_MS
+          // budget the moment ITS gesture began, and nothing here can pause
+          // that clock. If this hop has already sat in the backlog long enough
+          // to blow that budget, the child has already given up and replayed
+          // on its own — attempting a claim now would only earn a rejected
+          // settlement for a hop nobody is waiting on anymore.
+          validate: () =>
+            Boolean(relayed.rect) &&
+            !recorderPaused &&
+            !manualRegionCapture?.isActive() &&
+            Date.now() - relayed.payload.originTimestamp < STEP_FRAME_CLICK_FAILSAFE_MS,
+          onSkipped: () => {
+            console.warn('[frametrail] skipped a relayed step-frame hop that went stale while queued');
+          },
+          start: (gesture) => runRelayedFrameGesture(gesture, relayed),
+        });
       };
 
       const onStepFollowup = createStepFollowupHandler(lateClickSuppressor, {
-        isActive: () => stepGesture !== null,
-        cancel: () => stepGesture?.cancel(),
+        isActive: () => gestureQueue.isBusy(),
+        cancel: () => gestureQueue.cancelActive(),
       });
 
       window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
@@ -772,10 +793,15 @@ export default defineContentScript({
         for (const type of STEP_FOLLOWUP_EVENTS) {
           document.removeEventListener(type, onStepFollowup, { capture: true });
         }
-        if (stepGesture) {
-          stepGesture.cancel();
-          stepGesture = null;
-        }
+        // Matches the pre-queue behavior for whatever is actively capturing:
+        // just cancel it (its own settle path decides what that means) rather
+        // than forcing an early resolution. purgePending() is the actual fix
+        // here — it replays every queued-but-not-started press (already
+        // preventDefault()'d at pointerdown time) without recording it,
+        // instead of leaving it to hang.
+        gestureQueue.cancelActive();
+        gestureQueue.purgePending();
+        if (stepGestureQueue === gestureQueue) stepGestureQueue = null;
         lateClickSuppressor.clear();
         setCaptureScrollLock(null);
       };
@@ -843,8 +869,15 @@ export default defineContentScript({
         snapshotInteractionsActive = state.phase === 'recording';
         if (state.phase === 'invalidated') snapshotInvalidationSent = true;
       }
-      if (recorderPaused) hoverPreview?.suspend();
-      else if (wasPaused && isStepMode) {
+      if (recorderPaused) {
+        hoverPreview?.suspend();
+        // Anything still waiting its turn hasn't started capturing yet, so
+        // there is nothing to undo — just let its already-prevented click
+        // through without recording it. The gesture actively capturing (if
+        // any) is left alone and finishes normally, matching today's pause
+        // behavior for it.
+        stepGestureQueue?.purgePending();
+      } else if (wasPaused && isStepMode) {
         // Resume must bring the hover highlight back at the last known pointer
         // position instead of waiting for the next pointer move.
         hoverPreview?.schedule();

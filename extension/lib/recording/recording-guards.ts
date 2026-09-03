@@ -121,6 +121,42 @@ export function getCaptureGuardFailure(input: {
   return null;
 }
 
+function isSameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Trusts a FRAME_TRAIL_CLICK sender by identity (the recorded tab's top
+ * frame), not by exact URL equality. `sender.url`/`sender.tab.url` reflect
+ * Chrome's own async-tracked navigation state, which lags a synchronous
+ * `history.pushState()` on the page — common on SPAs whose URL changes with
+ * in-app navigation (e.g. a chat app assigning a conversation id to the
+ * path, or a previous step's replay having just triggered a route change).
+ * Comparing full URLs rejected legitimate clicks on such pages almost every
+ * time. Origin is still required so a message from a stale content-script
+ * instance left over on a genuinely different site is rejected; the
+ * separate changed-url guard in getCaptureGuardFailure below (checked after
+ * the capture round-trip) is what catches a real same-tab navigation during
+ * the capture window — it stays an exact match on purpose, since even a
+ * same-origin route change can move the captured rect. */
+export function isTrustedRecordedPageSender(
+  messageUrl: string,
+  sender: { frameId?: number; url?: string; tab?: { id?: number; url?: string } },
+  expectedTabId: number,
+): boolean {
+  return (
+    sender.frameId === 0 &&
+    sender.tab?.id === expectedTabId &&
+    sender.url !== undefined &&
+    isSameOrigin(sender.url, messageUrl) &&
+    sender.tab.url !== undefined &&
+    isSameOrigin(sender.tab.url, messageUrl)
+  );
+}
+
 export function isMatchingSnapshotViewport(
   expected: ClickCapture['viewport'],
   expectedDevicePixelRatio: number,

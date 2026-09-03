@@ -149,6 +149,30 @@ test.describe('step recording', () => {
     await stopRecording(popupPage);
   });
 
+  test('records a click that lands while the previous one is still capturing instead of dropping it', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    // The real captureVisibleTab pacing (MIN_CAPTURE_INTERVAL_MS = 500ms) is
+    // always active, unmocked, in this build — two clicks fired back to back
+    // land well inside that window and exercise the gesture queue's "busy"
+    // path for real, instead of the idle path every other test here takes by
+    // awaiting a step count between clicks.
+    await startRecording(appPage, popupPage, 'steps');
+
+    await clickTarget(appPage, '#action-button span');
+    await clickTarget(appPage, '#plain-text');
+
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await expect.poll(() => appPage.evaluate(() => window.fixtureState.actionClicks)).toBe(1);
+
+    const steps = await readSteps(popupPage);
+    expect(steps.map((step) => step.description)).toEqual(['點擊按鈕', '標記頁面區域']);
+
+    await stopRecording(popupPage);
+  });
+
   test('pauses, undoes, restores, and finishes from the in-page recording lifecycle', async ({
     appPage,
     popupPage,

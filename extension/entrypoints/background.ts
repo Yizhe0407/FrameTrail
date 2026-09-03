@@ -30,6 +30,7 @@ import {
   getCaptureGuardFailure,
   getRecordingTabUpdateAction,
   isMatchingSnapshotViewport,
+  isTrustedRecordedPageSender,
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
 import { discardPristineGuide } from '@/lib/storage/guide-repository';
@@ -1489,19 +1490,6 @@ async function handleSnapshotClick(
   }]);
 }
 
-function isTrustedRecordedPageSender(
-  messageUrl: string,
-  sender: Browser.runtime.MessageSender,
-  expectedTabId: number,
-): boolean {
-  return (
-    sender.frameId === 0 &&
-    sender.tab?.id === expectedTabId &&
-    sender.url === messageUrl &&
-    sender.tab.url === messageUrl
-  );
-}
-
 async function handleCancelCapture(
   message: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_CANCEL_CAPTURE' }>,
   sender: Browser.runtime.MessageSender,
@@ -1512,7 +1500,7 @@ async function handleCancelCapture(
     operation: 'recording',
     requireCurrentControlVersion: false,
   });
-  if (!validated) return { ok: false };
+  if (!validated) return { ok: false, error: 'untrusted-sender' };
   cancelCapture(message.captureId);
   return { ok: true };
 }
@@ -1522,20 +1510,22 @@ async function handleClick(
   sender: Browser.runtime.MessageSender,
   expectedControlVersion: number,
 ): Promise<ClickCaptureResult> {
-  const rejectBeforeTransaction = (): ClickCaptureResult => {
+  const rejectBeforeTransaction = (reason: string): ClickCaptureResult => {
     releaseCapture(message.captureId);
-    return { ok: false };
+    return { ok: false, error: reason };
   };
-  if (expectedControlVersion !== control.controlVersion) return rejectBeforeTransaction();
+  if (expectedControlVersion !== control.controlVersion) return rejectBeforeTransaction('stale-control-version');
   const state = await getRecordingState();
-  if (!state.isRecording || !state.sessionId || state.runId !== message.runId) return rejectBeforeTransaction();
-  if (state.phase !== 'recording' && state.phase !== 'finishing') return rejectBeforeTransaction();
+  if (!state.isRecording || !state.sessionId || state.runId !== message.runId) {
+    return rejectBeforeTransaction('not-recording');
+  }
+  if (state.phase !== 'recording' && state.phase !== 'finishing') return rejectBeforeTransaction('wrong-phase');
   if (state.tabId == null || !isTrustedRecordedPageSender(message.url, sender, state.tabId)) {
-    return rejectBeforeTransaction();
+    return rejectBeforeTransaction('untrusted-sender');
   }
   const windowId = sender.tab?.windowId;
   const tabId = sender.tab?.id;
-  if (windowId == null || tabId == null) return rejectBeforeTransaction();
+  if (windowId == null || tabId == null) return rejectBeforeTransaction('missing-tab-context');
 
   try {
     discardPendingUndo();
@@ -1579,8 +1569,10 @@ async function handleClick(
     }));
     return { ok: true };
   } catch (err) {
+    let reason = 'capture-failed';
     try {
       if (err instanceof SnapshotViewportChangedError) {
+        reason = 'snapshot-viewport-changed';
         await invalidateSnapshotRun(
           message.runId,
           message.viewport,
@@ -1590,6 +1582,7 @@ async function handleClick(
       } else if (err instanceof SnapshotAnchorMissingError) {
         // The run can never accept another annotation; settle it once with a
         // recoverable error instead of failing every subsequent click.
+        reason = 'snapshot-anchor-missing';
         console.error('[frametrail] snapshot anchor is gone; settling the run:', err.message);
         await stopRunWithError(
           message.runId,
@@ -1598,14 +1591,18 @@ async function handleClick(
           SNAPSHOT_ANCHOR_MISSING_ERROR,
         );
       } else if (isMissingTabError(err)) {
+        reason = 'tab-closed';
         await stopRunWithError(
           message.runId,
           RECORDED_TAB_CLOSED_ERROR.message,
           expectedControlVersion,
           RECORDED_TAB_CLOSED_ERROR,
         );
-      } else if (!(err instanceof StaleCaptureError)) {
+      } else if (err instanceof StaleCaptureError) {
+        reason = `stale-capture: ${err.message}`;
+      } else {
         const messageText = describeBrowserError(err, '無法擷取並儲存此步驟。');
+        reason = messageText;
         console.error(
           '[frametrail] failed to capture/annotate/save step:',
           messageText,
@@ -1621,7 +1618,7 @@ async function handleClick(
         recoveryError,
       );
     }
-    return { ok: false };
+    return { ok: false, error: reason };
   } finally {
     releaseCapture(message.captureId);
   }
@@ -1849,7 +1846,9 @@ export default defineBackground(() => {
       case 'FRAME_TRAIL_STEP_FRAME_ABORT':
         return Promise.resolve(stepFrameRelayBroker.abort(message, relaySender(sender)));
       case 'FRAME_TRAIL_CLICK':
-        if (!control.acceptingClicks) return Promise.resolve({ ok: false } satisfies ClickCaptureResult);
+        if (!control.acceptingClicks) {
+          return Promise.resolve({ ok: false, error: 'not-accepting-clicks' } satisfies ClickCaptureResult);
+        }
         {
           const expectedControlVersion = control.controlVersion;
           return withMessageFailureFallback(
@@ -1861,14 +1860,14 @@ export default defineBackground(() => {
               return handleClick(message, sender, expectedControlVersion);
             }),
             'capture request failed',
-            { ok: false } satisfies ClickCaptureResult,
+            { ok: false, error: 'capture-request-failed' } satisfies ClickCaptureResult,
           );
         }
       case 'FRAME_TRAIL_CANCEL_CAPTURE':
         return withMessageFailureFallback(
           handleCancelCapture(message, sender),
           'capture cancellation failed',
-          { ok: false } satisfies ClickCaptureResult,
+          { ok: false, error: 'capture-cancellation-failed' } satisfies ClickCaptureResult,
         );
       case 'FRAME_TRAIL_READY':
         return withMessageFailureFallback(

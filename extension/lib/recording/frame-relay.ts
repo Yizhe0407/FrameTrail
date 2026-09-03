@@ -17,6 +17,7 @@ import {
   createLateClickSuppressor,
   createStepFollowupHandler,
 } from '../capture/step-capture';
+import { createStepGestureQueue, type StepGesture } from '../capture/step-gesture-queue';
 import { describeElement, replayClickWithSuppression } from '../capture/element-description';
 import {
   isInScrollbarGutter,
@@ -62,8 +63,11 @@ import type {
 const STEP_FRAME_COORDINATE_LIMIT = 1_000_000;
 /** Slightly above the top frame's CAPTURE_FAILSAFE_MS so a healthy capture
  * always beats this local budget; when the relay chain is broken the click is
- * replayed anyway to keep the page usable. */
-const STEP_FRAME_CLICK_FAILSAFE_MS = CAPTURE_FAILSAFE_MS + 500;
+ * replayed anyway to keep the page usable. Exported so the top frame can tell
+ * whether a hop sitting in its own gesture queue has already outlasted the
+ * budget the sending child armed independently — see StepFrameHopPayload's
+ * originTimestamp. */
+export const STEP_FRAME_CLICK_FAILSAFE_MS = CAPTURE_FAILSAFE_MS + 500;
 const STEP_FRAME_RELAY_MAX_CONCURRENT = 8;
 const STEP_FRAME_RELAY_MAX_REQUESTS_PER_WINDOW = 90;
 const STEP_FRAME_RELAY_RATE_WINDOW_MS = 10_000;
@@ -87,6 +91,12 @@ export interface StepFrameHopPayload {
   relayToken: string;
   /** Target rect in the SENDING frame's viewport coordinates. */
   rect: Bounds;
+  /** `Date.now()` when the ORIGINATING child frame armed its own
+   * STEP_FRAME_CLICK_FAILSAFE_MS budget for this gesture — not touched by
+   * any relay hop in between. Lets a queue anywhere along the relay chain
+   * tell whether the originating child has already given up and replayed on
+   * its own before spending a claim on a hop that's now pointless. */
+  originTimestamp: number;
 }
 
 function isRelayRect(value: unknown): value is Bounds {
@@ -104,7 +114,9 @@ export function isStepFrameHopPayload(value: unknown, messageType: string): valu
     payload.type === messageType &&
     isBoundedRuntimeId(payload.captureId) &&
     isBoundedRuntimeId(payload.relayToken) &&
-    isRelayRect(payload.rect)
+    isRelayRect(payload.rect) &&
+    typeof payload.originTimestamp === 'number' &&
+    Number.isFinite(payload.originTimestamp)
   );
 }
 
@@ -234,13 +246,11 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   const clickType = stepFrameClickMessageType(browser.runtime.id);
   let paused = initiallyPaused;
   let removed = false;
-  let gestureActive = false;
-  let gestureCancelled = false;
   let activeCaptureId: string | null = null;
   let settleActiveRelay: ((replay: boolean) => void) | null = null;
-  let activeFailsafe: ReturnType<typeof setTimeout> | null = null;
   const lateClicks = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
   const relayLimiter = createStepFrameRelayLimiter();
+  const gestureQueue = createStepGestureQueue();
 
   const replayInto = (el: Element) => replayClickWithSuppression(el, lateClicks);
 
@@ -250,6 +260,82 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
       runId,
       captureId,
     } satisfies StepFrameRelayAbortMessage).catch(() => {});
+  };
+
+  /** Runs one gesture's BEGIN -> postMessage hop -> await settlement chain.
+   * Resolves once settled, by whichever of three paths gets there first: the
+   * background/top-frame answering over browser.runtime, this frame's own
+   * failsafe giving up, or the relay attempt failing outright. */
+  const runChildGesture = (gesture: StepGesture, el: Element, clientX: number, clientY: number): Promise<void> => {
+    const rect = getVisibleHighlightBounds(el, clientX, clientY);
+    if (!rect) {
+      gesture.release();
+      replayInto(el);
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolveGesture) => {
+      const captureId = gesture.captureId;
+      activeCaptureId = captureId;
+      let settled = false;
+      let failsafe: ReturnType<typeof setTimeout> | null = null;
+      const settle = (replay: boolean) => {
+        if (settled || activeCaptureId !== captureId) return;
+        settled = true;
+        if (failsafe !== null) clearTimeout(failsafe);
+        failsafe = null;
+        settleActiveRelay = null;
+        activeCaptureId = null;
+        gesture.release();
+        if (!removed && !gesture.isCancelled() && replay) replayInto(el);
+        resolveGesture();
+      };
+      settleActiveRelay = settle;
+      failsafe = setTimeout(() => {
+        abortRelay(captureId);
+        settle(true);
+      }, STEP_FRAME_CLICK_FAILSAFE_MS);
+
+      void (async () => {
+        let result: unknown;
+        try {
+          result = await browser.runtime.sendMessage({
+            type: 'FRAME_TRAIL_STEP_FRAME_BEGIN',
+            runId,
+            captureId,
+            rect,
+            text: describeElement(el),
+            tagName: el.tagName.toLowerCase(),
+            interactive: isInteractiveElement(el),
+          } satisfies StepFrameRelayBeginMessage);
+        } catch {
+          settle(true);
+          return;
+        }
+        if (!isStepFrameRelayBeginResult(result) || !result.ok) {
+          settle(true);
+          return;
+        }
+        if (settled || removed || gesture.isCancelled() || activeCaptureId !== captureId) {
+          abortRelay(captureId);
+          settle(false);
+          return;
+        }
+        const payload: StepFrameHopPayload = {
+          type: clickType,
+          captureId,
+          relayToken: result.relayToken,
+          rect,
+          originTimestamp: Date.now(),
+        };
+        try {
+          window.parent.postMessage(payload, '*');
+        } catch {
+          abortRelay(captureId);
+          settle(true);
+        }
+      })();
+    });
   };
 
   const onPointerDown = (event: PointerEvent) => {
@@ -266,87 +352,23 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
       ACTIVATION_TARGETING_POLICY,
     )?.element ?? null;
     if (!el) return;
-    if (gestureActive) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      return;
-    }
+
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const rect = getVisibleHighlightBounds(el, event.clientX, event.clientY);
-    if (!rect) {
-      replayInto(el);
-      return;
-    }
-
-    gestureActive = true;
-    gestureCancelled = false;
-    const captureId = crypto.randomUUID();
-    activeCaptureId = captureId;
-    let settled = false;
-    const settle = (replay: boolean) => {
-      if (settled || activeCaptureId !== captureId) return;
-      settled = true;
-      if (activeFailsafe !== null) clearTimeout(activeFailsafe);
-      activeFailsafe = null;
-      settleActiveRelay = null;
-      activeCaptureId = null;
-      gestureActive = false;
-      if (removed || gestureCancelled) return;
-      if (replay) replayInto(el);
-    };
-    settleActiveRelay = settle;
-    activeFailsafe = setTimeout(() => {
-      abortRelay(captureId);
-      settle(true);
-    }, STEP_FRAME_CLICK_FAILSAFE_MS);
-
-    void (async () => {
-      let result: unknown;
-      try {
-        result = await browser.runtime.sendMessage({
-          type: 'FRAME_TRAIL_STEP_FRAME_BEGIN',
-          runId,
-          captureId,
-          rect,
-          text: describeElement(el),
-          tagName: el.tagName.toLowerCase(),
-          interactive: isInteractiveElement(el),
-        } satisfies StepFrameRelayBeginMessage);
-      } catch {
-        settle(true);
-        return;
-      }
-      if (!isStepFrameRelayBeginResult(result) || !result.ok) {
-        settle(true);
-        return;
-      }
-      if (settled || removed || gestureCancelled || activeCaptureId !== captureId) {
-        abortRelay(captureId);
-        settle(false);
-        return;
-      }
-      const payload: StepFrameHopPayload = {
-        type: clickType,
-        captureId,
-        relayToken: result.relayToken,
-        rect,
-      };
-      try {
-        window.parent.postMessage(payload, '*');
-      } catch {
-        abortRelay(captureId);
-        settle(true);
-      }
-    })();
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    gestureQueue.enqueue({
+      captureId: crypto.randomUUID(),
+      validate: () => el.isConnected,
+      onSkipped: () => replayInto(el),
+      start: (gesture) => runChildGesture(gesture, el, clientX, clientY),
+    });
   };
 
   const onFollowup = createStepFollowupHandler(lateClicks, {
-    isActive: () => gestureActive,
-    cancel: () => {
-      gestureCancelled = true;
-    },
+    isActive: () => gestureQueue.isBusy(),
+    cancel: () => gestureQueue.cancelActive(),
   });
 
   const rejectRelay = (payload: StepFrameHopPayload) => {
@@ -392,11 +414,15 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     removed = true;
     lateClicks.clear();
     if (activeCaptureId) abortRelay(activeCaptureId);
-    if (activeFailsafe !== null) clearTimeout(activeFailsafe);
-    activeFailsafe = null;
+    // Matches the pre-queue behavior for whatever is actively relaying: just
+    // drop the raw state so its BEGIN-response/failsafe continuation becomes
+    // a no-op (`activeCaptureId` no longer matches) instead of forcing an
+    // early settlement. purgePending() is the actual fix here — it replays
+    // every queued-but-not-started press (already preventDefault()'d at
+    // pointerdown time) without recording it, instead of leaving it to hang.
     settleActiveRelay = null;
     activeCaptureId = null;
-    gestureActive = false;
+    gestureQueue.purgePending();
     document.removeEventListener('pointerdown', onPointerDown, { capture: true });
     for (const type of STEP_FOLLOWUP_EVENTS) document.removeEventListener(type, onFollowup, { capture: true });
     window.removeEventListener('message', onRelayMessage);
@@ -410,6 +436,7 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
       return;
     }
     paused = state.phase === 'paused';
+    if (paused) gestureQueue.purgePending();
   });
 
   document.addEventListener('pointerdown', onPointerDown, { capture: true });

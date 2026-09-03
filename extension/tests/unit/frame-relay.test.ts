@@ -26,6 +26,7 @@ describe('step frame relay protocol', () => {
     captureId: 'capture-id',
     relayToken: 'relay-token',
     rect: { x: 10, y: 20, width: 30, height: 40 },
+    originTimestamp: 1_700_000_000_000,
   };
 
   it('namespaces page-visible message types by extension id', () => {
@@ -46,6 +47,9 @@ describe('step frame relay protocol', () => {
     expect(isStepFrameHopPayload({ ...validPayload, captureId: 'x'.repeat(129) }, messageType)).toBe(false);
     expect(isStepFrameHopPayload({ ...validPayload, relayToken: '' }, messageType)).toBe(false);
     expect(isStepFrameHopPayload({ ...validPayload, relayToken: 'x'.repeat(129) }, messageType)).toBe(false);
+    expect(isStepFrameHopPayload({ ...validPayload, originTimestamp: undefined }, messageType)).toBe(false);
+    expect(isStepFrameHopPayload({ ...validPayload, originTimestamp: 'now' }, messageType)).toBe(false);
+    expect(isStepFrameHopPayload({ ...validPayload, originTimestamp: Number.NaN }, messageType)).toBe(false);
     for (const rect of [
       null,
       { x: Number.NaN, y: 0, width: 10, height: 10 },

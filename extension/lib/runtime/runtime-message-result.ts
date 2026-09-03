@@ -198,7 +198,9 @@ export function isCancelStepRecaptureResult(value: unknown): value is CancelStep
 }
 
 export function isClickCaptureResult(value: unknown): value is ClickCaptureResult {
-  return isRecord(value) && hasOnlyKeys(value, ['ok']) && typeof value.ok === 'boolean';
+  if (!isRecord(value)) return false;
+  if (value.ok === true) return hasOnlyKeys(value, ['ok']);
+  return isFailureResult(value);
 }
 
 export function isStepRecaptureTargetResult(value: unknown): value is StepRecaptureTargetResult {

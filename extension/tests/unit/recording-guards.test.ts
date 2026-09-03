@@ -9,6 +9,7 @@ import {
   isInScrollbarGutter,
   isMatchingSnapshotViewport,
   isPointInsideViewport,
+  isTrustedRecordedPageSender,
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
 
@@ -44,6 +45,50 @@ describe('getCaptureGuardFailure', () => {
     expect(getCaptureGuardFailure({ ...validGuard, activeTab: { id: 7, url: 'https://example.com/next' } })).toBe(
       'changed-url',
     );
+  });
+});
+
+describe('isTrustedRecordedPageSender', () => {
+  const validSender = {
+    frameId: 0,
+    url: 'https://example.com/page',
+    tab: { id: 7, url: 'https://example.com/page' },
+  };
+
+  it('accepts a same-origin sender even when the path differs from the message URL', () => {
+    // Regression: an SPA that updates its path via history.pushState (a chat
+    // app assigning a conversation id, or a previous step's replay having
+    // just triggered a route change) leaves Chrome's async-tracked
+    // sender.url/tab.url briefly behind the page's own synchronous
+    // location.href — this must not reject an otherwise-legitimate click.
+    expect(
+      isTrustedRecordedPageSender('https://example.com/page', validSender, 7),
+    ).toBe(true);
+    expect(
+      isTrustedRecordedPageSender('https://example.com/page/conversation-42', {
+        ...validSender,
+        url: 'https://example.com/page',
+        tab: { id: 7, url: 'https://example.com/page' },
+      }, 7),
+    ).toBe(true);
+  });
+
+  it('rejects a wrong tab, a non-top frame, or a genuinely different origin', () => {
+    expect(isTrustedRecordedPageSender('https://example.com/page', validSender, 8)).toBe(false);
+    expect(isTrustedRecordedPageSender('https://example.com/page', { ...validSender, frameId: 1 }, 7)).toBe(false);
+    expect(
+      isTrustedRecordedPageSender('https://example.com/page', {
+        ...validSender,
+        url: 'https://evil.example/page',
+      }, 7),
+    ).toBe(false);
+    expect(
+      isTrustedRecordedPageSender('https://example.com/page', {
+        ...validSender,
+        tab: { id: 7, url: 'https://evil.example/page' },
+      }, 7),
+    ).toBe(false);
+    expect(isTrustedRecordedPageSender('https://example.com/page', { frameId: 0 }, 7)).toBe(false);
   });
 });
 

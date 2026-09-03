@@ -165,9 +165,11 @@ export interface FrameTrailSnapshotActiveMessage {
   runId: string;
 }
 
-export interface ClickCaptureResult {
-  ok: boolean;
-}
+/** `error` is a short diagnostic reason code/message, not user-facing copy —
+ * the content script only ever surfaces it in a console.warn. User-facing
+ * failures go through the separate recordingState.error/recoverableError
+ * path (setRunError), which this result type does not touch. */
+export type ClickCaptureResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Child-frame step gestures use an extension-authenticated runtime handshake

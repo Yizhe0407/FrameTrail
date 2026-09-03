@@ -214,6 +214,61 @@ test.describe('frames and recording lifecycle', () => {
     await stopRecording(popupPage);
   });
 
+  test('records two relayed frame clicks fired back to back instead of dropping the second', async ({
+    appPage,
+    popupPage,
+    browserErrors: _browserErrors,
+  }) => {
+    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    const outer = appPage.frameLocator('#cross-origin-frame');
+    const outerButton = outer.locator('#frame-button');
+    const nestedText = outer.frameLocator('#nested-frame').locator('#nested-text');
+    await expect(outerButton).toBeVisible();
+    await expect(nestedText).toBeVisible();
+    for (const target of [outerButton, nestedText]) {
+      await target.evaluate((element) => {
+        element.setAttribute('data-click-count', '0');
+        element.addEventListener('click', () => {
+          const count = Number(element.getAttribute('data-click-count') ?? '0');
+          element.setAttribute('data-click-count', String(count + 1));
+        });
+      });
+    }
+    await startRecording(appPage, popupPage, 'steps');
+
+    const outerFrameMetrics = await appPage.locator('#cross-origin-frame').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, borderLeft: element.clientLeft, borderTop: element.clientTop };
+    });
+    const nestedFrameMetrics = await outer.locator('#nested-frame').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, borderLeft: element.clientLeft, borderTop: element.clientTop };
+    });
+    const nestedTargetMetrics = await nestedText.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
+    const nestedPoint = {
+      x:
+        outerFrameMetrics.x + outerFrameMetrics.borderLeft + nestedFrameMetrics.x +
+        nestedFrameMetrics.borderLeft + nestedTargetMetrics.x + nestedTargetMetrics.width / 2,
+      y:
+        outerFrameMetrics.y + outerFrameMetrics.borderTop + nestedFrameMetrics.y +
+        nestedFrameMetrics.borderTop + nestedTargetMetrics.y + nestedTargetMetrics.height / 2,
+    };
+
+    // Fired back to back, with no wait for the first hop's capture in between:
+    // the top frame's shared gesture queue must not drop the second relayed
+    // hop just because the first is still being claimed/captured.
+    await outerButton.click();
+    await appPage.mouse.click(nestedPoint.x, nestedPoint.y);
+
+    await expect.poll(() => outerButton.getAttribute('data-click-count')).toBe('1');
+    await expect.poll(() => nestedText.getAttribute('data-click-count')).toBe('1');
+    await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
+    await stopRecording(popupPage);
+  });
+
   test('falls back to the visible iframe box when a sandboxed frame is inaccessible', async ({
     appPage,
     popupPage,
