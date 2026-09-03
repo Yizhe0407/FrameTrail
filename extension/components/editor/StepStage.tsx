@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
 import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/models';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import EntryThumbnail from './EntryThumbnail';
 import StepActions from './StepActions';
 import DescriptionField from './DescriptionField';
@@ -110,17 +111,21 @@ export default function StepStage({
               </button>
             </Badge>
           ))}
-          <Badge asChild variant="tagAction" className="disabled:opacity-50">
-            <button
-              type="button"
-              onClick={() => setTagDialogOpen(true)}
-              disabled={editingDisabled}
-              title="新增標籤（顯示於作品庫）"
-            >
-              <Plus className="size-3.5 stroke-[2.5]" />
-              標籤
-            </button>
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge asChild variant="tagAction" className="disabled:opacity-50">
+                <button
+                  type="button"
+                  onClick={() => setTagDialogOpen(true)}
+                  disabled={editingDisabled}
+                >
+                  <Plus className="size-3.5 stroke-[2.5]" />
+                  標籤
+                </button>
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>新增標籤（顯示於作品庫）</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

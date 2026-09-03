@@ -5,6 +5,7 @@ import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
 import { PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED } from '@/lib/editor/editor-messages';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
   entry: StepEntry;
@@ -98,37 +99,49 @@ export default function StepActions({
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-[3px]">
-        <button
-          type="button"
-          onClick={handleCopy}
-          disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
-          title={privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製圖片'}
-          aria-label="複製圖片"
-          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
-        >
-          {copying ? <Loader2 className="size-[17px] animate-spin" /> : copied ? <Check className="size-[17px] text-brand" /> : <Copy className="size-[17px]" />}
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleRecapture()}
-          disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
-          title={recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '重新拍攝')}
-          aria-label="重新拍攝"
-          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
-        >
-          {recapturing ? <Loader2 className="size-[17px] animate-spin" /> : <Camera className="size-[17px]" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
+              aria-label="複製圖片"
+              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
+            >
+              {copying ? <Loader2 className="size-[17px] animate-spin" /> : copied ? <Check className="size-[17px] text-brand" /> : <Copy className="size-[17px]" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製圖片'}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => void handleRecapture()}
+              disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
+              aria-label="重新拍攝"
+              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
+            >
+              {recapturing ? <Loader2 className="size-[17px] animate-spin" /> : <Camera className="size-[17px]" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '重新拍攝')}</TooltipContent>
+        </Tooltip>
         <span className="mx-[3px] h-[20px] w-[1px] bg-border" aria-hidden="true" />
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
-          title={deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除'}
-          aria-label="刪除步驟"
-          className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
-        >
-          {deleting ? <Loader2 className="size-[17px] animate-spin" /> : <Trash2 className="size-[17px]" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
+              aria-label="刪除步驟"
+              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
+            >
+              {deleting ? <Loader2 className="size-[17px] animate-spin" /> : <Trash2 className="size-[17px]" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除'}</TooltipContent>
+        </Tooltip>
       </div>
       {actionError && <InlineAlert>{actionError}</InlineAlert>}
     </div>

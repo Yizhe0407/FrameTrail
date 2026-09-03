@@ -20,6 +20,7 @@ import { cn } from '@/lib/shared/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
@@ -296,23 +297,26 @@ export default function App() {
                   {allTags.map((tag) => {
                     const active = filterTags.includes(tag);
                     return (
-                      <Badge
-                        key={tag}
-                        asChild
-                        variant={active ? 'tagFilterActive' : 'tagFilter'}
-                        className="max-w-full truncate"
-                      >
-                        <button
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => setFilterTags((current) => (
-                            active ? current.filter((value) => value !== tag) : [...current, tag]
-                          ))}
-                          title={tag}
-                        >
-                          {tag}
-                        </button>
-                      </Badge>
+                      <Tooltip key={tag}>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            asChild
+                            variant={active ? 'tagFilterActive' : 'tagFilter'}
+                            className="max-w-full truncate"
+                          >
+                            <button
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => setFilterTags((current) => (
+                                active ? current.filter((value) => value !== tag) : [...current, tag]
+                              ))}
+                            >
+                              {tag}
+                            </button>
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>{tag}</TooltipContent>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -385,48 +389,64 @@ export default function App() {
                     </div>
                     <div className="flex-1" />
                     <div className="mt-1.5 flex items-center gap-[5px] border-t border-border/70 pt-[12px]">
-                      <Button
-                        size="sm"
-                        className="h-8 min-w-0 flex-1 gap-1.5 rounded-md px-2.5 text-[12.5px] font-semibold"
-                        title={lockedTitle('開啟')}
-                        onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
-                        disabled={actionsLocked}
-                      >
-                        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <PencilLine className="size-[14px]" />}開啟
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
-                        title={lockedTitle('複製')}
-                        aria-label="複製"
-                        onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
-                        disabled={actionsLocked}
-                      >
-                        <Copy className="size-[15px]" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
-                        title={lockedTitle('匯出可編輯 .frametrail 檔案')}
-                        aria-label={`匯出 ${guide.title}`}
-                        onClick={() => setExportTarget(guide)}
-                        disabled={actionsLocked}
-                      >
-                        <Download className="size-[15px]" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-danger-soft hover:text-danger dark:text-white/55"
-                        title={lockedTitle('刪除')}
-                        aria-label="刪除"
-                        onClick={() => setDeleteTarget(guide)}
-                        disabled={actionsLocked}
-                      >
-                        <Trash2 className="size-[15px]" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            className="h-8 min-w-0 flex-1 gap-1.5 rounded-md px-2.5 text-[12.5px] font-semibold"
+                            onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
+                            disabled={actionsLocked}
+                          >
+                            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <PencilLine className="size-[14px]" />}開啟
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{lockedTitle('開啟')}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                            aria-label="複製"
+                            onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
+                            disabled={actionsLocked}
+                          >
+                            <Copy className="size-[15px]" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{lockedTitle('複製')}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                            aria-label={`匯出 ${guide.title}`}
+                            onClick={() => setExportTarget(guide)}
+                            disabled={actionsLocked}
+                          >
+                            <Download className="size-[15px]" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{lockedTitle('匯出可編輯 .frametrail 檔案')}</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-danger-soft hover:text-danger dark:text-white/55"
+                            aria-label="刪除"
+                            onClick={() => setDeleteTarget(guide)}
+                            disabled={actionsLocked}
+                          >
+                            <Trash2 className="size-[15px]" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{lockedTitle('刪除')}</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 </li>

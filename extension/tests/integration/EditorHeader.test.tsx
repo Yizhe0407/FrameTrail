@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Step } from '@/lib/storage/models';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// EditorHeader's buttons use the shadcn Tooltip, which requires a
+// TooltipProvider ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const mocks = vi.hoisted(() => ({ openLibrary: vi.fn(), resetSession: vi.fn() }));
 
@@ -57,7 +64,10 @@ describe('EditorHeader', () => {
       expect(button.getAttribute('aria-label')).toBe(name);
       expect(within(button).getByText(label).className).toContain('hidden sm:inline');
     }
-    expect(screen.getByRole('button', { name: '作品庫' }).getAttribute('title')).toBe('回到作品庫');
+    // The button no longer carries a native title; the same copy now surfaces
+    // through the shadcn Tooltip, which opens on focus.
+    fireEvent.focus(screen.getByRole('button', { name: '作品庫' }));
+    expect(screen.getByRole('tooltip').textContent).toBe('回到作品庫');
   });
 
   it('opens the library from the single 作品庫 control', () => {

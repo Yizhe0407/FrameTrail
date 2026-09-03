@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// The editor renders controls (UndoSnackbar, EditorHeader, ...) that use the
+// shadcn Tooltip, which requires a TooltipProvider ancestor — wrap every
+// render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const database = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeEditorDatabaseMocks());
 

@@ -30,6 +30,21 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   });
 }
 
+// jsdom ships no ResizeObserver either; Radix Popper (used by Popover and the
+// new Tooltip primitive) creates one to track trigger/content size.
+if (typeof globalThis.ResizeObserver !== 'function') {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: ResizeObserverStub,
+  });
+}
+
 // Node 22 exposes a configurable but undefined localStorage global unless it
 // receives a process-wide storage file. Tests need browser-like synchronous
 // storage without relying on a host-specific Node flag.

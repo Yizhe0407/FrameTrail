@@ -7,6 +7,7 @@ import { type Step } from '@/lib/storage/models';
 import { restrictToVerticalAxis, useSortableReorder } from '@/lib/editor/dnd';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
@@ -65,17 +66,21 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           className="min-w-0 flex-1 border-none bg-transparent px-1 py-0 text-[13.5px] font-normal text-foreground outline-none focus:ring-0 dark:text-white/90"
         />
         <div className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={handleDelete}
-            onPointerDown={(event) => event.preventDefault()}
-            disabled={deleteDisabled || deleting}
-            aria-label={`刪除標註 ${index + 1}`}
-            title={deleteDisabled ? '錄製或補拍期間無法刪除標註' : '刪除標註'}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-white/40 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleDelete}
+                onPointerDown={(event) => event.preventDefault()}
+                disabled={deleteDisabled || deleting}
+                aria-label={`刪除標註 ${index + 1}`}
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-white/40 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{deleteDisabled ? '錄製或補拍期間無法刪除標註' : '刪除標註'}</TooltipContent>
+          </Tooltip>
           {dragHandle}
         </div>
       </div>

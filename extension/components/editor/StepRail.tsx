@@ -14,6 +14,7 @@ import {
   useSortableReorder,
 } from '@/lib/editor/dnd';
 import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import EntryThumbnail from './EntryThumbnail';
 import SortableItem from './SortableItem';
@@ -266,15 +267,19 @@ export default function StepRail({
         </SortableContext>
       </DndContext>
       {onContinueRecording && (
-        <button
-          type="button"
-          onClick={onContinueRecording}
-          disabled={reorderDisabled}
-          title={`回到來源頁面繼續錄製，${NEW_STEPS_APPEND_NOTE}`}
-          className="mx-2.5 mt-1.5 mb-3 hidden h-[32px] shrink-0 items-center justify-center gap-[5px] rounded-md border border-dashed border-border/80 bg-card text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:border-brand/40 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
-        >
-          <Video className="size-3" />接續錄製
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onContinueRecording}
+              disabled={reorderDisabled}
+              className="mx-2.5 mt-1.5 mb-3 hidden h-[32px] shrink-0 items-center justify-center gap-[5px] rounded-md border border-dashed border-border/80 bg-card text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:border-brand/40 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
+            >
+              <Video className="size-3" />接續錄製
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{`回到來源頁面繼續錄製，${NEW_STEPS_APPEND_NOTE}`}</TooltipContent>
+        </Tooltip>
       )}
     </nav>
   );

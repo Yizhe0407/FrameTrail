@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render as rtlRender, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type Step } from '@/lib/storage/models';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// AnnotationList's delete button uses the shadcn Tooltip, which requires a
+// TooltipProvider ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 vi.mock('@/lib/editor/editor-autosave', () => ({
   useStepDescriptionAutosave: (step: Step) => ({

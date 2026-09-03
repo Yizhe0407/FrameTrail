@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 
 interface Props {
@@ -35,23 +36,27 @@ export default function SortableItem({ id, children, className, handleClassName,
   const style = { transform: CSS.Translate.toString(transform), transition: isDragging ? undefined : transition };
 
   const handle = (
-    <button
-      type="button"
-      {...attributes}
-      {...listeners}
-      aria-label="拖曳排序"
-      // Names the interaction for screen readers, which otherwise announce only
-      // "button" and give no hint that this row can be moved.
-      aria-roledescription="可拖曳的排序控制項"
-      title="拖曳以重新排序（鍵盤：Enter 或空白鍵開始，方向鍵移動，再按一次放下）"
-      disabled={disabled}
-      className={cn(
-        'flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded border-none bg-transparent text-muted-foreground/50 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
-        handleClassName,
-      )}
-    >
-      <GripVertical className="size-4" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label="拖曳排序"
+          // Names the interaction for screen readers, which otherwise announce only
+          // "button" and give no hint that this row can be moved.
+          aria-roledescription="可拖曳的排序控制項"
+          disabled={disabled}
+          className={cn(
+            'flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded border-none bg-transparent text-muted-foreground/50 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
+            handleClassName,
+          )}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>拖曳以重新排序（鍵盤：Enter 或空白鍵開始，方向鍵移動，再按一次放下）</TooltipContent>
+    </Tooltip>
   );
 
   return (

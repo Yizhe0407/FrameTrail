@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render as rtlRender, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// UndoSnackbar's message uses the shadcn Tooltip, which requires a
+// TooltipProvider ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 describe('UndoSnackbar', () => {
   beforeEach(() => {

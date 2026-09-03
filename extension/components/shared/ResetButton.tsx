@@ -2,6 +2,7 @@ import { Loader2, RotateCcw } from 'lucide-react';
 import { reportError } from '@/components/shared/report-error';
 import { resetSession } from '@/lib/runtime/actions';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import { useState, type ComponentProps } from 'react';
 import ConfirmationDialog from './ConfirmationDialog';
@@ -48,24 +49,28 @@ export default function ResetButton({
   return (
     <>
       <div className="flex flex-col items-end gap-1">
-        <Button
-          variant={variant}
-          onClick={() => {
-            setResetError(null);
-            setConfirmationOpen(true);
-          }}
-          disabled={!hasSteps || !sessionId || disabled || resetting}
-          aria-label={resetting ? '正在重置' : '重置目前錄製'}
-          title={disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}
-          className={cn(
-            'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
-            variant === 'outline' && 'hover:border-destructive/40',
-            className,
-          )}
-        >
-          {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-          <span>{resetting ? '重置中' : '重置'}</span>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={variant}
+              onClick={() => {
+                setResetError(null);
+                setConfirmationOpen(true);
+              }}
+              disabled={!hasSteps || !sessionId || disabled || resetting}
+              aria-label={resetting ? '正在重置' : '重置目前錄製'}
+              className={cn(
+                'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
+                variant === 'outline' && 'hover:border-destructive/40',
+                className,
+              )}
+            >
+              {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+              <span>{resetting ? '重置中' : '重置'}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}</TooltipContent>
+        </Tooltip>
       </div>
       <ConfirmationDialog
         open={confirmationOpen}

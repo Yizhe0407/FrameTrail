@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-model';
@@ -158,17 +159,21 @@ export default function TagSelectDialog({
               <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">曾經使用過</span>
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((tag) => (
-                  <Badge key={tag} asChild variant="tagEditableAvailable" className="max-w-full select-none">
-                    <button
-                      type="button"
-                      onClick={() => void addTag(tag)}
-                      aria-label={`新增 ${tag} 標籤`}
-                      title={tag}
-                      className="min-w-0 truncate outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {tag}
-                    </button>
-                  </Badge>
+                  <Tooltip key={tag}>
+                    <TooltipTrigger asChild>
+                      <Badge asChild variant="tagEditableAvailable" className="max-w-full select-none">
+                        <button
+                          type="button"
+                          onClick={() => void addTag(tag)}
+                          aria-label={`新增 ${tag} 標籤`}
+                          className="min-w-0 truncate outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {tag}
+                        </button>
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>{tag}</TooltipContent>
+                  </Tooltip>
                 ))}
               </div>
             </div>

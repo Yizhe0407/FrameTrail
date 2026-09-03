@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { type ScreenshotStep, type Step, type StepEntry } from '@/lib/storage/models';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// StepStage's "add tag" control uses the shadcn Tooltip, which requires a
+// TooltipProvider ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 vi.mock('@/components/editor/HighlightThumbnail', () => ({
   default: ({ overlay }: { overlay?: ReactNode }) => <div data-testid="single-image-frame">{overlay}</div>,
 }));

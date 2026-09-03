@@ -1,13 +1,20 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GuideSummary } from '@/lib/storage/models';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const database = vi.hoisted(() => ({ getGuideSummaries: vi.fn() }));
 
 vi.mock('@/lib/storage/guide-repository', () => ({ getGuideSummaries: database.getGuideSummaries }));
 
 import TagSelectDialog from '@/components/editor/TagSelectDialog';
+
+// TagSelectDialog's tag suggestions use the shadcn Tooltip, which requires a
+// TooltipProvider ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const INVENTED_PRESETS = ['入門', '團隊', '專案', '整合', '報表', '行動', '說明', '設定'];
 

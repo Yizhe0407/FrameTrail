@@ -4,6 +4,7 @@ import { type Step } from '@/lib/storage/models';
 import type { ActiveOperation } from '@/lib/storage/recording-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openLibrary } from '@/lib/runtime/actions';
 
 interface Props {
@@ -46,15 +47,19 @@ export default function EditorHeader({
         {/* One control per action at every width: the icon always shows and the
             label appears from `sm` up. The `aria-label` carries the accessible
             name so the icon-only state below `sm` is never unlabelled. */}
-        <Button
-          variant="outline"
-          title="回到作品庫"
-          aria-label="作品庫"
-          className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[13px]"
-          onClick={() => void openLibrary()}
-        >
-          <Library className="size-4" /><span className="hidden sm:inline">作品庫</span>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              aria-label="作品庫"
+              className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[13px]"
+              onClick={() => void openLibrary()}
+            >
+              <Library className="size-4" /><span className="hidden sm:inline">作品庫</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>回到作品庫</TooltipContent>
+        </Tooltip>
         <span className="hidden h-[22px] w-[1px] bg-border sm:block" aria-hidden="true" />
         <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
         <Button

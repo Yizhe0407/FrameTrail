@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const mocks = vi.hoisted(() => ({ resetSession: vi.fn() }));
 
 vi.mock('@/lib/runtime/actions', () => ({ resetSession: mocks.resetSession }));
 
 import ResetButton from '@/components/shared/ResetButton';
+
+// ResetButton uses the shadcn Tooltip, which requires a TooltipProvider
+// ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 beforeEach(() => {
   mocks.resetSession.mockReset();

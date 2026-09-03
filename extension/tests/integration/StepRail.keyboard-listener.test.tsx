@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
 import { makeEntry } from '../setup/step-entries';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// StepRail's "continue recording" button uses the shadcn Tooltip, which
+// requires a TooltipProvider ancestor — wrap every render() the same way the
+// app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const ENTRIES = [makeEntry('step-1', 0), makeEntry('step-2', 1), makeEntry('step-3', 2)];
 
