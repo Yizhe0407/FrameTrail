@@ -1,13 +1,10 @@
 import { browser } from 'wxt/browser';
 import { type Bounds } from '../storage/models';
-import {
-  ACTIVATION_TARGETING_POLICY,
-  getVisibleHighlightBounds,
-  intersectBounds,
-  isElementVisuallyUnavailable,
-  isInteractiveElement,
-  resolveVisualTargetAtPoint,
-} from '../capture/selector-utils';
+import { isElementVisuallyUnavailable } from '../capture/selector/element-availability';
+import { getVisibleHighlightBounds } from '../capture/selector/highlight-bounds';
+import { isInteractiveElement } from '../capture/selector/interactive-element';
+import { ACTIVATION_TARGETING_POLICY, resolveVisualTargetAtPoint } from '../capture/selector/visual-target';
+import { intersectBounds } from '../capture/bounds-geometry';
 import { createFrameCoordinateMapper } from '../capture/frame-geometry';
 import {
   createFrameProbeRateLimiter,

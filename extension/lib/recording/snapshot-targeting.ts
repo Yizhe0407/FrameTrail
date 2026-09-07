@@ -1,15 +1,10 @@
 import { browser } from 'wxt/browser';
-import {
-  buildSnapshotTargetIdentity,
-  deepElementFromPoint,
-  findVisualTargetCandidatesAtPoint,
-  getVisibleHighlightBounds,
-  INTERACTIVE_CANDIDATE_SELECTOR,
-  intersectBounds,
-  isElementVisuallyUnavailable,
-  isInteractiveElement,
-  selectVisualTargetCandidate,
-} from '../capture/selector-utils';
+import { deepElementFromPoint, isElementVisuallyUnavailable } from '../capture/selector/element-availability';
+import { getVisibleHighlightBounds } from '../capture/selector/highlight-bounds';
+import { INTERACTIVE_CANDIDATE_SELECTOR, isInteractiveElement } from '../capture/selector/interactive-element';
+import { buildSnapshotTargetIdentity } from '../capture/selector/snapshot-identity';
+import { findVisualTargetCandidatesAtPoint, selectVisualTargetCandidate } from '../capture/selector/visual-target';
+import { intersectBounds } from '../capture/bounds-geometry';
 import { describeElement } from '../capture/element-description';
 import {
   SNAPSHOT_KEYBOARD_LABEL_LIMIT,

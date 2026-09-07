@@ -30,7 +30,7 @@ import {
   type SnapshotShieldToolbarStateMessage,
   type WithoutToken,
 } from './snapshot-shield-protocol';
-import { deepElementFromPoint } from '../capture/selector-utils';
+import { deepElementFromPoint } from '../capture/selector/element-availability';
 import { createViewportOverlayHost, setImportantStyle } from '../capture/viewport-overlay-host';
 import type { RecordingControlResult } from '../runtime/messages';
 

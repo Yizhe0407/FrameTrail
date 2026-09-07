@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildSnapshotTargetIdentity } from '@/lib/capture/selector-utils';
+import { buildSnapshotTargetIdentity } from '@/lib/capture/selector/snapshot-identity';
 import { createSnapshotSelectionSet } from '@/lib/recording/snapshot-selection-set';
 import type { SnapshotShieldRect } from '@/lib/recording/snapshot-shield-protocol';
 import type { ResolvedSnapshotTarget } from '@/lib/recording/snapshot-targeting';

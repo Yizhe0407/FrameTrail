@@ -1,4 +1,4 @@
-import { deepElementFromPoint, getComposedParent } from './selector-utils';
+import { deepElementFromPoint, getComposedParent } from './selector/element-availability';
 import type { ScrollSnapshot } from './step-capture';
 
 interface ViewportRect {

@@ -6,26 +6,17 @@ import {
   listRecordableTabs,
   validatePreparedPermissionSource,
 } from '@/lib/editor/continuation-tabs';
-import { MULTI_ANNOTATION_RECAPTURE_BLOCKED } from '@/lib/editor/editor-messages';
+import {
+  recaptureTargetForEntry,
+  requestContinuationPreflight,
+  requestRecapturePreflight,
+  startRecordingOrThrow,
+  startStepRecaptureOrThrow,
+} from '@/lib/editor/capture-permission-requests';
 import { isRecordableTab } from '@/lib/shared/restricted-urls';
 import { focusTab } from '@/lib/runtime/navigation';
 import { reportError } from '@/components/shared/report-error';
 import { entryId, type StepEntry } from '@/lib/storage/models';
-import type {
-  PreflightGuideContinuationSourcePermissionResult,
-  PreflightStepRecaptureSourcePermissionResult,
-  StartRecordingMessage,
-  StartRecordingResult,
-  StartStepRecaptureResult,
-} from '@/lib/runtime/messages';
-import type { StepRecaptureTarget } from '@/lib/storage/recording-state';
-import {
-  isPreflightGuideContinuationSourcePermissionResult,
-  isPreflightStepRecaptureSourcePermissionResult,
-  isStartRecordingResult,
-  isStartStepRecaptureResult,
-  requireRuntimeMessageResult,
-} from '@/lib/runtime/runtime-message-result';
 
 interface UsePermissionFlowOptions {
   sessionId: string | null;
@@ -160,14 +151,6 @@ export function usePermissionFlow({
     return flow.isCurrent();
   }
 
-  async function startRecordingOrThrow(message: StartRecordingMessage): Promise<void> {
-    const started = requireRuntimeMessageResult<StartRecordingResult>(
-      await browser.runtime.sendMessage(message),
-      isStartRecordingResult,
-    );
-    if (!started.ok) throw new Error(started.error);
-  }
-
   function beginPermissionPreflight(entryIdToPrepare: string | null): FlowToken | null {
     if (!canBeginFlow()) return null;
     const nextGeneration = generation.current + 1;
@@ -223,15 +206,7 @@ export function usePermissionFlow({
         });
         return;
       }
-      const result = requireRuntimeMessageResult<StartStepRecaptureResult>(
-        await browser.runtime.sendMessage({
-          type: 'START_STEP_RECAPTURE',
-          sessionId,
-          target: prepared.action.target,
-        }),
-        isStartStepRecaptureResult,
-      );
-      if (!result.ok) throw new Error(result.error);
+      await startStepRecaptureOrThrow(sessionId, prepared.action.target);
     } catch (permissionError) {
       failFlow(flow, '授權並啟動來源錄製失敗', permissionError, '無法啟動來源錄製；現有內容未變更，請再試一次。');
     } finally {
@@ -339,43 +314,13 @@ export function usePermissionFlow({
   async function handleRecapture(): Promise<void> {
     if (!canBeginFlow()) return;
     const currentEntry = requireSelectedEntry();
-    const target: StepRecaptureTarget =
-      currentEntry.kind === 'single'
-        ? { kind: 'single', stepId: currentEntry.step.id }
-        : currentEntry.annotations.length === 1
-          ? {
-              kind: 'snapshot-singleton',
-              anchorId: currentEntry.anchor.id,
-              annotationId: currentEntry.annotations[0].id,
-            }
-          : (() => {
-              throw new Error(MULTI_ANNOTATION_RECAPTURE_BLOCKED);
-            })();
+    const target = recaptureTargetForEntry(currentEntry);
     const targetEntryId = entryId(currentEntry);
     const flow = beginPermissionPreflight(targetEntryId);
     if (flow == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
-      const result = requireRuntimeMessageResult<PreflightStepRecaptureSourcePermissionResult>(
-        await browser.runtime.sendMessage({
-          type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-          sessionId,
-          target,
-        }),
-        isPreflightStepRecaptureSourcePermissionResult,
-      );
-      if (!result.ok) throw new Error(result.message);
-      validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
-      prepared = {
-        source: {
-          kind: 'origin',
-          sourceOrigin: result.sourceOrigin,
-          permissionPattern: result.permissionPattern,
-          sourceUrl: result.sourceUrl,
-        },
-        entryId: targetEntryId,
-        action: { kind: 'recapture', target },
-      };
+      prepared = await requestRecapturePreflight(sessionId!, target, targetEntryId);
     } catch (recaptureError) {
       failFlow(flow, '檢查補拍來源失敗', recaptureError, '無法安全確認補拍來源；原本內容未變更。');
     } finally {
@@ -392,36 +337,7 @@ export function usePermissionFlow({
     if (flow == null) return;
     let prepared: PreparedCapturePermission | null = null;
     try {
-      const result = requireRuntimeMessageResult<PreflightGuideContinuationSourcePermissionResult>(
-        await browser.runtime.sendMessage({
-          type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
-          sessionId,
-        }),
-        isPreflightGuideContinuationSourcePermissionResult,
-      );
-      if (!result.ok) {
-        // A Guide without steps has no source page to lock onto. That is not a
-        // terminal error: the dialog still opens and offers the site-agnostic
-        // 「改在其他頁面接續」 path, which needs no stored source.
-        if (result.code !== 'SOURCE_NOT_FOUND') throw new Error(result.message);
-        prepared = {
-          source: { kind: 'unavailable', reason: result.message },
-          entryId: null,
-          action: { kind: 'continuation' },
-        };
-      } else {
-        validatePreparedPermissionSource(result.sourceOrigin, result.permissionPattern);
-        prepared = {
-          source: {
-            kind: 'origin',
-            sourceOrigin: result.sourceOrigin,
-            permissionPattern: result.permissionPattern,
-            sourceUrl: result.sourceUrl,
-          },
-          entryId: null,
-          action: { kind: 'continuation' },
-        };
-      }
+      prepared = await requestContinuationPreflight(sessionId!);
     } catch (continuationError) {
       failFlow(flow, '檢查接續錄製來源失敗', continuationError, '無法安全確認接續錄製的來源；現有內容未變更。');
     } finally {

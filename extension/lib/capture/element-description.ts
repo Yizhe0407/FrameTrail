@@ -1,5 +1,5 @@
 import type { LateClickSuppressor } from './step-capture';
-import { isElementInteractionDisabled } from './selector-utils';
+import { isElementInteractionDisabled } from './selector/element-availability';
 
 function getVisibleText(el: Element): string {
   const text = el instanceof HTMLElement ? el.innerText : el.textContent;

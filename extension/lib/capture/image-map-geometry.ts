@@ -1,5 +1,6 @@
 import type { Bounds } from '../storage/models';
 import { createImageCoordinateMapper } from './image-geometry';
+import { intersectBounds } from './bounds-geometry';
 
 const ASCII_WHITESPACE = new Set(['\t', '\n', '\f', '\r', ' ']);
 const COORDINATE_DELIMITERS = new Set([...ASCII_WHITESPACE, ',', ';']);
@@ -199,14 +200,6 @@ function containsBoundsPoint(bounds: Bounds, x: number, y: number): boolean {
   );
 }
 
-function intersectBounds(a: Bounds, b: Bounds): Bounds | null {
-  const x = Math.max(a.x, b.x);
-  const y = Math.max(a.y, b.y);
-  const right = Math.min(a.x + a.width, b.x + b.width);
-  const bottom = Math.min(a.y + a.height, b.y + b.height);
-  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
-}
-
 /** Finds an image that actually resolves to the area element's containing map. */
 export function findImageForArea(
   area: HTMLAreaElement,
@@ -269,7 +262,7 @@ export function findImageMapAreaAtPoint(
 
 /**
  * Resolves an area's image-clipped viewport bounds. Visibility clipping is
- * deliberately left to selector-utils so it follows the image's paint tree.
+ * deliberately left to highlight-bounds so it follows the image's paint tree.
  */
 export function resolveImageMapAreaBounds(
   area: HTMLAreaElement,

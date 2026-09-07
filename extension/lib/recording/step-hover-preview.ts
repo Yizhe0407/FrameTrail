@@ -1,9 +1,6 @@
 import { createStepPreview } from '../capture/step-preview';
-import {
-  ACTIVATION_TARGETING_POLICY,
-  getComposedParent,
-  resolveVisualTargetAtPoint,
-} from '../capture/selector-utils';
+import { getComposedParent } from '../capture/selector/element-availability';
+import { ACTIVATION_TARGETING_POLICY, resolveVisualTargetAtPoint } from '../capture/selector/visual-target';
 import { isExtensionOverlay } from '../capture/viewport-overlay-host';
 import { isPointInsideViewport } from './recording-guards';
 

@@ -2,98 +2,29 @@ import { browser } from 'wxt/browser';
 import {
   collectKeyboardCandidateAnchors,
   installSnapshotFrameProbe,
-  resolveSnapshotTargetAtPoint,
-  type ResolvedSnapshotTarget,
   waitForNextFrame,
 } from '@/lib/recording/snapshot-targeting';
 import {
-  createStepFrameRelayLimiter,
-  findIframeForWindow,
   installSnapshotFrameFreeze,
   installStepFrameRecorder,
-  isStepFrameRelayClaimResult,
-  isStepFrameRelayMutationResult,
-  resolveRelayedStepFrameHop,
-  snapshotFrameScrollPingType,
-  stepFrameClickMessageType,
-  STEP_FRAME_CLICK_FAILSAFE_MS,
-  type RelayedStepFrameHop,
 } from '@/lib/recording/frame-relay';
 import { installRecorderLifecycle } from '@/lib/recording/recorder-lifecycle';
-import {
-  getHighlightBounds,
-  getVisibleHighlightBounds,
-  isInteractiveElement,
-} from '@/lib/capture/selector-utils';
-import { describeElement, replayClickWithSuppression } from '@/lib/capture/element-description';
-import {
-  isOutOfViewport,
-  readRegionScrollSnapshot,
-  readScrollSnapshot,
-} from '@/lib/capture/scroll-snapshot';
-import { createSnapshotShield, type SnapshotShield } from '@/lib/recording/snapshot-shield';
-import { createStepHoverPreview, type StepHoverPreview } from '@/lib/recording/step-hover-preview';
-import { createSnapshotSelectionSet } from '@/lib/recording/snapshot-selection-set';
-import {
-  createLateClickSuppressor,
-  createStepFollowupHandler,
-  orchestrateStepCapture,
-  type ScrollSnapshot,
-  type StepCaptureHandlers,
-} from '@/lib/capture/step-capture';
-import { createStepGestureQueue, type StepGesture, type StepGestureQueue } from '@/lib/capture/step-gesture-queue';
-import {
-  isInScrollbarGutter,
-  isMatchingSnapshotViewport,
-  isPointInAnyScrollGutter,
-} from '@/lib/recording/recording-guards';
-import {
-  snapshotRectKey,
-  type SnapshotShieldPointerDownMessage,
-  type SnapshotShieldPointerMoveMessage,
-  type SnapshotShieldPreviewResult,
-  type SnapshotShieldRect,
-  type SnapshotShieldRegionCaptureMessage,
-  type SnapshotShieldSelection,
-  type SnapshotShieldControlMessage,
-} from '@/lib/recording/snapshot-shield-protocol';
+import { createSnapshotShield } from '@/lib/recording/snapshot-shield';
+import { createSnapshotRecorder } from '@/lib/recording/content/snapshot-recorder';
 import { featureFlags } from '@/lib/shared/feature-flags';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
-import {
-  createRegionCapture,
-  isRegionRectInsideViewport,
-  type RegionCapture,
-} from '@/lib/capture/region-capture';
-import { mountRecordingToolbar, type MountedRecordingToolbar } from '@/lib/recording/recording-toolbar-host';
-import {
-  isClickCaptureResult,
-  isRecordingControlResult,
-  isRuntimeBoolean,
-  requireRuntimeMessageResult,
-} from '@/lib/runtime/runtime-message-result';
+import { isRuntimeBoolean, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { installRecaptureRecorder } from '@/lib/recording/recapture-recorder';
-import {
-  CAPTURE_FAILSAFE_MS,
-  CLEANUP_EVENT,
-  RECORDING_CHANNEL_LOST_MESSAGE,
-  RECORDING_CONTROL_TIMEOUT_MS,
-  SNAPSHOT_FREEZE_EVENTS,
-  STEP_FOLLOWUP_EVENTS,
-  STEP_LATE_CLICK_SUPPRESS_MS,
-} from '@/lib/recording/content-script-constants';
+import { createCaptureSender } from '@/lib/recording/content/capture-sender';
+import { createContentRecordingSession } from '@/lib/recording/content/recording-session';
+import { installStepRecorder } from '@/lib/recording/content/step-recorder';
+import { createToolbarChannel } from '@/lib/recording/content/toolbar-channel';
+import { CLEANUP_EVENT } from '@/lib/recording/content-script-constants';
 import type {
-  ClickCapture,
-  ClickCaptureResult,
   FrameTrailSnapshotActiveMessage,
   FrameTrailStopMessage,
-  RecordingControlMessage,
-  RecordingControlResult,
-  SnapshotInvalidatedMessage,
   SnapshotRecorderFailureMessage,
-  StepFrameRelayClaimMessage,
-  StepFrameRelaySettleMessage,
 } from '@/lib/runtime/messages';
-import type { RecordingState } from '@/lib/storage/recording-state';
 
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 export default defineContentScript({
@@ -148,744 +79,58 @@ export default defineContentScript({
     };
     const snapshotDevicePixelRatioContract = recordingState.snapshotDevicePixelRatio ?? window.devicePixelRatio;
 
-    let recorderPaused = recordingState.phase === 'paused';
-    let snapshotShield: SnapshotShield | null = null;
-    let manualRegionCapture: RegionCapture | null = null;
-    let recordingToolbar: MountedRecordingToolbar | null = null;
-    let snapshotInteractionsActive = false;
-    let snapshotInvalidationSent = recordingState.phase === 'invalidated';
-    let snapshotDprQuery: MediaQueryList | null = null;
-    let hoverPreview: StepHoverPreview | null = null;
-    // Set by installStepRecorder() so pause/teardown outside its closure
-    // (onRecordingStateChange below) can reach the backlog.
-    let stepGestureQueue: StepGestureQueue | null = null;
-    const snapshotSelection = createSnapshotSelectionSet();
-
-    const readSnapshotViewport = (): ClickCapture['viewport'] => ({
-      width: window.innerWidth,
-      height: window.innerHeight,
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-    });
-    const notifySnapshotInvalidated = (force = false) => {
-      if (!shouldFreezeSnapshot || !snapshotInteractionsActive || snapshotInvalidationSent) return;
-      const viewport = readSnapshotViewport();
-      if (
-        // A child-frame scroll shifts pixels without moving the top viewport,
-        // so a forced invalidation must not be masked by a matching contract.
-        !force &&
-        isMatchingSnapshotViewport(
-          snapshotViewportContract,
-          snapshotDevicePixelRatioContract,
-          viewport,
-          window.devicePixelRatio,
-        )
-      ) {
-        return;
-      }
-      snapshotInvalidationSent = true;
-      snapshotInteractionsActive = false;
-      void browser.runtime.sendMessage({
-        type: 'SNAPSHOT_INVALIDATED',
-        runId,
-        viewport,
-        devicePixelRatio: window.devicePixelRatio,
-      } satisfies SnapshotInvalidatedMessage).catch((error) => {
-        console.error('[frametrail] failed to invalidate changed snapshot viewport', error);
-      });
-    };
-    const onSnapshotDprChange = () => {
-      notifySnapshotInvalidated();
-      snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
-      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
-    };
-
-    const sendCapture = async (
-      rect: SnapshotShieldRect,
-      target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
-      intent: ClickCapture['intent'],
-      now: number,
-      captureId: string = crypto.randomUUID(),
-      captureKind: ClickCapture['captureKind'] = 'element',
-    ): Promise<boolean> => {
-      const payload: ClickCapture = {
-        type: 'FRAME_TRAIL_CLICK',
-        captureKind,
-        captureId,
-        runId,
-        rect,
-        devicePixelRatio: window.devicePixelRatio,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          scrollX: window.scrollX,
-          scrollY: window.scrollY,
-        },
-        text: target.text,
-        tagName: target.tagName,
-        intent,
-        url: location.href,
-        timestamp: now,
-      };
-      const result = requireRuntimeMessageResult<ClickCaptureResult>(
-        await browser.runtime.sendMessage(payload),
-        isClickCaptureResult,
-        '截圖服務回應格式無效，請重新整理頁面後再試一次。',
-      );
-      if (result.ok) return true;
-      console.warn('[frametrail] step was not captured:', result.error);
-      return false;
-    };
-
-    // The background's itemCount is the single source of truth for how many
-    // annotations the current snapshot holds (it resets per snapshot and moves
-    // on undo/restore). Deriving labels from it keeps overlay numbering
-    // correct even when a capture response is lost after the background
-    // already committed the step.
-    const readAuthoritativeAnnotationCount = async (): Promise<number | null> => {
-      try {
-        const state = await getRecordingState();
-        return state.operation === 'recording' && state.runId === runId ? state.itemCount : null;
-      } catch {
-        return null;
-      }
-    };
-
-    /** 回傳已提交標註的權威 1-based 編號。 */
-    const commitSnapshotAnnotation = async (
-      rect: SnapshotShieldRect,
-      target: Pick<ResolvedSnapshotTarget, 'text' | 'tagName'>,
-      captureKind: ClickCapture['captureKind'],
-      now: number,
-    ): Promise<number | null> => {
-      const before = (await readAuthoritativeAnnotationCount()) ?? 0;
-      try {
-        if (!(await sendCapture(rect, target, 'mark', now, crypto.randomUUID(), captureKind))) return null;
-        return (await readAuthoritativeAnnotationCount()) ?? before + 1;
-      } catch (error) {
-        // The response was lost after the background may already have
-        // committed the step; the durable recording state decides which of
-        // the two actually happened, so labels cannot drift off-by-one.
-        console.warn('[frametrail] snapshot capture response was lost; reconciling with recording state', error);
-        const after = await readAuthoritativeAnnotationCount();
-        return after !== null && after > before ? after : null;
-      }
-    };
-
-    const onSnapshotHover = async (
-      point: SnapshotShieldPointerMoveMessage,
-    ): Promise<SnapshotShieldPreviewResult> => {
-      const shield = snapshotShield;
-      if (!shield || !shouldFreezeSnapshot || !snapshotInteractionsActive) return { rect: null };
-      const target = await shield.runWithoutShield(() =>
-        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY),
-      );
-      if (!snapshotInteractionsActive || !target || snapshotSelection.isSelected(target)) {
-        return { rect: null };
-      }
-      return { rect: target.rect };
-    };
-
-    const onSnapshotPoint = async (
-      point: SnapshotShieldPointerDownMessage,
-    ): Promise<SnapshotShieldSelection | null> => {
-      const shield = snapshotShield;
-      if (!shield || !shouldFreezeSnapshot || !snapshotInteractionsActive) return null;
-      const target = await shield.runWithoutShield(() =>
-        resolveSnapshotTargetAtPoint(runId, point.clientX, point.clientY),
-      );
-      const now = Date.now();
-      if (!snapshotInteractionsActive || !target) return null;
-      if (snapshotSelection.isSelected(target)) return null;
-      const label = await commitSnapshotAnnotation(target.rect, target, 'element', now);
-      if (label === null) return null;
-      snapshotSelection.add(target);
-      return {
-        rect: target.rect,
-        label: recordingState.numbered ? label : null,
-      };
-    };
-
-    const onSnapshotRegion = async (
-      message: SnapshotShieldRegionCaptureMessage,
-    ): Promise<SnapshotShieldSelection | null> => {
-      if (!snapshotInteractionsActive) return null;
-      const viewport = { width: window.innerWidth, height: window.innerHeight };
-      if (!isRegionRectInsideViewport(message.rect, viewport)) return null;
-      if (snapshotSelection.hasRect(message.rect)) return null;
-
-      const target: ResolvedSnapshotTarget = {
-        rect: message.rect,
-        identity: `region:${snapshotRectKey(message.rect)}`,
-        text: '',
-        tagName: 'region',
-      };
-      const label = await commitSnapshotAnnotation(message.rect, target, 'region', Date.now());
-      if (label === null) return null;
-      if (!snapshotInteractionsActive) return null;
-      snapshotSelection.add(target);
-      return {
-        rect: message.rect,
-        label: recordingState.numbered ? label : null,
-      };
-    };
-
-    const onSnapshotControl = async (
-      message: SnapshotShieldControlMessage,
-    ): Promise<RecordingControlResult> => {
-      const result = await sendToolbarCommand(message.action, message.undoToken);
-      if (!result.ok) return result;
-
-      // Undo/restore is DELIBERATELY tracked in three lockstep layers keyed by
-      // the same background result: this recorder's selection set (dedup of
-      // future clicks), the shield channel's committedSelections
-      // (snapshot-shield.ts handleControl), and the shield page's overlay
-      // stack (snapshot-shield/overlay.ts undo/commit). All three must pop and
-      // push together or duplicate detection and the drawn annotations drift.
-      if (message.action === 'UNDO_LAST_CAPTURE') {
-        snapshotSelection.undoLast();
-      } else if (message.action === 'RESTORE_LAST_CAPTURE') {
-        snapshotSelection.restoreUndone();
-      }
-      return result;
-    };
-
-    const toToolbarState = (state: RecordingState) => ({
+    const session = createContentRecordingSession({
       runId,
-      mode: state.mode,
-      phase: state.phase,
-      itemCount: state.itemCount,
-      error: state.recoverableError?.message ?? state.error,
+      numbered: recordingState.numbered,
+      paused: recordingState.phase === 'paused',
     });
-    const sendToolbarCommand = async (
-      action: RecordingControlMessage['type'],
-      undoToken?: string,
-    ): Promise<RecordingControlResult> => {
-      const command = (async () =>
-        requireRuntimeMessageResult<RecordingControlResult>(
-          await browser.runtime.sendMessage({
-            type: action,
-            runId,
-            ...(undoToken ? { undoToken } : {}),
-          } satisfies RecordingControlMessage),
-          isRecordingControlResult,
-          RECORDING_CHANNEL_LOST_MESSAGE,
-        ))();
-      // A hung background must not wedge the in-page toolbar forever: surface
-      // the channel-failure error after the shared control budget (the same
-      // one the shield toolbar uses), so controls re-enable and the user sees
-      // what went wrong.
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      try {
-        return await Promise.race([
-          command,
-          new Promise<RecordingControlResult>((resolve) => {
-            timeout = setTimeout(
-              () => resolve({ ok: false, error: RECORDING_CHANNEL_LOST_MESSAGE }),
-              RECORDING_CONTROL_TIMEOUT_MS,
-            );
-          }),
-        ]);
-      } finally {
-        if (timeout) clearTimeout(timeout);
-        // A late settlement after the timeout must not surface as unhandled.
-        command.catch(() => undefined);
-      }
-    };
+    const capture = createCaptureSender(runId);
+    const toolbar = createToolbarChannel(runId);
+    const snapshot = createSnapshotRecorder({
+      session,
+      capture,
+      toolbar,
+      freezePage: shouldFreezeSnapshot,
+      viewportContract: snapshotViewportContract,
+      devicePixelRatioContract: snapshotDevicePixelRatioContract,
+      initialToolbarState: toolbar.toToolbarState(recordingState),
+      invalidatedAtStart: recordingState.phase === 'invalidated',
+    });
 
-    const installStepRecorder = (): (() => void) => {
-      const gestureQueue = createStepGestureQueue();
-      stepGestureQueue = gestureQueue;
-      const lateClickSuppressor = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
-      // While a capture is in flight the stored rect is pinned to this scroll
-      // position, so the screenshot pixels always match it. Null when idle.
-      let captureScrollLock: ScrollSnapshot | null = null;
-      const lockedScrollElements = new Set<Element>();
-
-      const preview = createStepHoverPreview({
-        isPaused: () => recorderPaused,
-        isGestureActive: () => gestureQueue.isBusy(),
-        isRegionCaptureActive: () => manualRegionCapture?.isActive() ?? false,
-      });
-      hoverPreview = preview;
-
-      const onStepScroll = () => {
-        // A queued capture is pinned to one viewport and every nested scrollport.
-        // Snap any user scroll back so the eventual screenshot pixels still match
-        // the stored rect; otherwise fall through to refresh the hover preview.
-        if (captureScrollLock) {
-          let changed = window.scrollX !== captureScrollLock.x || window.scrollY !== captureScrollLock.y;
-          if (changed) window.scrollTo(captureScrollLock.x, captureScrollLock.y);
-          for (const container of captureScrollLock.containers ?? []) {
-            if (container.element.scrollLeft !== container.x || container.element.scrollTop !== container.y) {
-              container.element.scrollLeft = container.x;
-              container.element.scrollTop = container.y;
-              changed = true;
-            }
-          }
-          if (changed) return;
-        }
-        preview.schedule();
-      };
-
-      const setCaptureScrollLock = (lock: ScrollSnapshot | null) => {
-        for (const element of lockedScrollElements) {
-          element.removeEventListener('scroll', onStepScroll);
-        }
-        lockedScrollElements.clear();
-        captureScrollLock = lock;
-        for (const container of lock?.containers ?? []) {
-          container.element.addEventListener('scroll', onStepScroll, { passive: true });
-          lockedScrollElements.add(container.element);
-        }
-      };
-
-      /** Builds the orchestrateStepCapture handler set shared by the local
-       * element path and the relayed child-frame path; only the capture and
-       * replay actions differ between the two. */
-      const makeStepOrchestrationHandlers = (
-        gesture: StepGesture,
-        scrollTarget: Element,
-        actions: Pick<StepCaptureHandlers, 'capture' | 'replay'>,
-      ): StepCaptureHandlers => ({
-        failsafeMs: CAPTURE_FAILSAFE_MS,
-        cancelled: gesture.cancelled,
-        readScroll: () => readScrollSnapshot(scrollTarget),
-        hidePreview: () => preview.prepareForCapture(),
-        capture: actions.capture,
-        cancelCapture: async () => {
-          gesture.cancel();
-          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId: gesture.captureId });
-        },
-        endGesture: () => {
-          // Capture window closed: stop swallowing page events. The scroll pin
-          // stays installed until restoreScroll has copied every ancestor back.
-          gesture.release();
-        },
-        restoreScroll: (origin) => {
-          setCaptureScrollLock(null);
-          if (window.scrollX !== origin.x || window.scrollY !== origin.y) {
-            window.scrollTo(origin.x, origin.y);
-          }
-          for (const container of origin.containers ?? []) {
-            container.element.scrollLeft = container.x;
-            container.element.scrollTop = container.y;
-          }
-        },
-        replay: actions.replay,
-        resumePreview: () => preview.schedule(),
-      });
-
-      const startStepRegionCapture = () => {
-        if (recorderPaused || gestureQueue.isBusy() || manualRegionCapture?.isActive()) return;
-        preview.suspend();
-        const captureId = crypto.randomUUID();
-        let captureSent = false;
-        const origin: ScrollSnapshot = { x: window.scrollX, y: window.scrollY, containers: [] };
-        setCaptureScrollLock(origin);
-
-        const controller = createRegionCapture({
-          onCapture: async (rect) => {
-            captureSent = true;
-            // The drag settled on a concrete rect: extend the window-only pin to
-            // every scrollable container intersecting it, mirroring the element
-            // path, so nested programmatic scrolls cannot shift the pixels while
-            // the screenshot is in flight.
-            setCaptureScrollLock({ ...readRegionScrollSnapshot(rect), x: origin.x, y: origin.y });
-            let timeout: ReturnType<typeof setTimeout> | undefined;
-            const outcome = await Promise.race([
-              sendCapture(
-                rect,
-                { text: '', tagName: 'region' },
-                'mark',
-                Date.now(),
-                captureId,
-                'region',
-              ).then((saved) => ({ kind: 'settled' as const, saved })),
-              new Promise<{ kind: 'timeout'; saved: false }>((resolve) => {
-                timeout = setTimeout(() => resolve({ kind: 'timeout', saved: false }), CAPTURE_FAILSAFE_MS);
-              }),
-            ]);
-            if (timeout) clearTimeout(timeout);
-            if (outcome.kind === 'timeout') {
-              await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId });
-              console.warn('[frametrail] region capture exceeded its failsafe budget and was cancelled');
-            }
-          },
-          onCancel: async () => {
-            if (!captureSent) return;
-            await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId, captureId });
-          },
-          onClose: () => {
-            if (manualRegionCapture === controller) manualRegionCapture = null;
-            setCaptureScrollLock(null);
-            recordingToolbar?.setRegionCaptureActive(false);
-            preview.schedule();
-          },
-        });
-        manualRegionCapture = controller;
-        recordingToolbar?.setRegionCaptureActive(true);
-      };
-
-      const captureElement = async (
-        el: Element,
-        initialClientX: number,
-        initialClientY: number,
-        intent: ClickCapture['intent'],
-        now: number,
-        captureId: string,
-        shouldCancel: () => boolean,
-      ): Promise<boolean> => {
-        try {
-          let clientX = initialClientX;
-          let clientY = initialClientY;
-          let rect = getHighlightBounds(el, clientX, clientY);
-          if (!rect) return false;
-
-          if (isOutOfViewport(rect)) {
-            const before = el.getBoundingClientRect();
-            el.scrollIntoView({ block: 'center', behavior: 'instant' });
-            await waitForNextFrame();
-            if (shouldCancel()) return false;
-            const after = el.getBoundingClientRect();
-            clientX += after.left - before.left;
-            clientY += after.top - before.top;
-            rect = getHighlightBounds(el, clientX, clientY);
-            if (!rect) return false;
-          }
-          rect = getVisibleHighlightBounds(el, clientX, clientY);
-          if (!rect) return false;
-          if (shouldCancel()) return false;
-
-          // Pin scrolling from here until the screenshot actually lands so nothing
-          // shifts the pixels out from under this rect (auto-scroll included).
-          setCaptureScrollLock(readScrollSnapshot(el));
-          return sendCapture(
-            rect,
-            { text: describeElement(el), tagName: el.tagName.toLowerCase() },
-            intent,
-            now,
-            captureId,
-          );
-        } catch (err) {
-          console.error('[frametrail] sendMessage failed', err);
-          return false;
-        }
-      };
-
-      const onPointerDown = (event: Event) => {
-        const pe = event as PointerEvent;
-        if (!pe.isTrusted || pe.button !== 0 || !pe.isPrimary) return;
-        // Trusted events are ordered: the previous gesture's trailing click (if
-        // any) has already been dispatched before a new trusted press arrives.
-        // Disarming here keeps a rapid second click on the same element from
-        // being swallowed after the dedup window declines to capture it.
-        if (pe.isTrusted) lateClickSuppressor.onTrustedPointerDown();
-        if (recorderPaused || manualRegionCapture?.isActive()) return;
-        if (pe.target instanceof Element && pe.target.closest('[data-frametrail-recording-toolbar]')) return;
-
-        // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
-        // step: leave it untouched so the drag scrolls and no bogus step lands.
-        if (isInScrollbarGutter(pe.clientX, pe.clientY, document.documentElement)) return;
-        if (isPointInAnyScrollGutter(pe.clientX, pe.clientY)) return;
-
-        // Resolved through the preview so the captured element is exactly the
-        // box the highlight was showing when the user pressed.
-        const el = preview.resolveTargetAt(pe.clientX, pe.clientY);
-        if (!el) return;
-
-        const now = Date.now();
-        const clientX = pe.clientX;
-        const clientY = pe.clientY;
-
-        // Event dispatch never waits for an async listener. Stop the original
-        // gesture synchronously regardless of whether it can start right away
-        // or has to wait its turn behind an earlier one still capturing; it is
-        // replayed once that turn comes either way.
-        pe.preventDefault();
-        pe.stopImmediatePropagation();
-
-        gestureQueue.enqueue({
-          captureId: crypto.randomUUID(),
-          validate: () => el.isConnected,
-          onSkipped: () => replayClickWithSuppression(el, lateClickSuppressor),
-          start: async (gesture) => {
-            preview.suspend();
-            const outcome = await orchestrateStepCapture(
-              makeStepOrchestrationHandlers(gesture, el, {
-                capture: () =>
-                  captureElement(
-                    el,
-                    clientX,
-                    clientY,
-                    isInteractiveElement(el) ? 'click' : 'mark',
-                    now,
-                    gesture.captureId,
-                    gesture.isCancelled,
-                  ),
-                replay: () => replayClickWithSuppression(el, lateClickSuppressor),
-              }),
-            );
-            if (outcome === 'timeout') {
-              console.warn('[frametrail] capture exceeded its failsafe budget; invalidated it before replaying the click');
-            }
-          },
-        });
-      };
-
-      // Clicks inside child frames never bubble into this document. Instrumented
-      // child frames authenticate each trusted press with the background, then
-      // relay only a one-time token and hop-local geometry through postMessage.
-      // This top-frame handler must consume that authorization before capture;
-      // page scripts can forge the public hop but cannot mint a valid token.
-      const stepFrameClickType = stepFrameClickMessageType(browser.runtime.id);
-      const stepFrameRelayLimiter = createStepFrameRelayLimiter();
-
-      /** Runs one relayed hop's CLAIM -> orchestrate -> settle chain. The CLAIM
-       * round-trip (and the background's 10s claim TTL it starts) is
-       * deliberately made here, at the moment this hop's turn in the queue
-       * actually comes, rather than eagerly when the hop first arrived —
-       * otherwise a backlog ahead of it would burn down that TTL before it
-       * ever gets used. */
-      const runRelayedFrameGesture = async (gesture: StepGesture, relayed: RelayedStepFrameHop): Promise<void> => {
-        let claimResult: unknown;
-        try {
-          claimResult = await browser.runtime.sendMessage({
-            type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
-            runId,
-            captureId: relayed.payload.captureId,
-            relayToken: relayed.payload.relayToken,
-          } satisfies StepFrameRelayClaimMessage);
-        } catch {
-          gesture.release();
-          return;
-        }
-        if (!isStepFrameRelayClaimResult(claimResult) || !claimResult.ok) {
-          gesture.release();
-          return;
-        }
-
-        let settlementStarted = false;
-        const settleRelay = async (replay: boolean) => {
-          if (settlementStarted) return;
-          settlementStarted = true;
-          try {
-            const result: unknown = await browser.runtime.sendMessage({
-              type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
-              runId,
-              captureId: relayed.payload.captureId,
-              settleToken: claimResult.settleToken,
-              replay,
-            } satisfies StepFrameRelaySettleMessage);
-            if (!isStepFrameRelayMutationResult(result) || !result.ok) {
-              console.warn('[frametrail] child-frame relay settlement was rejected');
-            }
-          } catch {
-            // The child frame's local failsafe releases the gesture if the
-            // background worker disappears before settlement is delivered.
-          }
-        };
-
-        try {
-          const rect = relayed.rect;
-          if (!rect || recorderPaused || manualRegionCapture?.isActive()) {
-            gesture.release();
-            await settleRelay(false);
-            return;
-          }
-          const now = Date.now();
-          preview.suspend();
-          let replayConfirmed = false;
-          const outcome = await orchestrateStepCapture(
-            makeStepOrchestrationHandlers(gesture, relayed.frame, {
-              capture: () => {
-                // Pin the iframe's scrollable ancestor chain exactly like the
-                // element path so the screenshot pixels match the relayed rect.
-                setCaptureScrollLock(readScrollSnapshot(relayed.frame));
-                return sendCapture(
-                  rect,
-                  { text: claimResult.target.text, tagName: claimResult.target.tagName },
-                  claimResult.target.interactive ? 'click' : 'mark',
-                  now,
-                  gesture.captureId,
-                );
-              },
-              replay: () => {
-                // Settlement returns over extension runtime directly to the
-                // originating child frame, preserving capture-before-replay.
-                replayConfirmed = true;
-                void settleRelay(true);
-              },
-            }),
-          );
-          if (!replayConfirmed) await settleRelay(false);
-          if (outcome === 'timeout') {
-            console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
-          }
-        } catch (error) {
-          gesture.release();
-          await settleRelay(false);
-          console.warn('[frametrail] child-frame relay handling failed', error);
-        }
-      };
-
-      const onStepFrameClickMessage = (event: MessageEvent) => {
-        const relayed = resolveRelayedStepFrameHop(event, stepFrameClickType, stepFrameRelayLimiter);
-        if (!relayed) return;
-
-        gestureQueue.enqueue({
-          captureId: relayed.payload.captureId,
-          // The sending child frame armed its own STEP_FRAME_CLICK_FAILSAFE_MS
-          // budget the moment ITS gesture began, and nothing here can pause
-          // that clock. If this hop has already sat in the backlog long enough
-          // to blow that budget, the child has already given up and replayed
-          // on its own — attempting a claim now would only earn a rejected
-          // settlement for a hop nobody is waiting on anymore.
-          validate: () =>
-            Boolean(relayed.rect) &&
-            !recorderPaused &&
-            !manualRegionCapture?.isActive() &&
-            Date.now() - relayed.payload.originTimestamp < STEP_FRAME_CLICK_FAILSAFE_MS,
-          onSkipped: () => {
-            console.warn('[frametrail] skipped a relayed step-frame hop that went stale while queued');
-          },
-          start: (gesture) => runRelayedFrameGesture(gesture, relayed),
-        });
-      };
-
-      const onStepFollowup = createStepFollowupHandler(lateClickSuppressor, {
-        isActive: () => gestureQueue.isBusy(),
-        cancel: () => gestureQueue.cancelActive(),
-      });
-
-      window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
-      window.addEventListener('pointerout', preview.handlers.onPointerOut, { capture: true, passive: true });
-      window.addEventListener('pointerleave', preview.handlers.onPointerLeave, { capture: true, passive: true });
-      window.addEventListener('scroll', onStepScroll, { capture: true, passive: true });
-      window.addEventListener('scrollend', preview.schedule, { capture: true, passive: true });
-      window.addEventListener('resize', preview.schedule, { passive: true });
-      window.addEventListener('message', onStepFrameClickMessage);
-      document.addEventListener('visibilitychange', preview.handlers.onVisibilityChange);
-      document.addEventListener('pointerdown', onPointerDown, { capture: true });
-      for (const type of STEP_FOLLOWUP_EVENTS) {
-        document.addEventListener(type, onStepFollowup, { capture: true });
-      }
-
-      recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
-        onCommand: sendToolbarCommand,
-        onStartRegionCapture: startStepRegionCapture,
-      });
-
-      // The toolbar and hover preview mounted above are shared, module-level
-      // resources: cleanup() owns their removal (recordingToolbar?.remove(),
-      // hoverPreview?.destroy()); this uninstaller only detaches listeners.
-      return () => {
-        document.removeEventListener('pointerdown', onPointerDown, { capture: true });
-        window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
-        window.removeEventListener('pointerout', preview.handlers.onPointerOut, { capture: true });
-        window.removeEventListener('pointerleave', preview.handlers.onPointerLeave, { capture: true });
-        window.removeEventListener('scroll', onStepScroll, { capture: true });
-        window.removeEventListener('scrollend', preview.schedule, { capture: true });
-        window.removeEventListener('resize', preview.schedule);
-        window.removeEventListener('message', onStepFrameClickMessage);
-        document.removeEventListener('visibilitychange', preview.handlers.onVisibilityChange);
-        for (const type of STEP_FOLLOWUP_EVENTS) {
-          document.removeEventListener(type, onStepFollowup, { capture: true });
-        }
-        // Matches the pre-queue behavior for whatever is actively capturing:
-        // just cancel it (its own settle path decides what that means) rather
-        // than forcing an early resolution. purgePending() is the actual fix
-        // here — it replays every queued-but-not-started press (already
-        // preventDefault()'d at pointerdown time) without recording it,
-        // instead of leaving it to hang.
-        gestureQueue.cancelActive();
-        gestureQueue.purgePending();
-        if (stepGestureQueue === gestureQueue) stepGestureQueue = null;
-        lateClickSuppressor.clear();
-        setCaptureScrollLock(null);
-      };
-    };
-
-    /** Installs the snapshot-mode page instrumentation and returns its
-     * uninstaller: freeze listeners while a frozen snapshot is being
-     * annotated, or the in-page toolbar while the next snapshot is prepared.
-     * The input shield itself is created later, after the cleanup spine
-     * exists (its failure handler tears the whole recorder down). */
-    const installSnapshotRecorder = (): (() => void) => {
-      if (!shouldFreezeSnapshot) {
-        // phase === 'preparing-next': the page stays live; only the floating
-        // toolbar is injected so the user can create the next snapshot.
-        recordingToolbar = mountRecordingToolbar(toToolbarState(recordingState), {
-          onCommand: sendToolbarCommand,
-        });
-        // cleanup() owns the toolbar's removal (recordingToolbar?.remove()).
-        return () => {};
-      }
-
-      const onSnapshotFreeze = (event: Event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      };
-      const onSnapshotScroll = () => notifySnapshotInvalidated();
-      const onSnapshotResize = () => notifySnapshotInvalidated();
-      const snapshotScrollPing = snapshotFrameScrollPingType(browser.runtime.id);
-      const onSnapshotFramePing = (event: MessageEvent) => {
-        if ((event.data as { type?: unknown } | null)?.type !== snapshotScrollPing) return;
-        // Only a window that is actually one of this document's iframes may
-        // invalidate; page scripts in this frame post with this window as their
-        // source and never match.
-        if (!findIframeForWindow(event.source)) return;
-        notifySnapshotInvalidated(true);
-      };
-      for (const type of SNAPSHOT_FREEZE_EVENTS) {
-        window.addEventListener(type, onSnapshotFreeze, { capture: true, passive: false });
-      }
-      window.addEventListener('scroll', onSnapshotScroll, { capture: true, passive: true });
-      window.addEventListener('resize', onSnapshotResize, { passive: true });
-      window.addEventListener('message', onSnapshotFramePing);
-      snapshotDprQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      snapshotDprQuery.addEventListener('change', onSnapshotDprChange);
-
-      return () => {
-        for (const type of SNAPSHOT_FREEZE_EVENTS) {
-          window.removeEventListener(type, onSnapshotFreeze, { capture: true });
-        }
-        window.removeEventListener('scroll', onSnapshotScroll, { capture: true });
-        window.removeEventListener('resize', onSnapshotResize);
-        window.removeEventListener('message', onSnapshotFramePing);
-        snapshotDprQuery?.removeEventListener('change', onSnapshotDprChange);
-        snapshotDprQuery = null;
-      };
-    };
-
-    const uninstallModeRecorder = isStepMode ? installStepRecorder() : installSnapshotRecorder();
+    const uninstallModeRecorder = isStepMode
+      ? installStepRecorder({
+          session,
+          capture,
+          toolbar,
+          initialToolbarState: toolbar.toToolbarState(recordingState),
+        })
+      : snapshot.install();
 
     const unsubscribeRecordingState = onRecordingStateChange((state) => {
       if (state.runId !== runId) return;
-      const wasPaused = recorderPaused;
-      recorderPaused = state.phase === 'paused';
+      const wasPaused = session.paused;
+      session.paused = state.phase === 'paused';
       if (isSnapshotMode) {
-        snapshotInteractionsActive = state.phase === 'recording';
-        if (state.phase === 'invalidated') snapshotInvalidationSent = true;
+        snapshot.setInteractionsActive(state.phase === 'recording');
+        if (state.phase === 'invalidated') snapshot.markInvalidationSent();
       }
-      if (recorderPaused) {
-        hoverPreview?.suspend();
+      if (session.paused) {
+        session.hoverPreview?.suspend();
         // Anything still waiting its turn hasn't started capturing yet, so
         // there is nothing to undo — just let its already-prevented click
         // through without recording it. The gesture actively capturing (if
         // any) is left alone and finishes normally, matching today's pause
         // behavior for it.
-        stepGestureQueue?.purgePending();
+        session.gestureQueue?.purgePending();
       } else if (wasPaused && isStepMode) {
         // Resume must bring the hover highlight back at the last known pointer
         // position instead of waiting for the next pointer move.
-        hoverPreview?.schedule();
-        hoverPreview?.armFallback();
+        session.hoverPreview?.schedule();
+        session.hoverPreview?.armFallback();
       }
-      if (state.phase !== 'recording') manualRegionCapture?.cancel('removed');
-      recordingToolbar?.update(toToolbarState(state));
-      snapshotShield?.updateToolbar(toToolbarState(state));
+      if (state.phase !== 'recording') session.regionCapture?.cancel('removed');
+      session.toolbar?.update(toolbar.toToolbarState(state));
+      session.shield?.updateToolbar(toolbar.toToolbarState(state));
     });
 
     // Navigating away freezes this document in the back/forward cache with all
@@ -906,8 +151,8 @@ export default defineContentScript({
         return;
       }
       if (message?.type === 'FRAME_TRAIL_SNAPSHOT_ACTIVE' && message.runId === runId) {
-        snapshotInteractionsActive = true;
-        notifySnapshotInvalidated();
+        snapshot.setInteractionsActive(true);
+        snapshot.notifyInvalidated();
         return Promise.resolve(true);
       }
       return undefined;
@@ -915,14 +160,14 @@ export default defineContentScript({
 
     const cleanup = () => {
       uninstallModeRecorder();
-      manualRegionCapture?.cancel('removed');
-      manualRegionCapture = null;
-      snapshotShield?.remove();
-      snapshotShield = null;
-      recordingToolbar?.remove();
-      recordingToolbar = null;
-      hoverPreview?.destroy();
-      hoverPreview = null;
+      session.regionCapture?.cancel('removed');
+      session.regionCapture = null;
+      session.shield?.remove();
+      session.shield = null;
+      session.toolbar?.remove();
+      session.toolbar = null;
+      session.hoverPreview?.destroy();
+      session.hoverPreview = null;
       document.removeEventListener(CLEANUP_EVENT, cleanup);
       browser.runtime.onMessage.removeListener(onRecorderMessage);
       unsubscribeRecordingState();
@@ -932,13 +177,13 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(onRecorderMessage);
 
     if (shouldFreezeSnapshot) {
-      snapshotShield = createSnapshotShield(
-        onSnapshotPoint,
-        onSnapshotHover,
-        onSnapshotControl,
-        onSnapshotRegion,
+      session.shield = createSnapshotShield(
+        snapshot.handlers.onPoint,
+        snapshot.handlers.onHover,
+        snapshot.handlers.onControl,
+        snapshot.handlers.onRegion,
         async () => {
-          snapshotInteractionsActive = false;
+          snapshot.setInteractionsActive(false);
           cleanup();
           try {
             await browser.runtime.sendMessage({
@@ -952,12 +197,12 @@ export default defineContentScript({
         },
       );
       try {
-        await snapshotShield.ready;
-        snapshotShield.updateToolbar(toToolbarState(recordingState));
+        await session.shield.ready;
+        session.shield.updateToolbar(toolbar.toToolbarState(recordingState));
         if (featureFlags.snapshotKeyboardNav) {
           // Defer enumeration off the startup path so a large page cannot stall
           // the clean-base handoff (§9.5). The frozen page keeps anchors valid.
-          const shield = snapshotShield;
+          const shield = session.shield;
           const sendCandidates = () => {
             try {
               shield.sendKeyboardCandidates(collectKeyboardCandidateAnchors());

@@ -22,6 +22,7 @@ export function makeBackgroundMocks() {
     getGuide: vi.fn(),
     getStep: vi.fn(),
     getSteps: vi.fn(),
+    replaceStepCaptureAtomically: vi.fn(),
     addStep: vi.fn(),
     deleteStep: vi.fn(),
     deleteStepsForRun: vi.fn(),
@@ -127,6 +128,7 @@ export async function mockStepRepositoryModule(
       for (const step of steps) await mocks.addStep(step);
     },
     deleteStep: mocks.deleteStep,
+    replaceStepCaptureAtomically: mocks.replaceStepCaptureAtomically,
     ...overrides,
   };
 }

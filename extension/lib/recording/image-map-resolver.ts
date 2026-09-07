@@ -1,9 +1,7 @@
 import { findImageMapAreaAtPoint } from '../capture/image-map-geometry';
-import {
-  getVisibleHighlightBounds,
-  isElementVisuallyUnavailable,
-  isInteractiveElement,
-} from '../capture/selector-utils';
+import { isElementVisuallyUnavailable } from '../capture/selector/element-availability';
+import { getVisibleHighlightBounds } from '../capture/selector/highlight-bounds';
+import { isInteractiveElement } from '../capture/selector/interactive-element';
 
 export {
   findImageForArea,

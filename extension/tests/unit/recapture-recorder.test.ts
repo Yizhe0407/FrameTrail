@@ -51,7 +51,8 @@ vi.mock('@/lib/recording/recording-guards', () => ({
   isInScrollableElementGutter: () => false,
   isPointInAnyScrollGutter: () => false,
 }));
-vi.mock('@/lib/capture/selector-utils', () => ({
+vi.mock('@/lib/capture/selector/element-availability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/capture/selector/element-availability')>()),
   deepElementFromPoint: () => null,
   getComposedParent: () => null,
 }));
