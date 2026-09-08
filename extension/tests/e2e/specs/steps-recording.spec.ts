@@ -31,7 +31,7 @@ test.describe('step recording', () => {
 
     const preview = await getStepPreviewStyle(appPage);
     expect(preview.hidden).toBe(false);
-    expect(preview.style).toContain('border: 2px solid rgb(255, 71, 71)');
+    expect(preview.style).toContain('border: 4px solid rgb(255, 71, 71)');
     expect(preview.style).toContain('box-shadow: none');
 
     await clickTarget(appPage, '#plain-text');

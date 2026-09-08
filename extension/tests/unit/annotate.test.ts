@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/capture/raster-image-validation', () => ({
   validateRasterImageBlob: vi.fn().mockResolvedValue({ width: 100, height: 100, mediaType: 'image/png' }),
 }));
-import { BADGE_RADIUS, LEADER_LINE_WIDTH, MARKER_RADIUS, REDACTION_COLOR, REDACTION_EXPANSION, type AnnotationLayout } from '@/lib/media/annotation-contract';
+import { BADGE_RADIUS, HIGHLIGHT_PADDING, LEADER_LINE_WIDTH, MARKER_RADIUS, REDACTION_COLOR, REDACTION_EXPANSION, type AnnotationLayout } from '@/lib/media/annotation-contract';
 import { compositeHighlight, compositeMultiHighlight, getExpandedRedactionBounds } from '@/lib/media/annotation-composite';
 import { getBadgeFontSize } from '@/lib/media/annotation-geometry';
 import { layoutAnnotations } from '@/lib/media/annotation-layout';
@@ -396,8 +396,8 @@ describe('layoutAnnotations', () => {
 
     expect(rectsOverlap(layouts[0].frame, layouts[1].frame)).toBe(false);
     expect(layouts[0].frame.y + layouts[0].frame.height).toBeLessThan(layouts[1].frame.y);
-    expect(layouts[0].frame.x).toBe(100 - 6);
-    expect(layouts[1].frame.x).toBe(100 - 6);
+    expect(layouts[0].frame.x).toBe(100 - HIGHLIGHT_PADDING);
+    expect(layouts[1].frame.x).toBe(100 - HIGHLIGHT_PADDING);
   });
 
   it('keeps a nested inner frame inside the container raw bounds', () => {

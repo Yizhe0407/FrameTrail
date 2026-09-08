@@ -1,8 +1,8 @@
 import type { Bounds } from '../storage/models';
 
-export const HIGHLIGHT_PADDING = 6;
-export const HIGHLIGHT_RADIUS = 6;
-export const HIGHLIGHT_LINE_WIDTH = 2;
+export const HIGHLIGHT_PADDING = 8;
+export const HIGHLIGHT_RADIUS = 8;
+export const HIGHLIGHT_LINE_WIDTH = 4;
 export const HIGHLIGHT_COLOR = '#ff4747';
 export const HIGHLIGHT_FILL_COLOR = 'rgba(255, 71, 71, 0.055)';
 export const HIGHLIGHT_PREVIEW_FILL_COLOR = 'rgba(255, 71, 71, 0.09)';

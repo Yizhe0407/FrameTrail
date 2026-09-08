@@ -36,7 +36,7 @@ const ZERO_COUNTERS: DetectionCounters = {
   paintedButtonClicks: 0,
   imageMapClicks: 0,
 };
-const SNAPSHOT_PREVIEW_PADDING = 6;
+const SNAPSHOT_PREVIEW_PADDING = 8;
 const IMAGE_MAP_REGION = { x: 32, y: 24, width: 96, height: 64 } as const;
 
 type AppPage = Parameters<typeof startRecording>[0];
