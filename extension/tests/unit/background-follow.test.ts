@@ -29,8 +29,7 @@ function recordingState(overrides: Partial<RecordingState> = {}): RecordingState
   });
 }
 
-/** The durable state the mocked storage serves; setRecordingState writes it so
- * follow-mode's read-validate-write cycle behaves like the real store. */
+/** The durable state the mocked storage serves; setRecordingState writes it so follow-mode's read-validate-write cycle behaves like the real store. */
 let storedState: RecordingState;
 
 const RECORDED_TAB = { id: 4, windowId: 1, active: false, url: 'https://example.com/flow' };
@@ -84,8 +83,7 @@ describe('follow-the-active-tab recording (steps mode)', () => {
       expect.objectContaining({ target: { tabId: 9, allFrames: true } }),
     );
     expect(mocks.tabsSendMessage).toHaveBeenCalledWith(4, { type: 'FRAME_TRAIL_STOP' });
-    // READY validation reads state.tabId, so the state write must precede the
-    // injection, and the old recorder must only stop after the new one is in.
+    // READY validation reads state.tabId, so the state write must precede injection, and the old recorder must only stop after the new one is in.
     const stateWriteOrder = mocks.setRecordingState.mock.invocationCallOrder[0];
     const injectOrder = mocks.executeScript.mock.invocationCallOrder[0];
     const stopOrder = mocks.tabsSendMessage.mock.invocationCallOrder[0];
@@ -166,8 +164,7 @@ describe('follow-the-active-tab recording (steps mode)', () => {
   it('abandons a stale follow when the run changes between the read and the state mutation', async () => {
     mocks.tabsGet.mockImplementation(async (tabId: number) => {
       if (tabId === 9) {
-        // A concurrent control settles the old run while the follow is still
-        // validating its target tab; the serialized mutation must notice.
+        // A concurrent control settles the old run while the follow is still validating its target tab; the serialized mutation must notice.
         storedState = recordingState({ runId: 'run-2', tabId: 4 });
         return OTHER_TAB;
       }
@@ -223,8 +220,7 @@ describe('follow-the-active-tab recording (steps mode)', () => {
 
     expect(storedState.tabId).toBe(4);
     expect(storedState.isRecording).toBe(true);
-    // The previous tab's recorder was never stopped, so no stop message and no
-    // user-facing error: the run simply stays where it was.
+    // The previous tab's recorder was never stopped, so no stop message and no user-facing error: the run simply stays where it was.
     expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
     expect(storedState.error).toBeNull();
   });

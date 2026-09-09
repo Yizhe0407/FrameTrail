@@ -158,8 +158,7 @@ describe('showExtensionPage', () => {
   });
 
   it('keeps the reused tab when only the window focus fails', async () => {
-    // The tab is already selected inside its window, so a closed window must
-    // never be read as a stale record and spawn a duplicate page.
+    // A closed window must not be read as a stale record and spawn a duplicate page.
     mocks.windowsUpdate.mockRejectedValue(new Error('No window with id: 4.'));
 
     await expect(

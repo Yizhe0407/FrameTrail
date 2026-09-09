@@ -31,9 +31,8 @@ export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
   async main() {
-    // Concurrent executeScript calls can both dispatch cleanup before either
-    // reaches its first await. The instance token makes only the latest one
-    // eligible to install listeners after reading storage.
+    // Concurrent executeScript calls can both dispatch cleanup before either reaches
+    // its first await; the instance token makes only the latest one install listeners.
     document.dispatchEvent(new CustomEvent(CLEANUP_EVENT));
     const instanceId = crypto.randomUUID();
     const instanceHost = globalThis as unknown as Record<string, unknown>;
@@ -58,9 +57,8 @@ export default defineContentScript({
     if (isSnapshotMode && window.top !== window) {
       if (shouldFreezeSnapshot) {
         installSnapshotFrameProbe(runId);
-        // The shield only covers the top viewport: before it is ready (and for
-        // frame-internal activity in general) each child must freeze itself and
-        // report pixel-shifting scrolls upward.
+        // The shield only covers the top viewport, so each child must freeze
+        // itself and report pixel-shifting scrolls upward.
         installSnapshotFrameFreeze();
       }
       return;
@@ -116,11 +114,8 @@ export default defineContentScript({
       }
       if (session.paused) {
         session.hoverPreview?.suspend();
-        // Anything still waiting its turn hasn't started capturing yet, so
-        // there is nothing to undo — just let its already-prevented click
-        // through without recording it. The gesture actively capturing (if
-        // any) is left alone and finishes normally, matching today's pause
-        // behavior for it.
+        // Pending gestures haven't started capturing, so there's nothing to undo;
+        // an already-active gesture is left alone and finishes normally.
         session.gestureQueue?.purgePending();
       } else if (wasPaused && isStepMode) {
         // Resume must bring the hover highlight back at the last known pointer
@@ -133,10 +128,9 @@ export default defineContentScript({
       session.shield?.updateToolbar(toolbar.toToolbarState(state));
     });
 
-    // Navigating away freezes this document in the back/forward cache with all
-    // recorder listeners intact; the shared lifecycle hands the keep-alive
-    // port back before the freeze and only resumes when this run is still the
-    // live one.
+    // Navigating away freezes this document in bfcache with recorder listeners
+    // intact; the shared lifecycle hands back the keep-alive port before the
+    // freeze and only resumes if this run is still live.
     const recorderLifecycle = installRecorderLifecycle({
       isRunCurrent: async () => {
         const state = await getRecordingState();
@@ -232,11 +226,9 @@ export default defineContentScript({
         ...(shouldFreezeSnapshot
           ? {
               snapshotContext: {
-                // Must be the exact object used as the local invalidation
-                // contract: re-reading the window here would let a scroll
-                // between injection and readiness give the background a
-                // different baseline than the one this recorder validates
-                // against.
+                // Must be the exact object used as the local invalidation contract;
+                // re-reading the window here could give the background a baseline
+                // that differs from the one this recorder validates against.
                 viewport: { ...snapshotViewportContract },
                 devicePixelRatio: snapshotDevicePixelRatioContract,
                 url: location.href,

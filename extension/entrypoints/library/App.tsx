@@ -36,8 +36,7 @@ import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 
 /** Derives the .frametrail archive name from the same stem the publication
- * exporters use, so the library and editor name files identically. The stem
- * helper itself is not exported, so strip the extension the facade appends. */
+ * exporters use; strips the extension the (unexported) stem helper's facade appends. */
 function exportFilename(title: string): string {
   const stem = guideExportFilename({ title }, 'html').replace(/\.html$/, '');
   return `${stem}.frametrail`;
@@ -77,10 +76,8 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    // Guides change from other surfaces (editor edits, popup resets, another
-    // library tab); storage exposes no guides-changed signal, so returning to
-    // the tab is the refresh trigger. This also shrinks the window in which a
-    // stale card title could seed an EditableTitle rename.
+    // Guides change from other surfaces (editor edits, popup resets, another library
+    // tab); storage has no guides-changed signal, so returning to this tab is the trigger.
     const refreshIfVisible = () => {
       if (document.visibilityState === 'visible') void refresh({ showLoading: false });
     };
@@ -144,9 +141,8 @@ export default function App() {
           tags: guide.tags,
         },
       });
-      // Queues through the downloads API and keeps the object URL alive until
-      // the transfer settles; a download that never starts rejects into the
-      // page-level alert below.
+      // Keeps the object URL alive until the download settles; a download that
+      // never starts rejects into the page-level alert below.
       await downloadBlobViaBrowser(blob, exportFilename(guide.title));
       toast.success(`「${guide.title}」的可編輯檔案已開始下載。`);
     }, { refreshAfter: false });
@@ -157,15 +153,13 @@ export default function App() {
 
   async function deleteGuide(target: GuideSummary) {
     await run(target.id, async () => {
-      // Delete atomically first. Only clear the UI selection after the
-      // durable delete succeeds, and compare-and-clear so a newer
-      // selection cannot be erased by this older action.
+      // Only clear the UI selection after the durable delete succeeds, and
+      // compare-and-clear so a newer selection isn't erased by this older action.
       await deleteGuidePermanently(target.id);
       await clearSelectedGuide(target.id);
     });
-    // Mirrors the export flow: a failed delete reports through the page-level
-    // live alert, so close the modal rather than leave the message rendered
-    // (and aria-hidden) behind its overlay.
+    // Mirrors the export flow: a failed delete reports through the page-level live
+    // alert, so close the modal rather than leave the message aria-hidden behind it.
     setDeleteTarget(null);
   }
 
@@ -340,8 +334,7 @@ export default function App() {
             {visibleGuides.map((guide) => {
               const pending = pendingId === guide.id;
               // While any operation is in flight, `run` rejects further actions;
-              // disabling the other cards makes that lock visible instead of
-              // letting their buttons silently no-op.
+              // disabling the other cards makes that lock visible instead of a silent no-op.
               const actionsLocked = operationLocked || pendingId !== null;
               const otherActionPending = pendingId !== null && !pending;
               const lockedTitle = (title: string) => (otherActionPending ? '另一項操作進行中' : title);
@@ -368,9 +361,8 @@ export default function App() {
                       fallback={UNTITLED_GUIDE_TITLE}
                       label="作品名稱"
                       disabled={actionsLocked}
-                      // `run` reports the reason through the page-level alert
-                      // and answers false when the write was refused or failed;
-                      // rejecting rolls the field back to the stored title.
+                      // `run` reports the reason via the page-level alert and returns
+                      // false on failure; rejecting here rolls the field back to the stored title.
                       onCommit={async (title) => {
                         const saved = await run(guide.id, async () => { await updateGuide(guide.id, { title }); });
                         if (!saved) throw new Error('Guide rename was not applied.');

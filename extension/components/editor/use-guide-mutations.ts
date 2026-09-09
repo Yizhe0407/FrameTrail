@@ -29,11 +29,9 @@ interface UseGuideMutationsOptions {
 }
 
 /**
- * The editor's structural mutations. Every one of them follows the same
- * verified sequence — take the data lock, flush pending descriptions, read a
- * fresh canonical snapshot, compare-and-swap against that snapshot's revision,
- * reload, then offer an undo — with optimistic entry swaps rolled back before
- * the reload whenever the round-trip fails.
+ * The editor's structural mutations: each takes the data lock, flushes pending descriptions, reads a
+ * fresh snapshot, compare-and-swaps against its revision, reloads, then offers an undo — rolling back
+ * any optimistic entry swap first if the round-trip fails.
  */
 export function useGuideMutations({
   sessionId,
@@ -64,15 +62,9 @@ export function useGuideMutations({
   }
 
   /**
-   * Every structural edit shares one shape: take the data lock, flush pending
-   * descriptions, read a fresh canonical snapshot, apply a compare-and-swap
-   * against that snapshot's revision, reload, then offer an undo. Only the
-   * middle step differs, so `mutate` is the whole per-operation payload and the
-   * lock/flush/reload/error contract lives here once.
-   *
-   * `optimistic` swaps the rendered entry list before the round-trip and puts
-   * the previous list back if anything fails. `rethrow` is for callers whose
-   * child component renders its own inline failure state.
+   * Shared lock/flush/reload/error contract for every structural edit; only `mutate` (the compare-and-swap
+   * step) differs per operation. `optimistic` swaps the rendered entry list before the round-trip and
+   * restores it on failure. `rethrow` is for callers whose child component renders its own inline failure state.
    */
   async function runGuideMutation({
     label,
@@ -110,9 +102,8 @@ export function useGuideMutations({
         if (rethrow) throw mutationError;
         return;
       }
-      // The compare-and-swap committed, so a failed follow-up reload must not
-      // roll back the (now accurate) optimistic entries or report the
-      // operation itself as failed — only that the screen may be stale.
+      // The compare-and-swap committed, so a failed reload must not roll back the now-accurate
+      // optimistic entries or report the operation itself as failed — only that the screen may be stale.
       try {
         await refreshEditorData();
       } catch (reloadError) {
@@ -328,8 +319,7 @@ export function useGuideMutations({
           snapshot.guide.contentRevision,
         );
         adoptGuide(result.guide);
-        // A mixed selection has no single value to restore, and a no-op change
-        // has nothing to undo.
+        // A mixed selection has no single value to restore, and a no-op change has nothing to undo.
         const previousValue = previousValues.size === 1 ? [...previousValues][0] : undefined;
         if (result.affectedEntryIds.length === 0 || previousValue === undefined || previousValue === numbered) return;
         return {
@@ -378,9 +368,8 @@ export function useGuideMutations({
         );
         adoptGuide(result.guide);
         if (!deletedSection) return;
-        // A section's display position derives from its start entry, so
-        // re-creating it with the same start entry and title puts it back
-        // exactly where it was.
+        // A section's display position derives from its start entry, so re-creating it with the
+        // same start entry and title puts it back exactly where it was.
         return {
           message: `已刪除章節「${deletedSection.title}」`,
           expectedRevision: result.guide.contentRevision,

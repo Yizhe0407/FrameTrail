@@ -1,17 +1,14 @@
 /**
  * Frame-coalesced hover probing for the snapshot shield page.
  *
- * The shield cannot hit-test the frozen page itself: every hover preview is a
- * round-trip over the shield channel. This state machine owns the interacting
- * pieces of that pipeline — the last pointer position, point revisions, and
- * the single in-flight request — with three invariants:
- *
- * - At most one probe is in flight; new input only bumps the point revision
- *   and the next probe is sent when the current one settles (or times out).
- * - A response only applies when it answers the latest request AND the point
- *   has not moved since it was sent; anything else re-schedules instead.
- * - `sentPointRevision` suppresses re-probing an unchanged point; resetting
- *   it to -1 (hover timeout, capture completion) forces one fresh probe.
+ * The shield cannot hit-test the frozen page itself, so every hover preview is
+ * a round-trip over the shield channel. Invariants:
+ * - At most one probe is in flight; new input bumps the point revision and the
+ *   next probe sends once the current one settles or times out.
+ * - A response applies only if it answers the latest request and the point
+ *   hasn't moved since; otherwise it re-schedules.
+ * - `sentPointRevision` suppresses re-probing an unchanged point; resetting it
+ *   to -1 forces one fresh probe.
  */
 
 export interface HoverProbeRequest {

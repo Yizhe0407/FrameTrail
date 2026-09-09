@@ -130,10 +130,7 @@ describe('popup start always records into a fresh guide', () => {
     expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
   });
 
-  // The idle popup never shows which guide it is about to record into, so it
-  // cannot usefully explain the new-guide-per-recording model either. The hint
-  // and the guide-summary read that only decided whether to show it are gone;
-  // the idle form now offers the mode chips and the start button alone.
+  // The idle form no longer reads the selected guide just to narrate the new-guide-per-recording model.
   it('does not read the selected guide just to narrate the data model', async () => {
     selectGuideInStorage(SELECTED_GUIDE_WITH_CONTENT);
     render(<RecordControls recording={IDLE_RECORDING} />);

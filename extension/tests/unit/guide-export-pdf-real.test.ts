@@ -136,21 +136,18 @@ describe('generateGuidePdf with the real pdf-lib', () => {
     expect(canvasContext.arc).toHaveBeenCalledTimes(entries.length);
     expect(canvasContext.strokeRect).toHaveBeenCalledTimes(entries.length);
 
-    // Hybrid embedding: each page carries its rasterized background JPEG plus
-    // the step screenshot embedded as its OWN full-resolution JPEG, i.e. two
-    // DCT streams per page, so screenshots are no longer downscaled into the
-    // page raster. JPEG streams are stored verbatim in the PDF, so counting
-    // SOI markers (FF D8 FF) is a stable structural check.
+    // Hybrid embedding: each page has its rasterized background JPEG plus the
+    // screenshot embedded as its own full-resolution JPEG (two DCT streams per
+    // page); counting SOI markers (FF D8 FF) is a stable structural check.
     let jpegStreams = 0;
     for (let index = 0; index + 2 < bytes.length; index++) {
       if (bytes[index] === 0xff && bytes[index + 1] === 0xd8 && bytes[index + 2] === 0xff) jpegStreams += 1;
     }
     expect(jpegStreams).toBe(entries.length * 2);
 
-    // Badge/title optical centering: the stub's measureText reports no glyph
-    // bounding box, so the code takes the cap-height fallback — the badge
-    // center sits fontSize * 0.45 = 13.5px below the first title line's top
-    // edge — and the numeral is drawn exactly at the badge center.
+    // Cap-height fallback (stub measureText reports no glyph bbox): the badge
+    // center sits fontSize * 0.45 = 13.5px below the title line's top edge,
+    // and the numeral is drawn exactly at the badge center.
     const titleLineYs = canvasContext.fillText.mock.calls
       .filter(([, x]) => x === 164) // margin 84 + badge 56 + gap 24
       .map(([, , y]) => Number(y));

@@ -389,7 +389,6 @@ describe('replayElementClick', () => {
   });
 
   it('dispatches a composed bubbling click for elements without a click method', () => {
-    // SVG 元素沒有原生 click 方法時，仍須提供等價的 bubbling click。
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     document.body.append(rect);
     const seen: Event[] = [];

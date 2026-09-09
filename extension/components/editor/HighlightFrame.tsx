@@ -15,11 +15,7 @@ interface Props {
   order?: number;
 }
 
-/**
- * The rendered twin of the raster compositor's highlight frame. Single- and
- * multi-annotation thumbnails must draw it identically or an exported image
- * stops matching what the editor showed, so both render this one component.
- */
+/** The rendered twin of the raster compositor's highlight frame — single- and multi- thumbnails share it so exports match what the editor showed. */
 export default function HighlightFrame({ box, order }: Props) {
   return (
     <div

@@ -129,46 +129,38 @@
         type="button"
         onclick="window.detectionProbe.noteAnnotationButtonClick()"
       >Snapshot 底層按鈕</button>
-      <!-- No role, label, focusability, cursor, inline handler, or paint: this
-           is deliberately a semantic-free annotation shim. The script-only
-           listener below observes accidental dispatch without changing its
-           DOM-visible targeting evidence. -->
+      <!-- Deliberately a semantic-free, unpainted shim; the script-only listener below only observes clicks, without adding targeting evidence. -->
       <div id="annotation-transparent-shim" class="test-overlay"></div>
     </div>
 
     <div id="painted-ancestor-case" class="overlay-case">
       <button id="painted-ancestor-button" type="button">Painted ancestor 底層按鈕</button>
-      <!-- The deepest hit is blank, but its exclusive parent paints. Snapshot
-           targeting must inspect the whole upper branch, not only this child. -->
+      <!-- The deepest hit is blank, but its exclusive parent paints; targeting must inspect the whole branch, not only this child. -->
       <div id="painted-ancestor-overlay"><span id="painted-ancestor-hit-surface"></span></div>
     </div>
 
     <div id="painted-intermediate-case" class="overlay-case">
       <button id="painted-intermediate-button" type="button">Painted middle 底層按鈕</button>
-      <!-- A blank top shim must not jump through a separate painted layer that
-           still sits above the button in the browser's paint stack. -->
+      <!-- A blank top shim must not jump through a separate painted layer that still sits above the button in the paint stack. -->
       <div id="painted-intermediate-layer"></div>
       <div id="painted-intermediate-shim"></div>
     </div>
 
     <div id="painted-descendant-case" class="overlay-case">
       <button id="painted-descendant-button" type="button">Painted child 底層按鈕</button>
-      <!-- elementFromPoint returns the blank parent because its painted child
-           deliberately opts out of hit testing. -->
+      <!-- elementFromPoint returns the blank parent because its painted child deliberately opts out of hit testing. -->
       <div id="painted-descendant-overlay"><span id="painted-descendant-surface"></span></div>
     </div>
 
     <div id="pseudo-painted-case" class="overlay-case">
       <button id="pseudo-painted-button" type="button">Pseudo backdrop 底層按鈕</button>
-      <!-- Generated paint has no DOM hit-test node; Chromium reports this
-           otherwise blank originating element. -->
+      <!-- Generated paint has no DOM hit-test node; Chromium reports this otherwise blank originating element. -->
       <div id="pseudo-painted-overlay"></div>
     </div>
 
     <div id="pseudo-overflow-case" class="overlay-case">
       <button id="pseudo-overflow-button" type="button">Overflow pseudo 底層按鈕</button>
-      <!-- The host is only 1x1. Its generated box paints and hit-tests over the
-           button well outside the host's own client rect. -->
+      <!-- The host is only 1x1; its generated box paints and hit-tests over the button, well outside the host's own client rect. -->
       <div id="pseudo-overflow-host"></div>
     </div>
 
@@ -177,14 +169,12 @@
       type="button"
       onclick="window.detectionProbe.notePaintedButtonClick()"
     >Painted backdrop 底層按鈕</button>
-    <!-- Deliberately no role, label, focusability, cursor, or inline handler:
-         its rgba background alone must make it a real visual surface. -->
+    <!-- Deliberately no role, label, focusability, cursor, or inline handler: its rgba background alone must make it a real visual surface. -->
     <div id="painted-backdrop"></div>
 
     <script>
       const host = document.getElementById('closed-host');
-      // Closed mode: host.shadowRoot stays null, so only an extension-privileged
-      // accessor can reach the button inside.
+      // Closed mode: host.shadowRoot stays null, so only an extension-privileged accessor can reach the button inside.
       const shadowRoot = host.attachShadow({ mode: 'closed' });
       shadowRoot.innerHTML =
         '<style>button { position: absolute; left: 70px; top: 58px; width: 180px; height: 44px; }</style>' +

@@ -1,12 +1,7 @@
 import { StaleCaptureError } from '../background-queues';
 
-/**
- * The shared cancellation/commit registry for in-flight screenshot captures.
- * Step capture and the recapture flow use the same capture pipeline, so both
- * consult one registry: a cancellation arriving while either flow is mid-air
- * must invalidate exactly the capture it names, and a capture that already
- * entered its synchronous commit window must win over a late cancellation.
- */
+/** Shared cancellation/commit registry for in-flight captures: a capture already
+ * in its commit window wins over a late cancellation for the same id. */
 
 /** Bounded memory for cancellations whose capture id never arrives (e.g. the
  * capture failed before reaching the registry-cleaning finally block). */
@@ -41,7 +36,6 @@ export function markCaptureCommitting(captureId: string): void {
   committingCaptureIds.add(captureId);
 }
 
-/** Clears both the commit marker and any cancellation record. */
 export function releaseCapture(captureId: string): void {
   committingCaptureIds.delete(captureId);
   cancelledCaptureIds.delete(captureId);

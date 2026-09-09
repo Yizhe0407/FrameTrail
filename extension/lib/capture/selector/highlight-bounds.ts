@@ -41,13 +41,6 @@ function resolveHighlightGeometry(
  * region projected through the associated image because the area itself has no
  * layout box.
  */
-
-/**
- * Returns the precise painted fragment clicked by the user. A multiline inline
- * element uses its smallest relevant client rect; an image-map <area> uses its
- * region projected through the associated image because the area itself has no
- * layout box.
- */
 export function getHighlightBounds(el: Element, clientX: number, clientY: number): Bounds | null {
   return resolveHighlightGeometry(el, clientX, clientY)?.bounds ?? null;
 }
@@ -83,11 +76,6 @@ export function clipsPaint(style: CSSStyleDeclaration): boolean {
     containment.includes('strict')
   );
 }
-
-/** Returns only the rectangular portion a user can actually see and click.
- * It accounts for the viewport and clipping/scrolling ancestors. Arbitrary
- * non-rectangular clip paths still resolve to their element's bounding box,
- * which is the closest representation supported by the Bounds data model. */
 
 /** Returns only the rectangular portion a user can actually see and click.
  * It accounts for the viewport and clipping/scrolling ancestors. Arbitrary
@@ -133,6 +121,3 @@ export function getVisibleHighlightBounds(
   }
   return visible;
 }
-
-/** Stable within one immutable snapshot document, including when a framework
- * replaces an element node with an equivalent node at the same DOM path. */

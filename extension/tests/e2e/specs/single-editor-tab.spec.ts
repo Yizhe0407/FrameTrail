@@ -10,12 +10,7 @@ import {
   startStepsRunWithFirstStep,
 } from '../support/harness';
 
-/**
- * The product keeps exactly one editor tab. Mocked openers are what let the
- * duplicate-tab bug survive for so long, so these assertions are deliberately
- * about what a user can see: how many editor pages exist, and which Guide the
- * surviving one shows.
- */
+/** The product keeps exactly one editor tab, so these assertions check what a user can see: how many editor pages exist and which Guide it shows. */
 function extensionPages(context: BrowserContext, page: 'editor' | 'library'): Page[] {
   return context.pages().filter((candidate) => new URL(candidate.url()).pathname === `/${page}.html`);
 }
@@ -36,8 +31,7 @@ test.describe('single editor tab', () => {
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    // The seeded Guide gets one captured step, so the two Guides are told apart
-    // by what the editor renders and not only by its URL.
+    // The seeded Guide gets one captured step, so the two Guides are told apart by what the editor renders and not only by its URL.
     await startStepsRunWithFirstStep(appPage, popupPage);
     const editorOpened = extensionContext.waitForEvent('page');
     await sendRecordingControl(popupPage, 'FINISH_RECORDING');
@@ -50,9 +44,7 @@ test.describe('single editor tab', () => {
 
     const library = await extensionContext.newPage();
     await library.goto(`chrome-extension://${extensionId}/library.html`);
-    // 新增 creates an empty Guide and opens it, which must land in the editor
-    // tab that is already open rather than a third tab. The toolbar control and
-    // the trailing add-card tile share the same name; the toolbar one is first.
+    // 新增 creates an empty Guide and must open it in the already-open editor tab, not a third tab; the toolbar control shares its name with the add-card tile, so it's `.first()`.
     await library.getByRole('button', { name: '新增', exact: true }).first().click();
 
     await expect.poll(() => viewedSessionId(firstEditor)).not.toBe(recordedGuideId);
@@ -71,8 +63,7 @@ test.describe('single editor tab', () => {
     await expect(firstEditor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     expect(extensionPages(extensionContext, 'editor')).toHaveLength(1);
 
-    // The library page is discovered by the same registry, so returning to it
-    // from the editor must not open a second one either.
+    // The library page is discovered by the same registry, so returning to it from the editor must not open a second one either.
     await firstEditor.bringToFront();
     await firstEditor.getByRole('button', { name: '作品庫', exact: true }).click();
     await expect.poll(() => extensionPages(extensionContext, 'library').length).toBe(1);
@@ -94,14 +85,12 @@ test.describe('single editor tab', () => {
     const firstGuideId = viewedSessionId(editor);
     expect(firstGuideId).toBeTruthy();
 
-    // A second run records into another Guide, exactly as a popup start does.
-    // That mismatch is what used to spawn a new tab on every 完成.
+    // A second run records into another Guide, exactly as a popup start does; that mismatch is what used to spawn a new tab on every 完成.
     const secondGuideId = await seedAndSelectGuide(popupPage, '第二份錄製');
     expect(secondGuideId).not.toBe(firstGuideId);
     await startRecording(appPage, popupPage, 'steps');
     await clickTarget(appPage, '#plain-text');
-    // Step counts are read across the whole store, so the second run's capture
-    // has to be awaited as the second row overall.
+    // Step counts are read across the whole store, so the second run's capture has to be awaited as the second row overall.
     await expectStepCount(popupPage, 2);
     const secondFinish = await sendRecordingControl(popupPage, 'FINISH_RECORDING');
     expect(secondFinish.ok).toBe(true);

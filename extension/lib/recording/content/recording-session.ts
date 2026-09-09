@@ -5,15 +5,11 @@ import type { SnapshotShield } from '../snapshot-shield';
 import type { StepHoverPreview } from '../step-hover-preview';
 
 /**
- * The mutable handles one content-script recording run shares between the
- * entrypoint's lifecycle spine and the per-mode recorders.
- *
- * It exists because teardown, the recording-state subscription, the shield
- * callbacks and the mode recorders all have to reach the same shield, toolbar,
- * hover preview and gesture queue. Threading those as in/out parameters
- * through every installer is what kept the whole run inlined in one closure.
- * Ownership stays with the entrypoint: recorders publish the instances they
- * create here, and only the entrypoint's cleanup disposes of them.
+ * Mutable handles one content-script recording run shares between the
+ * entrypoint's lifecycle spine and the per-mode recorders — teardown, the
+ * state subscription, shield callbacks and the recorders all need the same
+ * shield, toolbar, hover preview and gesture queue. Recorders publish the
+ * instances they create here; only the entrypoint's cleanup disposes of them.
  */
 export interface ContentRecordingSession {
   readonly runId: string;

@@ -129,8 +129,7 @@ test.describe('snapshot recording', () => {
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible();
     const shallowStyle = await shield.locator('.snapshot-box--preview').getAttribute('style');
 
-    // Nothing is retained between points: the deeply wrapped text answers with
-    // its own box, and returning to the first point restores the first box.
+    // Nothing is retained between points: the deeply wrapped text answers with its own box, and returning to the first point restores it.
     await appPage.mouse.move(deep.x, deep.y);
     await expect.poll(() => shield.locator('.snapshot-box--preview').getAttribute('style')).not.toBe(shallowStyle);
     await appPage.mouse.move(shallow.x, shallow.y);
@@ -174,8 +173,7 @@ test.describe('snapshot recording', () => {
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
-    // Finishing hands the editor the snapshot group, not its last annotation:
-    // entryId is the anchor id, which is the timeline entry the rail selects.
+    // Finishing hands the editor the snapshot group, not its last annotation: entryId is the anchor id, the timeline entry the rail selects.
     const finishedAnchor = (await readSteps(popupPage)).find((step) => step.bounds === null);
     expect(new URL(editor.url()).searchParams.get('entryId')).toBe(finishedAnchor?.id);
     await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
@@ -354,8 +352,7 @@ test.describe('snapshot recording', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
-    // The rebuilt group is the run's newest entry, so that anchor is what the
-    // editor is handed.
+    // The rebuilt group is the run's newest entry, so that anchor is what the editor is handed.
     expect(new URL(editor.url()).searchParams.get('entryId')).toBe(newestAnchor.id);
   });
 
@@ -453,8 +450,7 @@ test.describe('snapshot recording', () => {
     const shield = await getSnapshotFrame(appPage);
     await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
 
-    // Focus the skip link to enter the shield, then Tab to the first candidate
-    // (the enabled action button, first in reading order). No pointer is used.
+    // Focus the skip link to enter the shield, then Tab to the first candidate (the enabled action button). No pointer is used.
     await shield.locator('.snapshot-skip-link').focus();
     await appPage.keyboard.press('Tab');
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible({ timeout: 10_000 });
@@ -481,9 +477,7 @@ test.describe('snapshot recording', () => {
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
     await getSnapshotFrame(appPage);
-    // Focus lands on a shield toolbar button. The shield document cannot
-    // scroll, so any key the browser still acts on chains its scroll to the
-    // frozen page and invalidates the run.
+    // The shield document cannot scroll, so any key the browser still acts on chains its scroll to the frozen page and invalidates the run.
     await appPage.mouse.move(400, 300);
 
     for (const key of ['ArrowDown', 'ArrowUp', 'PageDown', 'End', 'Home', 'Space']) {

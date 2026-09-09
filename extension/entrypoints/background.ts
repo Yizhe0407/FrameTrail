@@ -172,9 +172,8 @@ async function setRunError(runId: string, error: string): Promise<void> {
   }));
 }
 
-// Deliberately not writeStateIf: the already-invalidated → true answer must
-// stay atomic with the claim-and-write, or a racing control could make this
-// report false for a run that is in fact invalidated.
+// Not writeStateIf: the already-invalidated -> true answer must stay atomic with
+// the claim-and-write, or a racing control could wrongly report false here.
 async function invalidateSnapshotRun(
   runId: string,
   viewport: ClickCapture['viewport'],
@@ -305,10 +304,9 @@ async function persistRecordingSteps(state: RecordingState, steps: Step[]): Prom
 }
 
 /**
- * Removes a snapshot anchor that failed to become (or stay) usable. A
- * published anchor id must be withdrawn from the run state before its row
- * disappears; if the withdrawal cannot be applied, the row is kept (an orphan
- * at worst) so the state never dangles into a deleted anchor.
+ * Removes an unusable snapshot anchor. A published id must be withdrawn from
+ * run state first; if that fails, the row is kept (an orphan at worst) so
+ * the state never dangles into a deleted anchor.
  */
 async function withdrawAnchorThenDelete(
   runId: string,
@@ -597,9 +595,8 @@ async function handleStartRecording(
     return;
   }
 
-  // Captures read the visible viewport, and snapshot mode captures its base
-  // image during startup, so a resumed source tab must reach the foreground
-  // before the recorder is injected — not after the run is live.
+  // Captures read the visible viewport, so a resumed source tab must reach the
+  // foreground before the recorder is injected, not after the run is live.
   if (continuationTab) {
     try {
       await focusTab(tab.id!, tab.windowId);
@@ -643,9 +640,8 @@ async function handleStartRecording(
     await control.withRecorderReadyGate({
       slot: 'pendingRecorderReady',
       identity: { runId, tabId: tab.id, controlVersion: version },
-      // Both modes instrument every accessible frame: snapshot mode for its
-      // child-frame probes, step mode so iframe clicks are captured and
-      // relayed to the top-frame recorder instead of being silently lost.
+      // Both modes instrument every accessible frame: snapshot for its child-frame
+      // probes, steps so iframe clicks are relayed instead of silently lost.
       inject: () => recorderRuntime.injectRecorder(tab.id!, true),
       notReadyError: () => new Error('Recorder did not become ready before the startup timeout.'),
       ready: async () => {
@@ -937,10 +933,8 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
       expectedItemCount: nextCount,
       expiresAt: Date.now() + 5_000,
     };
-    // Soft delete: persist a copy before removing the step, because the
-    // in-memory window below would otherwise hold the only copy of this
-    // screenshot and MV3 may terminate the worker inside the restore window.
-    // Best-effort — a persistence failure degrades to memory-only undo.
+    // Soft delete: persist a copy first, since MV3 may terminate the worker inside
+    // the restore window. Best-effort — persistence failure degrades to memory-only undo.
     try {
       await savePendingUndoRecord(undoRecord);
     } catch (persistError) {
@@ -1053,10 +1047,8 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
   await deleteEmptySnapshotAnchor(previous);
   try {
     if (previous.tabId == null) throw new Error('Recorded tab is no longer available.');
-    // Re-injection tears down the shield instance and mounts the lightweight
-    // preparing-next toolbar without installing step-capture listeners.
-    // All-frames mirrors the startup injection so stale child-frame recorders
-    // are torn down too (children are no-ops in this phase).
+    // Re-injection tears down the shield and mounts the lightweight preparing-next
+    // toolbar; all-frames mirrors startup injection so stale child recorders tear down too.
     await recorderRuntime.injectRecorder(previous.tabId, true);
   } catch (error) {
     console.error('[frametrail] failed to enter snapshot preparation state', error);
@@ -1098,9 +1090,8 @@ async function createNextSnapshot(
   });
   if (!claimed) return controlFailure('目前無法建立下一張快照。');
 
-  // The version was already bumped inside the claim mutation above; the
-  // recorder gate is cancelled here instead of by a manual pre-cancel so the
-  // ready-gate helper below can publish its fresh gate into an empty slot.
+  // Version already bumped in the claim mutation above; cancelling the recorder gate
+  // here (not via manual pre-cancel) lets the ready-gate helper publish into an empty slot.
   control.claimControl({
     cancelRecorderGate: true,
     discardUndo: true,
@@ -1186,9 +1177,8 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
   try {
     const updated = await resetGuide(message.sessionId);
     if (current.sessionId === message.sessionId) {
-      // resetRunStateToIdle also nulls autoCreatedGuideId, which this write
-      // never set explicitly; with operation already null the field reads as
-      // null through state normalization either way.
+      // resetRunStateToIdle also nulls autoCreatedGuideId; with operation already
+      // null, the field reads as null through state normalization either way.
       await control.writeStateForControl(version, (latest) => latest.sessionId === message.sessionId
         ? resetRunStateToIdle(latest)
         : latest);
@@ -1250,9 +1240,8 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
   if (!stopped) return controlFailure('無法完成錄製，請再試一次。');
 
-  // Only after the finish won the state write: a service-worker death or lost
-  // race between an earlier delete and the write used to leave a run in phase
-  // 'finishing' whose groupAnchorId pointed at a deleted anchor row.
+  // Only after the finish won the state write: doing it earlier risked leaving a
+  // run in phase 'finishing' whose groupAnchorId pointed at a deleted anchor row.
   await deleteEmptySnapshotAnchorBestEffort(state);
   await recorderRuntime.stopRecorderInTab(state.tabId);
   try {
@@ -1452,9 +1441,8 @@ async function handleSnapshotClick(
     );
   }
 
-  // A missing anchor (or one without its base image) can never accept another
-  // annotation; the typed error makes handleClick settle the whole run once
-  // instead of surfacing the same per-click error forever.
+  // A missing anchor can never accept another annotation; the typed error settles
+  // the whole run once instead of surfacing the same per-click error forever.
   if (!anchorId) throw new SnapshotAnchorMissingError('Snapshot anchor id is missing from the run state.');
   let existingSteps = await getSteps(sessionId);
   const anchor = existingSteps.find((step) => step.id === anchorId);
@@ -1542,10 +1530,8 @@ async function handleClick(
         throw new StaleCaptureError('Recording control changed while saving the step.');
       }
       assertCaptureNotCancelled(message.captureId);
-      // No await may occur between this synchronous commit marker and the
-      // persisting write: a cancellation arriving afterwards must not create a
-      // half-cancelled transaction that writes a step after the gesture has
-      // been replayed.
+      // No await between this commit marker and the persisting write: a later
+      // cancellation must not write a step after the gesture has been replayed.
       markCaptureCommitting(message.captureId);
       await persistRecordingSteps(state, [{
         id: crypto.randomUUID(),
@@ -1632,10 +1618,8 @@ export default defineBackground(() => {
     },
   });
 
-  // A worker woken by a capture message from a page whose persisted run is
-  // stale (e.g. a bfcache-restored recorder) must not race startup recovery:
-  // clicks queue behind this settle so a dead run is retired silently by
-  // recovery instead of loudly by the click's own error paths.
+  // A worker woken by a capture message from a stale persisted run (e.g. a
+  // bfcache-restored recorder) must not race recovery: clicks queue behind it.
   const startupRecovery = (async () => {
     await recaptureFlow.recoverInterruptedRecapture();
     await recoverInterruptedRecording();
@@ -1673,11 +1657,9 @@ export default defineBackground(() => {
   };
 
   /**
-   * Routes a validated background message to its handler. Invariant: every
-   * case returns a promise that RESOLVES (never rejects) with that case's
-   * response — withMessageFailureFallback catches and maps every handler
-   * failure onto the case's fallback result — so the onMessage listener can
-   * always close the response channel with a well-formed result.
+   * Routes a validated background message to its handler. Every case must
+   * resolve (never reject) with that case's response, so the onMessage
+   * listener can always close the channel with a well-formed result.
    */
   const routeBackgroundMessage = (
     message: BackgroundMessage,
@@ -1853,9 +1835,8 @@ export default defineBackground(() => {
           const expectedControlVersion = control.controlVersion;
           return withMessageFailureFallback(
             queueClick(async () => {
-              // The version was read before recovery: if this very message woke
-              // the worker over a stale persisted run, recovery settles the run
-              // and the bumped version rejects the click silently.
+              // Version read before recovery: if this message woke the worker over a
+              // stale persisted run, recovery settles it and the bumped version rejects silently.
               await startupRecovery;
               return handleClick(message, sender, expectedControlVersion);
             }),
@@ -1993,9 +1974,8 @@ export default defineBackground(() => {
       }
 
       const updateAction = getRecordingTabUpdateAction(state.mode, changeInfo);
-      // A snapshot's coordinates belong to one immutable document. Fail closed
-      // as soon as that document navigates, and never re-inject merely because a
-      // document that was loading at START later reports status=complete.
+      // A snapshot's coordinates belong to one immutable document: fail closed as
+      // soon as it navigates, never re-inject just because a loading page completes.
       if (updateAction === 'stop-snapshot') {
         await stopRunWithError(runId, '錄製已停止，因為快照頁面已變更。', expectedControlVersion);
         return;

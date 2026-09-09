@@ -15,12 +15,7 @@ interface Props {
   decoding?: 'async' | 'sync' | 'auto';
 }
 
-/**
- * Renders a timeline entry's preview: HighlightThumbnail for an ordinary step,
- * MultiHighlightThumbnail for a snapshot group. Owns deriving the blob,
- * bounds/annotations, privacy state, and screenshot scale from the entry so
- * the rail, stage, and lightbox cannot drift in how they wire these up.
- */
+/** Renders a timeline entry's preview and derives blob/bounds/privacy so callers don't drift in wiring these up. */
 export default function EntryThumbnail({ entry, ...presentation }: Props) {
   const privacy = getEntryPrivacyState(entry);
   if (entry.kind === 'single') {

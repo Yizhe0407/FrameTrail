@@ -210,8 +210,7 @@ describe('editor description draft journal', () => {
       ),
     ).toBe(true);
 
-    // The oldest foreign record was reclaimed; everything
-    // newer survives, including the just-written live draft.
+    // The oldest foreign record was reclaimed; everything newer, including the live draft, survives.
     expect(
       readDescriptionDrafts({ id: 'oldest-step', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001),
     ).toEqual([]);
@@ -236,8 +235,7 @@ describe('editor description draft journal', () => {
       ).toBe(true);
     }
 
-    // Every journaled record may be the only copy of text this same user just
-    // typed, so the overflowing write fails instead of sacrificing one.
+    // Every journaled record may be the only copy of text this same user just typed, so the overflowing write fails instead of sacrificing one.
     expect(
       writeDescriptionDraft(
         { id: 'one-too-many', sessionId: 'guide', description: '' },

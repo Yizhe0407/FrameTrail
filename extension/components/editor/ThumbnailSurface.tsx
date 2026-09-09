@@ -20,17 +20,14 @@ interface Props {
   redactionBoxes: RedactionStyle[];
   /** Content rendered over the exact image frame. */
   overlay?: ReactNode;
-  /** The component-specific highlight overlays; hidden with the pixels while
-   * privacy review is pending, like everything derived from the screenshot. */
+  /** The component-specific highlight overlays; hidden with the pixels while privacy review is pending. */
   children?: ReactNode;
 }
 
 /**
- * The rendered surface shared by the highlight thumbnails: the screenshot img
- * with its privacy-gated alt/visibility, the component-specific overlays, the
- * opaque redaction boxes, and the content-frame overlay slot. Layer order is
- * load-bearing — redactions (z-10) must cover the highlight overlays, and the
- * content frame (z-20) sits above both.
+ * Rendered surface shared by the highlight thumbnails: screenshot img, component-specific overlays,
+ * redaction boxes, and content-frame slot. Layer order is load-bearing: redactions (z-10) must
+ * cover the highlight overlays, and the content frame (z-20) sits above both.
  */
 export default function ThumbnailSurface({
   url,

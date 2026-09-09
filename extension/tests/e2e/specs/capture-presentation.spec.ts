@@ -116,8 +116,7 @@ async function neutralProbeBounds(page: Parameters<typeof startRecording>[0]) {
 }
 
 test.describe('screenshot presentation', () => {
-  // Every assertion here is about scrollbar pixels, so this suite — and only
-  // this suite — runs the browser with scrollbars that occupy layout space.
+  // Every assertion here is about scrollbar pixels, so only this suite runs the browser with scrollbars that occupy layout space.
   test.use({ nativeScrollbars: true });
 
   test.beforeEach(async ({ popupPage }) => {

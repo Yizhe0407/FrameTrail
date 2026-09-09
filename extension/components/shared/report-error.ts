@@ -1,9 +1,7 @@
 /**
- * Canonical UI catch-block: log the failure under a zh-Hant label, then return
- * the message to display — the thrown Error's own (already localized) message
- * when there is one, otherwise the caller's fallback. Individual call sites
- * had drifted into dropping either the console.error leg or the instanceof
- * leg; routing them through here keeps both.
+ * Canonical UI catch-block: logs the failure, then returns the thrown Error's
+ * own message if present, otherwise the caller's fallback — centralized so
+ * call sites can't drop either the logging or the instanceof check.
  */
 export function reportError(label: string, error: unknown, fallback: string): string {
   console.error(label, error);

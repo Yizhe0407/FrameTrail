@@ -17,12 +17,7 @@ function hostOf(url: string): string {
   }
 }
 
-/**
- * Compact explicit tab list for 「改在其他頁面接續」. Tabs arrive most recently
- * used first; the caller owns preselection (it skips the page the Guide just
- * recorded). Only http(s) favicons are rendered — anything else falls back to
- * a generic globe so a hostile page cannot smuggle an odd URL scheme in here.
- */
+/** Tab list for 「改在其他頁面接續」; caller controls preselection, and only http(s) favicons render (others fall back to a generic globe icon). */
 export default function ContinuationTabPicker({ tabs, selectedTabId, onSelect, disabled = false }: Props) {
   return (
     <div

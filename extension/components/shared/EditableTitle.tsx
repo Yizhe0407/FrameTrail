@@ -16,11 +16,8 @@ interface Props {
 }
 
 /**
- * A title field that owns its draft while focused and never silently keeps an
- * unsaved value: an empty or unchanged entry reverts, and a rejected commit
- * reverts too, so what is displayed is always what is stored. Callers that
- * bind a raw input to `defaultValue` and reassign `event.currentTarget.value`
- * lose that guarantee the moment the write fails.
+ * Owns its draft while focused; an empty, unchanged, or rejected commit
+ * reverts the field, so what's displayed always matches what's stored.
  */
 export default function EditableTitle({
   value,
@@ -36,9 +33,8 @@ export default function EditableTitle({
   const [draft, setDraft] = useState(committed);
   const [editing, setEditing] = useState(false);
   const committing = useRef(false);
-  // Escape must cancel, but `blur()` dispatches focusout synchronously —
-  // before React re-renders — so the blur commit still sees the edited draft.
-  // This ref is the only signal that survives that ordering.
+  // `blur()` dispatches focusout synchronously before React re-renders, so
+  // this ref is what tells the blur commit that Escape already cancelled it.
   const cancelled = useRef(false);
 
   // An external rename (undo, another tab, a failed write reloading the guide)

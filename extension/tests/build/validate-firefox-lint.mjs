@@ -84,12 +84,10 @@ async function assertFirstPartyHtmlSafety() {
 }
 
 function isVerifiedReactRendererWarning(warning, generatedSource) {
-  // Any generated bundle file qualifies, not a specific chunk name: Vite names
-  // a shared chunk after whichever module happens to lead it, so react-dom
-  // moves between chunk names whenever the entrypoint graph changes. The
-  // exemption stays narrow because the real gate is the source check below
-  // plus assertFirstPartyHtmlSafety, which forbids these operations in
-  // components/, entrypoints/ and lib/ outright.
+  // Any generated bundle file qualifies (Vite's chunk naming isn't stable), but
+  // the exemption stays narrow: the real gate is the source check plus
+  // assertFirstPartyHtmlSafety, which forbid these operations in components/,
+  // entrypoints/ and lib/ outright.
   if (
     warning.code !== 'UNSAFE_VAR_ASSIGNMENT' ||
     warning.message !== 'Unsafe assignment to innerHTML' ||

@@ -343,9 +343,7 @@ describe('editor description autosave', () => {
   });
 
   it('flushes to IndexedDB immediately when the synchronous journal rejects the draft', async () => {
-    // Longer than the journal accepts, so writeDescriptionDraft returns false;
-    // IndexedDB is then the only durable destination and must not wait for a
-    // blur or unmount.
+    // Longer than the journal accepts, so it must flush straight to IndexedDB instead of waiting for blur/unmount.
     const oversized = 'x'.repeat(100_001);
     render(
       <EditorSaveProvider>

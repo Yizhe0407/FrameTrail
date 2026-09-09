@@ -94,9 +94,7 @@ describe('TagSelectDialog', () => {
     await waitFor(() => expect(warn).toHaveBeenCalled());
   });
 
-  // Removal belongs to the inline chips on the stage behind this dialog, which
-  // the user reaches without opening anything; a second remove button here
-  // would be a second independent path to the same write.
+  // Removal belongs to the inline chips on the stage; no second remove path here.
   it('shows the current tags without a second remove path', async () => {
     renderDialog(['驗收']);
 

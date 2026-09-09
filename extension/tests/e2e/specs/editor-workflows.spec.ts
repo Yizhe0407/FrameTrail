@@ -111,10 +111,7 @@ async function readClipboardPng(page: Page): Promise<{
   });
 }
 
-/** StepActions' copy button (components/editor/StepActions.tsx) no longer
- * shows a visible/aria-live "已複製" confirmation once the write finishes —
- * only a transient icon swap — so there is no DOM signal left to wait on.
- * Poll the clipboard directly instead of racing the async composite+write. */
+/** StepActions' copy button leaves no DOM signal once the write finishes (just a transient icon swap), so poll the clipboard directly instead. */
 async function readClipboardPngEventually(page: Page): ReturnType<typeof readClipboardPng> {
   await expect.poll(
     async () => {
@@ -456,8 +453,7 @@ test.describe('editor workflows', () => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
 
-    // The user has since moved on to a completely different page than the
-    // guide's stored source URL.
+    // The user has since moved on to a completely different page than the guide's stored source URL.
     await appPage.goto(`${FIXTURE_URL}navigated.html`);
     await editor.bringToFront();
     const pagesBefore = extensionContext.pages().length;
@@ -468,9 +464,7 @@ test.describe('editor workflows', () => {
     await expect(dialog).toContainText('新步驟會接在最後。');
     await dialog.getByRole('button', { name: '改在其他頁面接續' }).click();
 
-    // The elsewhere path shows an explicit tab picker instead of auto-picking
-    // a target. The navigated.html tab differs from the guide's last-step URL,
-    // so it is preselected; extension pages are never listed.
+    // The elsewhere path shows an explicit tab picker; navigated.html differs from the guide's last-step URL, so it is preselected.
     const picker = dialog.getByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
     await expect(picker).toBeVisible();
     const preselected = picker.getByRole('radio', { name: /FrameTrail Navigated Fixture/ });
@@ -480,8 +474,7 @@ test.describe('editor workflows', () => {
     await dialog.getByRole('button', { name: '開始錄製' }).click();
 
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(true);
-    // The elsewhere path records the already-open navigated.html tab; the
-    // source-locked default would have reopened the stored index URL instead.
+    // The elsewhere path records the already-open navigated.html tab; the source-locked default would have reopened the stored index URL.
     expect(extensionContext.pages().length).toBe(pagesBefore);
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
     expect(appPage.url()).toBe(`${FIXTURE_URL}navigated.html`);

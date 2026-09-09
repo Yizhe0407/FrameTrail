@@ -46,8 +46,7 @@ beforeEach(async () => {
   mocks.setRecordingState.mockImplementation(async (next: RecordingState) => {
     storedState = next;
   });
-  // vi.clearAllMocks only clears calls, so restore the implementations this
-  // suite deliberately overrides per test.
+  // vi.clearAllMocks only clears calls; restore the implementations this suite deliberately overrides per test.
   mocks.sessionGet.mockResolvedValue({});
   mocks.sessionSet.mockResolvedValue(undefined);
   mocks.sessionRemove.mockResolvedValue(undefined);
@@ -135,8 +134,7 @@ describe('the single editor opener', () => {
   });
 
   it('navigates a tab that answers nothing at all but still exists', async () => {
-    // A discarded or reloading tab has no listener; nothing there is worth
-    // preserving, so the record stays good and the tab is reused.
+    // A discarded or reloading tab has no listener; nothing worth preserving, so the record stays good and the tab is reused.
     withRegisteredEditor();
     mocks.tabsSendMessage.mockRejectedValue(new Error('Could not establish connection.'));
 

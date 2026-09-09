@@ -55,9 +55,6 @@ function findInteractiveTargetFromEntries(entries: AnalyzedElement[]): Element |
   return best?.entry.element ?? null;
 }
 
-/** Walks a hit element down through every shadow root it hosts, open or
- * closed, to the innermost element actually under the point. */
-
 export interface VisualTargetCandidate {
   element: Element;
   bounds: Bounds;
@@ -67,16 +64,6 @@ export interface VisualTargetCandidates {
   candidates: VisualTargetCandidate[];
   defaultIndex: number;
 }
-
-/**
- * Browser recording has two different targeting contracts:
- *
- * - annotation: choose the visible UI surface, optionally looking through a
- *   completely blank hit-test shim (the browser equivalent of an accessibility
- *   API omitting a non-semantic overlay);
- * - activation: preserve the page's actual top hit surface, because replaying a
- *   click on an element hidden underneath an overlay changes page behaviour.
- */
 
 /**
  * Browser recording has two different targeting contracts:
@@ -115,10 +102,6 @@ function boundsEdges(bounds: Bounds): [number, number, number, number] {
 /** Collapses tiny layout insets while retaining genuinely different parent
  * levels. Comparing edges rather than width/height avoids treating translated
  * sibling boxes as equivalent. */
-
-/** Collapses tiny layout insets while retaining genuinely different parent
- * levels. Comparing edges rather than width/height avoids treating translated
- * sibling boxes as equivalent. */
 function hasSamePerceivedBoundary(a: Bounds, b: Bounds): boolean {
   const aEdges = boundsEdges(a);
   const bEdges = boundsEdges(b);
@@ -139,8 +122,6 @@ function isVisuallySelectableEntry(
     (!entry.visuallyUnavailable || (isHit && policy.preserveHitSurface))
   );
 }
-
-/** Memoized per hit-test so a candidate chain measures each element once. */
 
 /** Memoized per hit-test so a candidate chain measures each element once. */
 function highlightBounds(entry: AnalyzedElement, clientX: number, clientY: number): Bounds | null {
@@ -173,10 +154,6 @@ function overflowClipBoundsFromEntry(
     height: el.clientHeight * scaleY,
   };
 }
-
-/** Candidate-chain variant of `getVisibleHighlightBounds`. It reuses the
- * styles and rectangles already measured for this hit test, which lets visual
- * dedup compare the actual on-screen boxes without multiplying layout reads. */
 
 /** Candidate-chain variant of `getVisibleHighlightBounds`. It reuses the
  * styles and rectangles already measured for this hit test, which lets visual
@@ -243,10 +220,6 @@ interface ChainAnalysis {
 /** Builds the visually distinct target chain under a point, from the deepest
  * rendered element toward its composed ancestors. Semantic controls remain
  * the default even when the pointer lands on a nested label or icon. */
-
-/** Builds the visually distinct target chain under a point, from the deepest
- * rendered element toward its composed ancestors. Semantic controls remain
- * the default even when the pointer lands on a nested label or icon. */
 function analyzeChain(
   hit: Element,
   clientX: number,
@@ -299,8 +272,6 @@ function analyzeChain(
   };
 }
 
-/** How far down the paint stack a blank occluder is searched past. */
-
 /**
  * Resolves the candidate chain for a point, looking past a blank overlay that
  * covers the control the user is aiming at. The topmost chain wins whenever it
@@ -351,19 +322,11 @@ export function findVisualTargetCandidatesAtPoint(
 /** Picks the chain's default candidate — the one box a point resolves to.
  * `defaultIndex` is where the policy landed, so this is the single place that
  * knows how to read a candidate list. */
-
-/** Picks the chain's default candidate — the one box a point resolves to.
- * `defaultIndex` is where the policy landed, so this is the single place that
- * knows how to read a candidate list. */
 export function selectVisualTargetCandidate(
   targets: VisualTargetCandidates,
 ): VisualTargetCandidate | null {
   return targets.candidates[targets.defaultIndex] ?? null;
 }
-
-/** Hit-tests a viewport point and resolves the candidate it selects there.
- * Shared by the top-frame step recorder and the child-frame relay so both
- * frames pick identical targets. */
 
 /** Hit-tests a viewport point and resolves the candidate it selects there.
  * Shared by the top-frame step recorder and the child-frame relay so both

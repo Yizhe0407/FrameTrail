@@ -56,11 +56,8 @@ describe('isTrustedRecordedPageSender', () => {
   };
 
   it('accepts a same-origin sender even when the path differs from the message URL', () => {
-    // Regression: an SPA that updates its path via history.pushState (a chat
-    // app assigning a conversation id, or a previous step's replay having
-    // just triggered a route change) leaves Chrome's async-tracked
-    // sender.url/tab.url briefly behind the page's own synchronous
-    // location.href — this must not reject an otherwise-legitimate click.
+    // Regression: SPA pushState navigation leaves sender.url/tab.url briefly
+    // behind location.href — must not reject an otherwise-legitimate click.
     expect(
       isTrustedRecordedPageSender('https://example.com/page', validSender, 7),
     ).toBe(true);
@@ -119,7 +116,6 @@ describe('isInScrollbarGutter', () => {
   const layout = { clientLeft: 0, clientTop: 0, clientWidth: 1200, clientHeight: 800 };
 
   it('flags the vertical and horizontal scrollbar gutters but not page content', () => {
-    // Content inside the layout viewport is never a gutter.
     expect(isInScrollbarGutter(600, 400, layout)).toBe(false);
     expect(isInScrollbarGutter(1199, 799, layout)).toBe(false);
     // The vertical bar sits at or past clientWidth; the horizontal bar past clientHeight.

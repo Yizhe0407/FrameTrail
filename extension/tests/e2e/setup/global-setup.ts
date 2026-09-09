@@ -19,8 +19,7 @@ export default async function globalSetup(): Promise<void> {
     host_permissions?: string[];
     optional_host_permissions?: string[];
   };
-  // Production only needs clipboardWrite. The isolated E2E copy also reads
-  // the clipboard so tests can verify the PNG bytes that the UI wrote.
+  // Production only needs clipboardWrite; the E2E copy also reads the clipboard so tests can verify written PNG bytes.
   manifest.permissions = [...new Set([...(manifest.permissions ?? []), 'clipboardRead'])];
   manifest.host_permissions = [...new Set([...(manifest.host_permissions ?? []), '<all_urls>'])];
   manifest.optional_host_permissions = (manifest.optional_host_permissions ?? []).filter(

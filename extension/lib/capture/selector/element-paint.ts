@@ -8,14 +8,7 @@ export const OCCLUDER_STACK_LIMIT = 8;
 /** A hostile or unusually large component tree must not turn one pointer move
  * into an unbounded DOM walk. Reaching the cap means the branch cannot be
  * proven blank, so targeting conservatively keeps the upper surface. */
-
-/** A hostile or unusually large component tree must not turn one pointer move
- * into an unbounded DOM walk. Reaching the cap means the branch cannot be
- * proven blank, so targeting conservatively keeps the upper surface. */
 const OCCLUDER_SUBTREE_SCAN_LIMIT = 256;
-/** Containing-block discovery is repeated inside the bounded subtree scan, so
- * cap each ancestor walk as well. Exceeding it leaves the pseudo unproven. */
-
 /** Containing-block discovery is repeated inside the bounded subtree scan, so
  * cap each ancestor walk as well. Exceeding it leaves the pseudo unproven. */
 const PSEUDO_CONTAINING_BLOCK_SCAN_LIMIT = 64;
@@ -35,13 +28,6 @@ function cssColorIsTransparent(color: string): boolean {
 function cssPaintIsAbsent(value: string | undefined): boolean {
   return !value || value === 'none' || value === 'normal';
 }
-
-/**
- * Whether the hit element itself contributes visible pixels. This deliberately
- * stays conservative: unknown paint (images, pseudo-like filters, borders) is
- * considered real, because selecting the top visual object is safer than
- * clicking through it.
- */
 
 /**
  * Whether the hit element itself contributes visible pixels. This deliberately
@@ -99,14 +85,6 @@ function hasSurfaceDescription(el: Element): boolean {
     (el.getAttribute('title') ?? '').trim().length > 0
   );
 }
-
-/**
- * A transparent shim or drag layer can swallow hit testing without being the
- * thing users see. Annotation targeting follows visible UI boundaries, so a
- * small transparent layer is just as pass-through as a full-viewport one.
- * Text, accessible semantics and any painted surface — notably a modal
- * backdrop — stay real targets regardless of their size.
- */
 
 /**
  * A transparent shim or drag layer can swallow hit testing without being the
@@ -311,15 +289,6 @@ function positionedPseudoAxisRange(
  * covered every pointer position. Unsupported transforms or intrinsic sizing
  * remain non-evidence rather than causing an unbounded DOM/style search.
  */
-
-/**
- * Pseudo-elements expose computed styles but no DOM geometry. For paint outside
- * the originating box, accept only positioned boxes whose used pixel insets or
- * size produce a finite axis-aligned bound. This catches common fixed/absolute
- * backdrops without treating unrelated generated text elsewhere as if it
- * covered every pointer position. Unsupported transforms or intrinsic sizing
- * remain non-evidence rather than causing an unbounded DOM/style search.
- */
 function positionedPseudoMayCoverPoint(
   el: Element,
   style: CSSStyleDeclaration,
@@ -440,14 +409,6 @@ function branchOwnsPaintAtPoint(
  * an intervening surface, so it and the rest of the shared ancestry are
  * deliberately excluded.
  */
-
-/**
- * Whether every element unique to an upper paint-stack branch is a genuinely
- * blank hit-test shim. The first composed ancestor shared with the target
- * branch is structural context (for example a painted application root), not
- * an intervening surface, so it and the rest of the shared ancestry are
- * deliberately excluded.
- */
 export function hasOnlyBlankExclusiveOccluders(
   occludingEntries: AnalyzedElement[],
   targetElements: ReadonlySet<Element>,
@@ -471,10 +432,3 @@ export function hasOnlyBlankExclusiveOccluders(
     ? !branchOwnsPaintAtPoint(branchRoot, clientX, clientY, viewport, analyzedStyles)
     : true;
 }
-
-/**
- * Resolves the candidate chain for a point, looking past a blank overlay that
- * covers the control the user is aiming at. The topmost chain wins whenever it
- * holds a control of its own, so the extra paint-stack walk only runs for the
- * hit tests that would otherwise return nothing actionable.
- */

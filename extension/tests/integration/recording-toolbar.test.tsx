@@ -100,9 +100,7 @@ describe('recording toolbar', () => {
     expect(screen.getByRole('button', { name: /錄製中，步驟，2 筆；展開錄製控制/ })).toBeTruthy();
   });
 
-  // The 更多 menu only ever rendered in the invalidated shell, where its
-  // collapse item was gated off — so it held exactly one action. Discard now
-  // sits directly in that row.
+  // The 更多 menu held exactly one action in the invalidated shell; discard now sits directly in that row.
   it('offers discard directly in the invalidated shell, with no overflow menu', async () => {
     const onCommand = vi.fn().mockResolvedValue({ ok: true });
     render(

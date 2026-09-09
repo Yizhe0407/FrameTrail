@@ -20,12 +20,7 @@ interface Props {
   onCancel: () => void;
 }
 
-/**
- * Recapture takes over the source tab, so the editor cannot be edited until it
- * ends. A modal states that plainly and keeps the only two available exits —
- * return to the source tab, or cancel — in front of the user, instead of a
- * banner that scrolls out of reach on a long guide.
- */
+/** Recapture takes over the source tab, so a modal blocks editing and keeps only two exits — return to the source tab, or cancel. */
 export default function RecaptureProgressDialog({
   open,
   phase,
@@ -39,8 +34,7 @@ export default function RecaptureProgressDialog({
     <Dialog open={open}>
       <DialogContent
         showClose={false}
-        // The workflow owns the editor until the background reports a result;
-        // dismissing the dialog would hide state the user cannot otherwise reach.
+        // The workflow owns the editor until the background reports a result; dismissing would hide unreachable state.
         onEscapeKeyDown={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}

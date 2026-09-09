@@ -152,9 +152,7 @@ describe('SNAPSHOT_INVALIDATED handling', () => {
     await importBackground();
     await flushAsyncWork();
 
-    // The sender-validation read still sees phase 'recording'; the atomic
-    // claim's own re-read finds a concurrent control already invalidated the
-    // run. The handler must report success without a second state write.
+    // The atomic claim's re-read finds the run already invalidated concurrently; the handler must still report success without a second state write.
     mocks.getRecordingState
       .mockResolvedValueOnce(snapshotState())
       .mockResolvedValueOnce(snapshotState({ phase: 'invalidated' }));
@@ -203,8 +201,7 @@ describe('rebuild-invalidated-snapshot failure rollback', () => {
     );
 
     expect(result).toEqual({ ok: false, error: '無法重建快照，請重試。' });
-    // The claim first moved the run into 'starting' with cleared run-scoped
-    // fields; the rollback must restore every one of them.
+    // The claim first cleared run-scoped fields into 'starting'; the rollback must restore every one of them.
     expect(mocks.setRecordingState).toHaveBeenCalledWith(
       expect.objectContaining({ phase: 'starting', itemCount: 0, groupAnchorId: null }),
     );

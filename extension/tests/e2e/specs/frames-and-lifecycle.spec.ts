@@ -102,9 +102,7 @@ test.describe('frames and recording lifecycle', () => {
 
     await expectSteady(async () => (await readSteps(popupPage)).length, 0);
 
-    // A genuine click proves the recorder was live while the forged public hop
-    // was ignored. Waiting for replay also provides a deterministic barrier for
-    // any capture the forged message could otherwise have queued first.
+    // A genuine click proves the recorder was live while the forged public hop was ignored, and gives a deterministic barrier for replay.
     await button.click();
     await expect.poll(() => button.getAttribute('data-click-count')).toBe('1');
     await expectSteady(async () => (await readSteps(popupPage)).length, 1);
@@ -155,9 +153,7 @@ test.describe('frames and recording lifecycle', () => {
     expect(await button.getAttribute('data-pointerdown-count')).toBe('1');
     await expectSteady(async () => (await readSteps(popupPage)).length, 0);
 
-    // The following trusted browser input must still record and replay once,
-    // proving the zero-step result was the trust check rather than missing child
-    // instrumentation.
+    // The following trusted input must still record and replay once, proving the zero-step result was the trust check, not missing instrumentation.
     await button.click();
     await expect.poll(() => button.getAttribute('data-click-count')).toBe('1');
     await expectSteady(async () => (await readSteps(popupPage)).length, 1);
@@ -257,9 +253,7 @@ test.describe('frames and recording lifecycle', () => {
         nestedFrameMetrics.borderTop + nestedTargetMetrics.y + nestedTargetMetrics.height / 2,
     };
 
-    // Fired back to back, with no wait for the first hop's capture in between:
-    // the top frame's shared gesture queue must not drop the second relayed
-    // hop just because the first is still being claimed/captured.
+    // Fired back to back with no wait in between: the shared gesture queue must not drop the second hop just because the first is still capturing.
     await outerButton.click();
     await appPage.mouse.click(nestedPoint.x, nestedPoint.y);
 
@@ -331,8 +325,7 @@ test.describe('frames and recording lifecycle', () => {
     expect(linkStep.description).toBe('開啟連結');
     expect(linkStep.hasScreenshot).toBe(true);
 
-    // The run survives the navigation and the re-injected recorder captures
-    // the next step on the new document.
+    // The run survives the navigation and the re-injected recorder captures the next step on the new document.
     await captureNavigatedHeadingStep(appPage, popupPage);
     await expectStepCount(popupPage, 2);
     await stopRecording(popupPage);
@@ -359,10 +352,7 @@ test.describe('frames and recording lifecycle', () => {
     await captureNavLinkClickStep(appPage, popupPage);
     await stopRecording(popupPage);
 
-    // The original document went into the back/forward cache with its recorder
-    // installed while the run was still live; the stop message never reached
-    // it. On restore it must tear itself down: no preview overlay, real clicks
-    // reach the page handler, and no step is captured into the dead run.
+    // The document went into the back/forward cache with its recorder still live and never got the stop message; on restore it must tear itself down.
     await appPage.goBack();
     await appPage.waitForURL((url) => !url.href.includes('navigated'));
     await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(0);

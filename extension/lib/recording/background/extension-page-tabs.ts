@@ -4,24 +4,12 @@ import { isRecord, isSafeId } from '../../shared/validation';
 import type { OpenLibraryResult } from '../../runtime/messages';
 
 /**
- * Single-tab discovery for this extension's own pages, so every "open the
- * editor" / "open the library" path reuses the one tab that already exists.
- *
- * browser.tabs.query({ url }) cannot find them. Chrome exposes tab.url only to
- * an extension holding the `tabs` permission or a host permission matching the
- * URL, and `<all_urls>` does not cover the chrome-extension: scheme — measured
- * against this manifest, the query returns an empty list even while the
- * extension's own editor is open. Requiring `tabs` would show every user a
- * "read your browsing history" warning, which this deliberately
- * minimal-permission manifest exists to avoid. So the pages announce
- * themselves (REGISTER_EXTENSION_PAGE) and the background remembers where they
- * are.
- *
- * The record lives in browser.storage.session because it is only ever valid
- * inside one browsing session: tab ids are not recycled while the browser
- * runs, and session storage is cleared on restart, so a remembered id can
- * never come to name an unrelated tab. storage.local would outlive the id
- * space it refers to and could eventually focus a stranger's page.
+ * Single-tab discovery for the extension's own pages (editor/library):
+ * browser.tabs.query({ url }) can't find them without the `tabs` permission,
+ * which this minimal-permission manifest avoids — so pages self-register
+ * instead (REGISTER_EXTENSION_PAGE) and the background remembers where they
+ * are. The record lives in browser.storage.session because tab ids are only
+ * ever valid within one browsing session.
  */
 export const EXTENSION_PAGE_KINDS = ['editor', 'library'] as const;
 
@@ -73,14 +61,11 @@ export async function forgetClosedExtensionPage(tabId: number): Promise<void> {
 }
 
 /**
- * REGISTER_EXTENSION_PAGE handler. Which page registered is decided by
- * authenticating the sender against each page URL rather than trusting a kind
- * in the payload. isTrustedEditorSender is the generic top-frame extension-page
- * check — both sender.url and sender.tab.url must be that exact page — so an
- * embedded frame cannot register itself as the document hosting it.
- *
- * Pages re-register whenever they regain focus, so when several are somehow
- * open the most recently used one is the one later opens reuse.
+ * REGISTER_EXTENSION_PAGE handler. Trusts the sender's authenticated URL, not a
+ * kind in the payload — isTrustedEditorSender requires both sender.url and
+ * sender.tab.url to match the exact page, so an embedded frame can't register
+ * as the page hosting it. Pages re-register on focus, so the most recently
+ * used one wins when several are open.
  */
 export async function registerExtensionPage(sender: RecaptureMessageSender): Promise<boolean> {
   const kind = EXTENSION_PAGE_KINDS.find((candidate) =>
@@ -113,10 +98,9 @@ export async function showExtensionPage(
       options.navigate ? { url: options.url, active: true } : { active: true },
     );
   } catch (error) {
-    // A record can outlive its tab: tabs.onRemoved is missed whenever the MV3
-    // worker is asleep. The rejected tabs.update is the proof of that, and the
-    // only proof worth acting on — a window-focus failure below merely means
-    // the window closed, and must not spawn a duplicate page.
+    // A record can outlive its tab when tabs.onRemoved is missed while the MV3
+    // worker sleeps; only a rejected tabs.update proves that — a window-focus
+    // failure below just means the window closed and must not spawn a duplicate page.
     console.warn(`[frametrail] the remembered ${kind} tab is gone; opening a new one`, error);
     await forgetExtensionPage(kind);
     await createExtensionPage(options.url);

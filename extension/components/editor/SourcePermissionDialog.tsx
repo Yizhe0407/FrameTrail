@@ -41,17 +41,9 @@ interface Props {
 }
 
 /**
- * Granting a host permission is a security decision, so it gets a modal rather
- * than a banner: it states the exact origin, blocks the editor behind it, and
- * cannot scroll out of view while the browser's own prompt is about to appear.
- *
- * The confirm button must remain the direct source of the click that calls
- * browser.permissions.request — Chromium only honours the request while
- * transient user activation from that gesture is alive.
- *
- * The 改在其他頁面接續 path is two-step: the first click swaps this dialog's
- * body for an explicit tab picker (no auto-guessing a target), and the second
- * confirms the picked tab and starts a plain recording there.
+ * A modal (not a banner) shows the exact origin and blocks the editor while the browser's own permission prompt appears.
+ * The confirm button must stay the direct click source for browser.permissions.request — Chromium requires live transient user activation from that gesture.
+ * 改在其他頁面接續 is two-step: the first click opens an explicit tab picker, the second confirms the tab and starts recording.
  */
 export default function SourcePermissionDialog({
   open,

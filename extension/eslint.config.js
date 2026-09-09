@@ -31,9 +31,7 @@ export default tseslint.config(
   },
   {
     rules: {
-      // TS's own `noUnusedLocals`/`noUnusedParameters` already fail the build for
-      // these; the ESLint copy only adds duplicate noise, so keep the underscore
-      // escape hatch and let `tsc` own the rule.
+      // tsc's noUnusedLocals/noUnusedParameters already fail the build for these; keep the underscore escape hatch and let tsc own the rule.
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
@@ -43,16 +41,12 @@ export default tseslint.config(
       'no-undef': 'off',
       'no-redeclare': 'off',
       'no-unused-vars': 'off',
-      // Control characters in a regex are the point in this codebase: every hit
-      // is an input sanitizer stripping \x00-\x1f before it reaches storage,
-      // an archive, or a message boundary.
+      // Control characters in a regex are intentional here: every hit is an input sanitizer stripping \x00-\x1f before storage, an archive, or a message boundary.
       'no-control-regex': 'off',
     },
   },
   {
-    // Playwright fixtures take a callback named `use`, which the React rule
-    // cannot distinguish from the `use` hook. These are the only
-    // rules-of-hooks reports in the repo and all six are false positives.
+    // Playwright fixtures take a callback named `use`, which the React rule cannot distinguish from the `use` hook — a false positive.
     files: ['tests/e2e/**'],
     rules: {
       'react-hooks/rules-of-hooks': 'off',

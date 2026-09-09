@@ -204,7 +204,6 @@ describe('snapshot shield protocol', () => {
     expect(
       isSnapshotShieldFrameMessage({ type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [] }, token),
     ).toBe(true);
-    // Non-finite coordinate and non-string label are rejected.
     expect(
       isSnapshotShieldFrameMessage(
         { type: SNAPSHOT_SHIELD_CANDIDATES, token, anchors: [{ x: Number.NaN, y: 0, label: 'x' }] },

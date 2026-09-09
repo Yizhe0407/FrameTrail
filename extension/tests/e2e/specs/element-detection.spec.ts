@@ -128,8 +128,7 @@ test.describe('element detection', () => {
 
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     const [step] = await readSteps(popupPage);
-    // Without closed-root access the hit test stops at the host, which would
-    // record the whole 320x160 block as an unlabelled page region.
+    // Without closed-root access the hit test stops at the host, which would record the whole 320x160 block as an unlabelled region.
     expect(step.description).toBe('點擊按鈕');
     expectBoundsNear(step.bounds, shadowButton);
     expect(step.bounds!.width).toBeLessThan(host.width);
@@ -151,8 +150,7 @@ test.describe('element detection', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
 
     const steps = await readSteps(popupPage);
-    // Neither card has a role, href, handler property or pointer cursor: the
-    // framework attribute is the only evidence that they are controls.
+    // Neither card has a role, href, handler property or pointer cursor: the framework attribute is the only evidence they're controls.
     expect(steps.map((step) => step.description)).toEqual(['點擊互動元素', '點擊互動元素']);
     expectBoundsNear(steps[0].bounds, jsaction);
     expectBoundsNear(steps[1].bounds, stimulus);

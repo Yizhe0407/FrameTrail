@@ -67,9 +67,7 @@ describe('record controls recovery', () => {
     expect(screen.queryByRole('button', { name: /^開始/ })).toBeNull();
   });
 
-  // Regression: the starting phase used to fall through to the idle form,
-  // pairing a 「準備中」 header with an enabled start button whose second
-  // click sent a duplicate START_RECORDING.
+  // Regression: the starting phase used to fall through to the idle form with an enabled start button, allowing a duplicate START_RECORDING.
   it('shows a dedicated disabled state while START_RECORDING is in flight', () => {
     const starting: RecordingState = {
       ...recoveryState({ code: 'unused', message: 'unused' }),

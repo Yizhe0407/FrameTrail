@@ -26,20 +26,12 @@ function describesRadio(tagName: string, text: string): boolean {
 /**
  * Generates a short action description without copying page text into storage.
  *
- * Privacy boundary: ClickCapture.text can come from visible text, aria-label,
- * placeholder, or editable content. Its provenance is unavailable here, so it
- * is used only to recognize a small fixed vocabulary of action hints and is
- * never interpolated into the returned description. ClickCapture.url is also
- * intentionally excluded because it may contain private paths or query data.
- *
- * Inference gaps in the current message contract:
- * - <input> does not include its type, so text fields, checkboxes, radios, and
- *   submit controls cannot generally be distinguished. Only explicit semantic
- *   hints can safely specialize the generic input-field description.
- * - ARIA role/state, href/target, modifier keys, form ownership, and the action
- *   result are absent. Therefore custom controls and whether a link actually
- *   opens a new tab cannot be known unless the captured label explicitly says
- *   so. These cases deliberately fall back to conservative descriptions.
+ * capture.text's provenance (visible text, aria-label, placeholder, etc.) is
+ * unknown, so it is only matched against a fixed vocabulary of action hints
+ * and never interpolated into the result; capture.url is excluded for the
+ * same reason. capture.tagName also carries no input type or ARIA role, so
+ * anything not identifiable from the text hints falls back to a generic,
+ * conservative description.
  */
 export function generateActionDescription(capture: ActionDescriptionCapture): string {
   if (capture.intent === 'mark') return '標記頁面區域';

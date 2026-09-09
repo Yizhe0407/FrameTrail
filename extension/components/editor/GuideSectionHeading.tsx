@@ -26,10 +26,7 @@ function normalizeTitle(value: string): string {
   return value.trim().slice(0, MAX_TITLE_LENGTH);
 }
 
-/**
- * A callback-only section heading. Its owner controls persistence, error
- * reporting, and any confirmation UI for destructive actions.
- */
+/** A callback-only section heading; the owner controls persistence, error reporting, and any confirmation UI. */
 function GuideSectionHeading({
   section,
   disabled = false,
@@ -124,8 +121,7 @@ function GuideSectionHeading({
               if (emptyTitle) setEmptyTitle(false);
             }}
             onBlur={() => {
-              // A blur can happen while leaving the field. Empty text must never
-              // become an accidental rename; leave the editor open instead.
+              // Blurring with empty text must never become an accidental rename.
               if (!normalizeTitle(draftTitle)) {
                 setEmptyTitle(true);
                 return;
@@ -149,9 +145,7 @@ function GuideSectionHeading({
               章節名稱不可為空白。
             </p>
           )}
-          {/* A mousedown on either control would blur the input first and let the
-              field's own blur handler decide the outcome; suppress it so the
-              button the user actually pressed wins. */}
+          {/* Suppress mousedown blur so the button the user pressed wins, not the blur handler. */}
           <Button type="submit" size="sm" disabled={controlsDisabled} onMouseDown={(event) => event.preventDefault()}>
             儲存
           </Button>

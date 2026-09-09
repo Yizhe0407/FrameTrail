@@ -81,10 +81,7 @@ test.describe('popup workflows', () => {
 
     const statePage = await extensionContext.newPage();
     await statePage.goto(`chrome-extension://${extensionId}/editor.html`);
-    // The mount-time preflight reads the active tab; a real popup opens while
-    // the target page is active, so activate it before remounting the popup
-    // (the popup-as-tab harness would otherwise preflight against itself and
-    // show the restricted-page notice).
+    // The mount-time preflight reads the active tab, so activate the target page before remounting the popup, or it preflights against itself.
     await appPage.bringToFront();
     await popupPage.reload({ waitUntil: 'domcontentloaded' });
     await popupPage.evaluate(() => {
@@ -102,8 +99,7 @@ test.describe('popup workflows', () => {
     await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(true);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(1);
 
-    // Popup start always records into a brand-new Guide (Scribe/Tango
-    // convention); the previously selected Guide is never appended to.
+    // Popup start always records into a brand-new Guide (Scribe/Tango convention); the previously selected Guide is never appended to.
     const runSessionId = (await readRecordingState(statePage)).sessionId;
     expect(runSessionId).toBeTruthy();
     expect(runSessionId).not.toBe(seededGuideId);
@@ -115,8 +111,7 @@ test.describe('popup workflows', () => {
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(0);
 
-    // The run captured nothing, so the auto-created Guide is reclaimed: only
-    // the seeded Guide survives and the dangling selection is cleared.
+    // The run captured nothing, so the auto-created Guide is reclaimed: only the seeded Guide survives and the selection is cleared.
     await expect.poll(() => readGuideIds(statePage)).toEqual([seededGuideId]);
     await expect.poll(() => readActiveGuideId(statePage)).toBeNull();
   });
@@ -127,9 +122,7 @@ test.describe('popup workflows', () => {
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    // resetExtensionData creates and selects an empty Guide. Keep this id so
-    // the assertion verifies URL-owned Guide selection rather than whatever
-    // recording state happens to be current when the editor initializes.
+    // Keep this id so the assertion verifies URL-owned Guide selection rather than whatever recording state is current when the editor initializes.
     const activeGuideId = await popupPage.evaluate(async () => {
       const extensionChrome = globalThis as typeof globalThis & {
         chrome: { storage: { local: { get(keys: string): Promise<Record<string, unknown>> } } };
@@ -178,8 +171,7 @@ test.describe('popup workflows', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
 
-    // Ordinary navigation must not inherit the newest capture as its target:
-    // opening a finished guide should start reading it from the top.
+    // Ordinary navigation must not inherit the newest capture as its target: opening a finished guide should start reading it from the top.
     expect(new URL(editor.url()).searchParams.get('entryId')).toBeNull();
     await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
     await expect(editor.getByRole('button', { name: '開啟步驟 2' })).not.toHaveAttribute('aria-current', 'step');

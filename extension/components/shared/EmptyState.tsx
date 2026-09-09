@@ -23,9 +23,8 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
     setActionError(null);
     try {
       const tabs = await browser.tabs.query({ currentWindow: true });
-      // Prefer the tab the run records into; otherwise fall back to the most
-      // recently used recordable web tab (shared policy: http/https only, not
-      // restricted — file: pages cannot be recorded and are no longer offered).
+      // Prefer the recording tab; otherwise the most recently used recordable
+      // tab (http/https only — file: pages can't be recorded).
       const target =
         tabs.find((tab) => tab.id === recordingTabId) ??
         tabs.filter(isRecordableTab).sort(byMostRecentlyAccessed)[0];

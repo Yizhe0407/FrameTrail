@@ -132,10 +132,7 @@ describe('Guide UI selection', () => {
   });
 });
 
-// The pristine guard itself (only untouched shells are deleted, selection is
-// compare-and-cleared) lives in lib/storage and is covered by
-// tests/integration/db-pristine-guide.test.ts. Here only the UI-flow wrapper
-// matters: delegation, and restoring the pre-start selection.
+// The pristine guard itself lives in lib/storage (see tests/integration/db-pristine-guide.test.ts); this suite covers only the UI-flow wrapper: delegation and restoring the prior selection.
 describe('auto-created Guide reclamation', () => {
   it('delegates deletion to storage and restores the previous selection', async () => {
     mocks.discardPristineGuide.mockResolvedValue(true);

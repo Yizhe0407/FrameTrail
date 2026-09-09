@@ -43,18 +43,15 @@ const SHIELD_CHANNEL_FAILURE: RecordingControlResult = {
   error: RECORDING_CHANNEL_LOST_MESSAGE,
 };
 
-// The shield document consumes the same freeze list as the frozen page,
-// except: pointerdown feeds the annotation pipeline (its dedicated handler
-// consumes selectively), and submit is handled separately because nothing in
-// the shield document can host a form submission.
+// Same freeze list as the frozen page, except pointerdown (its own handler
+// consumes selectively) and submit (nothing here can host a form submission).
 const FREEZE_EVENTS = SNAPSHOT_FREEZE_EVENTS.filter(
   (type) => type !== 'pointerdown' && type !== 'submit',
 );
 
-// The frame URL only carries a public frame key. The secret init token is
-// fetched from extension storage, which the host page cannot read (frame URLs
-// leak through resource timing, so a URL-borne token would let page scripts
-// race the SNAPSHOT_SHIELD_INIT handshake and hijack the channel).
+// The frame URL only carries a public frame key; the secret init token is fetched
+// from extension storage (frame URLs leak via resource timing, so a URL-borne
+// token would let page scripts race the handshake and hijack the channel).
 const frameKey = new URL(location.href).searchParams.get('frame');
 let expectedToken: string | null = null;
 let initialized = false;
@@ -193,9 +190,8 @@ function tryInitialize(event: MessageEvent): void {
       clearHover();
       return;
     }
-    // Over the toolbar the highlight freezes on its last target instead of
-    // clearing: reaching undo or the crop control means crossing the frozen
-    // page, and retargeting on the way would drop the box the user aimed at.
+    // Over the toolbar the highlight freezes on its last target instead of clearing,
+    // since reaching undo/crop crosses the frozen page and would drop the aimed box.
     if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
     ensureKeyboardFocus();
     hover.pointerMove(event.clientX, event.clientY);
@@ -360,9 +356,8 @@ function tryInitialize(event: MessageEvent): void {
     keyboardIndex = -1;
   };
 
-  // Unlike consume(), this always prevents the default. The keys handled here
-  // are fully owned by the traversal, so even when the skip link is focused
-  // (exempt from consume) their native behaviour must not also fire.
+  // Unlike consume(), always prevents default: these keys are fully owned by the
+  // traversal, so even a focused skip link (exempt from consume) must not also fire natively.
   const stopEvent = (event: Event) => {
     if (event.cancelable) event.preventDefault();
     event.stopImmediatePropagation();
@@ -475,10 +470,9 @@ function tryInitialize(event: MessageEvent): void {
     }
     if (event.data.type === SNAPSHOT_SHIELD_CAPTURE_COMPLETE) {
       if (event.data.captureId !== activeCaptureId || !capturing) {
-        // A stale completion — its local timeout already fired, or a newer
-        // capture owns the flow. Its annotation may still be committed to the
-        // overlay, but it must not settle the current capture and above all
-        // must not run a pendingRegionCompletion it does not own.
+        // A stale completion (its timeout already fired, or a newer capture owns the
+        // flow): its annotation may still commit to the overlay, but it must not
+        // settle the current capture or run a pendingRegionCompletion it doesn't own.
         if (event.data.selection) overlay.commit(event.data.selection);
         return;
       }
@@ -512,10 +506,9 @@ function tryInitialize(event: MessageEvent): void {
     if (!event.relatedTarget) clearHover();
   }, { capture: true });
   window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: false });
-  // Registered ahead of every other key handler and deliberately blind to the
-  // toolbar exemption the handlers below apply: a scrolling key that reaches
-  // the browser scrolls the frozen page under this frame (the shield document
-  // itself has nothing to scroll), which invalidates the whole run.
+  // Registered ahead of every other key handler, blind to the toolbar exemption
+  // below: a scrolling key that reaches the browser scrolls the frozen page
+  // under this frame, which invalidates the whole run.
   window.addEventListener('keydown', onScrollKeyDown, { capture: true, passive: false });
   window.addEventListener('keydown', onShieldKeyDown, { capture: true, passive: false });
   for (const type of FREEZE_EVENTS) {

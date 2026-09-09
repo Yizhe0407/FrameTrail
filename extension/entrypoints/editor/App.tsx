@@ -58,11 +58,8 @@ function EditorApp() {
   const dbEntries = canonicalSnapshot?.entries ?? EMPTY_STEP_ENTRIES;
 
 
-  // Optimistic entries state: when a drag reorder happens we update this
-  // immediately so the UI reflects the new order without waiting for the DB
-  // round-trip.  It resets to null whenever the canonical DB entries change
-  // (new steps arrive, deletion completes, etc.) so we always converge to
-  // the source of truth.
+  // Optimistic reorder state: shows the new order immediately, then resets to
+  // null once the canonical DB entries change so we converge to the source of truth.
   const [optimisticEntries, setOptimisticEntries] = useState<StepEntry[] | null>(null);
   const [dataOperation, setDataOperation] = useState<string | null>(null);
   const dataOperationLock = useRef(false);
@@ -122,16 +119,13 @@ function EditorApp() {
     syncWithSelection(selectedEntryId, sessionId);
   }, [syncWithSelection, selectedEntryId, sessionId]);
 
-  // The two halves of "there is only ever one editor tab": tell the background
-  // where this page lives, and answer its handoff when it is asked to open a
-  // Guide while this tab is already open.
+  // The two halves of "there is only ever one editor tab": register this page
+  // with the background, and answer its handoff when asked to open a Guide already open here.
   useExtensionPageRegistration();
   useEditorHandoff({ viewedSessionId: sessionId, flushDescriptions, selectEntry });
 
-  // A lightbox with no entry to show must not stay armed: if every entry
-  // disappears while zoomed (deletion elsewhere, Guide reload), leaving
-  // `zoomOpen` true would pop the lightbox open unexpectedly as soon as
-  // entries reappear.
+  // A lightbox with no entry to show must not stay armed, or it would pop open
+  // unexpectedly once entries reappear (e.g. after a deletion or Guide reload).
   useEffect(() => {
     if (!selectedEntry) setZoomOpen(false);
   }, [selectedEntry, setZoomOpen]);
@@ -154,9 +148,8 @@ function EditorApp() {
           toast('已取消補拍，原本內容未變更。');
         }
       } catch (presentError) {
-        // The run itself already settled in storage; only presenting its
-        // outcome failed. The result is stamped handled above, so surface the
-        // failure instead of silently dropping it.
+        // The run already settled in storage; only presenting its outcome failed,
+        // so surface that instead of silently dropping it.
         console.error('顯示補拍結果失敗', presentError);
         setOperationError('補拍結果已儲存，但畫面更新失敗。請重新整理頁面查看最新內容。');
       } finally {
@@ -172,9 +165,8 @@ function EditorApp() {
       await flushAll();
     } catch (saveError) {
       console.error('完成編輯器操作前儲存說明失敗', saveError);
-      // A pending draft confirmation carries its own user-facing zh-Hant
-      // message explaining what to confirm; only genuine save failures get
-      // the generic retry wording.
+      // A pending draft confirmation carries its own user-facing message; only
+      // genuine save failures get the generic retry wording.
       setOperationError(
         saveError instanceof DraftConfirmationRequiredError
           ? saveError.message
@@ -203,9 +195,8 @@ function EditorApp() {
     return selectedEntry;
   }
 
-  // `selectEntry` propagates genuine save failures (it only swallows the
-  // pending-confirmation case itself). `flushDescriptions` usually surfaced
-  // its own message already, so only fill the banner in when nothing did.
+  // `selectEntry` propagates genuine save failures (it swallows only the
+  // pending-confirmation case); fill the banner only when nothing else already surfaced one.
   function selectEntrySafely(id: string): void {
     void selectEntry(id).catch((selectionError) => {
       console.error('切換步驟失敗', selectionError);
@@ -310,9 +301,8 @@ function EditorApp() {
     await exportImagesAsZip(stepsToExport, undefined, signal);
   }
 
-  // Rejects rather than reporting through `operationError`: the caller owns an
-  // input whose displayed value must roll back to the stored one, so it needs
-  // the failure, not just a page-level banner.
+  // Rejects instead of reporting through `operationError`: the caller's input
+  // must roll back to the stored value, so it needs the failure directly.
   async function updateGuideMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
     if (!guide) throw new Error('找不到要編輯的內容。');
     if (isPermissionFlowLocked() || dataOperationLock.current || operationActive) {

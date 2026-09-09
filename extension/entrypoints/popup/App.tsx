@@ -17,16 +17,14 @@ import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/r
 import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
 
 function App() {
-  // The popup renders state fields only, so it opts out of step reads: the
-  // full hook re-fetches every step (screenshot Blobs included) on each state
-  // change plus a periodic reconcile tick, which a 320px popup never shows.
+  // Opts out of step reads: the full hook re-fetches every step (screenshot
+  // Blobs included) on each state change, which a 320px popup never shows.
   const { recording, isRecording, sessionId, error, recoverableError, dataError } =
     useRecordingSession(undefined, { withSteps: false });
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
-  // Whether the reset target holds any content. `recording.itemCount` cannot
-  // answer this: it is per-run and zeroed when a run finishes, while the guide
-  // row's denormalized counts are a metadata-only read (no screenshot Blobs).
+  // Whether the reset target holds any content. `recording.itemCount` cannot answer
+  // this since it's per-run and zeroed on finish; the guide row's counts are metadata-only.
   const [hasGuideContent, setHasGuideContent] = useState(false);
   const editorRecovery = needsEditorRecovery(recoverableError);
 
@@ -41,8 +39,8 @@ function App() {
         if (active) setHasGuideContent(Boolean(guide) && (guide!.entryCount > 0 || guide!.stepCount > 0));
       })
       .catch((readError) => {
-        // Fail open: the confirm dialog and the background guard still protect
-        // the action, while failing closed would strand a real reset need.
+        // Fail open: the confirm dialog and background guard still protect the
+        // action, while failing closed would strand a real reset need.
         console.error('[frametrail] failed to read guide summary', readError);
         if (active) setHasGuideContent(true);
       });
@@ -68,9 +66,8 @@ function App() {
     setOpeningEditor(true);
     setEditorOpenError(null);
     try {
-      // Recovery must return to the operation owner. Normal navigation resolves
-      // the current UI selection afresh so an idle popup never opens a
-      // guide-less editor or falls back to stale recording state.
+      // Recovery must return to the operation owner; normal navigation resolves the
+      // current UI selection afresh so an idle popup never opens a guide-less editor.
       const targetSessionId = editorRecovery
         ? sessionId
         : (await ensureSelectedGuide()).id;
@@ -126,10 +123,8 @@ function App() {
         openingEditor={openingEditor}
       />
 
-      {/* Hidden while a run is live: RecordControls already offers the editor
-          as its secondary exit, and the background rejects a mid-recording
-          reset anyway, so this block would only duplicate one button and
-          dangle another that cannot succeed. */}
+      {/* Hidden while a run is live: RecordControls already offers the editor as
+          its secondary exit, and a mid-recording reset would fail anyway. */}
       {!editorRecovery && !isRecording && <div className="h-[1px] w-full bg-border/80 dark:bg-white/10" aria-hidden="true" />}
 
       {!editorRecovery && !isRecording && (

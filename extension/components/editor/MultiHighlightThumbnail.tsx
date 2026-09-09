@@ -63,12 +63,7 @@ interface BoxStyle {
   leaderPoints: string;
 }
 
-/**
- * Single-image mode counterpart of HighlightThumbnail: draws every
- * annotation's box (and, if numbered, its order badge) as CSS overlays on top
- * of one shared screenshot. Mirrors compositeMultiHighlight's geometry so the
- * live preview matches the exported image.
- */
+/** Single-image mode counterpart of HighlightThumbnail: draws every annotation's box as CSS overlays, mirroring compositeMultiHighlight's geometry so the preview matches the export. */
 export default function MultiHighlightThumbnail({
   blob,
   annotations,
@@ -94,11 +89,8 @@ export default function MultiHighlightThumbnail({
         .join('|'),
     [annotations],
   );
-  // An Annotation is fully described by its order and bounds, so the signature
-  // is a lossless serialization and the only real input here. Rebuilding from
-  // the signature rather than from `annotations` keeps the array identity
-  // stable across renders that pass an equivalent-but-new `annotations` prop —
-  // a fresh identity re-triggers the expensive layout and pixel remap below.
+  // Rebuilding from the signature (not `annotations`) keeps array identity stable across
+  // equivalent-but-new `annotations` props, avoiding an expensive re-layout/remap below.
   const stableAnnotations = useMemo<Annotation[]>(() => {
     if (!annotationSignature) return [];
     return annotationSignature.split('|').map((entry) => {
@@ -219,9 +211,8 @@ export default function MultiHighlightThumbnail({
       decoding={decoding}
       className={className}
       imgClassName={imgClassName}
-      // Records the natural size instead of remapping synchronously: the
-      // layout memo (which depends on imageSize) drives the remap here.
-      // Deliberate divergence from HighlightThumbnail's onLoad sync remap.
+      // Records natural size; the layout memo (depends on imageSize) drives the remap here,
+      // unlike HighlightThumbnail's synchronous remap on load.
       onImageLoad={onImageLoad}
       contentFrame={contentFrame}
       redactionBoxes={redactionBoxes}

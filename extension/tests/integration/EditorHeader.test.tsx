@@ -42,9 +42,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('EditorHeader', () => {
-  // The header used to render every action twice — an icon-only button below
-  // `sm` beside a labelled one from `sm` up — which doubled the click targets,
-  // accessible names and disabled logic that had to stay in sync.
+  // Regression: used to render every action twice (icon-only below `sm`, labelled from `sm` up).
   it('offers exactly one control per action', () => {
     renderHeader();
 

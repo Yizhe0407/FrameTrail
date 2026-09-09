@@ -44,9 +44,7 @@ export default function EditorHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
-        {/* One control per action at every width: the icon always shows and the
-            label appears from `sm` up. The `aria-label` carries the accessible
-            name so the icon-only state below `sm` is never unlabelled. */}
+        {/* Icon always shows; label appears from `sm` up. `aria-label` keeps the icon-only state accessible. */}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

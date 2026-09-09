@@ -1,13 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 
 /**
- * Ref-gated single-flight action runner. State updates are asynchronous, so a
- * pending key alone cannot stop two actions fired in the same event turn from
- * overlapping; the ref answers synchronously while `pendingKey` drives the UI
- * (spinners, disabled controls).
- *
- * `runExclusive` resolves `undefined` when another action already holds the
- * gate. Failures are the caller's to catch — the gate only guarantees release.
+ * Ref-gated single-flight action runner: state updates are async, so a ref
+ * (not just `pendingKey`) is needed to synchronously block overlapping calls
+ * fired in the same event turn. `runExclusive` resolves `undefined` when
+ * another action already holds the gate; callers still catch their own failures.
  */
 export function usePendingAction<K = string>() {
   const [pendingKey, setPendingKey] = useState<K | null>(null);

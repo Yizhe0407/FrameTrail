@@ -55,19 +55,12 @@ export function makeBackgroundMocks() {
 export type BackgroundMocks = ReturnType<typeof makeBackgroundMocks>;
 
 /**
- * Canonical vi.mock factory bodies for the background suites. vi.mock calls
- * themselves must stay file-local (vitest hoists them per test file), but the
- * factory BODY runs lazily on first module resolution, so each suite reduces
- * to one line per mocked module:
+ * Canonical vi.mock factory bodies for the background suites — the factory
+ * body runs lazily on first module resolution, so each suite reduces to one
+ * line per mocked module, e.g.:
  *
  *   vi.mock('wxt/browser', async () =>
  *     (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
- *   Storage repositories are mocked separately because production imports
- *   their responsibility-specific modules directly.
- *   vi.mock('@/lib/storage/storage', async (importOriginal) =>
- *     (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
- *   vi.mock('@/lib/recording/background/pending-undo-store', async () =>
- *     (await import('../setup/background-test-utils')).mockPendingUndoStoreModule(mocks));
  */
 
 /** Factory body for vi.mock('wxt/browser'): the full background surface wired

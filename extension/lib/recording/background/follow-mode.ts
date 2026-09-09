@@ -12,17 +12,13 @@ import type { RecorderRuntime } from './recorder-runtime';
 const FOLLOW_ACTIVATION_DEBOUNCE_MS = 300;
 
 /**
- * Follow-the-user recording: while a steps run is live and the user activates
- * a different eligible tab, the run moves there instead of silently dropping
- * every click. Snapshot mode never follows (its coordinates belong to one
- * frozen document), and without the <all_urls> grant (asked once at the first
- * steps start, or opted into later via the popup's 「啟用跨分頁錄製」 link)
- * the run keeps its original single-tab behavior. An ineligible tab
- * (restricted/extension page) moves nothing: the recording stays on the
- * previous tab, toolbar and all, until an eligible tab is activated.
- *
- * The tab listeners themselves stay wired in the background entrypoint; this
- * module owns the debounce and the move.
+ * Follow-the-user recording: while a steps run is live, activating a different
+ * eligible tab moves the run there instead of dropping clicks. Snapshot mode
+ * never follows (coordinates are tied to one frozen document); without the
+ * <all_urls> grant the run keeps its single-tab behavior; an ineligible tab
+ * (restricted/extension page) moves nothing until an eligible tab is activated.
+ * Tab listeners are wired in the background entrypoint — this module owns the
+ * debounce and the move.
  */
 export function createFollowMode(deps: { control: ControlPlane; runtime: RecorderRuntime }) {
   const { control, runtime } = deps;

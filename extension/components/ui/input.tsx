@@ -2,12 +2,8 @@ import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
 /**
- * The bordered text field. Its sibling Textarea was already here while this was
- * not, so every standard field hand-rolled its own border and focus treatment —
- * three different focus styles for the same interaction. Chrome-less inline
- * editors (a title you click to rename, the search box inside its own bordered
- * shell) are deliberately not this component: they must not carry a border,
- * background, or shadow of their own.
+ * The bordered text field. Chrome-less inline editors (rename-on-click titles,
+ * bordered search boxes) should not use this — they must stay borderless.
  */
 function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
   return (

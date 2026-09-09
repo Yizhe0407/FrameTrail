@@ -1,16 +1,9 @@
 import { Toaster, type ToasterProps } from 'react-hot-toast';
 
 /**
- * The app-wide transient feedback surface. Notices announce that something
- * already finished ("匯出已開始", "補拍完成"), so they must not hold a slot in the
- * layout the way the old inline banners did — a banner that pushes the editor
- * down after every operation is more disruptive than the news it carries.
- *
- * Errors deliberately stay as persistent in-page alerts: a message the user has
- * to act on cannot be allowed to time out.
- *
- * Colours come from the theme tokens rather than react-hot-toast's defaults so
- * toasts follow the OS dark-mode switch like every other surface.
+ * App-wide transient feedback for actions that already finished; unlike inline
+ * banners it doesn't take a layout slot. Errors stay as persistent in-page
+ * alerts instead. Colours use theme tokens so toasts follow OS dark mode.
  */
 export default function AppToaster({ position = 'top-center' }: { position?: ToasterProps['position'] }) {
   return (

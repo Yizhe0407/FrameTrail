@@ -3,11 +3,8 @@ import type { PendingUndoAction, UndoAction } from '@/lib/editor/editor-app-mode
 import { type Guide } from '@/lib/storage/models';
 
 /**
- * Bookkeeping for the editor's single offered undo action.
- *
- * An undo is only valid against the exact revision its mutation produced, so
- * the action is dropped as soon as the Guide moves on (another edit, a
- * recording/recapture run, or a different Guide entirely).
+ * Bookkeeping for the editor's single offered undo action. An undo is only valid against the exact
+ * revision its mutation produced, so it's dropped as soon as the Guide moves on.
  */
 export function useGuideUndo({ guide, operationActive }: {
   guide: Guide | null;

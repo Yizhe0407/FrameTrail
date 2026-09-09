@@ -27,7 +27,6 @@ describe('capture registry', () => {
 
   it('bounds the cancellation memory by evicting the oldest ids', () => {
     for (let i = 0; i < 1_025; i += 1) registry.cancelCapture(`evict-${i}`);
-    // The oldest record was evicted; the newest still rejects.
     expect(() => registry.assertCaptureNotCancelled('evict-0')).not.toThrow();
     expect(() => registry.assertCaptureNotCancelled('evict-1024')).toThrow(StaleCaptureError);
   });

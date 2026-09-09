@@ -270,8 +270,7 @@ describe('layoutAnnotations', () => {
   });
 
   it('routes a horizontal cluster to a horizontal lane in step order without leader crossings', () => {
-    // A row of toolbar-like targets, each overlapping its neighbor enough to
-    // chain-merge into one coincident group.
+    // Toolbar-like targets overlapping enough to chain-merge into one coincident group.
     const annotations = Array.from({ length: 14 }, (_, index) => ({
       bounds: { x: 200 + index * 18, y: 100, width: 32, height: 32 },
       order: index + 1,
@@ -304,8 +303,7 @@ describe('layoutAnnotations', () => {
   });
 
   it('keeps a jittered coincident cluster in step-number order down the lane', () => {
-    // Anchors differ by a few px — less than a marker diameter — so the lane
-    // must follow the step numbers, not the sub-marker coordinate jitter.
+    // Anchors differ by less than a marker diameter, so lane order must follow step numbers, not jitter.
     const annotations = Array.from({ length: 10 }, (_, index) => ({
       bounds: { x: 500 + (index % 3) * 8, y: 300 + (index % 4) * 6, width: 120, height: 32 },
       order: index + 1,
@@ -315,15 +313,13 @@ describe('layoutAnnotations', () => {
 
     const sortedByBadgeY = layouts.slice().sort((a, b) => a.callout!.y - b.callout!.y);
     expect(sortedByBadgeY.map((layout) => layout.order)).toEqual(annotations.map((a) => a.order));
-    // Crossings are not asserted here: preferring step order over jitter order
-    // deliberately trades away crossing-freeness inside the sub-marker-sized
-    // anchor blob, where any crossing is smaller than the marker dots.
+    // Crossings aren't asserted: step order is preferred over jitter order even though
+    // that can cross within the sub-marker-sized anchor blob.
   });
 
   it('keeps a page-sized container from gluing scattered targets into one group', () => {
-    // A click on a near-fullscreen container contains every other target, but
-    // containment is not coincidence: everything must stay a framed single —
-    // no markers, no page-crossing leaders.
+    // Containment (a near-fullscreen container) is not coincidence: every target
+    // stays a framed single, no markers or page-crossing leaders.
     const annotations = [
       { bounds: { x: 4, y: 60, width: 1270, height: 730 }, order: 1 },
       ...Array.from({ length: 8 }, (_, index) => ({
@@ -339,9 +335,8 @@ describe('layoutAnnotations', () => {
   });
 
   it('keeps every framed single disjoint in a tight grid of close but separate targets', () => {
-    // A cluster of small targets packed with mixed horizontal/vertical gaps of
-    // 1–9px. None overlap, so no coincident grouping — every target is a
-    // framed single, and the per-side padding must keep no two frames crossing.
+    // Small targets packed with 1-9px gaps; none overlap, so all stay framed
+    // singles with disjoint padded frames.
     const annotations: { bounds: Rect; order: number }[] = [];
     let order = 1;
     let y = 60;
@@ -401,10 +396,8 @@ describe('layoutAnnotations', () => {
   });
 
   it('keeps a nested inner frame inside the container raw bounds', () => {
-    // A big container target with a small element inside it, near the container
-    // edge. Containment is not coincidence, so both stay framed singles: the
-    // inner frame must not cross the outer RAW bounds, and the outer frame must
-    // fully contain the inner one.
+    // A big container with a small element near its edge; containment isn't
+    // coincidence, so both stay framed singles and must nest correctly.
     const outerRaw = { x: 100, y: 100, width: 600, height: 400 };
     const innerRaw = { x: 108, y: 108, width: 120, height: 40 };
     const layouts = layoutAnnotations(
@@ -528,9 +521,8 @@ describe('raster redactions', () => {
   });
 
   it('passes an untouched screenshot through without decoding when nothing must be drawn', async () => {
-    // No canvas globals are stubbed here: reaching createImageBitmap or
-    // OffscreenCanvas would throw, so success proves the decode/encode round
-    // trip was skipped entirely.
+    // No canvas globals stubbed: reaching createImageBitmap/OffscreenCanvas would
+    // throw, so success proves the decode/encode round trip was skipped.
     const screenshot = new Blob(['source'], { type: 'image/png' });
 
     const result = await compositeHighlight(screenshot, null, 2, 'image/png');
@@ -570,8 +562,8 @@ describe('raster redactions', () => {
       const blocked = await compositeHighlight(screenshot, null, 2, 'image/png', [], true);
       expect(blocked).not.toBe(screenshot);
 
-      // The validated media type (mocked as image/png) differs from the
-      // requested format, so the screenshot must be transcoded, not reused.
+      // Validated media type (mocked image/png) differs from the requested
+      // format, so it must be transcoded, not reused.
       const transcoded = await compositeHighlight(screenshot, null, 2, 'image/jpeg');
       expect(transcoded).not.toBe(screenshot);
     } finally {
@@ -605,8 +597,8 @@ describe('raster redactions', () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 200, height: 100, close: vi.fn() })));
 
     try {
-      // Screenshot viewport is 100x50 CSS px; bounds beyond the right edge
-      // clamp to a zero-width frame that must not paint an edge hairline.
+      // Bounds beyond the 100x50 viewport's right edge clamp to a zero-width
+      // frame that must not paint an edge hairline.
       await compositeHighlight(new Blob(['source']), { x: 150, y: 20, width: 30, height: 20 }, 2, 'image/png');
 
       expect(calls).toEqual(['drawImage']);
@@ -736,8 +728,8 @@ describe('compositeMultiHighlight', () => {
           { bounds: { x: 104, y: 102, width: 80, height: 32 }, order: 2 },
         ],
         1,
-        // numbered=false must not suppress callout badges: they are the only
-        // way to tell coincident markers apart.
+        // numbered=false must not suppress callout badges — the only way to
+        // tell coincident markers apart.
         false,
       );
 

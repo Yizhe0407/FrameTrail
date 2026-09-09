@@ -15,11 +15,7 @@ type Fixtures = {
 };
 
 type Options = {
-  /**
-   * Opt a spec into scrollbars that paint and take layout space, via
-   * `test.use({ nativeScrollbars: true })`. Off by default so the rest of the
-   * suite keeps the scrollbar-free geometry Chromium's headless mode gives it.
-   */
+  /** Opt a spec into scrollbars that paint and take layout space, via `test.use({ nativeScrollbars: true })`; off by default so the rest of the suite keeps Chromium headless's scrollbar-free geometry. */
   nativeScrollbars: boolean;
   /** Disable trace collection for latency-sensitive benchmark runs. */
   recordTrace: boolean;
@@ -105,8 +101,7 @@ export const test = base.extend<Fixtures & Options>({
       });
     };
     for (const worker of extensionContext.serviceWorkers()) attachWorker(worker);
-    // MV3 service workers restart at will; hook the replacements too so errors
-    // from a respawned background are never silently dropped.
+    // MV3 service workers restart at will; hook replacements too so errors from a respawned background aren't dropped.
     extensionContext.on('serviceworker', attachWorker);
     await use(errors);
     if (errors.length > 0) {

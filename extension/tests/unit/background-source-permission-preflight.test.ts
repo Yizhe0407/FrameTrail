@@ -13,9 +13,7 @@ const mocks = await vi.hoisted(async () => (await import('../setup/background-te
 
 vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
-// This suite keeps step persistence real: only the read APIs are stubbed, so
-// any unexpected write during a preflight path fails loudly instead of being
-// silently absorbed by a mock.
+// This suite keeps step persistence real: only the read APIs are stubbed, so an unexpected write during a preflight path fails loudly instead of being silently absorbed by a mock.
 vi.mock('@/lib/storage/step-repository', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/storage/step-repository')>();
   return {
@@ -95,10 +93,7 @@ function activeRecordingState(): RecordingState {
 }
 
 beforeAll(async () => {
-  // This suite deliberately drives the background through rejection paths and
-  // starts it without indexedDB/scripting; every resulting log line is the
-  // expected defensive logging, so keep it out of the test run output. The
-  // spies stay installed for the whole worker-isolated file.
+  // This suite deliberately drives the background through rejection paths without indexedDB/scripting; the resulting log lines are expected defensive logging, kept out of the test run output for the whole worker-isolated file.
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubGlobal('defineBackground', (setup: () => unknown) => setup());
@@ -247,8 +242,7 @@ describe('continuation recording start', () => {
       continuation: {},
     });
 
-    // The only tabs.query is the exact-URL source lookup: an editor-initiated
-    // run must never fall back to whatever tab is currently active.
+    // The only tabs.query is the exact-URL source lookup: an editor-initiated run must never fall back to whatever tab is currently active.
     expect(mocks.tabsQuery).toHaveBeenCalledTimes(1);
     expect(mocks.tabsQuery).toHaveBeenCalledWith({});
     expect(mocks.tabsCreate).not.toHaveBeenCalled();

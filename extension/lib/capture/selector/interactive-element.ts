@@ -22,15 +22,6 @@ const INTERACTIVE_TAGS = new Set([
  * div/span is a control. Without them a jsaction-driven page (all of Google's
  * products) reads as inert text.
  */
-
-/**
- * Attributes that bind a click through a delegation library or framework
- * template. Handlers registered with addEventListener are invisible to a
- * content script — the DevTools-only getEventListeners is not available to
- * extensions — so these markers are the practical evidence that a plain
- * div/span is a control. Without them a jsaction-driven page (all of Google's
- * products) reads as inert text.
- */
 const DELEGATED_CLICK_ATTRIBUTES = [
   'jsaction',
   'data-action',
@@ -47,8 +38,6 @@ const DELEGATED_CLICK_ATTRIBUTES = [
   'hx-delete',
 ] as const;
 /** Attributes whose separator-prefixed values name the bound event type. */
-
-/** Attributes whose separator-prefixed values name the bound event type. */
 const EVENT_QUALIFIED_ATTRIBUTES: Record<string, string> = { jsaction: ':', 'data-action': '->' };
 
 const INLINE_POINTER_HANDLER_ATTRIBUTES = [
@@ -58,9 +47,6 @@ const INLINE_POINTER_HANDLER_ATTRIBUTES = [
   'onpointerdown',
   'onpointerup',
 ] as const;
-/** ARIA state that only a widget carries; the element answers to activation
- * even when its role is implicit or supplied by an ancestor. */
-
 /** ARIA state that only a widget carries; the element answers to activation
  * even when its role is implicit or supplied by an ancestor. */
 const ARIA_WIDGET_STATE_ATTRIBUTES = [
@@ -191,13 +177,6 @@ export function isDecorativeLeaf(el: Element, kind: InteractionKind): boolean {
 function attributeSelector(attribute: string): string {
   return `[${attribute.replace(/[^\w-]/g, (character) => `\\${character}`)}]`;
 }
-
-/**
- * Every marker that can make an element a control, as a CSS selector. It
- * over-selects on purpose — `isInteractiveElement` is the authority, and this
- * only has to avoid missing anything it would accept. Cursor-only controls
- * cannot be expressed here and stay pointer-reachable.
- */
 
 /**
  * Every marker that can make an element a control, as a CSS selector. It

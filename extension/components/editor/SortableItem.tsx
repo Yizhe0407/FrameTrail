@@ -7,10 +7,7 @@ import { cn } from '@/lib/shared/utils';
 
 interface Props {
   id: string;
-  /** Render prop: receives a ready-made drag handle (a button wired to
-   * @dnd-kit's sortable listeners) plus this row's drag state, so the caller can
-   * place the handle anywhere in its own layout and style the row while it
-   * moves, instead of a fixed hard-left position. */
+  /** Render prop: receives a ready-made drag handle plus this row's drag state, so the caller can place the handle anywhere in its own layout. */
   children: (handle: ReactNode, state: { isDragging: boolean }) => ReactNode;
   /** Extra classes for the row's <li> element. */
   className?: string;
@@ -21,15 +18,8 @@ interface Props {
 }
 
 /**
- * A drag-to-reorder row: wires up @dnd-kit's sortable state and hands the
- * content a drag handle via render prop. Only the handle carries the drag
- * listeners, so buttons and inputs inside the content stay independently
- * clickable (the parent DndContext also uses a small pointer activation
- * distance for this).
- *
- * Uses CSS.Translate (not CSS.Transform) for the drag transform — Transform
- * also applies dnd-kit's scaleX/scaleY, which visually squashes the dragged
- * row when list items have different heights.
+ * A drag-to-reorder row: only the handle carries drag listeners, so buttons/inputs in the content stay clickable.
+ * Uses CSS.Translate (not CSS.Transform) since Transform also applies scaleX/scaleY, squashing rows of differing heights.
  */
 export default function SortableItem({ id, children, className, handleClassName, disabled = false }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
@@ -43,8 +33,7 @@ export default function SortableItem({ id, children, className, handleClassName,
           {...attributes}
           {...listeners}
           aria-label="拖曳排序"
-          // Names the interaction for screen readers, which otherwise announce only
-          // "button" and give no hint that this row can be moved.
+          // Names the interaction for screen readers, which otherwise just announce "button".
           aria-roledescription="可拖曳的排序控制項"
           disabled={disabled}
           className={cn(

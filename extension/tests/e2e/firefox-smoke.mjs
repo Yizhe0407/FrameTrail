@@ -37,8 +37,7 @@ try {
   console.log('Firefox loaded and remotely reloaded the FrameTrail extension.');
 } finally {
   try {
-    // Keep the hard deadline armed through browser shutdown as web-ext exit can
-    // otherwise leave CI waiting indefinitely on a wedged Firefox process.
+    // Keep the deadline armed through shutdown: web-ext exit can otherwise leave CI waiting on a wedged Firefox process.
     await runner?.exit();
   } finally {
     clearTimeout(deadline);

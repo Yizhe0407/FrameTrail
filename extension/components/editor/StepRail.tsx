@@ -109,24 +109,19 @@ export default function StepRail({
     selectedItem.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [entries.length, selectedEntryId]);
 
-  // The parent recreates `onSelect` inline on every render, so binding the
-  // window listener to it directly would tear down and re-add it each time.
-  // Writing the ref during render breaks under concurrent rendering (a render
-  // can be discarded); committing it in an effect is safe because keydown only
-  // ever fires after a commit.
+  // Ref avoids rebinding the window listener each render; written in an effect
+  // (not during render) since a concurrent render can be discarded.
   const navigation = useRef({ entries, isDesktop, onSelect, selectedEntryId });
   useEffect(() => {
     navigation.current = { entries, isDesktop, onSelect, selectedEntryId };
   });
 
-  // Arrow-key navigation across the rail, skipped while the user is typing
-  // in a description/annotation field elsewhere on the page.
+  // Arrow-key navigation across the rail, skipped while typing in a field elsewhere on the page.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.defaultPrevented || e.isComposing) return;
       const activeElement = document.activeElement as HTMLElement | null;
-      // Keep rail navigation scoped to the rail so arrow keys used by other
-      // editor controls do not unexpectedly switch the current entry.
+      // Scoped to the rail so arrow keys used by other editor controls don't switch the entry.
       if (!activeElement || !railRef.current?.contains(activeElement)) return;
       const tag = activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || activeElement.isContentEditable) return;
@@ -153,9 +148,7 @@ export default function StepRail({
     >
       <div className="flex shrink-0 items-center justify-between gap-2 px-3.5 pt-3 pb-2 text-[10.5px] font-semibold text-muted-foreground">
         <span>步驟 · {entries.length}</span>
-        {/* The grip icon on each card is the affordance; this legend is what
-            makes it readable as one, since a rail of screenshots gives no other
-            hint that the order is editable. */}
+        {/* Legend for the grip-icon affordance; a rail of screenshots gives no other hint the order is editable. */}
         {entries.length > 1 && !reorderDisabled && (
           <span className="hidden items-center gap-0.5 font-medium text-muted-foreground/70 lg:flex">
             <GripVertical className="size-3" aria-hidden="true" />拖曳排序
@@ -187,8 +180,7 @@ export default function StepRail({
                   id={id}
                   disabled={reorderDisabled}
                   className="w-32 shrink-0 [content-visibility:auto] [contain-intrinsic-size:128px_78px] lg:w-full lg:min-w-0"
-                  // Sits on top of a screenshot, so it needs the same solid chip
-                  // treatment as the step number rather than muted-on-transparent.
+                  // Sits on top of a screenshot, so it needs a solid chip treatment like the step number.
                   handleClassName="rounded-md bg-[rgba(28,28,28,0.75)] text-white/85 shadow-md hover:text-white dark:bg-[rgba(30,30,30,0.85)]"
                 >
                   {(handle, { isDragging }) => (
@@ -208,8 +200,7 @@ export default function StepRail({
                           active
                             ? 'border-transparent bg-card'
                             : 'border-transparent bg-transparent hover:bg-foreground/5 dark:hover:bg-white/5',
-                          // Lifts the row being moved off the list so the
-                          // reflow underneath reads as the drop preview.
+                          // Lifts the row being moved off the list so the reflow underneath reads as the drop preview.
                           isDragging && 'border-brand/60 bg-card shadow-lg',
                         )}
                       >
@@ -251,9 +242,7 @@ export default function StepRail({
                             <span className="pointer-events-none absolute inset-[6px] rounded-md border-[1.4px] border-recording/75" aria-hidden="true" />
                           )}
                         </div>
-                        {/* Always rendered: a hover-only handle is invisible on
-                            touch and undiscoverable everywhere else. It rests
-                            dimmed so it does not compete with the thumbnail. */}
+                        {/* Always rendered: a hover-only handle is invisible on touch; rests dimmed to not compete with the thumbnail. */}
                         <span className="absolute top-2 right-2 z-20 opacity-70 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           {handle}
                         </span>

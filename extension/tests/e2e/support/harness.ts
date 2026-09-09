@@ -1,21 +1,15 @@
 import { expect, type Frame, type Page } from '@playwright/test';
 import { inflateSync } from 'node:zlib';
-// Type-only import: erased at runtime, so the Playwright process never loads
-// extension code, but the guide template below cannot drift from the model.
+// Type-only import: erased at runtime (Playwright never loads extension code), but keeps the guide template below from drifting off the model.
 import type { Guide } from '../../../lib/storage/models';
 
 /** Browser 內的 page.evaluate 無法匯入 Node 模組，因此在此集中管理持久化契約字面值。 */
 const SCRIBE_DB = { name: 'frametrail', version: 1 } as const;
-// `as const` keeps the literal types non-widening so the typed
-// chrome.storage.local.get overloads still apply inside evaluate bodies.
+// `as const` keeps the literal types non-widening so the typed chrome.storage.local.get overloads still apply inside evaluate bodies.
 const RECORDING_STATE_KEY = 'frametrail:recordingState' as const;
 const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId' as const;
 
-/**
- * Pristine guide row seeded by resetExtensionData. The authoritative shape is
- * newGuide (lib/storage/database.ts) via createGuide; `satisfies` fails the
- * typecheck as soon as the Guide model gains or renames a field.
- */
+/** Pristine guide row seeded by resetExtensionData; `satisfies` fails the typecheck if the Guide model (via createGuide) gains or renames a field. */
 const E2E_GUIDE_TEMPLATE = {
   title: 'E2E 測試教學',
   description: '',
@@ -222,11 +216,7 @@ export async function resetExtensionData(popup: Page): Promise<void> {
   await popup.reload({ waitUntil: 'domcontentloaded' });
 }
 
-/**
- * Adds one more pristine Guide — the same row shape resetExtensionData seeds —
- * and selects it, so a spec can record its next run into a *different* Guide,
- * the way a popup start always does.
- */
+/** Adds another pristine Guide (same shape as resetExtensionData) and selects it, so a spec can record into a different Guide, as a popup start always does. */
 export async function seedAndSelectGuide(popup: Page, title: string): Promise<string> {
   return popup.evaluate(async ({ scribeDb, activeGuideIdKey, guideTemplate, guideTitle }) => {
     const guideId = crypto.randomUUID();
@@ -464,21 +454,14 @@ export async function expectStepCount(popup: Page, expected: number): Promise<vo
   await expect.poll(async () => (await readSteps(popup)).length).toBe(expected);
 }
 
-/**
- * Starts a steps run and captures its first step on the fixture page's
- * plain-text target, returning once the step has committed.
- */
+/** Starts a steps run and captures its first step on the fixture page's plain-text target, returning once the step has committed. */
 export async function startStepsRunWithFirstStep(appPage: Page, popup: Page): Promise<void> {
   await startRecording(appPage, popup, 'steps');
   await clickTarget(appPage, '#plain-text');
   await expectStepCount(popup, 1);
 }
 
-/**
- * Starts a steps run and clicks the fixture's genuine <a href> link: the step
- * must commit (screenshot of the OLD page) before the replayed click is
- * allowed to navigate to navigated.html.
- */
+/** Clicks the fixture's genuine <a href> link during a steps run: the step must commit (screenshot of the OLD page) before the replayed click navigates. */
 export async function captureNavLinkClickStep(appPage: Page, popup: Page): Promise<void> {
   await startRecording(appPage, popup, 'steps');
   await clickTarget(appPage, '#nav-link');
@@ -486,11 +469,7 @@ export async function captureNavLinkClickStep(appPage: Page, popup: Page): Promi
   await expectStepCount(popup, 1);
 }
 
-/**
- * Asserts the run survived a top-level navigation — still recording, recorder
- * re-injected on the new document — then captures the navigated page's
- * heading. Step-count expectations stay with the caller.
- */
+/** Asserts the run survived a top-level navigation (still recording, recorder re-injected) then captures the navigated page's heading. */
 export async function captureNavigatedHeadingStep(appPage: Page, popup: Page): Promise<void> {
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
@@ -523,8 +502,7 @@ export async function expectSteady<T>(
 ): Promise<void> {
   const deadline = Date.now() + windowMs;
   do {
-    // Widen to unknown: Playwright's conditional matcher types cannot resolve
-    // the generic and would otherwise drop the toEqual matcher.
+    // Widen to unknown: Playwright's conditional matcher types can't resolve the generic and would otherwise drop toEqual.
     const value: unknown = await read();
     expect(value).toEqual(expected);
   } while (Date.now() < deadline);
@@ -541,8 +519,7 @@ export async function hoverTarget(
   await page.mouse.move(5, 5);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
   if (expectedPreview === 'visible') {
-    // Settle on the preview overlay itself: visible, and stable across two
-    // consecutive reads so the hover probe for the final coordinate has won.
+    // Settle on the preview overlay: visible and stable across two consecutive reads, so the hover probe has won.
     await expect
       .poll(async () => {
         const first = await getStepPreviewStyle(page);
@@ -552,8 +529,7 @@ export async function hoverTarget(
       })
       .toBe(true);
   } else {
-    // A paused/ignoring recorder shows nothing to wait for; assert the preview
-    // overlay stays hidden across a short polling window instead.
+    // A paused/ignoring recorder shows nothing to wait for; assert the preview stays hidden across a short polling window.
     await expectSteady(async () => (await getStepPreviewStyle(page)).hidden, true);
   }
 }
@@ -611,13 +587,7 @@ export async function getStepPreviewStyle(page: Page): Promise<{ hidden: boolean
   const style = styleIndex >= 0 ? attributes[styleIndex + 1] : null;
   return { hidden: style?.includes('display: none') ?? true, style };
 }
-/**
- * Clicks a control in the in-page recording toolbar by its accessible name.
- *
- * The toolbar lives in a closed shadow root, which Playwright locators cannot
- * pierce, so the node is located over CDP and pressed at its box centre — the
- * same route the tests already use to read the step preview.
- */
+/** Clicks a toolbar control by accessible name via CDP, since Playwright locators cannot pierce the closed shadow root that hosts it. */
 export async function clickRecordingToolbarButton(page: Page, name: string): Promise<void> {
   interface PiercedNode {
     nodeId: number;

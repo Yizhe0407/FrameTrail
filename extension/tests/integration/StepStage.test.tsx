@@ -144,9 +144,7 @@ afterEach(() => {
 });
 
 describe('StepStage tags', () => {
-  // Adding happens in the dialog the ＋標籤 chip opens; removing happens on the
-  // inline chips, which the user reaches without opening anything. Neither
-  // action has a second implementation on the other surface.
+  // Adding happens via the ＋標籤 dialog; removing happens on the inline chips only.
   it('keeps the inline chip as the only way to remove a tag', async () => {
     const onTagsChange = vi.fn().mockResolvedValue(undefined);
     renderStage({ guideTags: ['驗收', '交付'], onTagsChange });

@@ -13,10 +13,9 @@ export function getEditorSessionIdFromUrl(url: string | URL): string | null {
 }
 
 /**
- * Brings a tab to the foreground: activates it, then focuses its window when
- * one is known. Activating first is the safe ordering — if the window focus
- * call fails (window closed mid-flight), the tab is still selected inside its
- * window. Callers without a windowId simply skip the window focus rather than
+ * Activating first is the safe ordering — if the window focus call fails
+ * (window closed mid-flight), the tab is still selected inside its window.
+ * Callers without a windowId simply skip the window focus rather than
  * passing a guessed one.
  */
 export async function focusTab(tabId: number, windowId?: number | null): Promise<void> {

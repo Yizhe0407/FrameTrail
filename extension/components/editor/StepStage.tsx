@@ -58,13 +58,8 @@ export default function StepStage({
 
   const displayTags = guideTags;
 
-  // Guide metadata writes can be refused (a recording or recapture holds the
-  // data lock) or fail outright. Both used to be swallowed by a bare `void`,
-  // leaving the field showing a value that was never stored.
-  //
-  // Rethrows so each surface owns its own reporting (and logging): the tag
-  // dialog shows the failure inline while it is open (a stage banner would sit
-  // behind the modal), and the inline chip row routes it into `stageError`.
+  // Rethrows so each surface owns its own reporting: the tag dialog shows the failure inline
+  // while open (a stage banner would sit behind the modal), and the chip row uses `stageError`.
   async function commitTags(tags: string[]): Promise<void> {
     if (!onTagsChange) return;
     setStageError(null);
@@ -155,9 +150,7 @@ export default function StepStage({
     <div className="flex shrink-0 items-center justify-between gap-3 mb-3.5">
       <div className="flex items-center gap-3">
         <span className="text-xs font-semibold text-muted-foreground/80">
-          {/* A single entry came from steps mode, a group from snapshot mode, so
-              the stage names them with the same vocabulary as the popup and the
-              recording toolbar. */}
+          {/* Names entries with the same vocabulary as the popup and recording toolbar. */}
           {entry.kind === 'single'
             ? RECORDING_MODE_COPY.steps.label
             : `${RECORDING_MODE_COPY.snapshot.label} · ${recordingItemCountLabel('snapshot', entry.annotations.length)}`}

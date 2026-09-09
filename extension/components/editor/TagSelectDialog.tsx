@@ -22,11 +22,7 @@ interface Props {
   onSave: (tags: string[]) => void | Promise<void>;
 }
 
-/**
- * Add-only: removing a tag belongs to the inline chips on the stage behind this
- * dialog, which the user reaches without opening anything. Keeping a second
- * remove button here would mean two independent paths to the same write.
- */
+/** Add-only: removing a tag belongs to the inline chips on the stage behind this dialog, avoiding two paths to the same write. */
 export default function TagSelectDialog({
   open,
   selectedTags,
@@ -42,10 +38,8 @@ export default function TagSelectDialog({
     setCustomInput('');
     setSaveError(null);
     let stale = false;
-    // Guide summaries are denormalized rows; the read opens no step cursor and
-    // no screenshot Blob, so offering tags the user has actually used before is
-    // cheap enough to do on open — and unlike a hardcoded vocabulary it is a
-    // real signal about how this library is organised.
+    // Guide summaries are denormalized rows (no step cursor, no screenshot Blob), so reading
+    // them on open to suggest previously-used tags is cheap.
     void getGuideSummaries()
       .then((summaries) => {
         if (stale) return;
@@ -53,17 +47,14 @@ export default function TagSelectDialog({
           .sort((first, second) => first.localeCompare(second, 'zh-TW')));
       })
       .catch((loadFailure) => {
-        // Suggestions are a shortcut, not the feature: free text entry still
-        // works, so a failed read must not be reported as a save failure.
+        // Suggestions are a shortcut, not the feature, so a failed read isn't a save failure.
         console.warn('[frametrail] failed to read previously used guide tags', loadFailure);
       });
     return () => { stale = true; };
   }, [open]);
 
-  // `selectedTags` stays the only source of truth. The owner persists first and
-  // re-renders with the stored value, so a refused or failed write can never
-  // leave this dialog showing a tag that was not saved — which a local mirror
-  // of the selection did.
+  // `selectedTags` stays the only source of truth (no local mirror), so a refused or failed
+  // write can never leave this dialog showing an unsaved tag.
   async function addTag(tag: string) {
     if (selectedTags.includes(tag) || selectedTags.length >= GUIDE_TAG_LIMITS.maxTags) return;
     setSaveError(null);
@@ -105,7 +96,6 @@ export default function TagSelectDialog({
 
           {saveError && <InlineAlert>{saveError}</InlineAlert>}
 
-          {/* Add custom tag row */}
           <div className="flex items-center gap-2">
             <Input
               type="text"
@@ -142,8 +132,7 @@ export default function TagSelectDialog({
           {selectedTags.length > 0 && (
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">目前標籤</span>
-              {/* Shown, not editable: without it a user could type a tag that is
-                  already applied and see the add silently do nothing. */}
+              {/* Shown, not editable: otherwise a user could type an already-applied tag and see nothing happen. */}
               <div className="flex flex-wrap gap-2">
                 {selectedTags.map((tag) => (
                   <Badge key={tag} variant="secondary" className="max-w-full select-none">

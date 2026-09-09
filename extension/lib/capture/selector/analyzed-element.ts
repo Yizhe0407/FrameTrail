@@ -60,9 +60,3 @@ export function visibleArea(entry: AnalyzedElement): number {
     ? Math.max(rect.width, 0) * Math.max(rect.height, 0)
     : 0;
 }
-
-/**
- * Chooses the element users perceive as the control. Native/ARIA controls
- * outrank cursor-only descendants; this prevents an icon or text node inside
- * a button-like surface from producing a tiny, inconsistent annotation box.
- */

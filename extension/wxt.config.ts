@@ -6,10 +6,7 @@ export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
     build: {
-      // Extension documents load local chunks immediately. Vite's speculative
-      // modulepreload links cross Chromium's extension/page world boundary and
-      // are rejected with noisy "cross-world extension resource mismatch"
-      // warnings; normal ESM imports remain unchanged when preloading is off.
+      // Vite's speculative modulepreload links cross Chromium's extension/page world boundary and are rejected with noisy warnings; plain ESM imports work fine without it.
       modulePreload: false,
     },
   }),
@@ -47,25 +44,13 @@ export default defineConfig({
       {
         resources: ['snapshot-shield.html'],
         matches: ['<all_urls>'],
-        // use_dynamic_url would hide the static URL from fingerprinting, but
-        // navigating a content-script-created iframe to the per-session GUID
-        // URL fails in Chrome (the shield page never loads and snapshot
-        // recording times out on every site), so the static URL stays. The
-        // exposure is install fingerprinting only: loading the page grants
-        // nothing without the storage-parked init token.
+        // use_dynamic_url would hide the static URL, but Chrome fails to navigate a content-script iframe to the per-session GUID URL, so the static URL stays; exposure is limited to install fingerprinting since the page needs the storage-parked init token to do anything.
       },
     ],
     browser_specific_settings: {
       gecko: {
         id: 'frametrail@local',
-        // No strict_min_version. The highest Gecko constraint the extension
-        // actually has is storage.session (Firefox 115), which the
-        // extension-page tab registry depends on — tab ids are only valid
-        // within one browsing session, so the record must be cleared on restart
-        // and storage.local cannot express that. Declaring 115 would be both
-        // redundant and wrong: data_collection_permissions below is itself a
-        // 140+ key, so an explicit 115 floor claims support for versions that
-        // do not understand this manifest (web-ext flags exactly that).
+        // No strict_min_version: the real floor is storage.session (Firefox 115), but data_collection_permissions below is itself a 140+ key, so declaring 115 would misrepresent support (web-ext flags this).
         data_collection_permissions: {
           required: ['none'],
         },
@@ -82,9 +67,7 @@ export default defineConfig({
         manifest.optional_permissions ??= [];
         if (!manifest.optional_permissions.includes('<all_urls>')) manifest.optional_permissions.push('<all_urls>');
       }
-      // Keep each browser's manifest free of the other's vendor keys: gecko
-      // settings mean nothing to Chrome, and minimum_chrome_version means
-      // nothing to Firefox (harmless, but flagged by store linters).
+      // Keep each browser's manifest free of the other's vendor keys (harmless, but flagged by store linters).
       if (wxt.config.browser === 'firefox') {
         delete manifest.minimum_chrome_version;
       } else {

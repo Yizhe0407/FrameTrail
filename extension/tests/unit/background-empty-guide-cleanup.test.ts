@@ -7,9 +7,7 @@ const mocks = await vi.hoisted(async () => (await import('../setup/background-te
 
 vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
-// The reclaim guard itself (only pristine shells are deleted) is covered by
-// tests/integration/db-pristine-guide.test.ts; here only the routing matters:
-// which run endings hand the guide to it and which never do.
+// The reclaim guard itself is covered by tests/integration/db-pristine-guide.test.ts; here only the routing (which run endings hand the guide to it) matters.
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal, {
     deleteStepsForRun: mocks.deleteStepsForRun,

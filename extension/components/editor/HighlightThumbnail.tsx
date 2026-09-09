@@ -44,13 +44,8 @@ interface BoxStyle {
 }
 
 /**
- * Renders a raw screenshot with the highlight box drawn as a CSS overlay (not
- * baked into the image). Position is a percentage of the screenshot's natural
- * size so it scales with whatever the thumbnail is sized to. Border width is
- * scaled by (rendered width / natural width) so it matches — proportionally —
- * the line the export path draws directly onto the full-resolution image;
- * otherwise a shrunk-down thumbnail makes a fixed CSS border look much
- * thicker than the one baked into the exported file.
+ * Renders a raw screenshot with the highlight box drawn as a CSS overlay (not baked into the image).
+ * Border width is scaled by (rendered width / natural width) so it matches the exported image's border proportionally.
  */
 export default function HighlightThumbnail({
   blob,
@@ -121,9 +116,7 @@ export default function HighlightThumbnail({
       decoding={decoding}
       className={className}
       imgClassName={imgClassName}
-      // Single-image mode remaps synchronously on load; the multi variant
-      // instead records the natural size and lets its layout memo drive the
-      // remap. Deliberate divergence — see MultiHighlightThumbnail.
+      // Single-image mode remaps synchronously on load, unlike MultiHighlightThumbnail.
       onImageLoad={remap}
       contentFrame={contentFrame}
       redactionBoxes={redactionBoxes}

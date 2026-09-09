@@ -94,8 +94,6 @@ export function createSnapshotRecorder(deps: SnapshotRecorderDeps) {
     dprQuery.addEventListener('change', onDprChange);
   };
 
-  /** 回傳已提交標註的權威 1-based 編號。 */
-
   const onHover = async (
     point: SnapshotShieldPointerMoveMessage,
   ): Promise<SnapshotShieldPreviewResult> => {

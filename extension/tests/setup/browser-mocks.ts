@@ -15,13 +15,11 @@ type RuntimeOnMessageListener = (
 ) => unknown;
 
 /**
- * Emulates Chrome's runtime.onMessage dispatch for a captured listener: a
- * listener that returns `true` answers asynchronously through sendResponse;
- * any other return value means no response (the awaited dispatch resolves to
- * undefined, like a closed channel). A returned Promise is deliberately NOT
- * treated as a response: Chrome's promise-reply support shipped in 144 and was
- * reverted (crbug.com/40753031), so the background answers via the callback
- * contract and tests must exercise exactly that.
+ * Emulates Chrome's runtime.onMessage dispatch: a listener returning `true`
+ * answers asynchronously via sendResponse; anything else resolves to
+ * undefined (closed channel). A returned Promise is NOT treated as a
+ * response — Chrome's promise-reply support (144) was reverted
+ * (crbug.com/40753031), so tests must exercise the callback contract.
  */
 export function dispatchRuntimeMessage(
   listener: RuntimeOnMessageListener,

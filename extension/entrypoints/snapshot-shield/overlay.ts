@@ -195,11 +195,8 @@ export function createOverlay(): SnapshotOverlay {
       committedRectKeys.add(snapshotRectKey(selection.rect));
       renderCommitted();
     },
-    // Undo/restore is DELIBERATELY tracked in three lockstep layers: the page
-    // recorder's selection set (content.ts onSnapshotControl), the shield
-    // channel's committedSelections (snapshot-shield.ts handleControl), and
-    // this overlay stack. All three must pop and push together or dedup and
-    // the drawn annotations drift.
+    // Undo/restore is tracked in three lockstep layers (page recorder, shield
+    // channel, this overlay); all three must pop/push together or the drawn annotations drift.
     undo() {
       const selection = committedSelections.pop();
       if (!selection) return;

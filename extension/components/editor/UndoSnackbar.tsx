@@ -21,8 +21,7 @@ export default function UndoSnackbar({
   dismissRef.current = onDismiss;
 
   useEffect(() => {
-    // While the restore runs, auto-dismiss must not unmount the snackbar mid
-    // operation; the timer restarts from zero once the operation settles.
+    // Auto-dismiss must not unmount the snackbar mid-restore; timer restarts once it settles.
     if (pending) return;
     const timer = setTimeout(() => dismissRef.current(), 5_000);
     return () => clearTimeout(timer);

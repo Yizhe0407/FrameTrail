@@ -35,9 +35,7 @@ export default function DescriptionDraftRecoveries({
       setConfirmingWriterId(writerId);
       return;
     }
-    // The journal rejected the write (storage pressure) or the record was
-    // cleaned meanwhile; the field is untouched, so say so instead of
-    // silently doing nothing.
+    // Restore can fail (storage pressure) or the record can be cleaned meanwhile; field stays untouched.
     setRestoreFailedWriterId(writerId);
     setConfirmingWriterId((current) => (current === writerId ? null : current));
   }

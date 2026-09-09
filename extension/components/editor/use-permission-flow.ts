@@ -37,15 +37,10 @@ interface FlowToken {
 
 /**
  * The source-permission state machine for recapture and continuation runs.
- *
- * Invariants preserved from the original inline implementation:
- * - `generation` increments on every begin/clear, and every asynchronous
- *   continuation re-checks it (through its FlowToken) so a cancelled or
- *   superseded flow can never apply state or errors for an earlier attempt.
- * - `lock` is held from preflight until the flow is cleared, blocking
- *   structural data operations and re-entrant preflights.
- * - `flowEntryId`/`flowSessionId` bind a prepared grant to the entry and Guide
- *   it was prepared for; any selection or session change cancels it.
+ * - `generation` increments on every begin/clear; async continuations re-check it via FlowToken
+ *   so a cancelled or superseded flow can never apply stale state or errors.
+ * - `lock` is held from preflight until the flow clears, blocking data operations and re-entrant preflights.
+ * - `flowEntryId`/`flowSessionId` bind a prepared grant to its entry/Guide; a selection or session change cancels it.
  */
 export function usePermissionFlow({
   sessionId,
@@ -109,9 +104,8 @@ export function usePermissionFlow({
   }
 
   /**
-   * Guards shared by every confirm step: a flow must be prepared, current, and
-   * not already mid-transition. `kind` additionally requires the shape the
-   * caller is about to act on ('origin' source vs continuation action).
+   * Guards shared by every confirm step: a flow must be prepared, current, and not mid-transition.
+   * `kind` additionally requires the shape ('origin' source vs continuation action) being acted on.
    */
   function currentPreparedFlow(kind: 'origin' | 'continuation'): PreparedCapturePermission | null {
     const prepared = preparedPermission;
@@ -130,9 +124,8 @@ export function usePermissionFlow({
     return prepared;
   }
 
-  /** Shared failure leg of every flow catch: log under `label`, then surface
-   * the (already localized) error message — or `fallback` — unless the flow
-   * has been superseded meanwhile. */
+  /** Shared failure leg of every flow catch: logs under `label`, then surfaces the localized error
+   * (or `fallback`) unless the flow has been superseded meanwhile. */
   function failFlow(flow: FlowToken, label: string, error: unknown, fallback: string): void {
     const message = reportError(label, error, fallback);
     if (flow.isCurrent()) setOperationError(message);
@@ -144,8 +137,7 @@ export function usePermissionFlow({
     try {
       await flushDescriptions();
     } catch {
-      // flushDescriptions already surfaced its own localized message; a
-      // generic overwrite here would hide which descriptions failed to save.
+      // flushDescriptions already surfaced its own localized message.
       return false;
     }
     return flow.isCurrent();
@@ -185,13 +177,10 @@ export function usePermissionFlow({
     setOperationError(null);
 
     try {
-      // Callers void this promise, so guard throws must stay inside the try
-      // to surface through setOperationError instead of an unhandled rejection.
+      // Callers void this promise, so guard throws must stay inside the try to surface via setOperationError.
       if (prepared.entryId) requireSelectedEntry(prepared.entryId);
       validatePreparedPermissionSource(prepared.source.sourceOrigin, prepared.source.permissionPattern);
-      // The synchronous guards above are fine, but this must remain the first
-      // asynchronous browser API in this explicit confirmation click so
-      // Chromium preserves transient user activation.
+      // Must remain the first async browser API call in this click handler so Chromium preserves transient user activation.
       const granted = await browser.permissions.request({ origins: [prepared.source.permissionPattern] });
       if (!flow.isCurrent()) return;
       if (!granted) throw new Error('需要允許存取來源網站，才能回到該頁面錄製。');
@@ -215,10 +204,8 @@ export function usePermissionFlow({
   }
 
   /**
-   * First elsewhere step: list the open recordable tabs so the user picks the
-   * target explicitly. Recency auto-picking is deliberately gone — it kept
-   * choosing the tab the user had just recorded. The most recent tab whose URL
-   * differs from the Guide's last step is preselected instead.
+   * First elsewhere step: lists open recordable tabs for an explicit pick. Recency auto-picking was
+   * removed since it kept choosing the tab just recorded; the most recent tab with a different URL is preselected instead.
    */
   async function openContinueElsewhere(): Promise<void> {
     const prepared = currentPreparedFlow('continuation');
@@ -251,12 +238,9 @@ export function usePermissionFlow({
   }
 
   /**
-   * Second elsewhere step, after an explicit pick: focus the chosen tab and
-   * send a plain START_RECORDING (no continuation field), i.e. the popup's
-   * contract — the background records the active tab under the grants it
-   * already holds, so no host-permission request happens here and the editor
-   * still never nominates a source URL. With follow-mode recording the user
-   * can freely switch tabs once the run is live.
+   * Second elsewhere step: focuses the chosen tab and sends a plain START_RECORDING (the popup's
+   * contract) — the background records the active tab under grants it already holds, so no
+   * host-permission request happens here and the editor never nominates a source URL.
    */
   async function confirmContinueElsewhere(): Promise<void> {
     if (!currentPreparedFlow('continuation')) return;
@@ -266,26 +250,20 @@ export function usePermissionFlow({
     setContinueElsewherePending(true);
     setContinueElsewhereError(null);
     setOperationError(null);
-    // The dialog stays open only for the "picked tab disappeared" outcome so
-    // the user can pick another tab; every other outcome settles the flow.
+    // The dialog stays open only for the "picked tab disappeared" outcome; every other outcome settles the flow.
     let keepDialogOpen = false;
 
     try {
       if (!(await flushOrBail(flow))) return;
 
-      // The background resolves a plain start against the active tab of the
-      // last focused window, so activate the target tab and focus its window
-      // first, then confirm the switch actually took before sending the
-      // message. Ordering within focusTab does not matter here: only the
-      // combined end state (tab active in its now-focused window) does, and
-      // tabs.get re-checks it either way.
+      // The background resolves a plain start against the active tab of the last focused window, so
+      // activate and focus the target tab first, then confirm the switch took before sending the message.
       let confirmed: Browser.tabs.Tab;
       try {
         await focusTab(target.id, target.windowId);
         confirmed = await browser.tabs.get(target.id);
       } catch (switchError) {
-        // The picked tab closed while the dialog was open. Refresh the list in
-        // place instead of settling the flow on a stale choice.
+        // The picked tab closed while the dialog was open; refresh the list instead of using a stale choice.
         console.warn('切換到選取的接續分頁失敗', switchError);
         if (flow.isCurrent()) {
           keepDialogOpen = true;
@@ -328,9 +306,8 @@ export function usePermissionFlow({
     }
   }
 
-  // Resuming a recording is how missing steps are added: the run reopens the
-  // Guide's own source page and appends its captures, so the editor never has
-  // to fabricate a step from an unrelated image.
+  // Resuming a recording reopens the Guide's own source page and appends its captures, so the
+  // editor never has to fabricate a step from an unrelated image.
   async function handleContinueRecording(): Promise<void> {
     if (!canBeginFlow()) return;
     const flow = beginPermissionPreflight(null);

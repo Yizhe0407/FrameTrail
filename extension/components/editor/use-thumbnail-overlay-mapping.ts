@@ -3,8 +3,7 @@ import { getExpandedRedactionBounds } from '@/lib/media/annotation-composite';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import { type Redaction } from '@/lib/storage/models';
 
-// Re-exported for the thumbnails: the drawable-frame guard is the raster
-// compositor's contract, so the single definition lives with it.
+// Re-exported for the thumbnails: the drawable-frame guard is the raster compositor's contract.
 export { isDrawableHighlightFrame } from '@/lib/media/annotation-contract';
 
 export interface ImageContentFrame {
@@ -29,9 +28,8 @@ export interface OverlayGeometry {
   dpr: number;
   scale: number;
   contentFrame: ImageContentFrame;
-  /** Intersection of the content frame with the element box — the area actual
-   * image pixels occupy on screen (differs from the content frame under
-   * `cover`, where the content overflows and is cropped). */
+  /** Intersection of the content frame with the element box — the area actual image pixels occupy
+   * on screen (differs from the content frame under `cover`, where content overflows and is cropped). */
   visibleLeft: number;
   visibleTop: number;
   visibleRight: number;
@@ -41,9 +39,8 @@ export interface OverlayGeometry {
 }
 
 /**
- * Content-frame math shared by the highlight thumbnails: where the image's
- * pixels actually land inside the (possibly letterboxed or cropped) element
- * box, and how a screenshot CSS coordinate maps onto those rendered pixels.
+ * Content-frame math shared by the highlight thumbnails: where the image's pixels actually land
+ * inside the (possibly letterboxed or cropped) element box, and how a screenshot CSS coordinate maps onto them.
  */
 export function computeOverlayGeometry(
   img: HTMLImageElement,
@@ -99,11 +96,9 @@ interface UseThumbnailOverlayMappingOptions {
 }
 
 /**
- * Shared overlay-mapping lifecycle for the highlight thumbnails: owns the
- * content frame, the redaction mask mapping, and the fail-closed contract that
- * no source pixel is shown while any redaction's on-screen position is stale
- * (`showPixels`). Remaps are coalesced into one animation frame per burst of
- * `ResizeObserver` notifications.
+ * Shared overlay-mapping lifecycle for the highlight thumbnails: owns the content frame, the redaction
+ * mask mapping, and the fail-closed contract that no source pixel shows while a redaction's on-screen
+ * position is stale (`showPixels`). Remaps are coalesced into one animation frame per resize burst.
  */
 export function useThumbnailOverlayMapping({
   url,
@@ -160,9 +155,8 @@ export function useThumbnailOverlayMapping({
 
   const hasRedactions = redactions.length > 0;
   const scheduleMapping = useCallback(() => {
-    // A resize invalidates pixel-space overlays immediately. Recompute on the
-    // next frame so React can first hide the source image behind the black
-    // fail-closed surface instead of briefly showing a stale mask position.
+    // Recompute on the next frame so React can first hide the source image behind the fail-closed
+    // surface, instead of briefly showing a stale mask position.
     if (hasRedactions && imgRef.current) imgRef.current.style.visibility = 'hidden';
     setMappedRedactionKey(null);
     if (mapFrameRef.current !== null) return;

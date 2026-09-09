@@ -1,19 +1,12 @@
 import type { RecordingMode } from '@/lib/storage/recording-state';
 
 /**
- * The single vocabulary for the two recording modes.
- *
- * The popup chips, the injected recording toolbar (status, aria-labels,
- * announcements, undo snackbar) and the editor stage header used to name the
- * same two modes three different ways (步驟／快照, 操作流程／單頁標註,
- * 步驟模式／快照模式). Every surface now reads from here.
- *
- * The labels deliberately mirror the internal RecordingMode values so copy and
- * code cannot drift apart again, and they are short enough for the 320px popup
- * segmented control.
- *
- * It lives in lib/recording rather than lib/shared because it depends on the
- * RecordingMode type, which lib/shared may not import (module boundaries).
+ * The single vocabulary for the two recording modes: the popup, injected
+ * toolbar, and editor stage header used to name them three different ways
+ * before, so every surface now reads from here. Labels mirror the internal
+ * RecordingMode values to keep copy and code from drifting apart, and stay
+ * short enough for the 320px popup control. Lives in lib/recording (not
+ * lib/shared) because it depends on the RecordingMode type.
  */
 export interface RecordingModeCopy {
   /** Mode name, shown wherever a surface has to say which mode is in play. */

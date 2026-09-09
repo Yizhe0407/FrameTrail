@@ -53,8 +53,7 @@ test.describe('step recording', () => {
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'steps');
-    // Region capture is the only in-page recourse for a box the detector got
-    // wrong, so it has to survive as a working path end to end.
+    // Region capture is the only in-page recourse for a box the detector got wrong, so it has to survive as a working path end to end.
     await clickRecordingToolbarButton(appPage, '裁切擷取區域');
     const region = appPage.locator('[data-frametrail-region-capture]');
     await expect(region).toHaveCount(1);
@@ -74,8 +73,7 @@ test.describe('step recording', () => {
     expect(Math.round(step.bounds!.width)).toBe(180);
     expect(Math.round(step.bounds!.height)).toBe(120);
 
-    // The overlay closes itself once the capture settles, leaving the ordinary
-    // hover highlight in charge again.
+    // The overlay closes itself once the capture settles, leaving the ordinary hover highlight in charge again.
     await expect.poll(() => appPage.locator('[data-frametrail-region-capture]').count()).toBe(0);
     await hoverTarget(appPage, '#plain-text');
 
@@ -93,8 +91,7 @@ test.describe('step recording', () => {
     await expect.poll(async () => (await getStepPreviewStyle(appPage)).hidden).toBe(false);
     const pageTargetStyle = (await getStepPreviewStyle(appPage)).style;
 
-    // The toolbar pill lives in a closed shadow root, so find it by hit-testing
-    // for the point where its host answers.
+    // The toolbar pill lives in a closed shadow root, so find it by hit-testing for the point where its host answers.
     const pill = await appPage.evaluate(() => {
       for (let y = window.innerHeight - 10; y > window.innerHeight - 120; y -= 6) {
         for (let x = 20; x < window.innerWidth; x += 20) {
@@ -106,8 +103,7 @@ test.describe('step recording', () => {
     expect(pill).not.toBeNull();
     await appPage.mouse.move(pill!.x, pill!.y);
 
-    // The recorder can pierce its own closed roots, so without an explicit
-    // exclusion the hit test would frame a toolbar button as page content.
+    // The recorder can pierce its own closed roots, so without an explicit exclusion the hit test would frame a toolbar button as page content.
     await expectSteady(async () => (await getStepPreviewStyle(appPage)).style, pageTargetStyle);
 
     await stopRecording(popupPage);
@@ -154,11 +150,7 @@ test.describe('step recording', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    // The real captureVisibleTab pacing (MIN_CAPTURE_INTERVAL_MS = 500ms) is
-    // always active, unmocked, in this build — two clicks fired back to back
-    // land well inside that window and exercise the gesture queue's "busy"
-    // path for real, instead of the idle path every other test here takes by
-    // awaiting a step count between clicks.
+    // The real captureVisibleTab pacing (500ms, unmocked) means two clicks back to back exercise the gesture queue's "busy" path for real.
     await startRecording(appPage, popupPage, 'steps');
 
     await clickTarget(appPage, '#action-button span');
@@ -275,9 +267,7 @@ test.describe('step recording', () => {
   }) => {
     await startRecording(appPage, popupPage, 'steps');
 
-    // Bug A: a nested viewport must keep scrolling while step-recording, and
-    // the stationary pointer must be re-hit-tested against the newly revealed
-    // element rather than keeping a stale preview.
+    // Bug A: a nested viewport must keep scrolling while step-recording, with the stationary pointer re-hit-tested against the revealed element.
     await hoverTarget(appPage, '#scroll-first');
     const previewBeforeScroll = await getStepPreviewStyle(appPage);
     expect(previewBeforeScroll.hidden).toBe(false);
@@ -285,8 +275,7 @@ test.describe('step recording', () => {
       const rect = element.getBoundingClientRect();
       return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     });
-    // Virtualized sites can emit this while replacing the element under a
-    // stationary pointer. It must not clear the last viewport coordinate.
+    // Virtualized sites can emit this while replacing the element under a stationary pointer; it must not clear the last viewport coordinate.
     await appPage.evaluate(({ x, y }) => {
       window.dispatchEvent(new PointerEvent('pointerout', {
         clientX: x,
@@ -305,9 +294,7 @@ test.describe('step recording', () => {
       return !preview.hidden && preview.style !== previewBeforeScroll.style;
     }).toBe(true);
 
-    // A virtual list may replace the row under a stationary pointer after its
-    // scroll event has settled. The local observer must refresh immediately,
-    // without relying on another pointermove or the low-frequency fallback.
+    // A virtual list may replace the row under a stationary pointer after scrolling settles; the local observer must refresh immediately.
     const beforeReplacement = await getStepPreviewStyle(appPage);
     await appPage.evaluate(() => {
       const current = document.querySelector('#scroll-second')!;
@@ -322,9 +309,7 @@ test.describe('step recording', () => {
       return !preview.hidden && preview.style !== beforeReplacement.style;
     }, { timeout: 500 }).toBe(true);
 
-    // Page-level wheel scrolling remains native as well. Google News applies
-    // overflow to <body>; after scrolling its border box starts at -scrollY,
-    // while hit-test and preview coordinates remain viewport-relative.
+    // Page-level wheel scrolling remains native too: some sites apply overflow to <body>, so its border box moves while hit-test coordinates stay viewport-relative.
     await appPage.evaluate(() => {
       document.body.style.overflowY = 'scroll';
     });
@@ -340,8 +325,7 @@ test.describe('step recording', () => {
     const preview = await getStepPreviewStyle(appPage);
     expect(preview.hidden).toBe(false);
 
-    // Clicking it captures a step whose rect sits inside the viewport and whose
-    // screenshot never baked the hover frame (preview stayed hidden through capture).
+    // Clicking it captures a step whose rect sits inside the viewport, with no hover frame baked into the screenshot.
     await clickTarget(appPage, '#below-fold');
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(1);
     const [belowFoldStep] = await readSteps(popupPage);
@@ -374,8 +358,7 @@ test.describe('step recording', () => {
     await appPage.mouse.up();
     await expectSteady(async () => (await readSteps(popupPage)).length, 1);
 
-    // The same rule applies to a nested scrollport: its scrollbar gutter is a
-    // native scroll gesture, never a generic mark on the scroll container.
+    // The same rule applies to a nested scrollport: its scrollbar gutter is a native scroll gesture, never a generic mark on the container.
     const nestedGutter = await appPage.locator('#scroll-viewport').evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return { x: rect.right - 2, y: rect.top + rect.height / 2 };
@@ -399,10 +382,7 @@ test.describe('step recording', () => {
     await startStepsRunWithFirstStep(appPage, popupPage);
     const firstTabId = (await readRecordingState(popupPage)).tabId as number;
 
-    // Activate a second normal tab: the run must move with the user instead of
-    // silently dropping every click made there. The tab is loaded while the
-    // recorded tab is active, then explicitly activated, so the activation the
-    // background debounces always carries the final URL (never about:blank).
+    // Activate a second normal tab: the run must move with the user, not silently drop clicks there. It loads while inactive, then is activated explicitly, so the background's debounced activation always carries the final URL (never about:blank).
     const secondPage = await extensionContext.newPage();
     await secondPage.goto(`${FIXTURE_URL}navigated.html`);
     await appPage.bringToFront();

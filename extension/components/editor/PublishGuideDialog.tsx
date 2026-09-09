@@ -174,10 +174,8 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       async (signal) => {
         const snapshot = await resolveGuideEntries(signal);
         switch (action) {
-          // downloadBlobViaBrowser resolves only after the browser has queued
-          // the transfer, and the transfer itself survives this page closing,
-          // so the success notice below cannot report a download that never
-          // reached the browser.
+          // downloadBlobViaBrowser resolves only once the browser has queued the transfer,
+          // which survives this page closing, so the success notice below is always accurate.
           case 'markdown': {
             const archive = await generateGuideMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
             throwIfAborted(signal);
@@ -269,7 +267,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
         showClose={false}
         className="app-scrollbar max-h-[calc(100vh-32px)] w-[92vw] max-w-[480px] overflow-y-auto rounded-md border border-border bg-card p-6 text-foreground shadow-[var(--shadow-dialog)] focus:outline-none"
       >
-        {/* Header */}
         <div className="flex items-start gap-3 pb-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-xl font-bold text-foreground">匯出</DialogTitle>
@@ -287,7 +284,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           </button>
         </div>
 
-        {/* Options List */}
         <div className="mt-4 flex flex-col gap-3">
           {publicationOptions.map((option) => (
             <PublicationOptionCard
@@ -298,7 +294,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           ))}
         </div>
 
-        {/* Notices */}
         <div aria-live="polite" aria-atomic="true" className="mt-1">
           {error && <InlineAlert>{error}</InlineAlert>}
           {!error && notice && (

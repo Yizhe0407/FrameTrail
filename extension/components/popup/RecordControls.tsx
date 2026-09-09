@@ -30,10 +30,9 @@ interface Props {
   className?: string;
 }
 
-// Popup-only copy. The mode label and the item noun are shared with the
-// recording toolbar and the editor stage, so they live in recording-mode-copy.
-// Record keeps the mapping total: adding a RecordingMode member without copy
-// is a compile error instead of a runtime crash on a failed lookup.
+// Popup-only copy; the label/noun are shared elsewhere via recording-mode-copy.
+// The Record type keeps the mapping total, so a missing RecordingMode key is
+// a compile error rather than a runtime lookup failure.
 const MODE_DETAILS: Record<RecordingMode, {
   description: string;
   /** Button copy while START_RECORDING for this mode is in flight. */
@@ -56,11 +55,10 @@ const MODE_ORDER: readonly RecordingMode[] = ['steps', 'snapshot'];
 type CrossTabPermission = 'unknown' | 'granted' | 'declined' | 'ungranted';
 
 /**
- * The two facts the start handler must know synchronously before the click
- * (Firefox only honours permissions.request as the first await of a direct
- * user-input handler — no room to probe there), gathered by one mount probe:
- * whether the active tab is recordable at all, and where the cross-tab
- * permission stands.
+ * Gathers, via one mount probe, the two facts the start handler needs
+ * synchronously before the click: whether the tab is recordable, and where
+ * cross-tab permission stands. (Firefox only honours permissions.request as
+ * the first await of a direct user-input handler, so there's no room to probe there.)
  */
 function useStartPreflight(onProbeError: (message: string) => void) {
   const [crossTab, setCrossTab] = useState<CrossTabPermission>('unknown');
@@ -120,10 +118,9 @@ export default function RecordControls({
   const { crossTab, setCrossTab, restrictedPage, setRestrictedPage } = useStartPreflight(setControlError);
 
   /**
-   * Must stay the first await of the calling user-input handler: Firefox only
-   * honours permissions.request inside the direct handler. The decline flag is
-   * persisted so an automatic ask happens at most once; a later grant clears
-   * it so a revoked-then-reconsidered user gets the automatic ask again.
+   * Must stay the first await in the handler: Firefox only honours
+   * permissions.request there. The decline is persisted so the auto-ask fires
+   * once; a later grant clears it so a reconsidered user gets asked again.
    */
   async function requestCrossTabPermission(): Promise<boolean> {
     try {
@@ -143,11 +140,9 @@ export default function RecordControls({
     setPending(true);
     setControlError(null);
     try {
-      // One-time ask at the first steps start: the grant itself is what widens
-      // the run's reach (the background reads host permissions directly, so no
-      // scope flag travels with the message). A decline is remembered and the
-      // run simply continues single-tab. This must be the first await here —
-      // see requestCrossTabPermission.
+      // One-time ask at first steps start: the grant itself widens the run's
+      // reach (background reads host permissions directly). A decline just
+      // continues single-tab. Must be the first await here — see requestCrossTabPermission.
       if (mode === 'steps' && crossTab !== 'granted' && crossTab !== 'declined') {
         await requestCrossTabPermission();
       }
@@ -269,10 +264,9 @@ export default function RecordControls({
               disabled={pending}
               className={cn(
                 'flex-1 rounded-md py-[8px] text-center text-[13px] outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring',
-                // The selected chip stays a white pill in both themes — it is the
-                // only selection indicator in this segmented control, so its text
-                // colour is pinned to the light-theme ink rather than a token that
-                // flips to lavender on a white background in dark mode.
+                // Selected chip stays a white pill in both themes (the only
+                // selection indicator here), so its text is pinned to light-theme
+                // ink rather than a token that turns lavender on white in dark mode.
                 mode === candidate
                   ? 'bg-white font-bold text-[#1c1c1c] shadow-[0_2px_6px_rgba(28,28,28,0.12)] border border-black/5 dark:border-transparent dark:shadow-[0_2px_8px_rgba(255,255,255,0.25)]'
                   : 'font-medium text-foreground/50 hover:text-foreground dark:text-white/45 dark:hover:text-white',
