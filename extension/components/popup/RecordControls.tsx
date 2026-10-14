@@ -126,7 +126,12 @@ export default function RecordControls({
    * permissions.request there. The decline is persisted so the auto-ask fires
    * once; a later grant clears it so a reconsidered user gets asked again.
    */
+  // Resolves true once the start is parked; false means only this popup can finish it.
+  let parking: Promise<boolean> = Promise.resolve(false);
+  let parkedStart = false;
+
   async function requestCrossTabPermission(resumeStart?: { mode: RecordingMode; tabId: number }): Promise<boolean> {
+    parkedStart = false;
     try {
       // Chromium closes this popup as soon as its permission dialog opens, so
       // nothing after the request is guaranteed to run. Park the start (and an
@@ -136,12 +141,16 @@ export default function RecordControls({
       if (resumeStart) {
         // Dispatched, not awaited: Firefox needs permissions.request to run
         // synchronously within the click, and the extension APIs keep call order.
-        void Promise.all([
+        parking = Promise.all([
           parkPendingStart(resumeStart.mode, resumeStart.tabId),
           markCrossTabRecordingDeclined(),
-        ]).catch((error) => console.warn('暫存開始錄製請求失敗', error));
+        ]).then(() => true, (error) => {
+          console.warn('暫存開始錄製請求失敗', error);
+          return false;
+        });
       }
       const granted = await browser.permissions.request({ origins: ['<all_urls>'] });
+      parkedStart = await parking;
       setCrossTab(granted ? 'granted' : 'declined');
       if (granted) await clearCrossTabRecordingDecline();
       else await markCrossTabRecordingDeclined();
@@ -165,7 +174,7 @@ export default function RecordControls({
         const granted = await requestCrossTabPermission(resumable ? { mode, tabId: activeTabId } : undefined);
         // Popup survived the prompt (Firefox): only continue if the background
         // did not already claim the parked start.
-        if (granted && resumable && !(await claimPendingStart())) {
+        if (granted && resumable && parkedStart && !(await claimPendingStart())) {
           onStarted?.();
           return;
         }
