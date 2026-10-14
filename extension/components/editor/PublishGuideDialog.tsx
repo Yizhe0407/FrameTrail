@@ -65,7 +65,7 @@ type PublicationOption = {
 
 function MonoGlyph({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <span className={`rounded-md border border-foreground/70 py-0.5 font-mono font-bold leading-none ${className}`}>
+    <span className={`font-mono font-bold leading-none ${className}`}>
       {children}
     </span>
   );
@@ -78,23 +78,23 @@ function PublicationOptionCard({ option, pending }: { option: PublicationOption;
       aria-label={option.ariaLabel}
       disabled={option.disabled}
       onClick={option.onSelect}
-      className="group flex items-center justify-between rounded-md border border-border bg-surface-raised p-4 text-left transition-all hover:border-foreground/25 hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+      className="group flex items-center justify-between rounded-md border-2 border-border bg-surface-raised p-3.5 text-left outline-none transition-colors focus-ring hover:bg-selected disabled:pointer-events-none disabled:opacity-40"
     >
       <div className="flex min-w-0 items-center gap-4">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-md bg-secondary text-foreground">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-md border-2 border-border bg-card text-foreground">
           {option.icon}
         </div>
         <div className="min-w-0">
-          <div className="text-[15px] font-bold text-foreground">{option.title}</div>
-          <div className="mt-0.5 break-words text-[12.5px] font-normal text-muted-foreground">
+          <div className="text-[15px] font-bold text-foreground group-hover:text-on-accent">{option.title}</div>
+          <div className="mt-0.5 break-words text-[13px] text-muted-foreground group-hover:text-on-accent">
             {option.description}
           </div>
         </div>
       </div>
       {pending ? (
-        <Loader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
+        <Loader2 className="size-5 shrink-0 animate-spin text-foreground" />
       ) : (
-        <Download className="size-5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+        <Download className="size-5 shrink-0 text-muted-foreground transition-colors group-hover:text-on-accent" />
       )}
     </button>
   );
@@ -228,7 +228,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       title: 'Markdown',
       ariaLabel: '下載 Markdown',
       description: '純文字步驟與說明，適合貼進文件',
-      icon: <MonoGlyph className="px-1 text-[10.5px]">M↓</MonoGlyph>,
+      icon: <MonoGlyph className="text-sm">M↓</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('markdown'),
     },
@@ -237,7 +237,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       title: 'PDF',
       ariaLabel: '下載 PDF',
       description: '排版好的操作文件，可直接列印分享',
-      icon: <MonoGlyph className="px-1.5 text-[11px]">P</MonoGlyph>,
+      icon: <MonoGlyph className="text-sm">PDF</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('pdf'),
     },
@@ -255,7 +255,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       title: 'HTML 網頁',
       ariaLabel: '下載 HTML 網頁',
       description: '單一檔案內含所有截圖，最適合直接分享',
-      icon: <MonoGlyph className="px-1 text-[10.5px]">&lt;/&gt;</MonoGlyph>,
+      icon: <MonoGlyph className="text-sm">&lt;/&gt;</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('html'),
     },
@@ -265,12 +265,12 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
         showClose={false}
-        className="app-scrollbar max-h-[calc(100vh-32px)] w-[92vw] max-w-[480px] overflow-y-auto rounded-md border border-border bg-card p-6 text-foreground shadow-[var(--shadow-dialog)] focus:outline-none"
+        className="app-scrollbar max-h-[calc(100vh-32px)] w-[92vw] max-w-[480px] overflow-y-auto p-6"
       >
         <div className="flex items-start gap-3 pb-2">
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-xl font-bold text-foreground">匯出</DialogTitle>
-            <DialogDescription className="mt-1 break-words text-[13.5px] font-normal text-muted-foreground">
+            <DialogDescription className="mt-1 break-words">
               「{titleText}」
             </DialogDescription>
           </div>
@@ -278,7 +278,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
             type="button"
             onClick={() => requestOpenChange(false)}
             aria-label="關閉"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground/5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -294,10 +294,10 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           ))}
         </div>
 
-        <div aria-live="polite" aria-atomic="true" className="mt-1">
+        <div aria-live="polite" aria-atomic="true" className="mt-3 empty:mt-0">
           {error && <InlineAlert>{error}</InlineAlert>}
           {!error && notice && (
-            <p role="status" className="rounded-md border border-brand/30 bg-brand/10 px-4 py-2.5 text-xs text-foreground">
+            <p role="status" className="rounded-md border-2 border-border bg-brand-bg-soft px-3.5 py-2.5 text-xs font-bold text-foreground">
               {notice}
             </p>
           )}

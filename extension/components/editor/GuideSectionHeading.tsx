@@ -97,7 +97,7 @@ function GuideSectionHeading({
   return (
     <section
       aria-label={`章節：${section.title}`}
-      className="flex flex-wrap items-center gap-2 border-y border-border bg-secondary px-3 py-2"
+      className="flex flex-wrap items-center gap-2 rounded-md border-2 border-border bg-secondary px-2.5 py-2"
     >
       {editing ? (
         <form
@@ -138,10 +138,10 @@ function GuideSectionHeading({
                 void saveRename();
               }
             }}
-            className="min-w-0 flex-1 bg-card text-sm"
+            className="h-9 min-w-0 flex-1"
           />
           {emptyTitle && (
-            <p id={errorId} role="alert" className="w-full text-sm text-destructive">
+            <p id={errorId} role="alert" className="w-full text-xs font-bold text-danger">
               章節名稱不可為空白。
             </p>
           )}
@@ -162,7 +162,7 @@ function GuideSectionHeading({
         </form>
       ) : (
         <>
-          <h2 className="min-w-0 flex-1 break-words text-base font-semibold text-foreground">
+          <h2 className="min-w-0 flex-1 break-words text-sm font-bold text-foreground">
             {section.title}
           </h2>
           <div className="flex items-center gap-2" aria-label="章節操作">

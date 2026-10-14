@@ -3,31 +3,31 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
-/** `tag*` variants unify guide-tag pills that used to be hand-rolled separately per surface. */
+/** Every badge is a 2px-outlined pill; `tag*` variants unify the guide-tag pills across surfaces. */
 const badgeVariants = cva(
-  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3',
+  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border-2 border-border px-2.5 py-0.5 text-xs font-bold outline-none transition-colors focus-ring aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground [a&]:hover:bg-primary/90',
-        secondary: 'bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90',
-        destructive:
-          'bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90',
-        outline: 'border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
-        ghost: '[a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 [a&]:hover:underline',
-        /** `outline-none`: renders as a button via asChild, so the native outline would double the ring. */
-        tagFilter: 'border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground outline-none hover:border-muted-foreground/40',
-        tagFilterActive: 'border-brand bg-brand px-3 py-1.5 font-semibold text-primary-foreground outline-none',
-        /** Editable tag already applied to the guide (editor header, edit dialog). */
-        tagEditable: 'gap-1.5 border-border/60 bg-secondary px-3 py-1 font-semibold text-foreground dark:border-white/10',
+        default: 'bg-primary text-primary-foreground',
+        secondary: 'bg-secondary text-secondary-foreground',
+        destructive: 'bg-destructive text-destructive-foreground',
+        outline: 'bg-card text-foreground [a&]:hover:bg-secondary',
+        ghost: 'border-transparent [a&]:hover:bg-secondary',
+        link: 'border-transparent text-brand-text underline-offset-4 [a&]:hover:underline',
+        /** Pastel guide tag; pair with `tagHueClass(tag)` for its fill. */
+        tag: 'text-on-accent',
+        tagFilter: 'bg-card px-3 py-1 text-foreground hover:bg-secondary',
+        tagFilterActive: 'bg-selected px-3 py-1 text-on-accent',
+        /** Editable tag already applied to the guide (editor header); pair with `tagHueClass(tag)`. */
+        tagEditable: 'gap-1.5 py-1 pr-1.5 pl-3 text-on-accent',
         tagEditableAvailable:
-          'gap-1.5 border-dashed border-border bg-background/60 px-3 py-1 font-semibold text-muted-foreground hover:border-foreground/30 dark:border-white/10',
+          'border-dashed bg-transparent px-3 py-1 text-muted-foreground hover:border-solid hover:bg-secondary hover:text-foreground',
         /** Soft red rather than solid `destructive`: reports an operation in progress, not a failure. */
-        status: 'gap-1.5 bg-danger-soft px-2 py-1 text-[11px] font-semibold text-danger sm:px-2.5',
+        status: 'gap-1.5 border-recording bg-danger-soft px-2.5 py-1 text-xs text-danger',
         /** The dashed "add a tag" control that closes the row of tags. */
         tagAction:
-          'h-7 gap-1 border-dashed border-border/80 px-3 py-1 font-semibold text-muted-foreground/75 outline-none hover:border-brand hover:text-foreground dark:border-white/20 dark:text-white/60 dark:hover:text-white',
+          'h-8 gap-1 border-dashed bg-transparent px-3 py-1 text-muted-foreground hover:border-solid hover:bg-secondary hover:text-foreground',
       },
     },
     defaultVariants: {

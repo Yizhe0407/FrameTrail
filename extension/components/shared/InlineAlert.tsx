@@ -17,11 +17,11 @@ export default function InlineAlert({ children, className }: Props) {
     <div
       role="alert"
       className={cn(
-        'flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs leading-[18px] text-destructive',
+        'flex items-start gap-2 rounded-md border-2 border-recording bg-danger-soft px-3 py-2 text-xs leading-[18px] text-foreground',
         className,
       )}
     >
-      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <AlertCircle className="mt-px size-4 shrink-0 text-danger" aria-hidden="true" />
       <span>{children}</span>
     </div>
   );

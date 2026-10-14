@@ -98,7 +98,8 @@ export default function StepActions({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-[3px]">
+      {/* A 2px outline + 2px padding keeps every button exactly 4px inside, as `rounded-sm` expects. */}
+      <div className="flex items-center gap-0.5 rounded-md border-2 border-border bg-card p-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -106,9 +107,9 @@ export default function StepActions({
               onClick={handleCopy}
               disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
               aria-label="複製圖片"
-              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
             >
-              {copying ? <Loader2 className="size-[17px] animate-spin" /> : copied ? <Check className="size-[17px] text-brand" /> : <Copy className="size-[17px]" />}
+              {copying ? <Loader2 className="size-4 animate-spin" /> : copied ? <Check className="size-4 text-brand-text" /> : <Copy className="size-4" />}
             </button>
           </TooltipTrigger>
           <TooltipContent>{privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製圖片'}</TooltipContent>
@@ -120,14 +121,14 @@ export default function StepActions({
               onClick={() => void handleRecapture()}
               disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
               aria-label="重新拍攝"
-              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
             >
-              {recapturing ? <Loader2 className="size-[17px] animate-spin" /> : <Camera className="size-[17px]" />}
+              {recapturing ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
             </button>
           </TooltipTrigger>
           <TooltipContent>{recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '重新拍攝')}</TooltipContent>
         </Tooltip>
-        <span className="mx-[3px] h-[20px] w-[1px] bg-border" aria-hidden="true" />
+        <span className="mx-0.5 h-5 w-0.5 rounded-full bg-border-soft" aria-hidden="true" />
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -135,9 +136,9 @@ export default function StepActions({
               onClick={handleDelete}
               disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
               aria-label="刪除步驟"
-              className="flex size-[34px] items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
             >
-              {deleting ? <Loader2 className="size-[17px] animate-spin" /> : <Trash2 className="size-[17px]" />}
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             </button>
           </TooltipTrigger>
           <TooltipContent>{deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除'}</TooltipContent>

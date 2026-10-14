@@ -47,7 +47,7 @@ export default function ConfirmationDialog({
         showClose={false}
         onEscapeKeyDown={(event) => pending && event.preventDefault()}
         onPointerDownOutside={(event) => pending && event.preventDefault()}
-        className="w-[min(420px,calc(100vw-32px))] rounded-md border border-border bg-card p-6 text-foreground"
+        className="w-[min(420px,calc(100vw-32px))] p-6"
       >
         <DialogHeader className="pr-10">
           <DialogTitle>{title}</DialogTitle>

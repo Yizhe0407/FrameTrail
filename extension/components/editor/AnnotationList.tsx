@@ -49,9 +49,9 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
   }
 
   return (
-    <div className="group flex flex-col rounded-md border border-border/80 bg-surface-raised p-[12px_14px] transition-all hover:border-foreground/20 dark:border-white/10 dark:hover:border-white/20">
+    <div className="group flex flex-col rounded-md border-2 border-border bg-surface-raised px-3 py-2.5">
       <div className="flex items-center gap-3">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-recording text-xs font-bold text-recording-foreground shadow-xs">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-recording text-xs font-bold text-recording-foreground">
           {index + 1}
         </span>
         <input
@@ -63,9 +63,9 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           onBlur={() => void flush().catch(() => undefined)}
           disabled={deleteDisabled || deleting}
           placeholder="輸入標註說明…"
-          className="min-w-0 flex-1 border-none bg-transparent px-1 py-0 text-[13.5px] font-normal text-foreground outline-none focus:ring-0 dark:text-white/90"
+          className="min-w-0 flex-1 rounded-md border-none bg-transparent px-1.5 py-1 text-sm text-foreground outline-none focus-ring placeholder:text-muted-foreground"
         />
-        <div className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
+        <div className="flex shrink-0 items-center gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -74,7 +74,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
                 onPointerDown={(event) => event.preventDefault()}
                 disabled={deleteDisabled || deleting}
                 aria-label={`刪除標註 ${index + 1}`}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive dark:text-white/40 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
               </button>
@@ -98,7 +98,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           <button
             type="button"
             onClick={() => void handleDelete()}
-            className="ml-2 rounded-md px-1.5 py-1 font-medium text-focus outline-none hover:bg-focus/10 focus-visible:ring-2 focus-visible:ring-ring"
+            className="ml-2 rounded-md px-1.5 py-0.5 font-bold text-brand-text underline underline-offset-2 outline-none focus-ring"
           >
             重試刪除
           </button>
@@ -141,16 +141,16 @@ export default function AnnotationList({
   );
 
   if (annotations.length === 0) {
-    return <p className="text-sm text-muted-foreground p-4">此快照目前沒有標註。</p>;
+    return <p className="rounded-md border-2 border-dashed border-border-soft p-4 text-sm text-muted-foreground">此快照目前沒有標註。</p>;
   }
 
   return (
-    <div className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-md border border-border/80 bg-card shadow-sm dark:border-white/10">
-      <div className="flex shrink-0 items-center justify-between border-b border-border/80 px-[18px] py-[14px] dark:border-white/10">
-        <span className="text-xs font-semibold text-muted-foreground/75 dark:text-white/50">
+    <div className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-md border-2 border-border bg-card">
+      <div className="flex shrink-0 items-center justify-between border-b-2 border-border-soft px-4 py-3">
+        <span className="text-xs font-bold text-muted-foreground">
           標註 · {annotations.length}
         </span>
-        <label className="flex items-center gap-2.5 text-xs font-medium text-muted-foreground/75 cursor-pointer select-none dark:text-white/60">
+        <label className="flex cursor-pointer items-center gap-2.5 text-xs font-bold text-muted-foreground select-none">
           順序編號
           <Switch
             checked={numbered}
@@ -159,7 +159,7 @@ export default function AnnotationList({
           />
         </label>
       </div>
-      <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto p-3.5">
+      <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -168,7 +168,7 @@ export default function AnnotationList({
           modifiers={[restrictToVerticalAxis]}
         >
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <ul className="flex flex-col gap-2.5">
+            <ul className="flex flex-col gap-2">
               {annotations.map((step, index) => (
                 <SortableItem key={step.id} id={step.id} disabled={editingDisabled}>
                   {(handle) => (

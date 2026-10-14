@@ -17,14 +17,15 @@ export default function AppToaster({ position = 'top-center' }: { position?: Toa
           maxWidth: '440px',
           padding: '10px 14px',
           borderRadius: 'var(--radius)',
-          border: '1px solid var(--border)',
+          border: '2px solid var(--border)',
           background: 'var(--card)',
           color: 'var(--foreground)',
-          boxShadow: 'var(--shadow-menu)',
+          boxShadow: 'none',
           fontSize: '13px',
+          fontWeight: 700,
           lineHeight: '1.5',
         },
-        success: { iconTheme: { primary: 'var(--brand)', secondary: 'var(--card)' } },
+        success: { iconTheme: { primary: 'var(--brand-text)', secondary: 'var(--card)' } },
         error: { iconTheme: { primary: 'var(--destructive)', secondary: 'var(--card)' } },
       }}
     />

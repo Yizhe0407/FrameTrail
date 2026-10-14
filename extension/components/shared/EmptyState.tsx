@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ExternalLink, Loader2, MousePointerClick } from 'lucide-react';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
+import Mascot from '@/components/shared/Mascot';
 import { reportError } from '@/components/shared/report-error';
 import { byMostRecentlyAccessed } from '@/lib/editor/continuation-tabs';
 import { focusTab } from '@/lib/runtime/navigation';
@@ -48,12 +49,13 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-      <span className="flex size-14 items-center justify-center rounded-full border border-border bg-secondary">
-        <MousePointerClick className="size-[22px] text-muted-foreground" />
-      </span>
-      <div className="flex max-w-[380px] flex-col items-center gap-4">
-        <h2 className="text-base font-semibold text-foreground">尚未建立內容</h2>
-        <Button onClick={returnToRecordingPage} disabled={pending} className="h-10">
+      <Mascot className="size-16" />
+      <div className="flex max-w-[380px] flex-col items-center gap-2">
+        <h2 className="text-lg font-bold text-foreground">尚未建立內容</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          到想示範的網頁按下「開始錄製」，每一次點擊都會變成這裡的一個步驟。
+        </p>
+        <Button onClick={returnToRecordingPage} disabled={pending} className="mt-2">
           {pending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
           {pending ? '正在開啟' : isRecording ? '回到錄製分頁' : '回到網頁開始錄製'}
         </Button>

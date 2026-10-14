@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
 import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/models';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/shared/utils';
+import { tagHueClass } from '@/lib/shared/tag-hue';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import EntryThumbnail from './EntryThumbnail';
 import StepActions from './StepActions';
@@ -76,7 +78,7 @@ export default function StepStage({
 
   const titleAndTagRow = (
     <>
-      <div className="mb-4 flex shrink-0 flex-col gap-3 border-b border-border/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex shrink-0 flex-col gap-3 border-b-2 border-border-soft pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 w-full items-center gap-1.5 sm:max-w-[45%]">
           <EditableTitle
             value={guideTitle ?? ''}
@@ -87,22 +89,22 @@ export default function StepStage({
             onCommitError={(titleError) => {
               setStageError(reportError('重新命名內容失敗', titleError, '標題儲存失敗，請再試一次。'));
             }}
-            className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-none px-2 py-1 text-[20px] font-bold leading-tight text-foreground transition-colors hover:bg-foreground/5 focus:bg-card focus:shadow-[0_0_0_1.5px_var(--focus)] [field-sizing:content]"
+            className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-2 border-transparent px-2 py-1 text-[22px] leading-tight font-bold text-foreground transition-colors focus-ring hover:border-border-soft focus:border-border focus:bg-card [field-sizing:content]"
           />
-          <Pencil className="size-[15px] shrink-0 text-muted-foreground/50" />
+          <Pencil className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </div>
         <div className="app-scrollbar flex max-h-[84px] min-w-0 flex-wrap items-center gap-2 overflow-y-auto pr-1 sm:max-w-[55%] sm:justify-end">
           {displayTags.map((tag) => (
-            <Badge key={tag} variant="tagEditable" className="max-w-full select-none">
+            <Badge key={tag} variant="tagEditable" className={cn('max-w-full select-none', tagHueClass(tag))}>
               <span className="min-w-0 truncate">{tag}</span>
               <button
                 type="button"
                 onClick={() => void commitTagsInline(guideTags.filter((t) => t !== tag))}
                 aria-label={`移除 ${tag} 標籤`}
                 disabled={editingDisabled}
-                className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground/70 transition-colors hover:bg-destructive/20 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/15 dark:text-white/70 dark:hover:bg-rose-500/30 dark:hover:text-rose-300"
+                className="flex size-5 shrink-0 items-center justify-center rounded-full text-on-accent outline-none transition-colors focus-ring hover:bg-on-accent hover:text-card disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <X className="size-2.5 stroke-[2.5]" />
+                <X className="size-3 stroke-[2.5]" />
               </button>
             </Badge>
           ))}
@@ -149,7 +151,7 @@ export default function StepStage({
   const headerRow = (
     <div className="flex shrink-0 items-center justify-between gap-3 mb-3.5">
       <div className="flex items-center gap-3">
-        <span className="text-xs font-semibold text-muted-foreground/80">
+        <span className="rounded-full border-2 border-border bg-secondary px-2.5 py-0.5 text-xs font-bold text-foreground">
           {/* Names entries with the same vocabulary as the popup and recording toolbar. */}
           {entry.kind === 'single'
             ? RECORDING_MODE_COPY.steps.label
@@ -175,7 +177,7 @@ export default function StepStage({
   );
 
   const zoomHint = (
-    <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-md bg-card/90 px-2 py-1 text-xs opacity-0 shadow backdrop-blur transition-opacity group-hover:opacity-100">
+    <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 py-1 text-xs font-bold text-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
       <ZoomIn className="size-3.5" />
       點擊放大
     </span>
@@ -184,7 +186,7 @@ export default function StepStage({
   const errorNotice = stageError && <InlineAlert>{stageError}</InlineAlert>;
 
   const privacyReviewNotice = privacy.reviewRequired && (
-    <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+    <div role="alert" className="rounded-md border-2 border-border bg-warning-soft px-3.5 py-2.5 text-sm text-foreground">
       {PRIVACY_REVIEW_REQUIRED_NOTICE}
     </div>
   );
@@ -202,14 +204,14 @@ export default function StepStage({
               type="button"
               onClick={onZoom}
               aria-label="放大圖片"
-              className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
+              className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
             >
               <EntryThumbnail
                 entry={entry}
                 alt={`步驟 ${index + 1}`}
                 fit="contain"
                 className="max-w-full lg:h-full lg:max-h-full"
-                imgClassName="block h-auto max-w-full w-auto object-contain rounded-md border border-black/15 shadow-xs dark:border-white/15 lg:max-h-full"
+                imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
                 overlay={zoomHint}
               />
             </button>
@@ -239,14 +241,14 @@ export default function StepStage({
             type="button"
             onClick={onZoom}
             aria-label="放大圖片"
-            className="group relative flex w-full items-center justify-center cursor-zoom-in border-none bg-transparent outline-none lg:h-full lg:max-h-full lg:max-w-full"
+            className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
           >
             <EntryThumbnail
               entry={entry}
               alt={`步驟 ${index + 1}（快照）`}
               fit="contain"
               className="max-w-full lg:h-full lg:max-h-full"
-              imgClassName="block h-auto max-w-full w-auto object-contain rounded-md border border-black/15 shadow-xs dark:border-white/15 lg:max-h-full"
+              imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
               overlay={zoomHint}
             />
           </button>

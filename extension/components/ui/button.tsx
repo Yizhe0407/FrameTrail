@@ -3,24 +3,30 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
+/**
+ * Sticker buttons: every filled or outlined variant carries the 2px ink
+ * outline; `ghost` is the only borderless one, for dense icon toolbars. The
+ * border is reserved (transparent) on ghost too, so swapping variants never
+ * shifts layout.
+ */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border-2 text-sm font-bold outline-none transition-colors focus-ring active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/90 font-medium',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        outline: 'border border-border bg-card text-foreground/70 hover:text-foreground hover:border-foreground/25 dark:bg-transparent dark:text-white/70 dark:hover:text-white dark:hover:border-white/25',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        ghost: 'text-foreground/60 hover:bg-foreground/6 hover:text-foreground dark:text-white/60 dark:hover:bg-white/8 dark:hover:text-white',
-        link: 'text-primary underline-offset-4 hover:underline',
-        success: 'bg-green-600 text-white hover:bg-green-600/90',
+        default: 'border-border bg-primary text-primary-foreground hover:bg-sora-hover',
+        destructive: 'border-border bg-destructive text-destructive-foreground hover:bg-recording-hover',
+        outline: 'border-border bg-card text-foreground hover:bg-secondary',
+        secondary: 'border-border bg-secondary text-secondary-foreground hover:bg-tamago hover:text-on-accent',
+        ghost: 'border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground',
+        link: 'border-transparent text-brand-text underline-offset-4 hover:underline',
+        success: 'border-border bg-matcha text-on-accent hover:brightness-95',
       },
       size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-        sm: 'h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5',
-        lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
-        icon: 'size-[34px] rounded-md p-0 text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white',
+        default: 'h-10 px-4 has-[>svg]:px-3.5',
+        sm: 'h-8 gap-1.5 px-3 text-[13px] has-[>svg]:px-2.5',
+        lg: 'h-12 px-6 text-base has-[>svg]:px-5',
+        icon: 'size-9 p-0',
       },
     },
     defaultVariants: {
@@ -41,4 +47,4 @@ function Button({
   return <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />;
 }
 
-export { Button };
+export { Button, buttonVariants };

@@ -79,18 +79,18 @@ export default function SourcePermissionDialog({
         showClose={false}
         onEscapeKeyDown={(event) => anyPending && event.preventDefault()}
         onPointerDownOutside={(event) => anyPending && event.preventDefault()}
-        className="w-[min(440px,calc(100vw-32px))] rounded-md border border-border bg-card p-6 text-foreground"
+        className="w-[min(440px,calc(100vw-32px))] p-6"
       >
         <DialogHeader className="pr-2">
           <DialogTitle className="flex items-center gap-2">
             {pickerOpen || sourceUnavailable ? (
-              <Video className="size-4 text-brand" aria-hidden="true" />
+              <Video className="size-5 text-brand-text" aria-hidden="true" />
             ) : (
-              <ShieldCheck className="size-4 text-brand" aria-hidden="true" />
+              <ShieldCheck className="size-5 text-brand-text" aria-hidden="true" />
             )}
             {pickerOpen ? '選擇要接續錄製的分頁' : sourceUnavailable ? actionLabel : `${actionLabel}前需要存取來源網站`}
           </DialogTitle>
-          <DialogDescription className="leading-6 text-muted-foreground">
+          <DialogDescription className="leading-6">
             {pickerOpen
               ? `錄製會從選取的分頁開始，之後會跟著你切換的分頁；${NEW_STEPS_APPEND_NOTE}。`
               : sourceUnavailable
@@ -100,7 +100,7 @@ export default function SourcePermissionDialog({
         </DialogHeader>
 
         {!pickerOpen && !sourceUnavailable && (
-          <p className="mt-4 rounded-md border border-border bg-secondary px-3 py-2.5 font-mono text-xs break-all text-foreground">
+          <p className="mt-4 rounded-md border-2 border-border bg-secondary px-3 py-2.5 font-mono text-xs break-all text-foreground">
             {sourceOrigin}
           </p>
         )}

@@ -6,7 +6,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import OpenEditorButton from '@/components/popup/OpenEditorButton';
 import RecordControls from '@/components/popup/RecordControls';
 import ResetButton from '@/components/shared/ResetButton';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import BrandMark from '@/components/shared/BrandMark';
+import { cn } from '@/lib/shared/utils';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import type { OpenEditorResult } from '@/lib/runtime/messages';
 import { openLibrary } from '@/lib/runtime/actions';
@@ -98,13 +100,22 @@ function App() {
   }
 
   return (
-    <div className="flex w-[320px] flex-col gap-[18px] border border-border/80 bg-card p-[22px_20px] dark:border-white/10">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-[9px]">
-          <span className="text-[14px] font-bold text-foreground dark:text-white">FrameTrail</span>
-          <span className="size-[5px] rounded-full bg-brand" aria-hidden="true" />
-        </div>
-        <span className="text-[11px] font-semibold text-muted-foreground/80 dark:text-white/45">
+    <div className="flex w-[320px] flex-col gap-4 bg-card p-5">
+      <div className="flex items-center justify-between gap-3">
+        <BrandMark />
+        <span
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-full border-2 px-2.5 py-0.5 text-xs font-bold',
+            recording.phase === 'starting'
+              ? 'border-border bg-tamago text-on-accent'
+              : isRecording
+                ? 'border-recording bg-danger-soft text-danger'
+                : 'border-border bg-secondary text-foreground',
+          )}
+        >
+          {isRecording && recording.phase !== 'starting' && (
+            <span className="size-1.5 rounded-full bg-recording" aria-hidden="true" />
+          )}
           {recording.phase === 'starting' ? '準備中' : isRecording ? '錄製中' : '待命'}
         </span>
       </div>
@@ -125,7 +136,7 @@ function App() {
 
       {/* Hidden while a run is live: RecordControls already offers the editor as
           its secondary exit, and a mid-recording reset would fail anyway. */}
-      {!editorRecovery && !isRecording && <div className="h-[1px] w-full bg-border/80 dark:bg-white/10" aria-hidden="true" />}
+      {!editorRecovery && !isRecording && <div className="h-0.5 w-full rounded-full bg-border-soft" aria-hidden="true" />}
 
       {!editorRecovery && !isRecording && (
         <div className="flex flex-col gap-2">
@@ -133,18 +144,13 @@ function App() {
             label="開啟編輯器"
             pending={openingEditor}
             onOpen={openEditor}
-            className="flex w-full items-center justify-center gap-[8px] rounded-md border border-border/80 bg-card py-[11px] text-[13px] font-medium text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-50 dark:border-white/14 dark:bg-transparent dark:text-white dark:hover:bg-white/8"
-            iconClassName="size-[15px]"
+            className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}
           />
-          <div className="grid grid-cols-2 gap-[8px]">
-            <Button
-              variant="outline"
-              onClick={() => void openLibraryView()}
-              className="w-full justify-center rounded-md border-border/80 py-[10px] text-[12.5px] font-medium text-foreground/70 transition-colors hover:bg-secondary dark:border-white/14 dark:bg-transparent dark:text-white/70 dark:hover:bg-white/8 dark:hover:text-white"
-            >
-              <Library className="size-[14px]" />作品庫
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" size="sm" onClick={() => void openLibraryView()} className="w-full">
+              <Library />作品庫
             </Button>
-            <ResetButton hasSteps={hasGuideContent} sessionId={sessionId} variant="outline" className="w-full justify-center rounded-md border-border/80 py-[10px] text-[12.5px] font-medium text-foreground/70 transition-colors hover:bg-danger-soft hover:border-danger/35 hover:text-danger dark:border-white/14 dark:bg-transparent dark:text-white/70" />
+            <ResetButton hasSteps={hasGuideContent} sessionId={sessionId} variant="outline" className="h-8 w-full px-3 text-[13px]" />
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Library, Loader2 } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
 import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
@@ -14,6 +14,8 @@ import StepRail from '@/components/editor/StepRail';
 import StepStage from '@/components/editor/StepStage';
 import AppToaster from '@/components/shared/AppToaster';
 import EmptyState from '@/components/shared/EmptyState';
+import Mascot from '@/components/shared/Mascot';
+import { Button } from '@/components/ui/button';
 import Lightbox from '@/components/editor/Lightbox';
 import RecaptureProgressDialog from '@/components/editor/RecaptureProgressDialog';
 import SourcePermissionDialog from '@/components/editor/SourcePermissionDialog';
@@ -33,6 +35,7 @@ import {
   ackStepRecaptureResult,
   cancelStepRecapture,
   focusStepRecaptureSource,
+  openLibrary,
 } from '@/lib/runtime/actions';
 import type {
   CancelStepRecaptureResult,
@@ -324,6 +327,7 @@ function EditorApp() {
         operation={recording.operation}
         steps={steps}
         sessionId={sessionId}
+        guideActionsAvailable={guideLoadState !== 'missing'}
         onOpenPublish={() => { if (!isPermissionFlowLocked()) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
       />
@@ -359,7 +363,7 @@ function EditorApp() {
         onConfirm={() => void confirmPreparedPermission()}
       />
       {(error || dataError || (operationError && !recaptureActive)) && (
-        <div className="border-b border-border bg-card px-7 py-3">
+        <div className="border-b-2 border-border bg-card px-3 py-3 sm:px-7">
           <Alert variant="destructive">
             <AlertCircle />
             <AlertDescription>{error ?? dataError ?? operationError}</AlertDescription>
@@ -373,22 +377,27 @@ function EditorApp() {
           </main>
         ) : guideLoadState === 'missing' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
-            <div className="max-w-md text-muted-foreground">
-              <AlertCircle className="mx-auto mb-3 size-8" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">找不到這份內容</h2>
-              <p className="mt-2 text-sm">
+            <div className="flex max-w-md flex-col items-center text-muted-foreground">
+              <Mascot className="mb-4 size-16" />
+              <h2 className="text-lg font-bold text-foreground">找不到這份內容</h2>
+              <p className="mt-2 text-sm leading-relaxed">
                 {viewedSessionId
                   ? '這份內容可能已被刪除或網址已失效。為避免顯示其他錄製內容，編輯器不會自動切換到其他內容。'
                   : '編輯器網址缺少內容識別碼。請從 FrameTrail 作品庫重新開啟內容。'}
               </p>
+              <Button variant="outline" className="mt-5" onClick={() => void openLibrary()}>
+                <Library />回到作品庫
+              </Button>
             </div>
           </main>
         ) : guideLoadState === 'invalid' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
-            <div className="max-w-md text-muted-foreground">
-              <AlertCircle className="mx-auto mb-3 size-8" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">內容結構需要修復</h2>
-              <p className="mt-2 text-sm">
+            <div className="flex max-w-md flex-col items-center text-muted-foreground">
+              <span className="mb-4 flex size-14 items-center justify-center rounded-full border-2 border-border bg-warning-soft">
+                <AlertCircle className="size-6 text-foreground" aria-hidden="true" />
+              </span>
+              <h2 className="text-lg font-bold text-foreground">內容結構需要修復</h2>
+              <p className="mt-2 text-sm leading-relaxed">
                 為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份內容。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。
               </p>
             </div>
@@ -429,7 +438,7 @@ function EditorApp() {
             ) : (
               <main className="flex min-w-0 flex-1 items-center justify-center p-8 pb-36 text-center lg:pb-8">
                 <div className="max-w-sm text-muted-foreground">
-                  <h2 className="font-semibold text-foreground">尚未選擇步驟</h2>
+                  <h2 className="text-lg font-bold text-foreground">尚未選擇步驟</h2>
                   <p className="mt-2 text-sm">請從左側步驟列表選擇要編輯的內容。</p>
                 </div>
               </main>
@@ -458,7 +467,7 @@ function EditorApp() {
       {dataOperation && (
         <div
           role="status"
-          className={`pointer-events-none fixed bottom-4 left-4 z-50 flex min-h-9 items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-xs font-medium text-muted-foreground shadow-[var(--shadow-menu)] ${entries.length > 0 ? 'max-lg:bottom-36' : ''}`}
+          className={`pointer-events-none fixed bottom-4 left-4 z-50 flex min-h-9 items-center gap-2 rounded-full border-2 border-border bg-card px-3.5 py-1.5 text-xs font-bold text-foreground ${entries.length > 0 ? 'max-lg:bottom-36' : ''}`}
         >
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
           <span className="min-w-0 truncate">{dataOperation}</span>

@@ -38,14 +38,14 @@ export default function RecaptureProgressDialog({
         onEscapeKeyDown={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
-        className="w-[min(420px,calc(100vw-32px))] rounded-md border border-border bg-card p-6 text-foreground"
+        className="w-[min(420px,calc(100vw-32px))] p-6"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Loader2 className="size-4 animate-spin text-brand" aria-hidden="true" />
+            <Loader2 className="size-5 animate-spin text-brand-text" aria-hidden="true" />
             {capturing ? '正在擷取新的步驟圖片…' : '補拍進行中'}
           </DialogTitle>
-          <DialogDescription className="leading-6 text-muted-foreground">
+          <DialogDescription className="leading-6">
             {capturing
               ? '請稍候，擷取完成後會自動回到編輯器。'
               : '請到來源網頁選取要補拍的目標。完成前編輯器會維持鎖定，避免內容被覆蓋。'}

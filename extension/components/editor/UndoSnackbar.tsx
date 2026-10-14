@@ -30,7 +30,7 @@ export default function UndoSnackbar({
   return (
     <div
       role="status"
-      className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-3 rounded-full bg-[var(--primary-raw)] px-4 py-2 text-sm text-[var(--primary-text-raw)] shadow-[var(--shadow-menu)] ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
+      className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-2 rounded-full border-2 border-border bg-card py-1.5 pr-1.5 pl-4 text-sm font-bold text-foreground ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
     >
       <Tooltip>
         <TooltipTrigger asChild>
@@ -42,7 +42,7 @@ export default function UndoSnackbar({
         type="button"
         onClick={onUndo}
         disabled={pending}
-        className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2 font-semibold text-brand outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full border-2 border-border bg-selected px-3 font-bold text-on-accent outline-none transition-colors focus-ring hover:brightness-95 disabled:opacity-60"
       >
         {pending ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
         {pending ? '還原中' : '還原'}
@@ -52,7 +52,7 @@ export default function UndoSnackbar({
         onClick={onDismiss}
         disabled={pending}
         aria-label="關閉還原提示"
-        className="flex size-8 items-center justify-center rounded-full outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40 disabled:opacity-60"
+        className="flex size-8 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:opacity-60"
       >
         <X className="size-4" />
       </button>

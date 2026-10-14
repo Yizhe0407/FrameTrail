@@ -12,7 +12,7 @@ describe('InlineAlert', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toContain('找不到可錄製的分頁。');
-    expect(alert.className).toContain('bg-destructive/10');
+    expect(alert.className).toContain('bg-danger-soft');
   });
 
   it('appends caller spacing classes after the shared block styles', () => {

@@ -52,12 +52,12 @@ body.has-preview-target {
   left: -9999px;
   z-index: 2147483647;
   min-height: 40px;
-  padding: 8px 16px;
-  border: 0;
-  border-radius: 8px;
-  background: #1c1c1c;
-  color: #ffffff;
-  font: 500 14px/22px ui-sans-serif, system-ui, sans-serif;
+  padding: 6px 16px;
+  border: 2px solid #1f1b16;
+  border-radius: 12px;
+  background: #a8d8ff;
+  color: #1f1b16;
+  font: 700 14px/22px -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", sans-serif;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -65,20 +65,8 @@ body.has-preview-target {
 .snapshot-skip-link:focus-visible,
 .snapshot-skip-link:focus {
   left: 16px;
-  outline: 2px solid #2563eb;
+  outline: 2px solid #2f6fed;
   outline-offset: 2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .snapshot-skip-link {
-    background: #c6c7f8;
-    color: #1c1c1c;
-  }
-
-  .snapshot-skip-link:focus-visible,
-  .snapshot-skip-link:focus {
-    outline-color: #60a5fa;
-  }
 }
 
 .snapshot-box {

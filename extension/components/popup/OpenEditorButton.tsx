@@ -1,5 +1,4 @@
 import { Loader2, PencilLine } from 'lucide-react';
-import { cn } from '@/lib/shared/utils';
 
 interface Props {
   /** Copy while idle. The pending copy is owned here because it is identical on
@@ -8,10 +7,9 @@ interface Props {
   pending: boolean;
   onOpen?: () => void | Promise<void>;
   /** The three call sites carry deliberately different visual weight (primary
-   * in editor recovery, bordered full-width in the idle nav, quiet as the
-   * live-run secondary exit), so the button's own class list stays theirs. */
+   * in editor recovery, outlined full-width in the idle nav, ghost as the
+   * live-run secondary exit), so each passes its own `buttonVariants` classes. */
   className?: string;
-  iconClassName?: string;
 }
 
 const OPENING_EDITOR_LABEL = '正在開啟編輯器';
@@ -21,7 +19,7 @@ const OPENING_EDITOR_LABEL = '正在開啟編輯器';
  * spinner-or-icon swap and the disabled-while-pending rule cannot drift apart
  * between the idle nav, the editor-recovery branch and the live-run exit.
  */
-export default function OpenEditorButton({ label, pending, onOpen, className, iconClassName }: Props) {
+export default function OpenEditorButton({ label, pending, onOpen, className }: Props) {
   return (
     <button
       type="button"
@@ -30,8 +28,8 @@ export default function OpenEditorButton({ label, pending, onOpen, className, ic
       className={className}
     >
       {pending
-        ? <Loader2 className={cn('animate-spin', iconClassName)} />
-        : <PencilLine className={iconClassName} />}
+        ? <Loader2 className="animate-spin" />
+        : <PencilLine />}
       {pending ? OPENING_EDITOR_LABEL : label}
     </button>
   );

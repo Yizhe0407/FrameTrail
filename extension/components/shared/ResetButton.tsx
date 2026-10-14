@@ -60,8 +60,8 @@ export default function ResetButton({
               disabled={!hasSteps || !sessionId || disabled || resetting}
               aria-label={resetting ? '正在重置' : '重置目前錄製'}
               className={cn(
-                'text-muted-foreground hover:bg-destructive/10 hover:text-destructive',
-                variant === 'outline' && 'hover:border-destructive/40',
+                'hover:bg-danger-soft hover:text-danger',
+                variant === 'outline' && 'hover:border-recording',
                 className,
               )}
             >

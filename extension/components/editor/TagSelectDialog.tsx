@@ -8,11 +8,14 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-model';
 import { getGuideSummaries } from '@/lib/storage/guide-repository';
+import { cn } from '@/lib/shared/utils';
+import { tagHueClass } from '@/lib/shared/tag-hue';
 
 interface Props {
   open: boolean;
@@ -79,15 +82,15 @@ export default function TagSelectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showClose={false} className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(360px,calc(100vw-32px))] overflow-y-auto rounded-md border-border/80 bg-card p-5 shadow-2xl dark:border-white/10">
+      <DialogContent showClose={false} className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(360px,calc(100vw-32px))] overflow-y-auto p-5">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <DialogTitle className="text-xs font-bold text-muted-foreground/70 dark:text-white/50">新增標籤</DialogTitle>
+            <DialogTitle>新增標籤</DialogTitle>
             <button
               type="button"
               onClick={() => onOpenChange(false)}
               aria-label="關閉標籤設定"
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground dark:text-white/60 dark:hover:bg-white/10 dark:hover:text-white"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground"
             >
               <X className="size-4" />
             </button>
@@ -110,32 +113,32 @@ export default function TagSelectDialog({
               }}
               placeholder="輸入後按 Enter"
               aria-label="新增標籤名稱"
-              className="min-w-0 flex-1 text-xs md:text-xs"
+              className="min-w-0 flex-1"
             />
             <button
               type="button"
               onClick={handleAddCustom}
               disabled={!canAddCustom}
               aria-label="新增標籤"
-              className="flex size-9 shrink-0 items-center justify-center rounded-md bg-brand text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              className={cn(buttonVariants({ size: 'icon' }), 'size-10')}
             >
               <Plus className="size-4 stroke-[2.5]" />
             </button>
           </div>
 
           {limitReached && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               已達 {GUIDE_TAG_LIMITS.maxTags} 個標籤上限，請先移除再新增。
             </p>
           )}
 
           {selectedTags.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">目前標籤</span>
+              <span className="text-xs font-bold text-muted-foreground">目前標籤</span>
               {/* Shown, not editable: otherwise a user could type an already-applied tag and see nothing happen. */}
               <div className="flex flex-wrap gap-2">
                 {selectedTags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="max-w-full select-none">
+                  <Badge key={tag} variant="tag" className={cn('max-w-full select-none', tagHueClass(tag))}>
                     <span className="min-w-0 truncate">{tag}</span>
                   </Badge>
                 ))}
@@ -145,7 +148,7 @@ export default function TagSelectDialog({
 
           {suggestions.length > 0 && !limitReached && (
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-semibold text-muted-foreground/70 dark:text-white/50">曾經使用過</span>
+              <span className="text-xs font-bold text-muted-foreground">曾經使用過</span>
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((tag) => (
                   <Tooltip key={tag}>
@@ -155,7 +158,7 @@ export default function TagSelectDialog({
                           type="button"
                           onClick={() => void addTag(tag)}
                           aria-label={`新增 ${tag} 標籤`}
-                          className="min-w-0 truncate outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="min-w-0 truncate"
                         >
                           {tag}
                         </button>

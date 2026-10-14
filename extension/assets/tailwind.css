@@ -3,59 +3,84 @@
 @custom-variant dark (@media (prefers-color-scheme: dark));
 
 /*
- * Token system replaced 2026-07-24 to match the "FrameTrail Prototype.dc.html"
- * Claude Design import (near-black/white primary, blue/lavender brand accent,
- * 16px card radius, pill controls). This supersedes the previous "Japanese-
- * modern" moss/stone system documented in UX_PLAN.md §12 (see that file for
- * a pointer to this change). shadcn semantic names are preserved and
- * remapped, so existing utilities (bg-primary, text-muted-foreground, …)
- * inherit the new palette unchanged. Focus (--focus) keeps its previous value
- * on purpose — the new design shows no focus state to derive a replacement
- * from, and focus staying visually distinct from primary is an accessibility
- * invariant, not a style choice. The matching --warning token was dropped: it
- * had no design to back it and every warning surface hard-codes amber.
+ * "Sticker" design system (2026-10): Japanese-kawaii flavoured neobrutalism
+ * without the offset drop shadow. Surfaces read as paper stickers — warm cream
+ * paper, a 2px ink outline, flat pastel fills — and nothing casts a shadow;
+ * the outline alone separates layers. shadcn semantic names are preserved and
+ * remapped, so utilities such as bg-primary or text-muted-foreground follow the
+ * palette. The rules every surface obeys:
+ *
+ *   Lines    every line is 2px. Outer outlines use --line (ink); dividers inside
+ *            a surface use --line-soft. `border` / `border-b` alone stay 1px in
+ *            Tailwind, so always write `border-2` / `border-b-2`.
+ *   Corners  one radius (--radius) for every surface and control; pills,
+ *            badges, switches and dots stay `rounded-full`. The only other
+ *            radius is `rounded-sm` (--radius-inset), reserved for an element
+ *            sitting exactly 4px inside a `rounded-md` container's outer edge
+ *            (2px outline + 2px padding, or 4px padding without an outline) so
+ *            the two curves stay concentric.
+ *   Colour   pastel fills always carry ink text (--on-accent) in both themes.
+ *            --primary is the main action, --selected marks the current
+ *            choice, --recording is the record/destructive red.
+ *   Focus    `focus-ring` (defined below) is the single focus treatment: a 2px
+ *            --focus outline offset by 2px, kept distinct from every fill.
+ *
+ * --sora is mirrored by BRAND_ACCENT in lib/capture/brand-colors.ts and the
+ * recording toolbar's own stylesheet (CSS cannot import TS); change together.
  */
+@font-face {
+  /* jf open 粉圓 (Huninn), SIL OFL 1.1 — public/fonts/Huninn-OFL.txt. Bundled
+   * rather than fetched so the extension stays fully offline. It ships one
+   * weight; bold text is synthesised. */
+  font-family: 'Huninn';
+  src: url('/fonts/Huninn-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
-  /* One corner radius for every interface surface. Full-radius pills, badges,
-   * and circular icon controls stay round via `rounded-full`, which Tailwind
-   * emits as a fixed value and never reads from this token. */
-  --radius: 0.5rem;
+  --radius: 12px;
+  --radius-inset: calc(var(--radius) - 4px);
 
-  --canvas: #f7f9fb;
-  --surface: #ffffff;
-  --surface-muted: #f0f2f6;
+  --canvas: #fbf5ea;
+  --surface: #fffdf8;
+  --surface-muted: #f2e9d9;
   /* A panel that sits on top of --surface (annotation rows, export cards). */
-  --surface-raised: #f4f6f9;
-  --text: #1c1c1c;
-  --text-muted: rgb(28 28 28 / 0.45);
-  --line: rgb(28 28 28 / 0.08);
+  --surface-raised: #f8f1e4;
+  --text: #1f1b16;
+  --text-muted: #6b6156;
+  --line: #1f1b16;
+  --line-soft: rgb(31 27 22 / 0.14);
 
-  --primary-raw: #1c1c1c;
-  --primary-text-raw: #ffffff;
-  /* --brand / --recording mirror BRAND_ACCENT / BRAND_DANGER in
-   * lib/capture/brand-colors.ts (CSS cannot import TS); change together. */
-  --brand: #7094f4;
-  --brand-text: #4f6fce;
-  --brand-bg-soft: #e5ecf6;
-  --recording: #ff4747;
+  /* Pastel sticker fills. Text on any of them is always --on-accent. */
+  --sora: #a8d8ff;
+  --sora-hover: #93ceff;
+  --tamago: #ffe27a;
+  --sakura: #ffb5c5;
+  --matcha: #b8e0a0;
+  --on-accent: #1f1b16;
+
+  --brand: #a8d8ff;
+  --brand-text: #2b5fc8;
+  --brand-bg-soft: #e4f2ff;
+  --selected: #ffe27a;
+  --recording: #d93a3f;
+  --recording-hover: #c4333a;
   --recording-text: #ffffff;
-  --focus: #7094f4;
-  /* Destructive *hover* affordances. --recording/--destructive is the solid
-   * red for recording state and confirm buttons; these two are the softer
-   * text/background pair used when hovering a delete or reset control. */
-  --danger-text: #e23b3b;
-  --danger-soft: #fff0f0;
-
-  --shadow-card: 0 1px 3px rgb(28 28 28 / 0.04);
-  --shadow-menu: 0 14px 40px -14px rgb(28 28 28 / 0.28);
-  --shadow-dialog: 0 18px 50px -16px rgb(28 28 28 / 0.3), 0 2px 6px rgb(28 28 28 / 0.06);
+  --focus: #2f6fed;
+  /* Destructive *hover* affordances: the softer text/background pair used when
+   * hovering a delete or reset control. */
+  --danger-text: #c8323a;
+  --danger-soft: #ffe6e6;
+  --warning-soft: #fff4c2;
 
   --background: var(--canvas);
   --foreground: var(--text);
   --card: var(--surface);
   --card-foreground: var(--text);
-  --primary: var(--primary-raw);
-  --primary-foreground: var(--primary-text-raw);
+  --primary: var(--sora);
+  --primary-foreground: var(--on-accent);
   --secondary: var(--surface-muted);
   --secondary-foreground: var(--text);
   --muted: var(--surface-muted);
@@ -71,32 +96,26 @@
 /*
  * Dark mode follows the OS only — there is no in-app theme switch. This media
  * query is therefore the single source of dark truth, and it must stay in sync
- * with the `dark` custom variant declared above: a `.dark` class hook would
- * repaint these tokens while every `dark:` utility kept listening to the media
- * query, so the two halves of the theme would disagree. Add a class hook here
- * only together with `@custom-variant dark (&:where(.dark, .dark *))`.
+ * with the `dark` custom variant declared above. Pastel fills keep their light
+ * values: a sticker stays the same colour on a dark board.
  */
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #161616;
-    --surface: #242424;
-    --surface-muted: rgb(255 255 255 / 0.08);
-    --text: #ffffff;
-    --text-muted: rgb(255 255 255 / 0.45);
-    --line: rgb(255 255 255 / 0.08);
-    --primary-raw: #c6c7f8;
-    --primary-text-raw: #1c1c1c;
-    --brand: #c6c7f8;
-    --brand-text: #c6c7f8;
-    --brand-bg-soft: rgb(198 199 248 / 0.16);
-    --recording: #ff4747;
-    --recording-text: #ffffff;
-    --focus: #c6c7f8;
-    --danger-text: #ff6b6b;
-    --danger-soft: rgb(255 71 71 / 0.16);
-    --surface-raised: #282828;
+    --canvas: #1a1714;
+    --surface: #24201b;
+    --surface-muted: #322c25;
+    --surface-raised: #2b261f;
+    --text: #f6eedf;
+    --text-muted: #b5aa99;
+    --line: #d9cdb8;
+    --line-soft: rgb(246 238 223 / 0.16);
 
-    --shadow-menu: 0 14px 40px -14px rgb(0 0 0 / 0.6);
+    --brand-text: #8ab4ff;
+    --brand-bg-soft: rgb(168 216 255 / 0.16);
+    --focus: #8ab4ff;
+    --danger-text: #ff8a8a;
+    --danger-soft: rgb(217 58 63 / 0.22);
+    --warning-soft: rgb(255 226 122 / 0.16);
   }
 }
 
@@ -116,31 +135,60 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-border-soft: var(--line-soft);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-canvas: var(--canvas);
   --color-brand: var(--brand);
   --color-brand-text: var(--brand-text);
   --color-brand-bg-soft: var(--brand-bg-soft);
+  --color-selected: var(--selected);
   --color-recording: var(--recording);
+  --color-recording-hover: var(--recording-hover);
   --color-recording-foreground: var(--recording-text);
   --color-focus: var(--focus);
   --color-surface-raised: var(--surface-raised);
   --color-danger: var(--danger-text);
   --color-danger-soft: var(--danger-soft);
-  /* Every named step of Tailwind's radius scale resolves to the same token, so
-   * a `rounded-*` utility can never introduce a second corner radius. */
-  --radius-xs: var(--radius);
-  --radius-sm: var(--radius);
+  --color-warning-soft: var(--warning-soft);
+  --color-sora: var(--sora);
+  --color-sora-hover: var(--sora-hover);
+  --color-tamago: var(--tamago);
+  --color-sakura: var(--sakura);
+  --color-matcha: var(--matcha);
+  --color-on-accent: var(--on-accent);
+  /* Every named step of Tailwind's radius scale resolves to the one token, so
+   * a `rounded-*` utility can never introduce a stray corner radius. `sm` is
+   * the documented concentric exception (see the header comment). */
+  --radius-xs: var(--radius-inset);
+  --radius-sm: var(--radius-inset);
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
   --radius-xl: var(--radius);
   --radius-2xl: var(--radius);
   --radius-3xl: var(--radius);
   --radius-4xl: var(--radius);
+  /* No surface casts a shadow in this system. */
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
 
   --font-sans:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'PingFang TC',
-    'Microsoft JhengHei', sans-serif;
+    'Huninn', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont,
+    sans-serif;
+}
+
+/* The one focus treatment. Specificity (class + pseudo-class) beats a plain
+ * `outline-none`, so a control may suppress the UA ring and still show this. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
 }
 
 /* Layered on purpose: unlayered rules outrank every `@layer utilities` rule
@@ -154,8 +202,14 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
-    font-family: var(--font-sans);
     letter-spacing: 0;
+    font-synthesis: weight;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--tamago);
+    color: var(--on-accent);
   }
 
   /* Native controls outside the shadcn Button component keep semantic cursor
@@ -171,12 +225,19 @@
 }
 
 @layer components {
-  /* Kept above media previews so active state stays legible while sharing the
-   * light/dark brand color token with the rest of the editor. */
+  /* Kept above media previews so the active state stays legible: a 2px ink
+   * outline plus the --selected wash, matching every other selection. */
   .frametrail-selected-step-outline {
-    border-color: var(--brand);
-    box-shadow: inset 0 0 0 1px var(--brand);
+    border-color: var(--line);
+    box-shadow: inset 0 0 0 2px var(--selected);
   }
+}
+
+/* Unlayered and doubled-up on purpose: Chromium injects its own unlayered
+ * `body { font-family: … }` into extension pages, which outranks anything in
+ * `@layer base`. `html body` wins on specificity wherever that sheet lands. */
+html body {
+  font-family: var(--font-sans);
 }
 
 /* Reduced-motion: strip the recording dot's continuous ping. */
@@ -191,7 +252,7 @@
 }
 
 .app-scrollbar {
-  scrollbar-color: rgb(28 28 28 / 0.16) transparent;
+  scrollbar-color: rgb(31 27 22 / 0.28) transparent;
   scrollbar-width: thin;
 }
 
@@ -208,24 +269,24 @@
   min-height: 36px;
   border: 3px solid transparent;
   border-radius: 99px;
-  background: rgb(28 28 28 / 0.16);
+  background: rgb(31 27 22 / 0.28);
   background-clip: padding-box;
 }
 
 .app-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(28 28 28 / 0.3);
+  background-color: rgb(31 27 22 / 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
   .app-scrollbar {
-    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+    scrollbar-color: rgb(246 238 223 / 0.24) transparent;
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb {
-    background-color: rgb(255 255 255 / 0.18);
+    background-color: rgb(246 238 223 / 0.24);
   }
 
   .app-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(255 255 255 / 0.35);
+    background-color: rgb(246 238 223 / 0.4);
   }
 }

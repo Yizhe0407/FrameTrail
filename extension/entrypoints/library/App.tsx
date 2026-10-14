@@ -17,6 +17,7 @@ import { type GuideSummary } from '@/lib/storage/models';
 import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide/guide-actions';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
 import { cn } from '@/lib/shared/utils';
+import { tagHueClass } from '@/lib/shared/tag-hue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -25,6 +26,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
+import Mascot from '@/components/shared/Mascot';
 import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
 import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
@@ -185,16 +187,18 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--canvas)] text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <AppToaster />
-      <header className="border-b border-border/80 bg-card">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-start justify-between gap-4 px-6 pt-[30px] pb-[22px] sm:px-10">
-          <div className="flex items-center gap-[11px]">
-            <span className="text-[15px] font-bold">FrameTrail</span>
-            <span className="size-[5px] rounded-full bg-brand" aria-hidden="true" />
-            <h1 className="text-[22px] font-bold text-foreground">作品庫</h1>
+      <header className="border-b-2 border-border bg-card">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5 sm:px-10">
+          <div className="flex items-center gap-3">
+            <Mascot className="size-11" />
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-muted-foreground">FrameTrail</span>
+              <h1 className="text-2xl leading-tight font-bold text-foreground">作品庫</h1>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <input
               ref={importInput}
               type="file"
@@ -208,25 +212,23 @@ export default function App() {
             />
             <Button
               variant="outline"
-              className="h-[40px] gap-[7px] rounded-md px-3.5 text-[13px] font-medium"
               onClick={() => importInput.current?.click()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'import' ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}匯入
+              {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}匯入
             </Button>
             <Button
               variant="default"
-              className="h-[40px] gap-[7px] rounded-md px-[17px] text-[13px] font-medium"
               onClick={() => void createNewGuide()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'new' ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}新增
+              {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}新增
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-7xl flex-col px-6 pt-[24px] pb-[40px] sm:px-10">
+      <main className="mx-auto flex max-w-7xl flex-col px-6 pt-6 pb-10 sm:px-10">
         {operationLocked && (
           <Alert className="mb-4">
             <AlertDescription>錄製或補拍進行中；為避免資料寫入錯誤，目前只能瀏覽作品庫。</AlertDescription>
@@ -236,30 +238,29 @@ export default function App() {
           <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>
         )}
 
-        <div className="mb-[22px] flex flex-wrap items-center gap-[14px]">
-          <div className="flex h-[44px] min-w-0 flex-1 items-center gap-2.5 rounded-md border border-border/80 bg-card px-[15px]">
-            <Search className="size-[17px] shrink-0 text-muted-foreground/70" />
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          {/* The field draws the outline, so focus is shown on the whole box. */}
+          <div className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md border-2 border-border bg-card px-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus">
+            <Search className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜尋標題或說明…"
+              aria-label="搜尋作品"
               maxLength={120}
-              className="min-w-0 w-full bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground/70"
+              className="min-w-0 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={cn(
-                  'h-[44px] gap-[7px] rounded-md px-[15px] text-[13px] font-medium',
-                  filterTags.length > 0 && 'border-brand bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand',
-                )}
+                className={cn('h-11', filterTags.length > 0 && 'bg-selected text-on-accent hover:bg-selected')}
               >
-                <Filter className="size-4" />
+                <Filter />
                 篩選
                 {filterTags.length > 0 && (
-                  <Badge className="h-5 min-w-5 bg-brand px-1 text-[11px] font-semibold">
+                  <Badge variant="outline" className="h-5 min-w-5 px-1">
                     {filterTags.length}
                   </Badge>
                 )}
@@ -271,14 +272,14 @@ export default function App() {
               className="app-scrollbar max-h-[min(360px,calc(100vh-140px))] w-[min(280px,calc(100vw-32px))] overflow-y-auto"
             >
               <div className="mb-2.5 flex items-center justify-between gap-3">
-                <span id="guide-tag-filter-label" className="text-[10.5px] font-semibold text-muted-foreground">
+                <span id="guide-tag-filter-label" className="text-xs font-bold text-muted-foreground">
                   依標籤篩選
                 </span>
                 {filterTags.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setFilterTags([])}
-                    className="shrink-0 text-xs font-semibold text-brand outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                    className="shrink-0 rounded-sm text-xs font-bold text-brand-text outline-none focus-ring hover:underline"
                   >
                     清除
                   </button>
@@ -324,13 +325,20 @@ export default function App() {
             <Loader2 className="mr-2 size-5 animate-spin" />讀取作品庫…
           </div>
         ) : visibleGuides.length === 0 ? (
-          <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-dashed border-border bg-card px-6 text-center">
-            <PencilLine className="mb-4 size-8 text-brand" />
-            <h2 className="font-medium">{query || filterTags.length > 0 ? '找不到符合的作品' : '建立第一份作品'}</h2>
-            {!query && filterTags.length === 0 && <Button className="mt-4" onClick={() => void createNewGuide()}>新增</Button>}
+          <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-card px-6 py-10 text-center">
+            <Mascot className="mb-2 size-16" />
+            <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? '找不到符合的作品' : '建立第一份作品'}</h2>
+            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+              {query || filterTags.length > 0
+                ? '換個關鍵字，或清除標籤篩選再試一次。'
+                : '到想示範的網頁打開 FrameTrail 按「開始錄製」，或先建立一份空白作品。'}
+            </p>
+            {!query && filterTags.length === 0 && (
+              <Button className="mt-3" onClick={() => void createNewGuide()}><Plus />新增</Button>
+            )}
           </div>
         ) : (
-          <ul className="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visibleGuides.map((guide) => {
               const pending = pendingId === guide.id;
               // While any operation is in flight, `run` rejects further actions;
@@ -343,17 +351,17 @@ export default function App() {
               return (
                 <li
                   key={guide.id}
-                  className="group flex flex-col overflow-hidden rounded-md border border-border bg-card shadow-[0_1px_3px_rgba(28,28,28,0.04)] transition-all duration-200 hover:border-foreground/15 hover:shadow-[0_12px_32px_-14px_rgba(28,28,28,0.24)] dark:hover:shadow-[0_12px_32px_-14px_rgba(0,0,0,0.6)]"
+                  className="group flex flex-col overflow-hidden rounded-md border-2 border-border bg-card transition-transform duration-200 hover:-translate-y-0.5"
                 >
-                  <div className="flex flex-1 flex-col gap-2.5 p-[15px_16px]">
+                  <div className="flex flex-1 flex-col gap-2.5 p-4">
                     {visibleTags.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {visibleTags.map((tag) => (
-                          <Badge key={tag} variant="secondary" className="max-w-full truncate">
+                          <Badge key={tag} variant="tag" className={cn('max-w-full truncate', tagHueClass(tag))}>
                             ＃{tag}
                           </Badge>
                         ))}
-                        {hiddenTagCount > 0 && <Badge variant="secondary">+{hiddenTagCount}</Badge>}
+                        {hiddenTagCount > 0 && <Badge variant="outline">+{hiddenTagCount}</Badge>}
                       </div>
                     )}
                     <EditableTitle
@@ -367,29 +375,29 @@ export default function App() {
                         const saved = await run(guide.id, async () => { await updateGuide(guide.id, { title }); });
                         if (!saved) throw new Error('Guide rename was not applied.');
                       }}
-                      className="w-full rounded-md border border-transparent px-1 py-0.5 -ml-1 text-[15px] font-semibold leading-[1.35] text-foreground hover:border-border focus:border-border focus:bg-background focus:ring-2 focus:ring-ring disabled:opacity-70"
+                      className="-ml-1.5 w-full rounded-md border-2 border-transparent px-1 py-0.5 text-base leading-snug font-bold text-foreground focus-ring hover:border-border-soft focus:border-border focus:bg-background disabled:opacity-70"
                     />
                     {guide.description && (
-                      <p className="line-clamp-2 text-[12.5px] leading-[1.55] text-muted-foreground">
+                      <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
                         {guide.description}
                       </p>
                     )}
-                    <div className="mt-0.5 flex items-center gap-2 text-[11.5px] font-medium text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
                       <span>{guide.entryCount} 個畫面</span>
-                      <span className="size-[3px] rounded-full bg-current opacity-40" />
+                      <span className="size-1 rounded-full bg-current opacity-50" />
                       <span>{guide.stepCount} 標註</span>
                     </div>
                     <div className="flex-1" />
-                    <div className="mt-1.5 flex items-center gap-[5px] border-t border-border/70 pt-[12px]">
+                    <div className="mt-1 flex items-center gap-1 border-t-2 border-border-soft pt-3">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             size="sm"
-                            className="h-8 min-w-0 flex-1 gap-1.5 rounded-md px-2.5 text-[12.5px] font-semibold"
+                            className="min-w-0 flex-1"
                             onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
                             disabled={actionsLocked}
                           >
-                            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <PencilLine className="size-[14px]" />}開啟
+                            {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}開啟
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{lockedTitle('開啟')}</TooltipContent>
@@ -399,12 +407,12 @@ export default function App() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                            className="size-8 shrink-0"
                             aria-label="複製"
                             onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
                             disabled={actionsLocked}
                           >
-                            <Copy className="size-[15px]" />
+                            <Copy />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{lockedTitle('複製')}</TooltipContent>
@@ -414,12 +422,12 @@ export default function App() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-foreground/6 hover:text-foreground dark:text-white/55 dark:hover:bg-white/8 dark:hover:text-white"
+                            className="size-8 shrink-0"
                             aria-label={`匯出 ${guide.title}`}
                             onClick={() => setExportTarget(guide)}
                             disabled={actionsLocked}
                           >
-                            <Download className="size-[15px]" />
+                            <Download />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{lockedTitle('匯出可編輯 .frametrail 檔案')}</TooltipContent>
@@ -429,12 +437,12 @@ export default function App() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="size-8 shrink-0 rounded-md text-foreground/50 hover:bg-danger-soft hover:text-danger dark:text-white/55"
+                            className="size-8 shrink-0 hover:bg-danger-soft hover:text-danger"
                             aria-label="刪除"
                             onClick={() => setDeleteTarget(guide)}
                             disabled={actionsLocked}
                           >
-                            <Trash2 className="size-[15px]" />
+                            <Trash2 />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{lockedTitle('刪除')}</TooltipContent>

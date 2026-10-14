@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { ExternalLink, Loader2 } from 'lucide-react';
+import { Camera, ExternalLink, ListOrdered, Loader2, TriangleAlert } from 'lucide-react';
+import { buttonVariants } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
 import OpenEditorButton from '@/components/popup/OpenEditorButton';
 import { reportError } from '@/components/shared/report-error';
@@ -50,6 +51,16 @@ const MODE_DETAILS: Record<RecordingMode, {
 };
 
 const MODE_ORDER: readonly RecordingMode[] = ['steps', 'snapshot'];
+
+const MODE_ICONS: Record<RecordingMode, typeof Camera> = {
+  steps: ListOrdered,
+  snapshot: Camera,
+};
+
+/** The record action is the popup's one red sticker; every state of it (idle,
+ * starting, editor recovery) shares this shape so the button never jumps. */
+const RECORD_BUTTON_CLASS =
+  'flex h-12 w-full cursor-pointer items-center justify-center gap-2.5 rounded-md border-2 border-border bg-recording text-base font-bold text-recording-foreground outline-none transition-colors focus-ring hover:bg-recording-hover active:translate-y-px disabled:pointer-events-none disabled:opacity-50';
 
 /** Where the one-time cross-tab (<all_urls>) ask stands. 'unknown' means the
  * mount probe has not resolved yet, so no hint may flash. */
@@ -206,8 +217,7 @@ export default function RecordControls({
           label={editorFailed ? '重試開啟編輯器' : '完成並開啟編輯器'}
           pending={openingEditor}
           onOpen={onOpenEditor}
-          className="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-primary text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-          iconClassName="size-4"
+          className={cn(buttonVariants({ size: 'lg' }), 'w-full')}
         />
       </div>
     );
@@ -218,12 +228,8 @@ export default function RecordControls({
   // fires a duplicate START_RECORDING.
   if (recording.phase === 'starting') {
     return (
-      <div className={cn('flex flex-col gap-[18px]', className)}>
-        <button
-          type="button"
-          disabled
-          className="flex w-full items-center justify-center gap-[9px] rounded-md border-none bg-[var(--primary-raw)] py-[12px] text-[14px] font-medium text-[var(--primary-text-raw)] disabled:opacity-50"
-        >
+      <div className={cn('flex flex-col gap-4', className)}>
+        <button type="button" disabled className={RECORD_BUTTON_CLASS}>
           <Loader2 className="size-4 animate-spin" />
           {MODE_DETAILS[normalizeRecordingMode(recording.mode)].startingLabel}
         </button>
@@ -235,14 +241,14 @@ export default function RecordControls({
     return (
       <div className={cn('flex flex-col gap-4', className)}>
         {controlError && <InlineAlert>{controlError}</InlineAlert>}
-        <div className="border-y border-border/80 py-3">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+        <div className="rounded-md border-2 border-border bg-surface-raised px-3.5 py-3">
+          <div className="flex items-center gap-2 text-sm font-bold text-foreground">
             <span className="size-2 rounded-full bg-recording" />
             {recording.phase === 'paused' ? '已暫停' : recordingModeCopy(recording.mode).label}
             {' · '}
             {recordingItemCountLabel(recording.mode, recording.itemCount)}
           </div>
-          <p className="mt-1.5 text-[11.5px] leading-[1.6] text-muted-foreground">
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
             錄製控制保留在原分頁右下角。
           </p>
         </div>
@@ -250,7 +256,7 @@ export default function RecordControls({
           <button
             type="button"
             onClick={focusRecordedTab}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border/80 bg-card text-[13px] font-medium text-foreground hover:bg-secondary"
+            className={cn(buttonVariants(), 'w-full')}
           >
             <ExternalLink className="size-4" />
             回到錄製分頁
@@ -262,8 +268,7 @@ export default function RecordControls({
             label="開啟編輯器"
             pending={openingEditor}
             onOpen={onOpenEditor}
-            className="flex h-9 w-full items-center justify-center gap-2 rounded-md text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-white/8 dark:hover:text-white"
-            iconClassName="size-[14px]"
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'w-full')}
           />
         </div>
       </div>
@@ -273,47 +278,51 @@ export default function RecordControls({
   const activeMode = MODE_DETAILS[mode];
 
   return (
-    <div className={cn('flex flex-col gap-[18px]', className)}>
+    <div className={cn('flex flex-col gap-4', className)}>
       {controlError && <InlineAlert>{controlError}</InlineAlert>}
 
-      <div>
-        <div role="radiogroup" aria-label="錄製模式" className="flex gap-[4px] rounded-md bg-secondary p-[4px]">
-          {MODE_ORDER.map((candidate) => (
-            <button
-              key={candidate}
-              type="button"
-              role="radio"
-              aria-checked={mode === candidate}
-              onClick={() => setMode(candidate)}
-              disabled={pending}
-              className={cn(
-                'flex-1 rounded-md py-[8px] text-center text-[13px] outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring',
-                // Selected chip stays a white pill in both themes (the only
-                // selection indicator here), so its text is pinned to light-theme
-                // ink rather than a token that turns lavender on white in dark mode.
-                mode === candidate
-                  ? 'bg-white font-bold text-[#1c1c1c] shadow-[0_2px_6px_rgba(28,28,28,0.12)] border border-black/5 dark:border-transparent dark:shadow-[0_2px_8px_rgba(255,255,255,0.25)]'
-                  : 'font-medium text-foreground/50 hover:text-foreground dark:text-white/45 dark:hover:text-white',
-              )}
-            >
-              {RECORDING_MODE_COPY[candidate].label}
-            </button>
-          ))}
+      <div className="flex flex-col gap-2.5">
+        {/* 2px outline + 2px padding puts each option exactly 4px inside, the
+            inset the concentric `rounded-sm` radius is drawn for. */}
+        <div role="radiogroup" aria-label="錄製模式" className="flex gap-0.5 rounded-md border-2 border-border bg-secondary p-0.5">
+          {MODE_ORDER.map((candidate) => {
+            const Icon = MODE_ICONS[candidate];
+            return (
+              <button
+                key={candidate}
+                type="button"
+                role="radio"
+                aria-checked={mode === candidate}
+                onClick={() => setMode(candidate)}
+                disabled={pending}
+                className={cn(
+                  'flex h-9 flex-1 items-center justify-center gap-1.5 rounded-sm border-2 text-sm font-bold outline-none transition-colors focus-ring',
+                  // Pastel fill + ink text in both themes, like every selection.
+                  mode === candidate
+                    ? 'border-border bg-selected text-on-accent'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {RECORDING_MODE_COPY[candidate].label}
+              </button>
+            );
+          })}
         </div>
-        <p className="mt-[10px] mx-[2px] mb-0 text-[11.5px] leading-[1.7] text-muted-foreground/80 dark:text-white/45">
+        <p className="rounded-md border-2 border-dashed border-border-soft px-3 py-2.5 text-[13px] leading-relaxed text-muted-foreground">
           {activeMode.description}
         </p>
         {/* Passive affordance, never a nag: shown whenever the grant is absent
             (even after a remembered decline), and the request runs directly in
             the click handler so the browser accepts it as a user gesture. */}
         {mode === 'steps' && (crossTab === 'declined' || crossTab === 'ungranted') && (
-          <p className="mt-[6px] mx-[2px] mb-0 text-[11px] leading-[1.7] text-muted-foreground/60 dark:text-white/35">
+          <p className="px-0.5 text-xs leading-relaxed text-muted-foreground">
             目前僅錄製單一分頁。
             <button
               type="button"
               onClick={() => void requestCrossTabPermission()}
               disabled={pending}
-              className="ml-[2px] rounded-sm underline underline-offset-2 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none dark:hover:text-white"
+              className="ml-0.5 rounded-sm font-bold text-brand-text underline underline-offset-2 outline-none focus-ring disabled:pointer-events-none"
             >
               啟用跨分頁錄製
             </button>
@@ -321,9 +330,12 @@ export default function RecordControls({
         )}
       </div>
 
+      {/* Says why the button is off and what to do instead, so the disabled
+          primary action is never a dead end. */}
       {restrictedPage && (
-        <p role="status" className="text-xs leading-[18px] text-destructive">
-          這個頁面無法錄製。
+        <p role="status" className="flex items-start gap-2 rounded-md border-2 border-border bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-foreground">
+          <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
+          <span>這個頁面無法錄製。請切換到要示範的一般網頁分頁，再開啟 FrameTrail。</span>
         </p>
       )}
 
@@ -331,12 +343,17 @@ export default function RecordControls({
         type="button"
         onClick={start}
         disabled={pending || restrictedPage}
-        className="flex w-full items-center justify-center gap-[9px] rounded-md border-none bg-[var(--primary-raw)] py-[12px] text-[14px] font-medium text-[var(--primary-text-raw)] hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+        // A blocked page greys the sticker out entirely; a dimmed red would
+        // still read as "ready to record".
+        className={cn(
+          RECORD_BUTTON_CLASS,
+          restrictedPage && 'border-border-soft bg-secondary text-muted-foreground disabled:opacity-100',
+        )}
       >
         {pending ? (
           <Loader2 className="size-4 animate-spin" />
         ) : (
-          <span className="size-[8px] rounded-full bg-recording/55" />
+          <span className="size-3 rounded-full border-2 border-current bg-current/40" aria-hidden="true" />
         )}
         {pending ? MODE_DETAILS[mode].startingLabel : '開始錄製'}
       </button>

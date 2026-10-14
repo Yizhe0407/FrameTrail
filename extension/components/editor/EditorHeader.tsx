@@ -1,5 +1,6 @@
 import { Download, Library } from 'lucide-react';
 import ResetButton from '../shared/ResetButton';
+import Mascot from '../shared/Mascot';
 import { type Step } from '@/lib/storage/models';
 import type { ActiveOperation } from '@/lib/storage/recording-state';
 import { Badge } from '@/components/ui/badge';
@@ -13,27 +14,37 @@ interface Props {
   operation?: ActiveOperation;
   steps: Step[];
   sessionId: string | null;
+  /** False when there is no guide to act on (a missing guide): only the way
+   * back to the library stays, instead of a row of permanently disabled buttons. */
+  guideActionsAvailable?: boolean;
   onOpenPublish?: () => void;
   onReset?: () => void | Promise<void>;
 }
 
 export default function EditorHeader({
-  operationActive, editingDisabled = false, operation, steps, sessionId, onOpenPublish, onReset,
+  operationActive,
+  editingDisabled = false,
+  operation,
+  steps,
+  sessionId,
+  guideActionsAvailable = true,
+  onOpenPublish,
+  onReset,
 }: Props) {
   const unavailable = operationActive || editingDisabled;
 
   return (
-    <header className="flex h-[60px] min-h-[60px] shrink-0 items-center gap-2 border-b border-border bg-card px-3 sm:gap-3 sm:px-7">
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3.5">
+    <header className="flex h-16 min-h-16 shrink-0 items-center gap-2 border-b-2 border-border bg-card px-3 sm:gap-3 sm:px-7">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
+        <Mascot />
         <h1
           id="frametrail-editor-title"
           tabIndex={-1}
-          className="shrink-0 text-base font-bold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="shrink-0 rounded-sm text-base font-bold text-foreground outline-none focus-ring"
         >
           FrameTrail
         </h1>
-        <span className="hidden size-[5px] shrink-0 rounded-full bg-brand sm:block" aria-hidden="true" />
-        <span className="hidden shrink-0 text-[11px] font-semibold text-muted-foreground sm:block">
+        <span className="hidden shrink-0 rounded-full border-2 border-border bg-secondary px-2.5 py-0.5 text-xs font-bold text-foreground sm:inline-block">
           編輯器
         </span>
         {operationActive && (
@@ -43,32 +54,36 @@ export default function EditorHeader({
           </Badge>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
         {/* Icon always shows; label appears from `sm` up. `aria-label` keeps the icon-only state accessible. */}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="outline"
               aria-label="作品庫"
-              className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[13px]"
+              className="px-2.5 sm:px-3.5"
               onClick={() => void openLibrary()}
             >
-              <Library className="size-4" /><span className="hidden sm:inline">作品庫</span>
+              <Library /><span className="hidden sm:inline">作品庫</span>
             </Button>
           </TooltipTrigger>
           <TooltipContent>回到作品庫</TooltipContent>
         </Tooltip>
-        <span className="hidden h-[22px] w-[1px] bg-border sm:block" aria-hidden="true" />
-        <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
-        <Button
-          variant="default"
-          aria-label="匯出"
-          className="h-[36px] gap-[7px] rounded-md px-2.5 text-[13px] font-medium sm:px-[15px]"
-          onClick={onOpenPublish}
-          disabled={unavailable || steps.length === 0 || !onOpenPublish}
-        >
-          <Download className="size-3.5" /><span className="hidden sm:inline">匯出</span>
-        </Button>
+        {guideActionsAvailable && (
+          <>
+            <span className="hidden h-6 w-0.5 rounded-full bg-border-soft sm:block" aria-hidden="true" />
+            <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
+            <Button
+              variant="default"
+              aria-label="匯出"
+              className="px-2.5 sm:px-4"
+              onClick={onOpenPublish}
+              disabled={unavailable || steps.length === 0 || !onOpenPublish}
+            >
+              <Download /><span className="hidden sm:inline">匯出</span>
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );

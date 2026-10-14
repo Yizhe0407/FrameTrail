@@ -129,7 +129,7 @@ export async function waitForRegionCapturePaint(frames = 2): Promise<void> {
 }
 
 const REGION_CAPTURE_STYLES = `
-  :host { color-scheme: dark; }
+  :host { color-scheme: light; }
   * { box-sizing: border-box; }
   .ft-region-blocker {
     position: fixed; inset: 0; overflow: hidden; pointer-events: auto;
@@ -145,17 +145,17 @@ const REGION_CAPTURE_STYLES = `
   .ft-region-panel {
     position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px;
     max-width: calc(100vw - 32px); min-height: 44px; padding: 6px 8px 6px 14px;
-    transform: translateX(-50%); border: 0; border-radius: 999px;
-    background: #1c1c1c; color: #fff; box-shadow: 0 8px 24px rgb(28 25 23 / .22);
+    transform: translateX(-50%); border: 2px solid #1f1b16; border-radius: 999px;
+    background: #fffdf8; color: #1f1b16;
     font-size: 13px; line-height: 1.4; cursor: default; pointer-events: auto;
   }
-  .ft-region-status { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ft-region-status { min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ft-region-cancel {
-    min-width: 40px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 999px;
-    background: rgb(255 255 255 / .1); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+    min-width: 40px; min-height: 32px; padding: 0 12px; border: 2px solid #1f1b16; border-radius: 999px;
+    background: #f2e9d9; color: #1f1b16; font: inherit; font-weight: 700; cursor: pointer;
   }
-  .ft-region-cancel:hover { background: rgb(255 255 255 / .18); }
-  .ft-region-cancel:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+  .ft-region-cancel:hover { background: #ffe27a; }
+  .ft-region-cancel:focus-visible { outline: 2px solid #2f6fed; outline-offset: 2px; }
   .ft-region-blocker[data-capturing="true"] { cursor: wait; }
   .ft-region-blocker[data-capturing="true"] .ft-region-selection,
   .ft-region-blocker[data-capturing="true"] .ft-region-panel { visibility: hidden; }

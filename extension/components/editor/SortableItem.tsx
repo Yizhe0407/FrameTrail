@@ -37,7 +37,7 @@ export default function SortableItem({ id, children, className, handleClassName,
           aria-roledescription="可拖曳的排序控制項"
           disabled={disabled}
           className={cn(
-            'flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded border-none bg-transparent text-muted-foreground/50 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
+            'flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border-none bg-transparent text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
             handleClassName,
           )}
         >

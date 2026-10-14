@@ -24,7 +24,7 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
   return (
     <div className="mt-4 flex w-full flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label htmlFor={`description-${step.id}`} className="text-[11px] font-semibold text-muted-foreground">
+        <label htmlFor={`description-${step.id}`} className="text-xs font-bold text-muted-foreground">
           說明
         </label>
       </div>
@@ -36,7 +36,7 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
         onBlur={() => void flush().catch(() => undefined)}
         disabled={disabled}
         placeholder="輸入步驟說明…"
-        className="min-h-[64px] resize-none rounded-md border border-border bg-card p-[13px_15px] text-[14px] leading-[1.7] text-foreground shadow-none hover:border-foreground/20"
+        className="min-h-16 resize-none px-3.5 py-3 text-sm leading-relaxed"
       />
       <DescriptionDraftRecoveries
         recoveries={recoveries}

@@ -13,58 +13,57 @@ export const recordingToolbarStyles = `
    * (transparent surface, wrong text colors). */
   :host, .ft-layer {
     color-scheme: light;
-    --ft-radius: 8px;
-    --ft-surface: #ffffff;
-    --ft-text: #1c1c1c;
-    --ft-status-text: #1c1c1c;
-    --ft-muted: rgba(28, 28, 28, .6);
-    --ft-border: rgba(28, 28, 28, .12);
+    /* Mirrors the app's "sticker" tokens (assets/tailwind.css): 2px ink
+     * outlines, flat pastel fills with ink text, one 12px radius, no shadows. */
+    --ft-radius: 12px;
+    --ft-surface: #fffdf8;
+    --ft-text: #1f1b16;
+    --ft-status-text: #1f1b16;
+    --ft-muted: #6b6156;
+    --ft-border: #1f1b16;
     --ft-primary: ${BRAND_ACCENT};
-    --ft-primary-text: #ffffff;
+    --ft-primary-hover: #93ceff;
+    --ft-primary-text: #1f1b16;
+    --ft-count: #ffe27a;
+    --ft-count-text: #1f1b16;
     --ft-recording: ${BRAND_DANGER};
-    --ft-focus: ${BRAND_ACCENT};
-    --ft-divider: rgba(28, 28, 28, .12);
-    --ft-actions-bg: rgba(28, 28, 28, .05);
-    --ft-segment-active-bg: #ffffff;
-    --ft-btn-text: rgba(28, 28, 28, .72);
-    --ft-btn-hover-bg: rgba(28, 28, 28, .08);
-    --ft-btn-danger-hover-bg: rgba(255, 71, 71, .14);
-    --ft-btn-danger-hover-text: #e23b3b;
-    --ft-error-text: #c62828;
-    --ft-warning: #b45309;
-    --ft-link: #4f6fce;
-    --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6);
+    --ft-focus: #2f6fed;
+    --ft-divider: rgba(31, 27, 22, .14);
+    --ft-actions-bg: #f2e9d9;
+    --ft-segment-active-bg: #ffe27a;
+    --ft-btn-text: #1f1b16;
+    --ft-btn-hover-bg: rgba(31, 27, 22, .1);
+    --ft-btn-danger-hover-bg: #ffe6e6;
+    --ft-btn-danger-hover-text: #c8323a;
+    --ft-error-text: #c8323a;
+    --ft-warning: #9a6b00;
+    --ft-link: #2b5fc8;
   }
   @media (prefers-color-scheme: dark) {
     :host, .ft-layer {
       color-scheme: dark;
-      --ft-surface: #1c1c1c;
-      --ft-text: #ffffff;
-      --ft-status-text: #ffffff;
-      --ft-muted: rgba(255, 255, 255, .65);
-      --ft-border: rgba(255, 255, 255, .14);
-      --ft-primary: ${BRAND_ACCENT};
-      --ft-primary-text: #ffffff;
-      --ft-recording: ${BRAND_DANGER};
-      --ft-focus: #60a5fa;
-      --ft-divider: rgba(255, 255, 255, .14);
-      --ft-actions-bg: rgba(255, 255, 255, .06);
-      --ft-segment-active-bg: rgba(255, 255, 255, .18);
-      --ft-btn-text: rgba(255, 255, 255, .85);
-      --ft-btn-hover-bg: rgba(255, 255, 255, .12);
-      --ft-btn-danger-hover-bg: rgba(255, 71, 71, .2);
-      --ft-btn-danger-hover-text: #ff8080;
+      --ft-surface: #24201b;
+      --ft-text: #f6eedf;
+      --ft-status-text: #f6eedf;
+      --ft-muted: #b5aa99;
+      --ft-border: #d9cdb8;
+      --ft-focus: #8ab4ff;
+      --ft-divider: rgba(246, 238, 223, .16);
+      --ft-actions-bg: #322c25;
+      --ft-btn-text: #f6eedf;
+      --ft-btn-hover-bg: rgba(246, 238, 223, .12);
+      --ft-btn-danger-hover-bg: rgba(217, 58, 63, .22);
+      --ft-btn-danger-hover-text: #ff8a8a;
       --ft-error-text: #ff8a8a;
-      --ft-warning: #fbbf24;
-      --ft-link: ${BRAND_ACCENT};
-      --ft-shadow: 0 12px 34px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+      --ft-warning: #ffe27a;
+      --ft-link: #8ab4ff;
     }
   }
   * { box-sizing: border-box; letter-spacing: 0; }
   button { font: inherit; }
   .ft-layer {
     position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
     font-size: 14px; line-height: 1.4;
   }
   .ft-position {
@@ -73,8 +72,8 @@ export const recordingToolbarStyles = `
   .ft-modal-backdrop { position: absolute; inset: 0; z-index: 1; pointer-events: auto; background: transparent; }
   .ft-toolbar {
     height: 58px; width: max-content; max-width: min(620px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px;
-    padding: 0 8px 0 18px; border: 1px solid var(--ft-border); border-radius: 999px;
-    background: var(--ft-surface); color: var(--ft-text); box-shadow: var(--ft-shadow);
+    padding: 0 8px 0 18px; border: 2px solid var(--ft-border); border-radius: 999px;
+    background: var(--ft-surface); color: var(--ft-text);
   }
   .ft-toolbar--invalidated {
     width: min(520px, calc(100vw - 32px)); height: auto; max-width: calc(100vw - 32px); gap: 10px;
@@ -90,19 +89,21 @@ export const recordingToolbarStyles = `
     touch-action: none;
   }
   .ft-status:active, .ft-collapsed:active { cursor: grabbing; }
-  .ft-dot { width: 9px; height: 9px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 4px rgba(255,71,71,.22); }
-  .ft-status-text { font-size: 13px; font-weight: 600; color: var(--ft-status-text); }
-  .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: var(--ft-primary-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
-  .ft-divider { width: 1px; height: 26px; background: var(--ft-divider); flex: none; }
-  .ft-actions-group { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
-  .ft-mode-switch { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
+  .ft-dot { width: 10px; height: 10px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 3px var(--ft-btn-danger-hover-bg); }
+  .ft-status-text { font-size: 13px; font-weight: 700; color: var(--ft-status-text); }
+  .ft-count-badge { min-width: 26px; height: 26px; padding: 0 8px; border: 2px solid var(--ft-border); border-radius: 99px; background: var(--ft-count); color: var(--ft-count-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+  .ft-divider { width: 2px; height: 26px; border-radius: 99px; background: var(--ft-divider); flex: none; }
+  .ft-actions-group { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ft-actions-bg); }
+  /* Pill track with pill options, so the nested curves stay concentric; the
+   * active option is the same tamago sticker as the app's selected state. */
+  .ft-mode-switch { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ft-actions-bg); }
   .ft-mode-switch button {
-    height: 28px; min-width: 56px; display: inline-flex; align-items: center; justify-content: center;
-    padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ft-muted);
-    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
+    height: 30px; min-width: 56px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 0 12px; border: 2px solid transparent; border-radius: 999px; background: transparent; color: var(--ft-muted);
+    font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
   }
   .ft-mode-switch button:hover:not(:disabled):not([aria-checked="true"]) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
-  .ft-mode-switch button[aria-checked="true"] { background: var(--ft-segment-active-bg); color: var(--ft-text); box-shadow: 0 1px 3px rgba(28, 28, 28, .2); }
+  .ft-mode-switch button[aria-checked="true"] { border-color: var(--ft-border); background: var(--ft-segment-active-bg); color: #1f1b16; }
   .ft-mode-switch button:disabled { opacity: .5; cursor: default; }
   .ft-mode-switch button:focus-visible { outline: 2px solid var(--ft-focus); outline-offset: 2px; }
   .ft-mode-switch svg { width: 14px; height: 14px; }
@@ -121,28 +122,28 @@ export const recordingToolbarStyles = `
   .ft-button svg { width: 17px; height: 17px; }
   .ft-finish {
     height: 42px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    padding: 0 22px; border: 0; border-radius: 999px; background: var(--ft-primary);
+    padding: 0 22px; border: 2px solid var(--ft-border); border-radius: 999px; background: var(--ft-primary);
     color: var(--ft-primary-text); font-size: 15px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s;
   }
-  .ft-finish:hover:not(:disabled) { background: #5f83e8; }
+  .ft-finish:hover:not(:disabled) { background: var(--ft-primary-hover); }
   .ft-finish:disabled { opacity: .68; cursor: wait; }
   .ft-secondary {
     height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
     padding: 0 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ft-muted);
-    font-weight: 600; cursor: pointer; white-space: nowrap;
+    font-weight: 700; cursor: pointer; white-space: nowrap;
   }
   .ft-secondary:hover:not(:disabled) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
   .ft-secondary:disabled { opacity: .5; cursor: wait; }
   .ft-collapsed {
     position: relative; height: 48px; padding: 0 8px 0 16px; display: flex; align-items: center; gap: 11px;
-    border: 1px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface); color: var(--ft-text);
-    box-shadow: var(--ft-shadow); cursor: pointer; touch-action: none;
+    border: 2px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface); color: var(--ft-text);
+    cursor: pointer; touch-action: none;
   }
-  .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--ft-btn-hover-bg); color: var(--ft-text); }
+  .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--ft-actions-bg); color: var(--ft-text); }
   .ft-message, .ft-snackbar, .ft-confirm {
     position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; max-width: min(320px, calc(100vw - 32px));
-    padding: 10px 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
-    color: var(--ft-text); box-shadow: 0 8px 24px rgba(28, 25, 23, .18); font-size: 12px;
+    padding: 10px 12px; border: 2px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
+    color: var(--ft-text); font-size: 12px; font-weight: 700;
   }
   .ft-message { display: flex; align-items: center; gap: 8px; }
   .ft-message[data-kind="error"] { color: var(--ft-error-text); }
@@ -156,14 +157,14 @@ export const recordingToolbarStyles = `
   .ft-position[data-horizontal="left"] .ft-confirm { left: 0; right: auto; }
   .ft-confirm { width: min(300px, calc(100vw - 32px)); padding: 16px; }
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
-  .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; line-height: 1.5; }
+  .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
   .ft-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .ft-confirm-actions--stacked { flex-direction: column; align-items: stretch; }
   .ft-confirm button {
-    min-height: 36px; padding: 0 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius);
-    background: transparent; color: var(--ft-text); font-weight: 600; cursor: pointer;
+    min-height: 36px; padding: 0 12px; border: 2px solid var(--ft-border); border-radius: var(--ft-radius);
+    background: var(--ft-surface); color: var(--ft-text); font-weight: 700; cursor: pointer;
   }
-  .ft-confirm button[data-danger="true"] { border-color: var(--ft-recording); background: var(--ft-recording); color: #fff; }
+  .ft-confirm button[data-danger="true"] { background: var(--ft-recording); color: #fff; }
   .ft-confirm button:disabled { opacity: .5; cursor: wait; }
   .ft-success { width: 18px; height: 18px; color: var(--ft-link); }
   .ft-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
@@ -175,7 +176,7 @@ export const recordingToolbarStyles = `
   [data-tooltip]::after {
     content: attr(data-tooltip);
     position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 4;
-    padding: 5px 9px; border-radius: 6px; background: var(--ft-text); color: var(--ft-surface);
+    padding: 5px 9px; border-radius: var(--ft-radius); background: var(--ft-text); color: var(--ft-surface);
     font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap;
     pointer-events: none; opacity: 0; visibility: hidden;
     transform: translate(-50%, 2px); transition: opacity .08s ease, transform .08s ease;
