@@ -2,15 +2,7 @@ import { browser } from 'wxt/browser';
 import { isRecord } from '../shared/validation';
 import type { RecordingMode } from '../storage/recording-state';
 
-/**
- * A start request parked across the cross-tab permission prompt. Chromium
- * destroys the action popup the moment its permission dialog steals focus, so
- * the popup cannot be trusted to continue the start after the user grants.
- * The popup persists this intent first; the background (which survives) picks
- * it up from permissions.onAdded and finishes the start. Whoever removes the
- * intent first owns the start, so a popup that does survive (Firefox) and the
- * background never both start.
- */
+/** Chromium destroys the popup when its permission dialog opens, so the background finishes a start parked here. Whoever claims it first owns the start. */
 export interface PendingStart {
   mode: RecordingMode;
   tabId: number;
@@ -18,7 +10,6 @@ export interface PendingStart {
 }
 
 const STORAGE_KEY = 'frametrail:pending-start:v1';
-/** A grant this long after the click is no longer the user's start gesture. */
 export const PENDING_START_TTL_MS = 2 * 60 * 1000;
 
 function normalize(value: unknown, now: number): PendingStart | null {
@@ -39,7 +30,6 @@ export async function discardPendingStart(): Promise<void> {
   await browser.storage.local.remove(STORAGE_KEY);
 }
 
-/** Removes and returns the parked intent; null when absent, stale or already claimed. */
 export async function claimPendingStart(now = Date.now()): Promise<PendingStart | null> {
   const stored = await browser.storage.local.get(STORAGE_KEY);
   const pending = normalize(stored[STORAGE_KEY], now);

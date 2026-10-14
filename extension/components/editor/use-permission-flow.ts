@@ -17,6 +17,7 @@ import { isRecordableTab } from '@/lib/shared/restricted-urls';
 import { focusTab } from '@/lib/runtime/navigation';
 import { reportError } from '@/components/shared/report-error';
 import { entryId, type StepEntry } from '@/lib/storage/models';
+import type { RecordingMode } from '@/lib/storage/recording-state';
 
 interface UsePermissionFlowOptions {
   sessionId: string | null;
@@ -26,6 +27,7 @@ interface UsePermissionFlowOptions {
   flushDescriptions: () => Promise<void>;
   requireSelectedEntry: (expectedEntryId?: string) => StepEntry;
   setOperationError: (message: string | null) => void;
+  lastEntryMode: RecordingMode;
 }
 
 /** Captured at the start of an asynchronous continuation; `isCurrent()` is
@@ -49,6 +51,7 @@ export function usePermissionFlow({
   flushDescriptions,
   requireSelectedEntry,
   setOperationError,
+  lastEntryMode,
 }: UsePermissionFlowOptions) {
   const [preparedPermission, setPreparedPermission] = useState<PreparedCapturePermission | null>(null);
   const [permissionPending, setPermissionPending] = useState(false);
@@ -57,6 +60,7 @@ export function usePermissionFlow({
   /** Non-null once the elsewhere path opened its explicit tab picker. */
   const [continuationTabs, setContinuationTabs] = useState<ContinuationTabOption[] | null>(null);
   const [selectedContinuationTabId, setSelectedContinuationTabId] = useState<number | null>(null);
+  const [continuationMode, setContinuationMode] = useState<RecordingMode>('steps');
   const lock = useRef(false);
   const generation = useRef(0);
   const flowEntryId = useRef<string | null>(null);
@@ -190,7 +194,7 @@ export function usePermissionFlow({
         await startRecordingOrThrow({
           type: 'START_RECORDING',
           sessionId,
-          mode: 'steps',
+          mode: continuationMode,
           continuation: {},
         });
         return;
@@ -280,7 +284,7 @@ export function usePermissionFlow({
       await startRecordingOrThrow({
         type: 'START_RECORDING',
         sessionId: sessionId!,
-        mode: 'steps',
+        mode: continuationMode,
       });
     } catch (continueError) {
       failFlow(flow, '改在其他頁面接續錄製失敗', continueError, '無法在其他頁面接續錄製；現有內容未變更，請再試一次。');
@@ -312,6 +316,7 @@ export function usePermissionFlow({
     if (!canBeginFlow()) return;
     const flow = beginPermissionPreflight(null);
     if (flow == null) return;
+    setContinuationMode(lastEntryMode);
     let prepared: PreparedCapturePermission | null = null;
     try {
       prepared = await requestContinuationPreflight(sessionId!);
@@ -331,6 +336,8 @@ export function usePermissionFlow({
     continuationTabs,
     selectedContinuationTabId,
     selectContinuationTab: setSelectedContinuationTabId,
+    continuationMode,
+    setContinuationMode,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,

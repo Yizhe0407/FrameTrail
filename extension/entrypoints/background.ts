@@ -26,7 +26,7 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture/capture-presentation';
-import { addStep, addSteps, deleteStep, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
+import { addStep, addSteps, deleteStep, deleteStepsAndReorder, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
 import { getGuide, resetGuide } from '@/lib/storage/guide-repository';
 import { stepRole, type Step } from '@/lib/storage/models';
 import {
@@ -109,6 +109,7 @@ import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/re
 
 const REBUILD_SNAPSHOT_FAILED_MESSAGE = '無法重建快照，請重試。';
 const CREATE_SNAPSHOT_FAILED_MESSAGE = '無法建立新快照，請重試。';
+const SWITCH_TO_STEPS_FAILED_MESSAGE = '無法切換到步驟模式，請重試。';
 
 const SNAPSHOT_VIEWPORT_CHANGED_MESSAGE = '畫面尺寸已改變，需建立新快照才能繼續。';
 /** 標示 anchor viewport 不符，讓整個快照流程失效。 */
@@ -534,7 +535,6 @@ function startFailureState(
 async function startRecording(
   message: StartRecordingMessage,
   sender: Browser.runtime.MessageSender,
-  /** A tab the caller already resolved (permission-resume start); skips the active-tab lookup. */
   targetTab: Browser.tabs.Tab | null = null,
 ): Promise<StartRecordingResult> {
   const current = await getRecordingState();
@@ -1163,6 +1163,149 @@ async function createNextSnapshot(
   }
 }
 
+async function switchToSnapshotMode(message: RecordingControlMessage): Promise<RecordingControlResult> {
+  const isSwitchable = (state: RecordingState) =>
+    state.isRecording &&
+    state.operation === 'recording' &&
+    state.runId === message.runId &&
+    state.tabId != null &&
+    state.mode === 'steps' &&
+    (state.phase === 'recording' || state.phase === 'paused');
+  if (!isSwitchable(await getRecordingState())) return controlFailure('目前無法切換到快照模式。');
+
+  control.claimControl({ discardUndo: true, bumpVersion: false });
+  control.acceptingClicks = false;
+  await waitForQueuedClicks();
+
+  const previous = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (!isSwitchable(current)) return null;
+    await setRecordingState({
+      ...current,
+      mode: 'snapshot',
+      phase: 'preparing-next',
+      itemCount: 0,
+      groupAnchorId: null,
+      snapshotViewport: null,
+      snapshotDevicePixelRatio: null,
+      error: null,
+      recoverableError: null,
+    });
+    return current;
+  });
+  if (!previous) return controlFailure('錄製狀態已改變，未切換模式。');
+
+  try {
+    await recorderRuntime.injectRecorder(previous.tabId!, true);
+  } catch (error) {
+    console.error('[frametrail] failed to switch to snapshot mode', describeBrowserError(error), error);
+    await updateRunState(message.runId, () => previous);
+    control.acceptingClicks = previous.phase === 'recording';
+    try {
+      await recorderRuntime.injectRecorder(previous.tabId!, true);
+    } catch (restoreError) {
+      console.error('[frametrail] failed to restore the step recorder', describeBrowserError(restoreError), restoreError);
+    }
+    return controlFailure('無法切換到快照模式，已回到步驟模式。');
+  }
+  return { ok: true };
+}
+
+async function switchToStepsMode(
+  message: RecordingControlMessage,
+  discardSnapshot: boolean,
+): Promise<RecordingControlResult> {
+  const isSwitchable = (state: RecordingState) =>
+    state.isRecording &&
+    state.operation === 'recording' &&
+    !!state.sessionId &&
+    state.runId === message.runId &&
+    state.tabId != null &&
+    state.mode === 'snapshot' &&
+    (state.phase === 'recording' || state.phase === 'preparing-next' || state.phase === 'invalidated');
+  if (!isSwitchable(await getRecordingState())) return controlFailure('目前無法切換到步驟模式。');
+
+  control.claimControl({ discardUndo: true, bumpVersion: false });
+  control.acceptingClicks = false;
+  await waitForQueuedClicks();
+
+  const claimed = await queueStateMutation(async () => {
+    const current = await getRecordingState();
+    if (!isSwitchable(current)) return null;
+    const version = control.bumpVersion();
+    await setRecordingState({
+      ...current,
+      mode: 'steps',
+      phase: 'starting',
+      itemCount: 0,
+      groupAnchorId: null,
+      snapshotViewport: null,
+      snapshotDevicePixelRatio: null,
+      error: null,
+      recoverableError: null,
+    });
+    return { previous: current, version };
+  });
+  if (!claimed) return controlFailure('錄製狀態已改變，未切換模式。');
+  const { previous, version } = claimed;
+  control.claimControl({
+    cancelRecorderGate: true,
+    discardUndo: true,
+    clearSnapshotContext: true,
+    bumpVersion: false,
+  });
+
+  try {
+    if (discardSnapshot && previous.groupAnchorId) {
+      const steps = await getSteps(previous.sessionId!);
+      const groupIds = steps
+        .filter((step) => step.id === previous.groupAnchorId || step.groupId === previous.groupAnchorId)
+        .map((step) => step.id);
+      await deleteStepsAndReorder(previous.sessionId!, groupIds, []);
+    } else {
+      await deleteEmptySnapshotAnchor(previous);
+    }
+    return await control.withRecorderReadyGate({
+      slot: 'pendingRecorderReady',
+      identity: { runId: message.runId, tabId: previous.tabId!, controlVersion: version },
+      inject: () => recorderRuntime.injectRecorder(previous.tabId!, true),
+      notReadyError: () => new StaleCaptureError('Step recorder did not become ready.'),
+      ready: async () => {
+        const updated = await updateRunState(
+          message.runId,
+          (current) => ({ ...current, phase: 'recording', error: null, recoverableError: null }),
+          version,
+        );
+        if (!updated) throw new StaleCaptureError('Recording changed while switching to steps.');
+        control.acceptingClicks = true;
+        return { ok: true } as const;
+      },
+    });
+  } catch (error) {
+    console.error('[frametrail] failed to switch to steps mode', describeBrowserError(error), error);
+    control.acceptingClicks = false;
+    if (version === control.controlVersion) {
+      await updateRunState(
+        message.runId,
+        (current) => ({
+          ...current,
+          mode: 'snapshot',
+          phase: 'preparing-next',
+          error: SWITCH_TO_STEPS_FAILED_MESSAGE,
+          recoverableError: { code: 'SWITCH_TO_STEPS_FAILED', message: SWITCH_TO_STEPS_FAILED_MESSAGE },
+        }),
+        version,
+      );
+      try {
+        await recorderRuntime.injectRecorder(previous.tabId!, true);
+      } catch (reinjectionError) {
+        console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
+      }
+    }
+    return controlFailure(SWITCH_TO_STEPS_FAILED_MESSAGE);
+  }
+}
+
 async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGuideResult> {
   const initial = await getRecordingState();
   if (initial.operation !== null || initial.isRecording || recaptureFlow.isStartingRecapture()) {
@@ -1337,6 +1480,12 @@ async function handleRecordingControl(
       return createNextSnapshot(message);
     case 'REBUILD_INVALIDATED_SNAPSHOT':
       return createNextSnapshot(message, 'invalidated');
+    case 'SWITCH_TO_SNAPSHOT_MODE':
+      return switchToSnapshotMode(message);
+    case 'SWITCH_TO_STEPS_MODE':
+      return switchToStepsMode(message, false);
+    case 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT':
+      return switchToStepsMode(message, true);
     case 'DISCARD_CURRENT_RECORDING':
       return discardCurrentRecording(message);
     case 'FINISH_RECORDING':
@@ -1764,6 +1913,9 @@ export default defineBackground(() => {
       case 'PREPARE_NEXT_SNAPSHOT':
       case 'CREATE_NEXT_SNAPSHOT':
       case 'REBUILD_INVALIDATED_SNAPSHOT':
+      case 'SWITCH_TO_SNAPSHOT_MODE':
+      case 'SWITCH_TO_STEPS_MODE':
+      case 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT':
       case 'DISCARD_CURRENT_RECORDING':
       case 'FINISH_RECORDING':
         return withMessageFailureFallback(
@@ -1892,8 +2044,6 @@ export default defineBackground(() => {
     return true;
   });
 
-  // The popup dies when the cross-tab permission prompt opens, so the start
-  // it parked is finished here once the grant lands.
   browser.permissions?.onAdded?.addListener((permissions) => {
     if (!permissions.origins?.includes('<all_urls>')) return;
     void (async () => {

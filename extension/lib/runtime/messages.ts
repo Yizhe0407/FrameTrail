@@ -106,17 +106,23 @@ export type ResetGuideResult =
 
 export type OpenEditorResult = { ok: true } | { ok: false; error: string };
 
+export const RECORDING_CONTROL_TYPES = [
+  'PAUSE_RECORDING',
+  'RESUME_RECORDING',
+  'UNDO_LAST_CAPTURE',
+  'RESTORE_LAST_CAPTURE',
+  'PREPARE_NEXT_SNAPSHOT',
+  'CREATE_NEXT_SNAPSHOT',
+  'REBUILD_INVALIDATED_SNAPSHOT',
+  'SWITCH_TO_SNAPSHOT_MODE',
+  'SWITCH_TO_STEPS_MODE',
+  'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT',
+  'DISCARD_CURRENT_RECORDING',
+  'FINISH_RECORDING',
+] as const;
+
 export interface RecordingControlMessage {
-  type:
-    | 'PAUSE_RECORDING'
-    | 'RESUME_RECORDING'
-    | 'UNDO_LAST_CAPTURE'
-    | 'RESTORE_LAST_CAPTURE'
-    | 'PREPARE_NEXT_SNAPSHOT'
-    | 'CREATE_NEXT_SNAPSHOT'
-    | 'REBUILD_INVALIDATED_SNAPSHOT'
-    | 'DISCARD_CURRENT_RECORDING'
-    | 'FINISH_RECORDING';
+  type: (typeof RECORDING_CONTROL_TYPES)[number];
   runId: string;
   undoToken?: string;
 }

@@ -38,6 +38,7 @@ function renderFlow(overrides: Record<string, unknown> = {}) {
     flushDescriptions: vi.fn().mockResolvedValue(undefined),
     requireSelectedEntry: vi.fn(() => selectedEntry),
     setOperationError: vi.fn(),
+    lastEntryMode: 'steps',
     ...overrides,
   };
   const { result } = renderHook(() => usePermissionFlow(options as never));
@@ -96,5 +97,35 @@ describe('confirmPreparedPermission', () => {
     );
     expect(options.setOperationError).toHaveBeenLastCalledWith(null);
     expect(result.current.preparedPermission).toBeNull();
+  });
+});
+
+describe('continuation recording mode', () => {
+  function answerStartWith(sessionId: string) {
+    mocks.sendMessage.mockImplementation(async (message: { type: string }) =>
+      message.type === 'START_RECORDING' ? { ok: true, sessionId, runId: 'run-1' } : preflightSuccess,
+    );
+  }
+
+  it.each([
+    ['steps', 'snapshot'],
+    ['snapshot', 'steps'],
+  ] as const)('defaults to the last entry (%s) and starts in the mode the user picked (%s)', async (lastEntryMode, picked) => {
+    answerStartWith('g1');
+    mocks.permissionsRequest.mockResolvedValue(true);
+    const { result } = renderFlow({ lastEntryMode });
+
+    await act(() => result.current.handleContinueRecording());
+    expect(result.current.continuationMode).toBe(lastEntryMode);
+
+    act(() => result.current.setContinuationMode(picked));
+    await act(() => result.current.confirmPreparedPermission());
+
+    expect(mocks.sendMessage).toHaveBeenLastCalledWith({
+      type: 'START_RECORDING',
+      sessionId: 'g1',
+      mode: picked,
+      continuation: {},
+    });
   });
 });

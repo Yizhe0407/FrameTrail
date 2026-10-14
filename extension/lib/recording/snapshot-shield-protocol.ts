@@ -1,4 +1,4 @@
-import type { RecordingControlMessage, RecordingControlResult } from '../runtime/messages';
+import { RECORDING_CONTROL_TYPES, type RecordingControlMessage, type RecordingControlResult } from '../runtime/messages';
 import type { RecordingMode, RecordingPhase } from '../storage/recording-state';
 import { REGION_CAPTURE_MIN_SIZE, isRegionRectLargeEnough } from '../capture/region-capture';
 import { isFiniteRect } from '../shared/validation';
@@ -268,17 +268,7 @@ export function isSnapshotShieldPortMessage(value: unknown, token: string): valu
   if (message.type === SNAPSHOT_SHIELD_CONTROL) {
     return (
       isRequestId(message.requestId) &&
-      [
-        'PAUSE_RECORDING',
-        'RESUME_RECORDING',
-        'UNDO_LAST_CAPTURE',
-        'RESTORE_LAST_CAPTURE',
-        'PREPARE_NEXT_SNAPSHOT',
-        'CREATE_NEXT_SNAPSHOT',
-        'REBUILD_INVALIDATED_SNAPSHOT',
-        'DISCARD_CURRENT_RECORDING',
-        'FINISH_RECORDING',
-      ].includes(message.action as RecordingControlMessage['type']) &&
+      (RECORDING_CONTROL_TYPES as readonly (string | undefined)[]).includes(message.action) &&
       (message.undoToken === undefined || typeof message.undoToken === 'string')
     );
   }

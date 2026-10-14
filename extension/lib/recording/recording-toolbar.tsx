@@ -27,6 +27,11 @@ import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/run
 
 type ToolbarAction = RecordingControlMessage['type'];
 
+const MODE_OPTIONS: readonly RecordingMode[] = ['steps', 'snapshot'];
+
+const modeSwitchAction = (target: RecordingMode): ToolbarAction =>
+  target === 'snapshot' ? 'SWITCH_TO_SNAPSHOT_MODE' : 'SWITCH_TO_STEPS_MODE';
+
 export interface RecordingToolbarState {
   runId: string;
   mode: RecordingMode;
@@ -59,10 +64,12 @@ export default function RecordingToolbar({
   const [undo, setUndo] = useState<{ token: string; itemNumber: number } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
   const previousCount = useRef(state.itemCount);
   const pendingRef = useRef<ToolbarAction | null>(null);
   const floatingRef = useRef<HTMLElement | null>(null);
   const cancelDiscardRef = useRef<HTMLButtonElement | null>(null);
+  const cancelSwitchRef = useRef<HTMLButtonElement | null>(null);
   const confirmTitleId = useId();
   const confirmDescriptionId = useId();
   const modeCopy = recordingModeCopy(state.mode);
@@ -87,6 +94,10 @@ export default function RecordingToolbar({
   useEffect(() => {
     if (confirmDiscard) cancelDiscardRef.current?.focus();
   }, [confirmDiscard]);
+
+  useEffect(() => {
+    if (confirmSwitch) cancelSwitchRef.current?.focus();
+  }, [confirmSwitch]);
 
   useEffect(() => {
     if (state.itemCount > previousCount.current) {
@@ -162,6 +173,22 @@ export default function RecordingToolbar({
     if (result.ok) setConfirmDiscard(false);
   };
 
+  const handleSwitchMode = (target: RecordingMode) => {
+    if (target === state.mode) return;
+    if (target === 'snapshot') {
+      void run('SWITCH_TO_SNAPSHOT_MODE');
+    } else if (state.phase === 'recording' && state.itemCount > 0) {
+      setConfirmSwitch(true);
+    } else {
+      void run('SWITCH_TO_STEPS_MODE');
+    }
+  };
+
+  const handleConfirmSwitch = async (action: ToolbarAction) => {
+    const result = await run(action);
+    if (result.ok) setConfirmSwitch(false);
+  };
+
   const handleConfirmKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return;
     const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
@@ -198,14 +225,17 @@ export default function RecordingToolbar({
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pendingRef.current) return;
           setConfirmDiscard(false);
+          setConfirmSwitch(false);
         }}
       >
-        {confirmDiscard && (
+        {(confirmDiscard || confirmSwitch) && (
           <div
             className="ft-modal-backdrop"
             aria-hidden="true"
             onPointerDown={() => {
-              if (!pendingRef.current) setConfirmDiscard(false);
+              if (pendingRef.current) return;
+              setConfirmDiscard(false);
+              setConfirmSwitch(false);
             }}
           />
         )}
@@ -258,6 +288,47 @@ export default function RecordingToolbar({
                   onClick={() => void handleDiscard()}
                 >
                   {pending === 'DISCARD_CURRENT_RECORDING' ? '處理中' : '放棄錄製'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {confirmSwitch && (
+            <div
+              className="ft-confirm"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby={confirmTitleId}
+              aria-describedby={confirmDescriptionId}
+              onKeyDown={handleConfirmKeyDown}
+            >
+              <h2 className="ft-confirm-title" id={confirmTitleId}>切換到步驟模式</h2>
+              <p className="ft-confirm-copy" id={confirmDescriptionId}>
+                目前的快照已有 {state.itemCount} 個標註，要保留嗎？
+              </p>
+              <div className="ft-confirm-actions ft-confirm-actions--stacked">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE')}
+                >
+                  {pending === 'SWITCH_TO_STEPS_MODE' ? '處理中' : '完成快照並切換'}
+                </button>
+                <button
+                  type="button"
+                  data-danger="true"
+                  disabled={busy}
+                  onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT')}
+                >
+                  {pending === 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT' ? '處理中' : '捨棄快照並切換'}
+                </button>
+                <button
+                  ref={cancelSwitchRef}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmSwitch(false)}
+                >
+                  取消，留在快照
                 </button>
               </div>
             </div>
@@ -362,6 +433,21 @@ export default function RecordingToolbar({
                   </button>
 
                   <span className="ft-divider" aria-hidden="true" />
+
+                  <div className="ft-mode-switch" role="radiogroup" aria-label="錄製模式">
+                    {MODE_OPTIONS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={state.mode === option}
+                        disabled={busy || regionCaptureActive}
+                        onClick={() => handleSwitchMode(option)}
+                      >
+                        {pending === modeSwitchAction(option) ? <Loader2 /> : recordingModeCopy(option).label}
+                      </button>
+                    ))}
+                  </div>
 
                   <div className="ft-actions-group">
                     {!preparingNext && (

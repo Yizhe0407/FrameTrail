@@ -93,6 +93,17 @@ export const recordingToolbarStyles = `
   .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: var(--ft-primary-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
   .ft-divider { width: 1px; height: 26px; background: var(--ft-divider); flex: none; }
   .ft-actions-group { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
+  .ft-mode-switch { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 99px; background: var(--ft-actions-bg); flex: none; }
+  .ft-mode-switch button {
+    height: 30px; min-width: 52px; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 12px; border: 0; border-radius: 99px; background: transparent; color: var(--ft-muted);
+    font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
+  }
+  .ft-mode-switch button:hover:not(:disabled):not([aria-checked="true"]) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
+  .ft-mode-switch button[aria-checked="true"] { background: var(--ft-surface); color: var(--ft-text); box-shadow: 0 1px 4px rgba(28, 28, 28, .18); }
+  .ft-mode-switch button:disabled { opacity: .5; cursor: default; }
+  .ft-mode-switch button:focus-visible { outline: 2px solid var(--ft-focus); outline-offset: 2px; }
+  .ft-mode-switch svg { width: 14px; height: 14px; }
   .ft-button {
     width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center;
     padding: 0; border: 0; border-radius: 99px; background: transparent; color: var(--ft-btn-text); cursor: pointer; transition: background .15s, color .15s;
@@ -145,6 +156,7 @@ export const recordingToolbarStyles = `
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
   .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; line-height: 1.5; }
   .ft-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .ft-confirm-actions--stacked { flex-direction: column; align-items: stretch; }
   .ft-confirm button {
     min-height: 36px; padding: 0 12px; border: 1px solid var(--ft-border); border-radius: var(--ft-radius);
     background: transparent; color: var(--ft-text); font-weight: 600; cursor: pointer;
@@ -180,6 +192,8 @@ export const recordingToolbarStyles = `
     }
     .ft-toolbar:not(.ft-toolbar--invalidated) .ft-status { flex: 1 1 100%; height: 32px; padding: 0 4px; }
     .ft-toolbar:not(.ft-toolbar--invalidated) .ft-divider { display: none; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-mode-switch { flex: 1 1 100%; }
+    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-mode-switch button { flex: 1; }
     .ft-toolbar:not(.ft-toolbar--invalidated) .ft-actions-group { flex: 1 1 0; justify-content: space-around; gap: 0; padding: 3px; }
     .ft-toolbar:not(.ft-toolbar--invalidated) .ft-button { width: 32px; height: 32px; }
     .ft-toolbar:not(.ft-toolbar--invalidated) .ft-finish { height: 38px; padding: 0 14px; font-size: 14px; }

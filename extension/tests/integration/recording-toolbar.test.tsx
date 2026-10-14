@@ -131,4 +131,47 @@ describe('recording toolbar', () => {
     // the same map, so both say 標註 rather than one of them saying 步驟.
     expect(await screen.findAllByText('已移除標註 1')).toHaveLength(2);
   });
+
+  it('switches from steps to snapshot without a confirmation', async () => {
+    const onCommand = vi.fn().mockResolvedValue({ ok: true });
+    render(<RecordingToolbar state={state} onCommand={onCommand} />);
+
+    expect(screen.getByRole('radio', { name: '步驟' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: '快照' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('SWITCH_TO_SNAPSHOT_MODE', undefined));
+  });
+
+  it('switches a snapshot with no annotations to steps immediately', async () => {
+    const onCommand = vi.fn().mockResolvedValue({ ok: true });
+    render(<RecordingToolbar state={{ ...state, mode: 'snapshot', itemCount: 0 }} onCommand={onCommand} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: '步驟' }));
+
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('SWITCH_TO_STEPS_MODE', undefined));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('asks whether to keep a snapshot that already has annotations before switching to steps', async () => {
+    const onCommand = vi.fn().mockResolvedValue({ ok: true });
+    render(<RecordingToolbar state={{ ...state, mode: 'snapshot', itemCount: 2 }} onCommand={onCommand} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: '步驟' }));
+    expect(screen.getByRole('alertdialog', { name: '切換到步驟模式' })).toBeTruthy();
+    expect(onCommand).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消，留在快照' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('radio', { name: '步驟' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄快照並切換' }));
+    await waitFor(() =>
+      expect(onCommand).toHaveBeenCalledWith('SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT', undefined),
+    );
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('radio', { name: '步驟' }));
+    fireEvent.click(screen.getByRole('button', { name: '完成快照並切換' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('SWITCH_TO_STEPS_MODE', undefined));
+  });
 });

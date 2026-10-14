@@ -66,7 +66,6 @@ beforeEach(() => {
   mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-a', runId: 'run-1' });
   mocks.permissionsContains.mockResolvedValue(false);
   mocks.permissionsRequest.mockResolvedValue(true);
-  // Stateful, so the parked start can be claimed back like in a real store.
   const stored: Record<string, unknown> = {};
   mocks.storageGet.mockImplementation(async (key: string) => ({ [key]: stored[key] }));
   mocks.storageSet.mockImplementation(async (items: Record<string, unknown>) => void Object.assign(stored, items));

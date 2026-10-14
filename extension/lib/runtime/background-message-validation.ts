@@ -1,4 +1,4 @@
-import type { BackgroundMessage, ClickCapture } from './messages';
+import { RECORDING_CONTROL_TYPES, type BackgroundMessage, type ClickCapture } from './messages';
 import type { StepRecaptureTarget } from '../storage/recording-state';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import {
@@ -85,17 +85,7 @@ function isContinuation(value: unknown): value is { preferredTabId?: number } | 
   );
 }
 
-const RECORDING_CONTROLS = new Set([
-  'PAUSE_RECORDING',
-  'RESUME_RECORDING',
-  'UNDO_LAST_CAPTURE',
-  'RESTORE_LAST_CAPTURE',
-  'PREPARE_NEXT_SNAPSHOT',
-  'CREATE_NEXT_SNAPSHOT',
-  'REBUILD_INVALIDATED_SNAPSHOT',
-  'DISCARD_CURRENT_RECORDING',
-  'FINISH_RECORDING',
-]);
+const RECORDING_CONTROLS: ReadonlySet<string> = new Set(RECORDING_CONTROL_TYPES);
 
 /** Runtime messages cross a JavaScript trust boundary and require validation even when TypeScript callers are typed. */
 export function isBackgroundMessage(value: unknown): value is BackgroundMessage {

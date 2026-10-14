@@ -126,38 +126,29 @@ export default function RecordControls({
    * permissions.request there. The decline is persisted so the auto-ask fires
    * once; a later grant clears it so a reconsidered user gets asked again.
    */
-  // Resolves true once the start is parked; false means only this popup can finish it.
-  let parking: Promise<boolean> = Promise.resolve(false);
-  let parkedStart = false;
-
-  async function requestCrossTabPermission(resumeStart?: { mode: RecordingMode; tabId: number }): Promise<boolean> {
-    parkedStart = false;
+  async function requestCrossTabPermission(
+    resumeStart?: { mode: RecordingMode; tabId: number },
+  ): Promise<{ granted: boolean; parked: boolean }> {
     try {
-      // Chromium closes this popup as soon as its permission dialog opens, so
-      // nothing after the request is guaranteed to run. Park the start (and an
-      // optimistic decline, since a dismissed dialog never calls back) for the
-      // background to finish on grant. Both stores are written before the
-      // request, which must still be the click's first user-gesture await.
-      if (resumeStart) {
-        // Dispatched, not awaited: Firefox needs permissions.request to run
-        // synchronously within the click, and the extension APIs keep call order.
-        parking = Promise.all([
-          parkPendingStart(resumeStart.mode, resumeStart.tabId),
-          markCrossTabRecordingDeclined(),
-        ]).then(() => true, (error) => {
-          console.warn('暫存開始錄製請求失敗', error);
-          return false;
-        });
-      }
+      // Not awaited: Firefox needs permissions.request to run synchronously within the click.
+      const parking = resumeStart
+        ? Promise.all([
+            parkPendingStart(resumeStart.mode, resumeStart.tabId),
+            markCrossTabRecordingDeclined(),
+          ]).then(() => true, (error) => {
+            console.warn('暫存開始錄製請求失敗', error);
+            return false;
+          })
+        : Promise.resolve(false);
       const granted = await browser.permissions.request({ origins: ['<all_urls>'] });
-      parkedStart = await parking;
+      const parked = await parking;
       setCrossTab(granted ? 'granted' : 'declined');
       if (granted) await clearCrossTabRecordingDecline();
       else await markCrossTabRecordingDeclined();
-      return granted;
+      return { granted, parked };
     } catch (error) {
       console.warn('請求跨分頁錄製權限失敗', error);
-      return false;
+      return { granted: false, parked: false };
     }
   }
 
@@ -170,11 +161,10 @@ export default function RecordControls({
       // reach (background reads host permissions directly). A decline just
       // continues single-tab. Must be the first await here — see requestCrossTabPermission.
       if (mode === 'steps' && crossTab !== 'granted' && crossTab !== 'declined') {
-        const resumable = activeTabId != null;
-        const granted = await requestCrossTabPermission(resumable ? { mode, tabId: activeTabId } : undefined);
-        // Popup survived the prompt (Firefox): only continue if the background
-        // did not already claim the parked start.
-        if (granted && resumable && parkedStart && !(await claimPendingStart())) {
+        const { granted, parked } = await requestCrossTabPermission(
+          activeTabId != null ? { mode, tabId: activeTabId } : undefined,
+        );
+        if (granted && parked && !(await claimPendingStart())) {
           onStarted?.();
           return;
         }

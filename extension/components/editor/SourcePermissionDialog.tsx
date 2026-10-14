@@ -12,6 +12,11 @@ import ContinuationTabPicker from '@/components/editor/ContinuationTabPicker';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
 import type { ContinuationTabOption } from '@/lib/editor/editor-app-model';
+import type { RecordingMode } from '@/lib/storage/recording-state';
+import { RECORDING_MODE_COPY } from '@/lib/recording/recording-mode-copy';
+import { cn } from '@/lib/shared/utils';
+
+const MODE_OPTIONS: readonly RecordingMode[] = ['steps', 'snapshot'];
 
 interface Props {
   open: boolean;
@@ -36,6 +41,8 @@ interface Props {
   /** When set, the Guide has no stored source page: the source-locked confirm
    * is hidden and only the elsewhere path remains, with this reason shown. */
   sourceUnavailableReason?: string | null;
+  continuationMode?: RecordingMode;
+  onContinuationModeChange?: (mode: RecordingMode) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -58,6 +65,8 @@ export default function SourcePermissionDialog({
   onSelectContinuationTab,
   onConfirmContinueElsewhere,
   sourceUnavailableReason = null,
+  continuationMode,
+  onContinuationModeChange,
   onCancel,
   onConfirm,
 }: Props) {
@@ -94,6 +103,29 @@ export default function SourcePermissionDialog({
           <p className="mt-4 rounded-md border border-border bg-secondary px-3 py-2.5 font-mono text-xs break-all text-foreground">
             {sourceOrigin}
           </p>
+        )}
+
+        {continuationMode !== undefined && onContinuationModeChange && (
+          <div role="radiogroup" aria-label="錄製模式" className="mt-4 flex gap-1 rounded-md bg-secondary p-1">
+            {MODE_OPTIONS.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={continuationMode === mode}
+                disabled={anyPending}
+                onClick={() => onContinuationModeChange(mode)}
+                className={cn(
+                  'flex-1 rounded-md py-2 text-center text-[13px] outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+                  continuationMode === mode
+                    ? 'border border-black/5 bg-white font-bold text-[#1c1c1c] shadow-[0_2px_6px_rgba(28,28,28,0.12)] dark:border-transparent'
+                    : 'font-medium text-foreground/50 hover:text-foreground',
+                )}
+              >
+                {RECORDING_MODE_COPY[mode].label}
+              </button>
+            ))}
+          </div>
         )}
 
         {pickerOpen && onSelectContinuationTab && (

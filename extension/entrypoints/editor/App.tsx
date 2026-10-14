@@ -87,6 +87,8 @@ function EditorApp() {
     confirmContinueElsewhere,
     handleRecapture,
     handleContinueRecording,
+    continuationMode,
+    setContinuationMode,
   } = usePermissionFlow({
     sessionId,
     operationActive,
@@ -94,6 +96,7 @@ function EditorApp() {
     flushDescriptions,
     requireSelectedEntry,
     setOperationError,
+    lastEntryMode: entries.at(-1)?.kind === 'group' ? 'snapshot' : 'steps',
   });
 
   const [publishOpen, setPublishOpen] = useState(false);
@@ -350,6 +353,8 @@ function EditorApp() {
         sourceUnavailableReason={
           preparedPermission?.source.kind === 'unavailable' ? preparedPermission.source.reason : null
         }
+        continuationMode={preparedPermission?.action.kind === 'continuation' ? continuationMode : undefined}
+        onContinuationModeChange={setContinuationMode}
         onCancel={clearPreparedPermission}
         onConfirm={() => void confirmPreparedPermission()}
       />
