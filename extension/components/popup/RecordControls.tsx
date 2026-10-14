@@ -324,7 +324,7 @@ export default function RecordControls({
 
       {restrictedPage && (
         <p role="status" className="text-xs leading-[18px] text-destructive">
-          此頁面不允許錄製。請切換到要示範的一般網站分頁（http／https），再開始錄製。
+          這個頁面無法錄製。
         </p>
       )}
 
