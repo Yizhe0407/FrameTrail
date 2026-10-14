@@ -10,6 +10,9 @@ import {
 import { generateActionDescription } from '@/lib/capture/action-description';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
 import { focusTab } from '@/lib/runtime/navigation';
+import { claimPendingStart } from '@/lib/runtime/pending-start';
+import { clearCrossTabRecordingDecline } from '@/lib/runtime/cross-tab-recording';
+import { createAndSelectGuide, discardUntouchedGuide, getSelectedGuide } from '@/lib/guide/guide-actions';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -531,6 +534,8 @@ function startFailureState(
 async function startRecording(
   message: StartRecordingMessage,
   sender: Browser.runtime.MessageSender,
+  /** A tab the caller already resolved (permission-resume start); skips the active-tab lookup. */
+  targetTab: Browser.tabs.Tab | null = null,
 ): Promise<StartRecordingResult> {
   const current = await getRecordingState();
   // A global capture operation remains single-owner. Never let a second start
@@ -541,7 +546,7 @@ async function startRecording(
   const targetGuide = await getGuide(message.sessionId);
   if (!targetGuide) return { ok: false, error: '找不到要錄製的內容。請回作品庫重新選擇。' };
 
-  let continuationTab: Browser.tabs.Tab | null = null;
+  let continuationTab: Browser.tabs.Tab | null = targetTab;
   if (message.continuation) {
     const resolved = await resolveContinuationTab(message, sender);
     if (!resolved.ok) return resolved;
@@ -1885,6 +1890,36 @@ export default defineBackground(() => {
       sendResponse(undefined);
     });
     return true;
+  });
+
+  // The popup dies when the cross-tab permission prompt opens, so the start
+  // it parked is finished here once the grant lands.
+  browser.permissions?.onAdded?.addListener((permissions) => {
+    if (!permissions.origins?.includes('<all_urls>')) return;
+    void (async () => {
+      const pending = await claimPendingStart();
+      if (!pending) return;
+      await clearCrossTabRecordingDecline();
+      const tab = await browser.tabs.get(pending.tabId);
+      const previousGuideId = (await getSelectedGuide())?.id ?? null;
+      const guide = await createAndSelectGuide();
+      const result = await queueLifecycle(() =>
+        startRecording(
+          { type: 'START_RECORDING', sessionId: guide.id, mode: pending.mode, autoCreatedGuide: true },
+          {},
+          tab,
+        ),
+      );
+      if (!result.ok) {
+        console.warn('[frametrail] resumed start failed', result.error);
+        const live = await getRecordingState();
+        if (!(live.isRecording && live.sessionId === guide.id)) {
+          await discardUntouchedGuide(guide.id, previousGuideId);
+        }
+      }
+    })().catch((error) => {
+      console.error('[frametrail] failed to resume the start after the permission grant', error);
+    });
   });
 
   browser.commands?.onCommand.addListener((command) => {

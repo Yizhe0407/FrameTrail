@@ -21,6 +21,7 @@ import {
   hasDeclinedCrossTabRecording,
   markCrossTabRecordingDeclined,
 } from '@/lib/runtime/cross-tab-recording';
+import { claimPendingStart, discardPendingStart, parkPendingStart } from '@/lib/runtime/pending-start';
 
 interface Props {
   recording: RecordingState;
@@ -63,6 +64,7 @@ type CrossTabPermission = 'unknown' | 'granted' | 'declined' | 'ungranted';
 function useStartPreflight(onProbeError: (message: string) => void) {
   const [crossTab, setCrossTab] = useState<CrossTabPermission>('unknown');
   const [restrictedPage, setRestrictedPage] = useState(false);
+  const [activeTabId, setActiveTabId] = useState<number | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -72,7 +74,9 @@ function useStartPreflight(onProbeError: (message: string) => void) {
     // not enable a start button those layers will reject.
     void browser.tabs.query({ active: true, currentWindow: true })
       .then(([tab]) => {
-        if (!disposed) setRestrictedPage(isRestrictedUrl(tab?.url));
+        if (disposed) return;
+        setRestrictedPage(isRestrictedUrl(tab?.url));
+        setActiveTabId(tab?.id != null && !isRestrictedUrl(tab.url) ? tab.id : null);
       })
       .catch((error) => {
         console.error('[frametrail] failed to inspect the active tab', error);
@@ -102,7 +106,7 @@ function useStartPreflight(onProbeError: (message: string) => void) {
     // re-runs on every render.
   }, [onProbeError]);
 
-  return { crossTab, setCrossTab, restrictedPage, setRestrictedPage };
+  return { crossTab, setCrossTab, restrictedPage, setRestrictedPage, activeTabId };
 }
 
 export default function RecordControls({
@@ -115,15 +119,28 @@ export default function RecordControls({
   const [mode, setMode] = useState<RecordingMode>('steps');
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
-  const { crossTab, setCrossTab, restrictedPage, setRestrictedPage } = useStartPreflight(setControlError);
+  const { crossTab, setCrossTab, restrictedPage, setRestrictedPage, activeTabId } = useStartPreflight(setControlError);
 
   /**
    * Must stay the first await in the handler: Firefox only honours
    * permissions.request there. The decline is persisted so the auto-ask fires
    * once; a later grant clears it so a reconsidered user gets asked again.
    */
-  async function requestCrossTabPermission(): Promise<boolean> {
+  async function requestCrossTabPermission(resumeStart?: { mode: RecordingMode; tabId: number }): Promise<boolean> {
     try {
+      // Chromium closes this popup as soon as its permission dialog opens, so
+      // nothing after the request is guaranteed to run. Park the start (and an
+      // optimistic decline, since a dismissed dialog never calls back) for the
+      // background to finish on grant. Both stores are written before the
+      // request, which must still be the click's first user-gesture await.
+      if (resumeStart) {
+        // Dispatched, not awaited: Firefox needs permissions.request to run
+        // synchronously within the click, and the extension APIs keep call order.
+        void Promise.all([
+          parkPendingStart(resumeStart.mode, resumeStart.tabId),
+          markCrossTabRecordingDeclined(),
+        ]).catch((error) => console.warn('暫存開始錄製請求失敗', error));
+      }
       const granted = await browser.permissions.request({ origins: ['<all_urls>'] });
       setCrossTab(granted ? 'granted' : 'declined');
       if (granted) await clearCrossTabRecordingDecline();
@@ -144,7 +161,15 @@ export default function RecordControls({
       // reach (background reads host permissions directly). A decline just
       // continues single-tab. Must be the first await here — see requestCrossTabPermission.
       if (mode === 'steps' && crossTab !== 'granted' && crossTab !== 'declined') {
-        await requestCrossTabPermission();
+        const resumable = activeTabId != null;
+        const granted = await requestCrossTabPermission(resumable ? { mode, tabId: activeTabId } : undefined);
+        // Popup survived the prompt (Firefox): only continue if the background
+        // did not already claim the parked start.
+        if (granted && resumable && !(await claimPendingStart())) {
+          onStarted?.();
+          return;
+        }
+        if (!granted) await discardPendingStart();
       }
       const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (isRestrictedUrl(activeTab?.url)) {
