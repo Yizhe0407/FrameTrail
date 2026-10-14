@@ -25,6 +25,7 @@ export const recordingToolbarStyles = `
     --ft-focus: ${BRAND_ACCENT};
     --ft-divider: rgba(28, 28, 28, .12);
     --ft-actions-bg: rgba(28, 28, 28, .05);
+    --ft-segment-active-bg: #ffffff;
     --ft-btn-text: rgba(28, 28, 28, .72);
     --ft-btn-hover-bg: rgba(28, 28, 28, .08);
     --ft-btn-danger-hover-bg: rgba(255, 71, 71, .14);
@@ -48,6 +49,7 @@ export const recordingToolbarStyles = `
       --ft-focus: #60a5fa;
       --ft-divider: rgba(255, 255, 255, .14);
       --ft-actions-bg: rgba(255, 255, 255, .06);
+      --ft-segment-active-bg: rgba(255, 255, 255, .18);
       --ft-btn-text: rgba(255, 255, 255, .85);
       --ft-btn-hover-bg: rgba(255, 255, 255, .12);
       --ft-btn-danger-hover-bg: rgba(255, 71, 71, .2);
@@ -70,7 +72,7 @@ export const recordingToolbarStyles = `
   }
   .ft-modal-backdrop { position: absolute; inset: 0; z-index: 1; pointer-events: auto; background: transparent; }
   .ft-toolbar {
-    height: 58px; max-width: min(520px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px;
+    height: 58px; width: max-content; max-width: min(620px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px;
     padding: 0 8px 0 18px; border: 1px solid var(--ft-border); border-radius: 999px;
     background: var(--ft-surface); color: var(--ft-text); box-shadow: var(--ft-shadow);
   }
@@ -83,24 +85,24 @@ export const recordingToolbarStyles = `
   .ft-invalidated-copy { min-width: 0; font-size: 12px; font-weight: 600; white-space: normal; }
   .ft-invalidated-actions { flex: none; display: flex; align-items: center; gap: 2px; }
   .ft-status {
-    min-width: 0; height: 42px; display: flex; align-items: center; gap: 9px;
+    flex: none; height: 42px; display: flex; align-items: center; gap: 9px;
     padding: 0; border: 0; background: transparent; color: inherit; white-space: nowrap; cursor: grab;
     touch-action: none;
   }
   .ft-status:active, .ft-collapsed:active { cursor: grabbing; }
   .ft-dot { width: 9px; height: 9px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 4px rgba(255,71,71,.22); }
-  .ft-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--ft-status-text); }
+  .ft-status-text { font-size: 13px; font-weight: 600; color: var(--ft-status-text); }
   .ft-count-badge { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 99px; background: var(--ft-primary); color: var(--ft-primary-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
   .ft-divider { width: 1px; height: 26px; background: var(--ft-divider); flex: none; }
-  .ft-actions-group { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
-  .ft-mode-switch { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 99px; background: var(--ft-actions-bg); flex: none; }
+  .ft-actions-group { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
+  .ft-mode-switch { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ft-radius); background: var(--ft-actions-bg); }
   .ft-mode-switch button {
-    height: 30px; min-width: 52px; display: inline-flex; align-items: center; justify-content: center;
-    padding: 0 12px; border: 0; border-radius: 99px; background: transparent; color: var(--ft-muted);
-    font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
+    height: 28px; min-width: 56px; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ft-muted);
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
   }
   .ft-mode-switch button:hover:not(:disabled):not([aria-checked="true"]) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
-  .ft-mode-switch button[aria-checked="true"] { background: var(--ft-surface); color: var(--ft-text); box-shadow: 0 1px 4px rgba(28, 28, 28, .18); }
+  .ft-mode-switch button[aria-checked="true"] { background: var(--ft-segment-active-bg); color: var(--ft-text); box-shadow: 0 1px 3px rgba(28, 28, 28, .2); }
   .ft-mode-switch button:disabled { opacity: .5; cursor: default; }
   .ft-mode-switch button:focus-visible { outline: 2px solid var(--ft-focus); outline-offset: 2px; }
   .ft-mode-switch svg { width: 14px; height: 14px; }
@@ -184,7 +186,7 @@ export const recordingToolbarStyles = `
   .ft-position[data-vertical="top"] [data-tooltip]::after { bottom: auto; top: calc(100% + 8px); transform: translate(-50%, -2px); }
   .ft-position[data-vertical="top"] [data-tooltip]:hover::after,
   .ft-position[data-vertical="top"] [data-tooltip]:focus-visible::after { transform: translate(-50%, 0); }
-  @media (max-width: 520px) {
+  @media (max-width: 660px) {
     .ft-position { max-width: calc(100vw - 16px); }
     .ft-toolbar:not(.ft-toolbar--invalidated) {
       width: calc(100vw - 16px); height: auto; min-height: 0; max-width: calc(100vw - 16px);
