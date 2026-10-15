@@ -82,6 +82,12 @@ export interface BackgroundBrowserMockHandles {
   tabsSendMessage?: Mock;
   tabsUpdate?: Mock;
   windowsUpdate?: Mock;
+  /** Captures the background's permissions.onAdded listener. */
+  onPermissionsAdded?: (listener: (permissions: { origins?: string[] }) => void) => void;
+  /** browser.storage.local, where the pending start and Guide selection live. */
+  localGet?: Mock;
+  localSet?: Mock;
+  localRemove?: Mock;
   executeScript?: Mock;
   insertCSS?: Mock;
   /** browser.storage.session, where the extension-page tab registry lives.
@@ -115,6 +121,7 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
     permissions: {
       contains: handles.permissionsContains ?? vi.fn(),
       request: handles.permissionsRequest ?? vi.fn(),
+      onAdded: { addListener: handles.onPermissionsAdded ?? vi.fn() },
     },
     tabs: {
       captureVisibleTab: vi.fn(),
@@ -133,6 +140,11 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
       update: handles.windowsUpdate ?? vi.fn(),
     },
     storage: {
+      local: {
+        get: handles.localGet ?? vi.fn().mockResolvedValue({}),
+        set: handles.localSet ?? vi.fn().mockResolvedValue(undefined),
+        remove: handles.localRemove ?? vi.fn().mockResolvedValue(undefined),
+      },
       session: {
         get: handles.sessionGet ?? vi.fn().mockResolvedValue({}),
         set: handles.sessionSet ?? vi.fn().mockResolvedValue(undefined),
