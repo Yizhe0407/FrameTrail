@@ -39,6 +39,8 @@ export interface RecordingToolbarState {
   mode: RecordingMode;
   phase: RecordingPhase;
   itemCount: number;
+  /** Existing Project the run appends to; null when recording into a new one. */
+  projectTitle?: string | null;
   error: string | null;
 }
 
@@ -431,7 +433,8 @@ export default function RecordingToolbar({
                     type="button"
                     className="ft-status"
                     data-stepmark-toolbar-position=""
-                    aria-label={t().toolbar.moveLabel(preparingNext ? t().toolbar.nextPending : statusLabel)}
+                    aria-label={t().toolbar.moveLabel(preparingNext ? t().toolbar.nextPending : statusLabel)
+                      + (state.projectTitle ? `; ${t().toolbar.appendingTo(state.projectTitle)}` : '')}
                     data-tooltip={t().toolbar.moveTooltip}
                     onPointerDown={handlePositionPointerDown}
                     onPointerMove={handlePositionPointerMove}
@@ -445,6 +448,11 @@ export default function RecordingToolbar({
                         : preparingNext ? t().toolbar.nextPending : t().toolbar.captured}
                     </span>
                     <span className="ft-count-badge">{state.itemCount}</span>
+                    {state.projectTitle && (
+                      <span className="ft-target" title={t().toolbar.appendingTo(state.projectTitle)}>
+                        {state.projectTitle}
+                      </span>
+                    )}
                   </button>
 
                   <span className="ft-divider" aria-hidden="true" />

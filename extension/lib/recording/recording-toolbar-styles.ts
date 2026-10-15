@@ -92,6 +92,8 @@ export const recordingToolbarStyles = `
   .ft-dot { width: 10px; height: 10px; flex: none; border-radius: 99px; background: var(--ft-recording); box-shadow: 0 0 0 3px var(--ft-btn-danger-hover-bg); }
   .ft-status-text { font-size: 13px; font-weight: 700; color: var(--ft-status-text); }
   .ft-count-badge { min-width: 26px; height: 26px; padding: 0 8px; border: 2px solid var(--ft-border); border-radius: 99px; background: var(--ft-count); color: var(--ft-count-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+  .ft-target { max-width: 140px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 700; color: var(--ft-status-text); opacity: 0.7; }
+  .ft-target::before { content: '→ '; }
   .ft-divider { width: 2px; height: 26px; border-radius: 99px; background: var(--ft-divider); flex: none; }
   .ft-actions-group { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ft-actions-bg); }
   /* Pill track with pill options, so the nested curves stay concentric; the

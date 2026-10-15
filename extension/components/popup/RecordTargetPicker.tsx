@@ -3,7 +3,7 @@ import { FilePlus2, FolderOpen } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getProjectSummaries } from '@/lib/storage/project-repository';
 import type { ProjectSummary } from '@/lib/storage/models';
-import { t } from '@/lib/shared/i18n';
+import { getLocale, t } from '@/lib/shared/i18n';
 import { cn } from '@/lib/shared/utils';
 
 /** How many of the most recently updated Projects the popup offers. Browsing the
@@ -21,6 +21,16 @@ interface Props {
   onChange: (projectId: string | null) => void;
   disabled?: boolean;
   className?: string;
+}
+
+/** Coarse "2 hours ago" label that tells same-titled Projects apart. */
+function relativeUpdated(updatedAt: number, now = Date.now()): string {
+  const formatter = new Intl.RelativeTimeFormat(getLocale(), { numeric: 'auto' });
+  const minutes = Math.round((updatedAt - now) / 60_000);
+  if (Math.abs(minutes) < 60) return formatter.format(Math.min(minutes, -1), 'minute');
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
+  return formatter.format(Math.round(hours / 24), 'day');
 }
 
 /**
@@ -49,7 +59,11 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
 
   if (projects.length === 0) return null;
 
+  const selected = value === null ? null : projects.find((project) => project.id === value);
+  const selectedTitle = selected ? selected.title.trim() || t().common.untitledProject : null;
+
   return (
+    <div className="flex flex-col gap-1.5">
     <Select
       value={value === null ? NEW_VALUE : `${PROJECT_PREFIX}${value}`}
       onValueChange={(next) => onChange(next === NEW_VALUE ? null : next.slice(PROJECT_PREFIX.length))}
@@ -63,7 +77,19 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
         )}
       >
         {value === null ? <FilePlus2 aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
-        <SelectValue />
+        {/* The trigger stays one line: the dropdown rows carry the extra update time. */}
+        <SelectValue>
+          {selected ? (
+            <>
+              <span className="min-w-0 flex-1 truncate">{selectedTitle}</span>
+              <span className="shrink-0 text-xs font-bold text-muted-foreground">
+                {t().popup.recordTargetCount(selected.entryCount)}
+              </span>
+            </>
+          ) : (
+            t().popup.recordTargetNew
+          )}
+        </SelectValue>
       </SelectTrigger>
       {/* The popup is a fixed 320px window that clips anything drawn past its
           edge, so the list is pinned to the trigger's width instead of growing
@@ -76,12 +102,17 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
         {projects.map((project) => (
           <SelectItem key={project.id} value={`${PROJECT_PREFIX}${project.id}`} className="font-bold">
             <span className="min-w-0 flex-1 truncate">{project.title.trim() || t().common.untitledProject}</span>
-            <span className="shrink-0 text-xs font-bold text-muted-foreground">
-              {t().popup.recordTargetCount(project.entryCount)}
+            <span className="flex shrink-0 flex-col items-end text-xs font-bold text-muted-foreground">
+              <span>{t().popup.recordTargetCount(project.entryCount)}</span>
+              <span className="font-normal">{t().popup.recordTargetUpdated(relativeUpdated(project.updatedAt))}</span>
             </span>
           </SelectItem>
         ))}
       </SelectContent>
     </Select>
+    {selectedTitle && (
+      <p className="px-1 text-xs leading-snug text-muted-foreground">{t().popup.recordTargetNote(selectedTitle)}</p>
+    )}
+    </div>
   );
 }

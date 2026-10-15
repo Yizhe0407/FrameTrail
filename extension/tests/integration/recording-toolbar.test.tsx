@@ -35,6 +35,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('recording toolbar', () => {
+  it('names the existing project the run appends to, and nothing for a new project', () => {
+    const { rerender } = render(<RecordingToolbar state={{ ...state, projectTitle: '既有教學' }} onCommand={vi.fn()} />);
+    expect(screen.getByText('既有教學').getAttribute('title')).toBe('新步驟會加到「既有教學」');
+    expect(screen.getByRole('button', { name: /拖曳移動/ }).getAttribute('aria-label')).toContain('新步驟會加到「既有教學」');
+    rerender(<RecordingToolbar state={{ ...state, projectTitle: null }} onCommand={vi.fn()} />);
+    expect(screen.queryByText('既有教學')).toBeNull();
+  });
+
   it('offers the position control as drag-only: arrow keys do not move it', async () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
     const positionControl = screen.getByRole('button', { name: /拖曳移動/ });

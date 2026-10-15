@@ -100,6 +100,10 @@ export interface RecordingState {
    * Read by the stop/discard paths to reclaim a still-untouched empty shell;
    * null for library-created projects and editor continuations. */
   autoCreatedProjectId: string | null;
+  /** Title of the existing Project this run appends to, shown in the in-page
+   * toolbar so the user always knows where steps are going. null for a run
+   * that created its own new Project. */
+  targetProjectTitle: string | null;
   /** Viewport used by the current snapshot anchor. Later annotations must
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: Viewport | null;
@@ -125,6 +129,7 @@ const DEFAULT_STATE: RecordingState = {
   groupAnchorId: null,
   runId: null,
   autoCreatedProjectId: null,
+  targetProjectTitle: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,

@@ -611,6 +611,12 @@ async function handleStartRecording(
   }
 
   const runId = crypto.randomUUID();
+  // Shown in the in-page toolbar only when the run appends to an existing Project.
+  const targetProject = message.autoCreatedProject === true ? null : await getProject(message.sessionId);
+  if (version !== control.controlVersion) return;
+  const targetProjectTitle = targetProject
+    ? (targetProject.title.trim() || t().common.untitledProject).slice(0, 120)
+    : null;
   const startedState = await control.writeStateForControl(version, (current) => ({
     operation: 'recording',
     isRecording: true,
@@ -627,6 +633,7 @@ async function handleStartRecording(
     // Durable (not module state): a MV3 service-worker restart mid-run must
     // not forget that this run's Project is reclaimable when it ends empty.
     autoCreatedProjectId: message.autoCreatedProject === true ? message.sessionId : null,
+    targetProjectTitle,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
     recapture: null,
