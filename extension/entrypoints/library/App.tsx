@@ -20,6 +20,7 @@ import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DashedOutline } from '@/components/ui/dashed-outline';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -334,7 +335,8 @@ export default function App() {
             <Loader2 className="mr-2 size-5 animate-spin" />{t().library.loading}
           </div>
         ) : visibleProjects.length === 0 ? (
-          <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md dashed-outline bg-card px-6 py-10 text-center">
+          <div className="relative flex min-h-72 flex-col items-center justify-center gap-2 rounded-md bg-card px-6 py-10 text-center">
+            <DashedOutline radius={8} />
             <Mascot className="mb-2 size-16" />
             <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? t().library.noMatches : t().library.empty}</h2>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
