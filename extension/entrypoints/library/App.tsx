@@ -29,6 +29,8 @@ import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
 import AppHeader from '@/components/shared/AppHeader';
 import Mascot from '@/components/shared/Mascot';
+import BackupPausedNotice from '@/components/shared/BackupPausedNotice';
+import { useAutoFolderBackup } from '@/lib/backup/use-folder-backup';
 import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
 import { intlLocale, t } from '@/lib/shared/i18n';
@@ -77,6 +79,7 @@ export default function App() {
 
   // Lets "回到專案庫" reuse this tab instead of opening a second library.
   useExtensionPageRegistration();
+  useAutoFolderBackup();
 
   useEffect(() => {
     void refresh();
@@ -235,6 +238,7 @@ export default function App() {
           width instead of breakpoints. */}
       <main className="flex flex-col px-4 pt-6 pb-10 sm:px-8">
         <h1 className="mb-5 text-2xl leading-tight font-bold text-foreground">{t().library.title}</h1>
+        <BackupPausedNotice />
         {operationLocked && (
           <Alert className="mb-4">
             <AlertDescription>{t().library.lockedNotice}</AlertDescription>

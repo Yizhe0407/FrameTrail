@@ -1,4 +1,6 @@
 import { Sparkles } from 'lucide-react';
+import BackupSettingsSection from '@/components/shared/BackupSettingsSection';
+import { useAutoFolderBackup } from '@/lib/backup/use-folder-backup';
 import AppHeader from '@/components/shared/AppHeader';
 import LanguageSwitcher from '@/components/shared/LanguageSwitcher';
 import { Button } from '@/components/ui/button';
@@ -19,6 +21,7 @@ export default function App() {
   // Claims this tab as the settings page, so the background stops treating it
   // as whatever page it showed before.
   useExtensionPageRegistration();
+  useAutoFolderBackup();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -32,6 +35,8 @@ export default function App() {
           </div>
           <LanguageSwitcher className="h-10 w-full shrink-0 data-[size=default]:h-10 sm:w-56" />
         </section>
+
+        <BackupSettingsSection />
 
         <section aria-labelledby="settings-welcome" className={sectionClass}>
           <div className="flex min-w-0 flex-col gap-1">

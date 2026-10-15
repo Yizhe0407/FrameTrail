@@ -1,0 +1,67 @@
+import { FolderOpen, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useFolderBackup } from '@/lib/backup/use-folder-backup';
+import { intlLocale, t } from '@/lib/shared/i18n';
+
+/** Settings card for automatic folder backup: choose a folder once, then every
+ * change is saved there as a .stepmark file. */
+export default function BackupSettingsSection() {
+  const backup = useFolderBackup();
+  const copy = t().settings.backup;
+  const { folderName, availability, lastRun } = backup;
+  const enabled = folderName !== null;
+
+  const lastRunLabel = lastRun
+    ? copy.lastRun(new Date(lastRun.at).toLocaleString(intlLocale()), lastRun.written)
+    : copy.notYetRun;
+
+  return (
+    <section aria-labelledby="settings-backup" className="flex flex-col gap-4 rounded-md border-2 border-border bg-card p-5">
+      <div className="flex min-w-0 flex-col gap-1">
+        <h2 id="settings-backup" className="text-base font-bold">{copy.title}</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">{copy.description}</p>
+      </div>
+
+      {!backup.supported ? (
+        <p className="text-sm text-muted-foreground">{copy.unsupported}</p>
+      ) : backup.loading ? null : !enabled ? (
+        <div>
+          <Button variant="outline" onClick={() => void backup.choose()} disabled={backup.busy}>
+            {backup.busy ? <Loader2 className="animate-spin" /> : <FolderOpen />}{copy.choose}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex min-w-0 flex-col gap-0.5 text-sm">
+            <span className="flex items-center gap-1.5 font-bold">
+              <FolderOpen className="size-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">{copy.folder(folderName)}</span>
+            </span>
+            <span className="text-muted-foreground">
+              {availability === 'needs-permission' ? copy.needsPermission : lastRunLabel}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {availability === 'needs-permission' ? (
+              <Button onClick={() => void backup.reauthorize()} disabled={backup.busy}>
+                {backup.busy ? <Loader2 className="animate-spin" /> : <ShieldAlert />}{copy.reauthorize}
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => void backup.backUpNow()} disabled={backup.busy}>
+                {backup.busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}{copy.backUpNow}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => void backup.choose()} disabled={backup.busy}>{copy.change}</Button>
+            <Button variant="outline" onClick={() => void backup.turnOff()} disabled={backup.busy}>{copy.turnOff}</Button>
+          </div>
+        </div>
+      )}
+
+      {backup.error && <p role="alert" className="text-sm text-danger">{copy.failed}</p>}
+      {backup.lastRun && backup.lastRun.failed > 0 && !backup.error && (
+        <p role="alert" className="text-sm text-danger">{copy.someFailed(backup.lastRun.failed)}</p>
+      )}
+      <p className="text-xs leading-relaxed text-muted-foreground">{copy.privacy}</p>
+    </section>
+  );
+}

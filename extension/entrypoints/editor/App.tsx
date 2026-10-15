@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/editor/EditorHeader';
 import StepRail from '@/components/editor/StepRail';
 import StepStage from '@/components/editor/StepStage';
+import { useAutoFolderBackup } from '@/lib/backup/use-folder-backup';
 import AppToaster from '@/components/shared/AppToaster';
 import EmptyState from '@/components/shared/EmptyState';
 import Mascot from '@/components/shared/Mascot';
@@ -128,6 +129,7 @@ function EditorApp() {
   // The two halves of "there is only ever one editor tab": register this page
   // with the background, and answer its handoff when asked to open a Project already open here.
   useExtensionPageRegistration();
+  useAutoFolderBackup();
   useEditorHandoff({ viewedSessionId: sessionId, flushDescriptions, selectEntry });
 
   // A lightbox with no entry to show must not stay armed, or it would pop open
