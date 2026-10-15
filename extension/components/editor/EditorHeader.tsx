@@ -51,7 +51,13 @@ export default function EditorHeader({
       )}
       actions={guideActionsAvailable && (
         <>
-          <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
+          <ResetButton
+            hasSteps={steps.length > 0}
+            sessionId={sessionId}
+            disabled={unavailable}
+            onReset={onReset}
+            className="px-2.5 max-sm:[&>span]:hidden sm:px-4"
+          />
           {/* Icon always shows; label appears from `sm` up. `aria-label` keeps the icon-only state accessible. */}
           <Button
             variant="default"

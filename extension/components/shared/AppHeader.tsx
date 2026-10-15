@@ -50,7 +50,7 @@ export default function AppHeader({ current, currentHeading, status, actions, is
   const brand = (
     <>
       <Mascot />
-      <span className="shrink-0">FrameTrail</span>
+      <span className={cn('shrink-0', !isHome && 'hidden min-[420px]:inline')}>FrameTrail</span>
     </>
   );
 

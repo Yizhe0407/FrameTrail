@@ -79,7 +79,7 @@ export default function SourcePermissionDialog({
         showClose={false}
         onEscapeKeyDown={(event) => anyPending && event.preventDefault()}
         onPointerDownOutside={(event) => anyPending && event.preventDefault()}
-        className="w-[min(440px,calc(100vw-32px))] p-6"
+        className="w-[min(540px,calc(100vw-32px))] p-6"
       >
         <DialogHeader className="pr-2">
           <DialogTitle className="flex items-center gap-2">
