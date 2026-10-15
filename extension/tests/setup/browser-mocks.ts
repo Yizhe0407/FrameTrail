@@ -89,6 +89,11 @@ export interface BackgroundBrowserMockHandles {
   sessionGet?: Mock;
   sessionSet?: Mock;
   sessionRemove?: Mock;
+  /** Captures the background's runtime.onInstalled listener. */
+  onInstalled?: (listener: (details: { reason: string }) => void) => void;
+  /** Captures storage.onChanged listeners (recording-state subscribers). */
+  onStorageChanged?: (listener: (changes: Record<string, { newValue?: unknown }>, areaName: string) => void) => void;
+  actionSetIcon?: Mock;
 }
 
 /** MV3 service-worker surface used by entrypoints/background.ts under test. */
@@ -102,8 +107,10 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
         },
       },
       onConnect: { addListener: vi.fn() },
+      onInstalled: { addListener: handles.onInstalled ?? vi.fn() },
       sendMessage: vi.fn(),
     },
+    action: { setIcon: handles.actionSetIcon ?? vi.fn().mockResolvedValue(undefined) },
     commands: { onCommand: { addListener: vi.fn() } },
     permissions: {
       contains: handles.permissionsContains ?? vi.fn(),
@@ -131,6 +138,7 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
         set: handles.sessionSet ?? vi.fn().mockResolvedValue(undefined),
         remove: handles.sessionRemove ?? vi.fn().mockResolvedValue(undefined),
       },
+      onChanged: { addListener: handles.onStorageChanged ?? vi.fn(), removeListener: vi.fn() },
     },
     scripting: {
       executeScript: handles.executeScript ?? vi.fn(),

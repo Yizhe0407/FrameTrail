@@ -25,7 +25,11 @@ vi.mock('@/lib/recording/recording-toolbar', () => ({ default: () => null }));
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { id: 'test-extension' },
-    storage: { local: { get: mocks.storageGet, remove: mocks.storageRemove } },
+    storage: {
+      local: { get: mocks.storageGet, remove: mocks.storageRemove },
+      // The shield follows the stored language preference, like every page.
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
   },
 }));
 

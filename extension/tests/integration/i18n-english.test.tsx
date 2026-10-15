@@ -44,11 +44,20 @@ describe('English UI', () => {
 
   it('renders the editor header in English', () => {
     render(
-      <EditorHeader operationActive operation="recording" steps={[]} sessionId="guide" onOpenPublish={() => {}} />,
+      <EditorHeader
+        operationActive
+        operation="recording"
+        steps={[]}
+        sessionId="guide"
+        onOpenPublish={() => {}}
+        onNavigationError={() => {}}
+      />,
     );
-    expect(screen.getByRole('button', { name: 'Library' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Location' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'FrameTrail library' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Editor' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Export' })).toBeTruthy();
     expect(screen.getByText('Recording')).toBeTruthy();
-    expect(screen.getByText('Editor')).toBeTruthy();
   });
 });

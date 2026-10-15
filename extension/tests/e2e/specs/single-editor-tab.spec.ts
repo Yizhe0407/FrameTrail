@@ -65,7 +65,7 @@ test.describe('single editor tab', () => {
 
     // The library page is discovered by the same registry, so returning to it from the editor must not open a second one either.
     await firstEditor.bringToFront();
-    await firstEditor.getByRole('button', { name: '作品庫', exact: true }).click();
+    await firstEditor.getByRole('button', { name: 'FrameTrail 作品庫' }).click();
     await expect.poll(() => extensionPages(extensionContext, 'library').length).toBe(1);
   });
 

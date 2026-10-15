@@ -6,6 +6,21 @@ import { preparedExtensionPath } from './paths';
 
 export const FIXTURE_URL = 'http://127.0.0.1:4175/';
 
+const isWelcomePage = (page: Page) => page.url().endsWith('/welcome.html');
+
+/**
+ * A fresh profile is a first install, so the extension opens its welcome page
+ * on its own. Waiting for it proves the first-run behaviour on every run, and
+ * closing it gives every spec the same single starting tab.
+ */
+async function dismissWelcomePage(context: BrowserContext): Promise<void> {
+  await expect.poll(() => context.pages().some(isWelcomePage), {
+    message: 'the extension should open welcome.html on install',
+    timeout: 15_000,
+  }).toBe(true);
+  for (const page of context.pages().filter(isWelcomePage)) await page.close();
+}
+
 type Fixtures = {
   extensionContext: BrowserContext;
   extensionId: string;
@@ -45,6 +60,7 @@ export const test = base.extend<Fixtures & Options>({
         '--no-default-browser-check',
       ],
     });
+    await dismissWelcomePage(context);
     await mkdir(testInfo.outputPath('browser'), { recursive: true });
     if (recordTrace) {
       await context.tracing.start({ screenshots: true, snapshots: true, sources: true });

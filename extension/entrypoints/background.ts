@@ -9,6 +9,8 @@ import {
 } from '@/lib/recording/background-queues';
 import { generateActionDescription } from '@/lib/capture/action-description';
 import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import { openWelcomePage, opensWelcomeOnInstall } from '@/lib/runtime/welcome';
+import { syncActionIconWithRecordingState } from '@/lib/recording/background/action-icon';
 import { focusTab } from '@/lib/runtime/navigation';
 import { claimPendingStart } from '@/lib/runtime/pending-start';
 import { clearCrossTabRecordingDecline } from '@/lib/runtime/cross-tab-recording';
@@ -1761,6 +1763,15 @@ async function handleClick(
 export default defineBackground(() => {
   // Error copy the worker reports back to pages follows the chosen language.
   void initLocalePreference();
+  // Registered synchronously so the install event is never missed by a worker
+  // still finishing its first run.
+  browser.runtime.onInstalled.addListener((details) => {
+    if (!opensWelcomeOnInstall(details)) return;
+    openWelcomePage().catch((error: unknown) => {
+      console.error('[frametrail] failed to open the welcome page', error);
+    });
+  });
+  syncActionIconWithRecordingState();
   const stepFrameRelayBroker = createStepFrameRelayBroker({
     sendResult: async (tabId, frameId, message) => {
       await browser.tabs.sendMessage(tabId, message, { frameId });
@@ -1893,7 +1904,7 @@ export default defineBackground(() => {
         return withMessageFailureFallback(
           openLibraryPage(),
           'open library request failed',
-          { ok: false, error: t().popup.libraryOpenFailed } satisfies OpenLibraryResult,
+          { ok: false, error: t().nav.libraryOpenFailed } satisfies OpenLibraryResult,
         );
       case 'REGISTER_EXTENSION_PAGE':
         return withMessageFailureFallback(

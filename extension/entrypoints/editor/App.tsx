@@ -327,7 +327,9 @@ function EditorApp() {
         operation={recording.operation}
         steps={steps}
         sessionId={sessionId}
+        guideTitle={guide?.title ?? null}
         guideActionsAvailable={guideLoadState !== 'missing'}
+        onNavigationError={setOperationError}
         onOpenPublish={() => { if (!isPermissionFlowLocked()) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
       />

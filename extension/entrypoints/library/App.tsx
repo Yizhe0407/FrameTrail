@@ -8,7 +8,6 @@ import {
   PencilLine,
   Plus,
   Search,
-  Settings,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -27,6 +26,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import AppToaster from '@/components/shared/AppToaster';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
+import AppHeader from '@/components/shared/AppHeader';
 import Mascot from '@/components/shared/Mascot';
 import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
@@ -37,7 +37,6 @@ import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
 import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
-import { openSettings } from '@/lib/runtime/actions';
 
 /** Derives the .frametrail archive name from the same stem the publication
  * exporters use; strips the extension the (unexported) stem helper's facade appends. */
@@ -128,15 +127,6 @@ export default function App() {
     return outcome ?? false;
   }
 
-  async function openSettingsPage() {
-    try {
-      await openSettings();
-    } catch (settingsError) {
-      console.error('[frametrail] failed to open settings', settingsError);
-      setError(t().settings.openFailed);
-    }
-  }
-
   async function createNewGuide() {
     await run('new', async () => {
       const guide = await createAndSelectGuide();
@@ -200,19 +190,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <AppToaster />
-      <header className="border-b-2 border-border bg-card">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5 sm:px-10">
-          <div className="flex items-center gap-3">
-            <Mascot className="size-11" />
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-muted-foreground">FrameTrail</span>
-              <h1 className="text-2xl leading-tight font-bold text-foreground">{t().library.title}</h1>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Button variant="outline" onClick={() => void openSettingsPage()}>
-              <Settings />{t().settings.open}
-            </Button>
+      <AppHeader
+        onNavigationError={setError}
+        actions={
+          <>
             <input
               ref={importInput}
               type="file"
@@ -224,25 +205,36 @@ export default function App() {
                 if (file) void importGuideFile(file);
               }}
             />
+            {/* Icon always shows; label appears from `sm` up, like the editor's actions. */}
             <Button
               variant="outline"
+              aria-label={t().library.import}
+              className="px-2.5 sm:px-3.5"
               onClick={() => importInput.current?.click()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}{t().library.import}
+              {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}
+              <span className="hidden sm:inline">{t().library.import}</span>
             </Button>
             <Button
               variant="default"
+              aria-label={t().library.create}
+              className="px-2.5 sm:px-3.5"
               onClick={() => void createNewGuide()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}{t().library.create}
+              {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}
+              <span className="hidden sm:inline">{t().library.create}</span>
             </Button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      <main className="mx-auto flex max-w-7xl flex-col px-6 pt-6 pb-10 sm:px-10">
+      {/* Full-width like every page under the shared header, so the content
+          shares its gutter; the guide grid fills columns by a minimum card
+          width instead of breakpoints. */}
+      <main className="flex flex-col px-4 pt-6 pb-10 sm:px-8">
+        <h1 className="mb-5 text-2xl leading-tight font-bold text-foreground">{t().library.title}</h1>
         {operationLocked && (
           <Alert className="mb-4">
             <AlertDescription>{t().library.lockedNotice}</AlertDescription>
@@ -352,7 +344,7 @@ export default function App() {
             )}
           </div>
         ) : (
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
             {visibleGuides.map((guide) => {
               const pending = pendingId === guide.id;
               // While any operation is in flight, `run` rejects further actions;

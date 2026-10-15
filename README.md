@@ -70,10 +70,16 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - 編輯與補拍使用 `captureRevision` compare-and-set；Guide 結構操作另使用 `contentRevision` CAS 與單一 `guides + steps` transaction。stale reorder／delete／restore／move／duplicate／numbering／section mutation 會整筆 rollback，不會把省略的舊 row 默默 append。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
 - StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。
 
+### 頁面導覽與首次使用
+
+- 作品庫就是首頁。作品庫、編輯器、設定與歡迎頁共用同一個標題列（`components/shared/AppHeader.tsx`）：左側是以作品庫為根的麵包屑（`FrameTrail › 目前頁面`，點 FrameTrail 回到作品庫），右側是該頁的動作，最右邊固定是設定齒輪；在設定頁時齒輪標示目前位置。每一頁都能一步到達其他頁，頁面內容與標題列共用同一條左右邊界。
+- 第一次安裝時，背景服務會自動開啟歡迎頁（`welcome.html`），說明如何把 FrameTrail 釘到工具列、兩種錄製模式，以及「資料只存在本機」與「跨分頁錄製需要授權」兩項限制；擴充功能或瀏覽器更新時不會再開啟。之後可從設定頁重新打開。
+- 工具列圖示與所有尺寸的 icon 都由 `extension/assets/brand/` 的吉祥物 SVG 在建置時產生（`extension/modules/brand-icons.ts`，清單在 `lib/shared/brand-icons.ts`），不提交 PNG。16／32px 使用線條加粗的簡化版，128px 依 Chrome 線上應用程式商店規範留 16px 透明邊。錄製進行中，工具列圖示會換成右下角帶紅點的版本；背景服務依錄製狀態自動切換，結束後換回。
+
 ### 介面語言
 
 - 支援繁體中文與英文。預設跟隨瀏覽器介面語言（`chrome.i18n.getUILanguage()`）：所有中文變體（zh-*）顯示繁體中文，其他語言一律顯示英文。
-- 語言設定位於擴充功能的選項頁（options page，以分頁開啟）：可由 popup 與作品庫的「設定」按鈕、工具列圖示右鍵選單的「選項」，或 `chrome://extensions` 的詳細資料進入。選項為跟隨瀏覽器／繁體中文／English，選擇存於 `chrome.storage.local`。所有頁面、背景服務與頁面上的錄製工具列都會訂閱這個設定並立即切換，不需重新整理。擴充功能名稱與快捷鍵說明由瀏覽器依 `_locales` 決定，不受此設定影響。
+- 語言設定位於擴充功能的選項頁（options page，以分頁開啟）：可由 popup 與每個頁面標題列右上角的齒輪、工具列圖示右鍵選單的「選項」，或 `chrome://extensions` 的詳細資料進入。選項為跟隨瀏覽器／繁體中文／English，選擇存於 `chrome.storage.local`。所有頁面、背景服務與頁面上的錄製工具列都會訂閱這個設定並立即切換，不需重新整理。擴充功能名稱與快捷鍵說明由瀏覽器依 `_locales` 決定，不受此設定影響。
 - 所有介面文案集中在 `extension/lib/shared/i18n/messages/`。`zh-TW.ts` 定義文案結構，`en.ts` 以同一型別撰寫，少鍵、多鍵或參數不符都會在編譯時失敗；需要語序或複數的句子以函式表達。
 - 程式碼一律在顯示當下以 `t()` 讀取文案，不在模組載入時快取字串（`tests/unit/i18n-usage.test.ts` 會以 TypeScript AST 檢查）。ESLint 也禁止在文案目錄以外寫入中文字串；比對網頁內容的正規表示式不受此限制。
 - 日期、排序、大小寫比較與匯出 HTML 的 `lang` 都跟隨目前語言。新作品的預設標題以建立當下的語言寫入；判斷空白作品時會辨識所有語言的預設標題。

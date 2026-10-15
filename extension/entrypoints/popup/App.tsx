@@ -60,7 +60,7 @@ function App() {
       window.close();
     } catch (settingsError) {
       console.error('[frametrail] failed to open settings', settingsError);
-      setEditorOpenError(t().settings.openFailed);
+      setEditorOpenError(t().nav.settingsOpenFailed);
     }
   }
 
@@ -71,7 +71,7 @@ function App() {
       window.close();
     } catch (navigationError) {
       console.error('[frametrail] failed to open library', navigationError);
-      setEditorOpenError(t().popup.libraryOpenFailed);
+      setEditorOpenError(t().nav.libraryOpenFailed);
     }
   }
 

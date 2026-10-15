@@ -44,8 +44,36 @@ export const en: Messages = {
   settings: {
     title: 'Settings',
     open: 'Settings',
-    openFailed: 'Couldn’t open settings. Please try again.',
     languageDescription: 'The language FrameTrail’s interface uses. “Match browser” follows your browser’s language.',
+    welcomeTitle: 'Welcome page',
+    welcomeDescription: 'See again how to pin FrameTrail to the toolbar and how the two recording modes differ.',
+    openWelcome: 'Open welcome page',
+    welcomeOpenFailed: 'Couldn’t open the welcome page. Please try again.',
+  },
+
+  nav: {
+    breadcrumb: 'Location',
+    homeLabel: 'FrameTrail library',
+    homeTooltip: 'Back to the library',
+    libraryOpenFailed: 'Couldn’t open the library. Please try again.',
+    settingsOpenFailed: 'Couldn’t open settings. Please try again.',
+  },
+
+  welcome: {
+    crumb: 'Welcome',
+    title: 'Hi! I’m FrameTrail',
+    intro: 'Click around, record, and your browser steps become a step-by-step visual guide.',
+    pinTitle: 'Pin me to the toolbar',
+    pinBody: 'Click the puzzle piece at the top right of your browser, then the pin next to FrameTrail. After that, I’m one click away whenever you want to record.',
+    pinIllustrationLabel: 'The browser’s extensions menu, with the pin next to FrameTrail turned on',
+    pinMenuTitle: 'Extensions',
+    pinOtherExtension: 'Another extension',
+    modesTitle: 'Pick a way to record',
+    promisesTitle: 'Good to know',
+    localOnly: 'Every screenshot stays on this computer. Nothing is uploaded.',
+    crossTab: 'Recording covers the current tab. To follow you across tabs, FrameTrail asks for permission the first time you start.',
+    revisitHint: 'You can find this page again in Settings.',
+    goToLibrary: 'Go to library',
   },
 
   page: {
@@ -54,6 +82,7 @@ export const en: Messages = {
     editor: 'FrameTrail Editor',
     snapshotShield: 'FrameTrail snapshot annotation',
     options: 'FrameTrail Settings',
+    welcome: 'Welcome to FrameTrail',
   },
 
   mode: {
@@ -76,7 +105,6 @@ export const en: Messages = {
   },
 
   popup: {
-    libraryOpenFailed: 'Couldn’t open the library. Please try again.',
     editorServiceUnavailable: 'Couldn’t reach the editor. Reopen FrameTrail and try again.',
     activeTabUnreadable: 'Couldn’t read the current tab. Reopen FrameTrail and try again.',
     restrictedPageError: 'This page can’t be recorded. Switch to the website you want to demonstrate and try again.',
@@ -198,10 +226,6 @@ export const en: Messages = {
     privacyReviewRequiredActionBlocked:
       'The sensitive-information masks on this older image haven’t been confirmed. Retake the image first.',
     privacyReviewTooltip: 'Confirm the sensitive-information masks first',
-
-    header: {
-      libraryTooltip: 'Back to library',
-    },
 
     rail: {
       label: 'Steps',

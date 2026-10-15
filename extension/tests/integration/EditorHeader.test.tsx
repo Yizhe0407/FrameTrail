@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Step } from '@/lib/storage/models';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -10,10 +11,11 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
   return rtlRender(ui, { wrapper: TooltipProvider, ...options });
 }
 
-const mocks = vi.hoisted(() => ({ openLibrary: vi.fn(), resetSession: vi.fn() }));
+const mocks = vi.hoisted(() => ({ openLibrary: vi.fn(), openSettings: vi.fn(), resetSession: vi.fn() }));
 
 vi.mock('@/lib/runtime/actions', () => ({
   openLibrary: mocks.openLibrary,
+  openSettings: mocks.openSettings,
   resetSession: mocks.resetSession,
 }));
 
@@ -27,7 +29,9 @@ function renderHeader(overrides: Partial<React.ComponentProps<typeof EditorHeade
       operationActive={false}
       steps={steps}
       sessionId="guide-1"
+      guideTitle="新增成員"
       onOpenPublish={vi.fn()}
+      onNavigationError={vi.fn()}
       {...overrides}
     />,
   );
@@ -36,6 +40,7 @@ function renderHeader(overrides: Partial<React.ComponentProps<typeof EditorHeade
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.openLibrary.mockResolvedValue(undefined);
+  mocks.openSettings.mockResolvedValue(undefined);
   mocks.resetSession.mockResolvedValue(undefined);
 });
 
@@ -46,7 +51,8 @@ describe('EditorHeader', () => {
   it('offers exactly one control per action', () => {
     renderHeader();
 
-    expect(screen.getAllByRole('button', { name: '作品庫' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'FrameTrail 作品庫' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '設定' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '匯出' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '重置目前錄製' })).toHaveLength(1);
   });
@@ -54,26 +60,59 @@ describe('EditorHeader', () => {
   it('keeps the accessible name complete while the visible label collapses below sm', () => {
     renderHeader();
 
-    for (const [name, label] of [['作品庫', '作品庫'], ['匯出', '匯出']]) {
-      const button = screen.getByRole('button', { name });
-      // The icon is always rendered; only the text label is width-dependent, so
-      // the name has to come from `aria-label` rather than the hidden span.
-      expect(button.querySelector('svg')).toBeTruthy();
-      expect(button.getAttribute('aria-label')).toBe(name);
-      expect(within(button).getByText(label).className).toContain('hidden sm:inline');
-    }
-    // The button no longer carries a native title; the same copy now surfaces
-    // through the shadcn Tooltip, which opens on focus.
-    fireEvent.focus(screen.getByRole('button', { name: '作品庫' }));
-    expect(screen.getByRole('tooltip').textContent).toBe('回到作品庫');
+    const button = screen.getByRole('button', { name: '匯出' });
+    // The icon is always rendered; only the text label is width-dependent, so
+    // the name has to come from `aria-label` rather than the hidden span.
+    expect(button.querySelector('svg')).toBeTruthy();
+    expect(button.getAttribute('aria-label')).toBe('匯出');
+    expect(within(button).getByText('匯出').className).toContain('hidden sm:inline');
   });
 
-  it('opens the library from the single 作品庫 control', () => {
+  it('places the guide in the breadcrumb as the page heading', () => {
     renderHeader();
 
-    fireEvent.click(screen.getByRole('button', { name: '作品庫' }));
+    const breadcrumb = screen.getByRole('navigation', { name: '目前位置' });
+    const heading = within(breadcrumb).getByRole('heading', { level: 1, name: '新增成員' });
+    expect(heading.id).toBe('frametrail-editor-title');
+    expect(heading.closest('li')?.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('names the location even before the guide loads, and for an untitled guide', () => {
+    renderHeader({ guideTitle: null });
+    expect(screen.getByRole('heading', { level: 1, name: '編輯器' })).toBeTruthy();
+    cleanup();
+    renderHeader({ guideTitle: '  ' });
+    expect(screen.getByRole('heading', { level: 1, name: '未命名作品' })).toBeTruthy();
+  });
+
+  it('returns to the library from the FrameTrail crumb', () => {
+    renderHeader();
+
+    fireEvent.focus(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
+    expect(screen.getByRole('tooltip').textContent).toBe('回到作品庫');
+    fireEvent.click(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
 
     expect(mocks.openLibrary).toHaveBeenCalledOnce();
+  });
+
+  it('opens settings from the gear', () => {
+    renderHeader();
+
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+
+    expect(mocks.openSettings).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failed navigation through the page instead of dropping it', async () => {
+    silenceIntentionalErrorLogs();
+    // A non-Error rejection has no message of its own, so the page gets the fallback copy.
+    mocks.openLibrary.mockRejectedValue('worker asleep');
+    const onNavigationError = vi.fn();
+    renderHeader({ onNavigationError });
+
+    fireEvent.click(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
+
+    await waitFor(() => expect(onNavigationError).toHaveBeenCalledWith('無法開啟作品庫，請再試一次。'));
   });
 
   it.each<[string, Partial<React.ComponentProps<typeof EditorHeader>>]>([

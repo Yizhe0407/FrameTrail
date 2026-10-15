@@ -47,8 +47,37 @@ export const zhTW = {
   settings: {
     title: '設定',
     open: '設定',
-    openFailed: '無法開啟設定頁，請再試一次。',
     languageDescription: '介面使用的語言。選擇「跟隨瀏覽器」時，會依瀏覽器的語言自動切換。',
+    welcomeTitle: '歡迎頁',
+    welcomeDescription: '重新看一次怎麼把 FrameTrail 釘到工具列，以及兩種錄法的差別。',
+    openWelcome: '打開歡迎頁',
+    welcomeOpenFailed: '無法開啟歡迎頁，請再試一次。',
+  },
+
+  // The header every full-page surface shares (components/shared/AppHeader).
+  nav: {
+    breadcrumb: '目前位置',
+    homeLabel: 'FrameTrail 作品庫',
+    homeTooltip: '回到作品庫',
+    libraryOpenFailed: '無法開啟作品庫，請再試一次。',
+    settingsOpenFailed: '無法開啟設定頁，請再試一次。',
+  },
+
+  welcome: {
+    crumb: '歡迎',
+    title: '嗨！我是 FrameTrail',
+    intro: '點一點、錄一錄，就能把網頁操作變成一步一步的圖文教學。',
+    pinTitle: '先把我釘到工具列',
+    pinBody: '點瀏覽器右上角的拼圖，再點 FrameTrail 旁邊的圖釘。之後隨時點我就能開始錄。',
+    pinIllustrationLabel: '瀏覽器的擴充功能選單：FrameTrail 旁邊的圖釘已經按下',
+    pinMenuTitle: '擴充功能',
+    pinOtherExtension: '其他擴充功能',
+    modesTitle: '選一種錄法',
+    promisesTitle: '先說好的事',
+    localOnly: '所有截圖都只存在這台電腦，不會上傳。',
+    crossTab: '預設只錄目前分頁；要跨分頁錄，第一次開始時會請你授權。',
+    revisitHint: '之後想再看這頁，可以到「設定」裡找到。',
+    goToLibrary: '前往作品庫',
   },
 
   page: {
@@ -57,6 +86,7 @@ export const zhTW = {
     editor: 'FrameTrail 編輯器',
     snapshotShield: 'FrameTrail 快照標註',
     options: 'FrameTrail 設定',
+    welcome: '歡迎使用 FrameTrail',
   },
 
   mode: {
@@ -79,7 +109,6 @@ export const zhTW = {
   },
 
   popup: {
-    libraryOpenFailed: '無法開啟作品庫，請再試一次。',
     editorServiceUnavailable: '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
     activeTabUnreadable: '無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。',
     restrictedPageError: '此頁面不允許錄製，請切換到要示範的一般網站分頁後再試一次。',
@@ -195,10 +224,6 @@ export const zhTW = {
     privacyReviewRequiredHidden: '此舊圖片的敏感資訊遮罩尚未確認，因此暫時隱藏。請使用補拍取代這張圖片。',
     privacyReviewRequiredActionBlocked: '此舊圖片的敏感資訊遮罩尚未確認，請先使用補拍取代圖片。',
     privacyReviewTooltip: '請先重新確認敏感資訊遮罩',
-
-    header: {
-      libraryTooltip: '回到作品庫',
-    },
 
     rail: {
       label: '步驟導覽',

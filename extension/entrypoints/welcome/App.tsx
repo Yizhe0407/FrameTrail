@@ -1,0 +1,141 @@
+import { useState, type ReactNode } from 'react';
+import { AlertCircle, ArrowRight, Camera, Layers, ListOrdered, Pin, Puzzle, ShieldCheck } from 'lucide-react';
+import AppHeader from '@/components/shared/AppHeader';
+import Mascot from '@/components/shared/Mascot';
+import { reportError } from '@/components/shared/report-error';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { openLibrary } from '@/lib/runtime/actions';
+import { t } from '@/lib/shared/i18n';
+import { recordingModeCopy } from '@/lib/recording/recording-mode-copy';
+
+/**
+ * Drawn after the browser's own extensions menu so the instruction matches
+ * what people see. Colours deliberately follow the theme rather than mimic a
+ * specific browser skin; only the shapes need to be recognisable.
+ */
+function PinIllustration() {
+  return (
+    <div role="img" aria-label={t().welcome.pinIllustrationLabel} className="relative h-44 rounded-md border-2 border-border-soft bg-surface-raised p-2.5">
+      <div className="flex h-9 items-center gap-2 rounded-full bg-secondary px-3" aria-hidden="true">
+        <span className="size-3.5 rounded-full bg-muted-foreground/40" />
+        <span className="size-3.5 rounded-full bg-muted-foreground/40" />
+        <span className="flex-1" />
+        <span className="flex size-7 items-center justify-center rounded-full border-2 border-border bg-card text-foreground">
+          <Puzzle className="size-4" />
+        </span>
+        <span className="size-3.5 rounded-full bg-muted-foreground/40" />
+      </div>
+      <div className="absolute top-14 right-3 w-52 rounded-md border-2 border-border bg-card py-1.5 text-xs" aria-hidden="true">
+        <div className="px-3 py-1 text-muted-foreground">{t().welcome.pinMenuTitle}</div>
+        <div className="flex items-center gap-2 bg-brand-bg-soft px-3 py-1.5 font-bold">
+          <Mascot className="size-4" />
+          <span className="flex-1 truncate">FrameTrail</span>
+          <span className="flex size-6 items-center justify-center rounded-full border-2 border-border bg-tamago text-on-accent">
+            <Pin className="size-3" />
+          </span>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 text-muted-foreground">
+          <span className="size-4 rounded-full bg-muted-foreground/40" />
+          <span className="flex-1 truncate">{t().welcome.pinOtherExtension}</span>
+          <Pin className="mx-1.5 size-3.5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepCard({ number, title, children }: { number: number; title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-md border-2 border-border bg-card p-4">
+      <h2 className="flex items-center gap-2 text-base font-bold">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-primary text-xs text-primary-foreground" aria-hidden="true">
+          {number}
+        </span>
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * First-run page, opened once by the background on install. It covers only
+ * what someone needs before their first recording: where the extension lives,
+ * which mode to pick, and the limits worth knowing up front.
+ */
+export default function App() {
+  const [error, setError] = useState<string | null>(null);
+
+  async function goToLibrary() {
+    try {
+      await openLibrary();
+    } catch (libraryError) {
+      setError(reportError('[frametrail] failed to open the library', libraryError, t().nav.libraryOpenFailed));
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <AppHeader current={t().welcome.crumb} onNavigationError={setError} />
+
+      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:px-10">
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex items-center gap-4">
+          <Mascot className="size-16 sm:size-20" />
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <h1 className="text-2xl leading-tight font-bold sm:text-3xl">{t().welcome.title}</h1>
+            <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">{t().welcome.intro}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1.15fr_1fr_1fr]">
+          <StepCard number={1} title={t().welcome.pinTitle}>
+            <PinIllustration />
+            <p className="text-sm leading-relaxed text-muted-foreground">{t().welcome.pinBody}</p>
+          </StepCard>
+
+          <StepCard number={2} title={t().welcome.modesTitle}>
+            <ul className="flex flex-col gap-3">
+              {([['steps', ListOrdered], ['snapshot', Camera]] as const).map(([mode, Icon]) => (
+                <li key={mode} className="flex flex-col items-start gap-1.5">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-border bg-secondary px-2.5 py-0.5 text-xs font-bold text-foreground">
+                    <Icon className="size-3.5" aria-hidden="true" />
+                    {recordingModeCopy(mode).label}
+                  </span>
+                  <span className="text-sm leading-relaxed text-muted-foreground">{recordingModeCopy(mode).description}</span>
+                </li>
+              ))}
+            </ul>
+          </StepCard>
+
+          <StepCard number={3} title={t().welcome.promisesTitle}>
+            <ul className="flex flex-col gap-3 text-sm leading-relaxed text-muted-foreground">
+              <li className="flex gap-2">
+                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-foreground" aria-hidden="true" />
+                {t().welcome.localOnly}
+              </li>
+              <li className="flex gap-2">
+                <Layers className="mt-0.5 size-4 shrink-0 text-foreground" aria-hidden="true" />
+                {t().welcome.crossTab}
+              </li>
+            </ul>
+          </StepCard>
+        </div>
+
+        <div className="flex flex-col-reverse items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">{t().welcome.revisitHint}</p>
+          <Button onClick={() => void goToLibrary()}>
+            {t().welcome.goToLibrary}<ArrowRight />
+          </Button>
+        </div>
+      </main>
+    </div>
+  );
+}
