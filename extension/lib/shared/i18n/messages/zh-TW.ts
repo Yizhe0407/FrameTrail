@@ -239,6 +239,22 @@ export const zhTW = {
       continueRecordingTooltip: '回到來源頁面繼續錄製，新步驟會接在最後',
     },
 
+    imageEdit: {
+      open: '編輯圖片',
+      openTooltip: '遮蔽這張圖片中的敏感資訊',
+      done: '完成',
+      toolbarLabel: '圖片編輯工具',
+      tools: { select: '選取', redact: '遮罩' },
+      hints: {
+        select: '點選遮罩即可選取；拖曳可移動，拖曳控制點可調整大小，按 Delete 可刪除。',
+        redact: '在圖片上拖曳，用不透明的黑色方塊蓋住敏感資訊。',
+      },
+      itemLabel: (kind: string): string => (kind === 'redaction' ? '遮罩' : '項目'),
+      deleteSelected: '刪除選取項目',
+      count: (n: number) => `${n} 個遮罩`,
+      saveFailed: '無法儲存圖片編輯，請再試一次。',
+    },
+
     stage: {
       titleLabel: '專案標題',
       tagSaveFailed: '標籤儲存失敗，請再試一次。',
@@ -431,6 +447,11 @@ export const zhTW = {
         pending: '正在儲存快照編號設定…',
         failed: '快照編號設定失敗，已重新載入目前資料。',
         done: (numbered: boolean): string => (numbered ? '已開啟快照編號' : '已關閉快照編號'),
+      },
+      redactions: {
+        pending: '正在儲存圖片編輯…',
+        failed: '無法儲存圖片編輯，已重新載入目前資料。',
+        done: '已編輯圖片',
       },
       renameSection: {
         pending: '正在重新命名章節…',

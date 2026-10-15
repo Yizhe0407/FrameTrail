@@ -241,6 +241,22 @@ export const en: Messages = {
       continueRecordingTooltip: 'Go back to the source page and keep recording. New steps are added at the end',
     },
 
+    imageEdit: {
+      open: 'Edit image',
+      openTooltip: 'Mask sensitive information on this image',
+      done: 'Done',
+      toolbarLabel: 'Image editing tools',
+      tools: { select: 'Select', redact: 'Mask' },
+      hints: {
+        select: 'Click a mask to select it. Drag to move, drag the handles to resize, press Delete to remove.',
+        redact: 'Drag on the image to cover sensitive information with an opaque black box.',
+      },
+      itemLabel: (kind: string) => (kind === 'redaction' ? 'Mask' : 'Item'),
+      deleteSelected: 'Delete selected',
+      count: (n: number) => (n === 1 ? '1 mask' : `${n} masks`),
+      saveFailed: 'Couldn’t save the image edits. Please try again.',
+    },
+
     stage: {
       titleLabel: 'Project title',
       tagSaveFailed: 'Couldn’t save the tags. Please try again.',
@@ -437,6 +453,11 @@ export const en: Messages = {
         pending: 'Saving snapshot numbering…',
         failed: 'Couldn’t change snapshot numbering. The current data was reloaded.',
         done: (numbered: boolean) => (numbered ? 'Snapshot numbering on' : 'Snapshot numbering off'),
+      },
+      redactions: {
+        pending: 'Saving image edits…',
+        failed: 'Couldn’t save the image edits. The current data was reloaded.',
+        done: 'Image edited',
       },
       renameSection: {
         pending: 'Renaming section…',

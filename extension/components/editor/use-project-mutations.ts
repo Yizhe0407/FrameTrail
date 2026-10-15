@@ -3,8 +3,8 @@ import {
   type PendingUndoAction,
   type UndoAction,
 } from '@/lib/editor/editor-app-model';
-import { addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, ProjectContentConflictError, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically, type ProjectStructureSnapshot } from '@/lib/storage/project-structure';
-import { entryId, type Project, type Step, type StepEntry } from '@/lib/storage/models';
+import { addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, ProjectContentConflictError, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically, setProjectEntryRedactionsAtomically, type ProjectStructureSnapshot } from '@/lib/storage/project-structure';
+import { entryId, getEntryPrivacyState, type Project, type Redaction, type Step, type StepEntry } from '@/lib/storage/models';
 import { t, type Messages } from '@/lib/shared/i18n';
 
 /** A structural edit with its own progress/failure copy in the i18n catalog. */
@@ -335,6 +335,36 @@ export function useProjectMutations({
     });
   }
 
+  async function setEntryRedactions(entryIdToUpdate: string, redactions: Redaction[]) {
+    await runProjectMutation({
+      operation: 'redactions',
+      rethrow: true,
+      mutate: async (snapshot, projectId) => {
+        const entry = snapshot.entries.find((candidate) => entryId(candidate) === entryIdToUpdate);
+        if (!entry) throw new ProjectContentConflictError(projectId, snapshot.project.contentRevision, snapshot.project.contentRevision);
+        const previous = getEntryPrivacyState(entry).redactions;
+        const result = await setProjectEntryRedactionsAtomically(
+          projectId,
+          entryIdToUpdate,
+          redactions,
+          snapshot.project.contentRevision,
+        );
+        adoptProject(result.project);
+        return {
+          message: t().editor.mutations.redactions.done,
+          expectedRevision: result.project.contentRevision,
+          restoreSelectionId: entryIdToUpdate,
+          restore: () => setProjectEntryRedactionsAtomically(
+            projectId,
+            entryIdToUpdate,
+            previous,
+            result.project.contentRevision,
+          ).then(() => undefined),
+        };
+      },
+    });
+  }
+
   async function renameSection(sectionId: string, title: string) {
     await runProjectMutation({
       operation: 'renameSection',
@@ -418,6 +448,7 @@ export function useProjectMutations({
     deleteEntry,
     handleDeleteAnnotation,
     setEntriesNumbered,
+    setEntryRedactions,
     renameSection,
     deleteSection,
     handleUndo,

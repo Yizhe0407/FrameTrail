@@ -234,6 +234,7 @@ function EditorApp() {
     deleteEntry,
     handleDeleteAnnotation,
     setEntriesNumbered,
+    setEntryRedactions,
     renameSection,
     deleteSection,
     handleUndo,
@@ -446,6 +447,10 @@ function EditorApp() {
                 onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
                 onRecapture={handleRecapture}
                 onSetNumbered={setSelectedEntryNumbered}
+                onSaveRedactions={(id, redactions) => {
+                  requireSelectedEntry(id);
+                  return setEntryRedactions(id, redactions);
+                }}
                 editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
               />
             ) : (

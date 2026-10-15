@@ -1,6 +1,11 @@
-import { useState } from 'react';
-import { Loader2, Pencil, Plus, X, ZoomIn } from 'lucide-react';
-import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/models';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Loader2, Pencil, Plus, SquareDashedMousePointer, X, ZoomIn } from 'lucide-react';
+import { entryId, getEntryImageOwner, getEntryPrivacyState, type Bounds, type Redaction, type Step, type StepEntry } from '@/lib/storage/models';
+import { itemsToRedactions, newImageEditItem, redactionsToItems, type ImageEditItem, type ImageEditItemKind } from '@/lib/editor/image-edit-items';
+import { type ImageEditToolId } from '@/lib/editor/image-edit-tools';
+import { useImageCssSize } from '@/lib/editor/use-image-css-size';
+import ImageEditLayer from './ImageEditLayer';
+import ImageEditToolbar from './ImageEditToolbar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
@@ -30,6 +35,7 @@ interface Props {
   onReorderAnnotations: (reordered: Step[]) => Promise<void>;
   onRecapture: () => Promise<void>;
   onSetNumbered: (entryId: string, next: boolean) => Promise<void>;
+  onSaveRedactions?: (entryId: string, redactions: Redaction[]) => Promise<void>;
   editingDisabled?: boolean;
 }
 
@@ -47,12 +53,77 @@ export default function StepStage({
   onReorderAnnotations,
   onRecapture,
   onSetNumbered,
+  onSaveRedactions,
   editingDisabled = false,
 }: Props) {
   const [numberingPending, setNumberingPending] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const privacy = getEntryPrivacyState(entry);
+  const [imageEditing, setImageEditing] = useState(false);
+  const [editTool, setEditTool] = useState<ImageEditToolId>('redact');
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const imageOwner = getEntryImageOwner(entry);
+  const imageCssSize = useImageCssSize(imageOwner.screenshotBlob, imageOwner.screenshotScale ?? imageOwner.devicePixelRatio);
+  const editItems = useMemo(() => redactionsToItems(privacy.redactions), [privacy.redactions]);
+  const canEditImage = Boolean(onSaveRedactions) && !privacy.reviewRequired;
+
+  async function saveEditItems(next: ImageEditItem[]): Promise<void> {
+    if (!onSaveRedactions) return;
+    setStageError(null);
+    try {
+      await onSaveRedactions(entryId(entry), itemsToRedactions(next));
+    } catch (saveError) {
+      setStageError(reportError('[stepmark] failed to save image edits', saveError, t().editor.imageEdit.saveFailed));
+    }
+  }
+
+  function createEditItem(kind: ImageEditItemKind, bounds: Bounds) {
+    const item = newImageEditItem(kind, bounds);
+    setSelectedItemId(item.id);
+    void saveEditItems([...editItems, item]);
+  }
+
+  function updateEditItem(id: string, bounds: Bounds) {
+    void saveEditItems(editItems.map((item) => (item.id === id ? { ...item, bounds } : item)));
+  }
+
+  function deleteEditItem(id: string) {
+    setSelectedItemId(null);
+    void saveEditItems(editItems.filter((item) => item.id !== id));
+  }
+
+  /** Overlay for the stage image: the zoom hint normally, the interactive edit layer while editing. */
+  const stageOverlay: ReactNode = imageEditing
+    ? imageCssSize && (
+      <ImageEditLayer
+        items={editItems}
+        tool={editTool}
+        size={imageCssSize}
+        selectedId={selectedItemId}
+        onSelect={setSelectedItemId}
+        onCreate={createEditItem}
+        onUpdate={updateEditItem}
+        onDelete={deleteEditItem}
+        disabled={editingDisabled}
+      />
+    )
+    : undefined;
+
+  const imageEditToolbar = imageEditing && (
+    <ImageEditToolbar
+      tool={editTool}
+      onToolChange={setEditTool}
+      hasSelection={selectedItemId !== null}
+      onDeleteSelected={() => selectedItemId && deleteEditItem(selectedItemId)}
+      itemCount={editItems.length}
+      onDone={() => {
+        setImageEditing(false);
+        setSelectedItemId(null);
+      }}
+      disabled={editingDisabled}
+    />
+  );
 
   const displayTags = projectTags;
 
@@ -156,6 +227,22 @@ export default function StepStage({
       </div>
       <div className="flex items-center gap-3">
         {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label={t().editor.stage.savingNumbering} />}
+        {canEditImage && !imageEditing && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setImageEditing(true)}
+                disabled={editingDisabled}
+                className="flex h-9 items-center gap-1.5 rounded-md border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+              >
+                <SquareDashedMousePointer className="size-4" />
+                {t().editor.imageEdit.open}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t().editor.imageEdit.openTooltip}</TooltipContent>
+          </Tooltip>
+        )}
         <StepActions
           entry={entry}
           onDelete={onDelete}
@@ -187,6 +274,33 @@ export default function StepStage({
     </div>
   );
 
+  /** The stage image: click-to-zoom normally; a plain frame hosting the edit layer while editing,
+   * since interactive controls can't live inside the zoom button. */
+  function imageFrame(alt: string): ReactNode {
+    const frameClass = 'group relative flex w-full items-center justify-center rounded-md lg:h-full lg:max-h-full lg:max-w-full';
+    const thumbnail = (overlay: ReactNode) => (
+      <EntryThumbnail
+        entry={entry}
+        alt={alt}
+        fit="contain"
+        className="max-w-full lg:h-full lg:max-h-full"
+        imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
+        overlay={overlay}
+      />
+    );
+    if (imageEditing) return <div className={frameClass}>{thumbnail(stageOverlay)}</div>;
+    return (
+      <button
+        type="button"
+        onClick={onZoom}
+        aria-label={t().editor.stage.zoomImage}
+        className={`${frameClass} cursor-zoom-in border-none bg-transparent outline-none focus-ring`}
+      >
+        {thumbnail(zoomHint)}
+      </button>
+    );
+  }
+
   if (entry.kind === 'single') {
     return (
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto bg-background px-4 pt-4 pb-6 sm:px-6 lg:overflow-hidden lg:px-10 lg:pt-5 lg:pb-16">
@@ -194,23 +308,10 @@ export default function StepStage({
           <div className="flex-none">{titleAndTagRow}</div>
           <div className="flex-none">{headerRow}</div>
           {errorNotice && <div className="flex-none">{errorNotice}</div>}
+          {imageEditToolbar && <div className="flex-none">{imageEditToolbar}</div>}
           {privacyReviewNotice && <div className="flex-none">{privacyReviewNotice}</div>}
           <div className="flex w-full flex-none items-center justify-center p-1 lg:min-h-0 lg:flex-1">
-            <button
-              type="button"
-              onClick={onZoom}
-              aria-label={t().editor.stage.zoomImage}
-              className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
-            >
-              <EntryThumbnail
-                entry={entry}
-                alt={t().editor.stage.stepAlt(index + 1)}
-                fit="contain"
-                className="max-w-full lg:h-full lg:max-h-full"
-                imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
-                overlay={zoomHint}
-              />
-            </button>
+            {imageFrame(t().editor.stage.stepAlt(index + 1))}
           </div>
           <div className="flex-none">
             <DescriptionField
@@ -230,24 +331,11 @@ export default function StepStage({
       <div className="flex-none">{titleAndTagRow}</div>
       <div className="flex-none">{headerRow}</div>
       {errorNotice && <div className="flex-none">{errorNotice}</div>}
+      {imageEditToolbar && <div className="flex-none">{imageEditToolbar}</div>}
       {privacyReviewNotice && <div className="flex-none">{privacyReviewNotice}</div>}
       <div className="flex flex-none flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:gap-[22px]">
         <div className="flex min-w-0 flex-none items-center justify-center p-1 lg:min-h-0 lg:flex-1">
-          <button
-            type="button"
-            onClick={onZoom}
-            aria-label={t().editor.stage.zoomImage}
-            className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
-          >
-            <EntryThumbnail
-              entry={entry}
-              alt={t().editor.stage.snapshotAlt(index + 1)}
-              fit="contain"
-              className="max-w-full lg:h-full lg:max-h-full"
-              imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
-              overlay={zoomHint}
-            />
-          </button>
+          {imageFrame(t().editor.stage.snapshotAlt(index + 1))}
         </div>
         <aside className="flex min-h-[280px] w-full shrink-0 flex-col gap-2.5 lg:min-h-0 lg:w-[380px]">
           <AnnotationList
