@@ -9,6 +9,8 @@ export const PERSISTED_STEP_LIMITS = Object.freeze({
   maxUrlLength: 8_192,
   maxIdLength: 256,
   maxRedactionsPerStep: 1_000,
+  maxImageEditsPerStep: 500,
+  maxImageEditTextLength: 1_000,
   maxCoordinateMagnitude: 10_000_000,
   maxBoundsDimension: 1_000_000,
   maxPixelRatio: 32,

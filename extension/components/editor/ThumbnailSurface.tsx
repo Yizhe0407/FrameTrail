@@ -1,5 +1,7 @@
 import type { ReactNode, RefObject } from 'react';
 import { cn } from '@/lib/shared/utils';
+import type { ImageEdit } from '@/lib/storage/image-edit-model';
+import ImageEditsSvg from './ImageEditsSvg';
 import type { ImageContentFrame, RedactionStyle } from './use-thumbnail-overlay-mapping';
 
 interface Props {
@@ -18,6 +20,10 @@ interface Props {
   onImageLoad: () => void;
   contentFrame: ImageContentFrame | null;
   redactionBoxes: RedactionStyle[];
+  /** Text, arrows and rectangles drawn on the image; painted above highlights and below masks. */
+  imageEdits: readonly ImageEdit[];
+  /** The screenshot's size in CSS pixels, the coordinate space of `imageEdits`. */
+  imageCssSize: { width: number; height: number } | null;
   /** Content rendered over the exact image frame. */
   overlay?: ReactNode;
   /** The component-specific highlight overlays; hidden with the pixels while privacy review is pending. */
@@ -26,8 +32,9 @@ interface Props {
 
 /**
  * Rendered surface shared by the highlight thumbnails: screenshot img, component-specific overlays,
- * redaction boxes, and content-frame slot. Layer order is load-bearing: redactions (z-10) must
- * cover the highlight overlays, and the content frame (z-20) sits above both.
+ * image edits, redaction boxes, and content-frame slot. Layer order is load-bearing: image edits (z-5)
+ * sit above the highlight overlays, redactions (z-10) must cover both, and the content frame (z-20)
+ * sits above all of them.
  */
 export default function ThumbnailSurface({
   url,
@@ -43,6 +50,8 @@ export default function ThumbnailSurface({
   onImageLoad,
   contentFrame,
   redactionBoxes,
+  imageEdits,
+  imageCssSize,
   overlay,
   children,
 }: Props) {
@@ -67,6 +76,11 @@ export default function ThumbnailSurface({
         />
       )}
       {!privacyReviewRequired && children}
+      {!privacyReviewRequired && contentFrame && imageCssSize && imageEdits.length > 0 && (
+        <div data-stepmark-image-edits className="pointer-events-none absolute z-[5]" style={contentFrame}>
+          <ImageEditsSvg edits={imageEdits} width={imageCssSize.width} height={imageCssSize.height} />
+        </div>
+      )}
       {!privacyReviewRequired && redactionBoxes.map((redaction) => (
         <div
           key={redaction.id}

@@ -231,5 +231,10 @@ export function useThumbnailOverlayMapping({
   const showPixels = !privacyReviewRequired && (redactions.length === 0 || (geometry !== null && (exactBox || !stale)));
   const contentFrame = geometry ? (exactBox ? EXACT_CONTENT_FRAME : geometry.contentFrame) : null;
 
-  return { imgRef, contentFrame, redactionBoxes, showPixels, remap };
+  const imageCssSize = useMemo(
+    () => (geometry ? { width: geometry.naturalWidth / geometry.dpr, height: geometry.naturalHeight / geometry.dpr } : null),
+    [geometry],
+  );
+
+  return { imgRef, contentFrame, imageCssSize, redactionBoxes, showPixels, remap };
 }

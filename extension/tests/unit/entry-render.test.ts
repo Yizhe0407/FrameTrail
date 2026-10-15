@@ -52,6 +52,7 @@ describe('compositeStepEntry', () => {
       'image/png',
       step.redactions,
       false,
+      [],
     );
     expect(mocks.compositeMultiHighlight).not.toHaveBeenCalled();
   });
@@ -89,6 +90,7 @@ describe('compositeStepEntry', () => {
       'image/jpeg',
       anchor.redactions,
       false,
+      [],
     );
     expect(mocks.compositeHighlight).not.toHaveBeenCalled();
   });
@@ -109,7 +111,17 @@ describe('compositeStepEntry', () => {
       'image/png',
       step.redactions,
       true,
+      [],
     );
   });
 
+  it('hands the owner\u2019s drawn edits to the compositor so exports match the editor', async () => {
+    const edits = [{ id: 'e1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 3, height: 4 }, width: 2, color: 'red' as const }];
+    const step = makeStep('drawn', 1, { imageEdits: edits });
+    const entry: StepEntry = { kind: 'single', step: step as Step & { screenshotBlob: Blob } };
+
+    await compositeStepEntry(entry, 'image/png');
+
+    expect(mocks.compositeHighlight).toHaveBeenCalledWith(step.screenshotBlob, step.bounds, 1, 'image/png', [], false, edits);
+  });
 });

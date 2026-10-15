@@ -3,7 +3,7 @@ import { BADGE_RADIUS, BADGE_TEXT_COLOR, HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, 
 import { getBadgeFontSize } from '@/lib/media/annotation-geometry';
 import { layoutAnnotations } from '@/lib/media/annotation-layout';
 import { useObjectUrl } from '@/lib/editor/use-object-url';
-import { type Redaction } from '@/lib/storage/models';
+import { type ImageEdit, type Redaction } from '@/lib/storage/models';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import ThumbnailSurface from './ThumbnailSurface';
 import HighlightFrame from './HighlightFrame';
@@ -15,6 +15,7 @@ import {
 } from './use-thumbnail-overlay-mapping';
 
 const NO_REDACTIONS: Redaction[] = [];
+const NO_EDITS: ImageEdit[] = [];
 
 interface Props {
   blob: Blob;
@@ -25,6 +26,8 @@ interface Props {
   privacyReviewRequired?: boolean;
   /** The image element is exactly the image's box (see useThumbnailOverlayMapping). */
   exactBox?: boolean;
+  /** Text, arrows and rectangles drawn on the image. */
+  imageEdits?: ImageEdit[];
   screenshotScale: number;
   numbered: boolean;
   alt: string;
@@ -72,6 +75,7 @@ export default function MultiHighlightThumbnail({
   redactions = NO_REDACTIONS,
   privacyReviewRequired = false,
   exactBox = false,
+  imageEdits = NO_EDITS,
   screenshotScale,
   numbered,
   alt,
@@ -180,7 +184,7 @@ export default function MultiHighlightThumbnail({
 
   const clearOverlays = useCallback(() => setBoxes([]), []);
 
-  const { imgRef, contentFrame, redactionBoxes, showPixels } = useThumbnailOverlayMapping({
+  const { imgRef, contentFrame, imageCssSize, redactionBoxes, showPixels } = useThumbnailOverlayMapping({
     url,
     fit,
     screenshotScale,
@@ -220,6 +224,8 @@ export default function MultiHighlightThumbnail({
       onImageLoad={onImageLoad}
       contentFrame={contentFrame}
       redactionBoxes={redactionBoxes}
+      imageEdits={imageEdits}
+      imageCssSize={imageCssSize}
       overlay={overlay}
     >
         <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">

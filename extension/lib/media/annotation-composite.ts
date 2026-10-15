@@ -1,5 +1,6 @@
 import { validateRasterImageBlob } from '../capture/raster-image-validation';
-import type { Bounds, Redaction } from '../storage/models';
+import type { Bounds, ImageEdit, Redaction } from '../storage/models';
+import { drawImageEdits } from './image-edit-render';
 import { getValidScreenshotScale, isValidImageBounds } from './image-utils';
 import {
   BADGE_FONT_FAMILY,
@@ -164,6 +165,7 @@ async function compositeRaster(
   screenshot: Blob,
   screenshotScale: number,
   redactions: readonly Redaction[],
+  imageEdits: readonly ImageEdit[],
   privacyBlockRequired: boolean,
   format: RasterFormat,
   drawAnnotations:
@@ -176,7 +178,7 @@ async function compositeRaster(
     | null,
 ): Promise<Blob> {
   const { mediaType } = await validateRasterImageBlob(screenshot);
-  if (drawAnnotations === null && redactions.length === 0 && !privacyBlockRequired && mediaType === format) {
+  if (drawAnnotations === null && redactions.length === 0 && imageEdits.length === 0 && !privacyBlockRequired && mediaType === format) {
     return screenshot;
   }
   const bitmap = await createImageBitmap(screenshot);
@@ -200,6 +202,8 @@ async function compositeRaster(
     const viewportWidth = width / dpr;
     const viewportHeight = height / dpr;
     drawAnnotations?.(ctx, dpr, viewportWidth, viewportHeight);
+    // The person's own drawings sit above the automatic highlights but below every mask.
+    drawImageEdits(ctx, imageEdits, dpr);
     // Must remain last: a redaction is privacy-critical and intentionally
     // covers highlight strokes, callouts, markers, and badges beneath it.
     drawRedactions(ctx, redactions, viewportWidth, viewportHeight, dpr);
@@ -227,13 +231,14 @@ export async function compositeHighlight(
   format: RasterFormat = 'image/jpeg',
   redactions: readonly Redaction[] = [],
   privacyBlockRequired = false,
+  imageEdits: readonly ImageEdit[] = [],
 ): Promise<Blob> {
   const drawHighlight = bounds
     ? (ctx: OffscreenCanvasRenderingContext2D, dpr: number, viewportWidth: number, viewportHeight: number) => {
         strokeBox(ctx, fitHighlightFrame(bounds, viewportWidth, viewportHeight), dpr);
       }
     : null;
-  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, drawHighlight);
+  return compositeRaster(screenshot, screenshotScale, redactions, imageEdits, privacyBlockRequired, format, drawHighlight);
 }
 
 /**
@@ -249,11 +254,12 @@ export async function compositeMultiHighlight(
   format: RasterFormat = 'image/jpeg',
   redactions: readonly Redaction[] = [],
   privacyBlockRequired = false,
+  imageEdits: readonly ImageEdit[] = [],
 ): Promise<Blob> {
   if (annotations.length === 0) {
-    return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, null);
+    return compositeRaster(screenshot, screenshotScale, redactions, imageEdits, privacyBlockRequired, format, null);
   }
-  return compositeRaster(screenshot, screenshotScale, redactions, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
+  return compositeRaster(screenshot, screenshotScale, redactions, imageEdits, privacyBlockRequired, format, (ctx, dpr, viewportWidth, viewportHeight) => {
     const layouts = layoutAnnotations(annotations, viewportWidth, viewportHeight);
     for (const layout of layouts) {
       if (layout.markerOnly) {

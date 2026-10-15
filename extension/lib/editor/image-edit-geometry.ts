@@ -32,9 +32,10 @@ export function clientToImagePoint(
   size: ImageCssSize,
 ): Point {
   if (frame.width <= 0 || frame.height <= 0) return { x: 0, y: 0 };
+  // Rounded so stored coordinates are clean numbers, not float noise from the division.
   return {
-    x: clamp(((client.x - frame.left) / frame.width) * size.width, 0, size.width),
-    y: clamp(((client.y - frame.top) / frame.height) * size.height, 0, size.height),
+    x: round(clamp(((client.x - frame.left) / frame.width) * size.width, 0, size.width)),
+    y: round(clamp(((client.y - frame.top) / frame.height) * size.height, 0, size.height)),
   };
 }
 

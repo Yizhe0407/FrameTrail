@@ -6,6 +6,8 @@ import {
 import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from './project-tag-model';
 import { isRecord } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
+import { cloneImageEdit, IMAGE_EDIT_LIMITS, readImageEdits, type ImageEdit } from './image-edit-model';
+export type { ImageEdit } from './image-edit-model';
 import { getLocale, messagesFor, SUPPORTED_LOCALES, type Locale } from '../shared/i18n';
 export type { ProjectSection } from './project-section-model';
 
@@ -65,6 +67,9 @@ export interface Step {
    * Set after recapturing an image that previously contained redactions, and
    * when malformed privacy metadata is detected during a write. */
   redactionReviewRequired?: boolean;
+  /** Text, arrows and rectangles drawn on the image in the editor, in screenshot
+   * CSS coordinates. Same ownership as `redactions`; painted beneath the masks. */
+  imageEdits?: ImageEdit[];
   devicePixelRatio: number;
   /** Actual screenshot pixels per CSS pixel, measured from the captured image. */
   screenshotScale?: number;
@@ -347,6 +352,23 @@ export function getEntryPrivacyState(entry: StepEntry): EntryPrivacyState {
   };
 }
 
+const EMPTY_IMAGE_EDITS: ImageEdit[] = [];
+const readEditsCache = new WeakMap<object, ImageEdit[]>();
+
+/** The drawable image edits of a timeline entry: stored on its image owner, with
+ * anything malformed left out. Identity is stable per stored array so previews
+ * don't re-render on every read. */
+export function getEntryImageEdits(entry: StepEntry): ImageEdit[] {
+  const raw: unknown = getEntryImageOwner(entry).imageEdits;
+  if (!Array.isArray(raw) || raw.length === 0) return EMPTY_IMAGE_EDITS;
+  let edits = readEditsCache.get(raw);
+  if (!edits) {
+    edits = readImageEdits(raw);
+    readEditsCache.set(raw, edits);
+  }
+  return edits;
+}
+
 export function sanitizeStepForStorage(step: Step): Step {
   const id = requireStorageIdentifier(step.id, 'Step id');
   const sessionId = requireStorageIdentifier(step.sessionId, 'Step session id');
@@ -385,6 +407,14 @@ export function sanitizeStepForStorage(step: Step): Step {
     }
   }
 
+  let imageEdits: ImageEdit[] | undefined;
+  if (!isSnapshotAnnotation && step.imageEdits !== undefined) {
+    if (Array.isArray(step.imageEdits) && step.imageEdits.length > IMAGE_EDIT_LIMITS.maxItems) {
+      storageError('Step contains too many image edits.');
+    }
+    imageEdits = readImageEdits(step.imageEdits).map(cloneImageEdit);
+  }
+
   const sanitized: Step = {
     id,
     sessionId,
@@ -406,6 +436,7 @@ export function sanitizeStepForStorage(step: Step): Step {
       : null;
   }
   if (redactions !== undefined) sanitized.redactions = redactions;
+  if (imageEdits !== undefined) sanitized.imageEdits = imageEdits;
   if (!isSnapshotAnnotation && redactionReviewRequired) sanitized.redactionReviewRequired = true;
   if (step.screenshotScale !== undefined) {
     sanitized.screenshotScale = sanitizePixelRatio(step.screenshotScale, 'Step screenshot scale');

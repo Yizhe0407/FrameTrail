@@ -37,6 +37,13 @@ function redactionsMatch(first: Step['redactions'], second: Step['redactions']):
   });
 }
 
+function imageEditsMatch(first: Step['imageEdits'], second: Step['imageEdits']): boolean {
+  if (first === second) return true;
+  if (!first || !second || first.length !== second.length) return false;
+  // Edits are small plain data; structural comparison keeps this correct as new edit kinds gain fields.
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
 /** IndexedDB returns a fresh Blob wrapper on every read. Keep the existing
  * wrapper only while captureRevision is unchanged; recapture deliberately
  * increments that revision so every image consumer receives the replacement. */
@@ -51,6 +58,7 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
       boundsMatch(previousStep.bounds, step.bounds) &&
       boundsMatch(previousStep.manualBounds, step.manualBounds) &&
       redactionsMatch(previousStep.redactions, step.redactions) &&
+      imageEditsMatch(previousStep.imageEdits, step.imageEdits) &&
       previousStep.redactionReviewRequired === step.redactionReviewRequired &&
       previousStep.devicePixelRatio === step.devicePixelRatio &&
       previousStep.screenshotScale === step.screenshotScale &&

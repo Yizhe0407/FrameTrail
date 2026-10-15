@@ -1,6 +1,7 @@
 import { throwIfAborted } from '../shared/abort';
 import { isRecord } from '../shared/validation';
-import { buildStepEntries, stepRole, type Bounds, type Redaction, type Step } from '../storage/models';
+import { buildStepEntries, stepRole, type Bounds, type ImageEdit, type Redaction, type Step } from '../storage/models';
+import { IMAGE_EDIT_COLORS, IMAGE_EDIT_LIMITS, isImageEditColor, type ImageEditColor, type EditPoint } from '../storage/image-edit-model';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
   repairProjectSections,
@@ -11,7 +12,9 @@ import { sanitizeProjectTag } from '../storage/project-tag-model';
 import {
   BASE64_VALUES,
   BOUNDS_KEYS,
+  IMAGE_EDIT_KEYS,
   METADATA_KEYS,
+  POINT_KEYS,
   PROJECT_ARCHIVE_LIMITS,
   REDACTION_KEYS,
   RUNTIME_STEP_KEYS,
@@ -189,6 +192,64 @@ function expectRedactions(value: unknown, path: string): Redaction[] {
       throw error;
     }
     return { id, bounds, kind: 'solid' };
+  });
+}
+
+function expectEditColor(value: unknown, path: string): ImageEditColor {
+  if (!isImageEditColor(value)) {
+    fail('INVALID_IMAGE_EDIT', `${path} must be one of ${IMAGE_EDIT_COLORS.join(', ')}.`);
+  }
+  return value;
+}
+
+function expectEditPoint(value: unknown, path: string): EditPoint {
+  const record = expectRecord(value, path);
+  assertExactKeys(record, POINT_KEYS, path);
+  const limit = PROJECT_ARCHIVE_LIMITS.maxCoordinateMagnitude;
+  return {
+    x: expectFiniteNumber(record.x, `${path}.x`, -limit, limit),
+    y: expectFiniteNumber(record.y, `${path}.y`, -limit, limit),
+  };
+}
+
+function expectStrokeWidth(value: unknown, path: string): number {
+  return expectFiniteNumber(value, path, IMAGE_EDIT_LIMITS.minStrokeWidth, IMAGE_EDIT_LIMITS.maxStrokeWidth);
+}
+
+function expectImageEdits(value: unknown, path: string): ImageEdit[] {
+  const input = expectArray(value, path);
+  if (input.length > PROJECT_ARCHIVE_LIMITS.maxImageEditsPerStep) {
+    fail('LIMIT_EXCEEDED', `${path} contains too many image edits.`);
+  }
+  const ids = new Set<string>();
+  return input.map((item, index): ImageEdit => {
+    const itemPath = `${path}[${index}]`;
+    const record = expectRecord(item, itemPath);
+    const kind = record.kind;
+    if (kind !== 'text' && kind !== 'arrow' && kind !== 'rect') {
+      fail('INVALID_IMAGE_EDIT', `${itemPath}.kind must be "text", "arrow" or "rect".`);
+    }
+    assertExactKeys(record, IMAGE_EDIT_KEYS[kind], itemPath);
+    const id = expectIdentifier(record.id, `${itemPath}.id`);
+    if (ids.has(id)) fail('DUPLICATE_ID', `${path} contains duplicate image edit id ${JSON.stringify(id)}.`);
+    ids.add(id);
+    const color = expectEditColor(record.color, `${itemPath}.color`);
+    if (kind === 'arrow') {
+      return {
+        id, kind, color,
+        from: expectEditPoint(record.from, `${itemPath}.from`),
+        to: expectEditPoint(record.to, `${itemPath}.to`),
+        width: expectStrokeWidth(record.width, `${itemPath}.width`),
+      };
+    }
+    const bounds = expectBounds(record.bounds, `${itemPath}.bounds`);
+    if (kind === 'rect') return { id, kind, color, bounds, width: expectStrokeWidth(record.width, `${itemPath}.width`) };
+    const text = expectText(record.text, `${itemPath}.text`, PROJECT_ARCHIVE_LIMITS.maxImageEditTextLength);
+    if (text.length === 0) fail('INVALID_IMAGE_EDIT', `${itemPath}.text must not be empty.`);
+    return {
+      id, kind, color, bounds, text,
+      fontSize: expectFiniteNumber(record.fontSize, `${itemPath}.fontSize`, IMAGE_EDIT_LIMITS.minFontSize, IMAGE_EDIT_LIMITS.maxFontSize),
+    };
   });
 }
 
@@ -409,6 +470,9 @@ export function validateRuntimeStep(stepValue: unknown, path: string): Step {
   }
   if (hasOwn(record, 'redactions') && record.redactions !== undefined) {
     step.redactions = expectRedactions(record.redactions, `${path}.redactions`);
+  }
+  if (hasOwn(record, 'imageEdits') && record.imageEdits !== undefined) {
+    step.imageEdits = expectImageEdits(record.imageEdits, `${path}.imageEdits`);
   }
   const redactionReviewRequired = expectOptionalBoolean(record, 'redactionReviewRequired', path);
   if (redactionReviewRequired !== undefined) step.redactionReviewRequired = redactionReviewRequired;

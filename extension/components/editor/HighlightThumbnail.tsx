@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS } from '@/lib/media/annotation-contract';
 import { fitHighlightFrame } from '@/lib/media/annotation-geometry';
 import { useObjectUrl } from '@/lib/editor/use-object-url';
-import { type Bounds, type Redaction } from '@/lib/storage/models';
+import { type Bounds, type ImageEdit, type Redaction } from '@/lib/storage/models';
 import ThumbnailSurface from './ThumbnailSurface';
 import HighlightFrame from './HighlightFrame';
 import {
@@ -13,6 +13,7 @@ import {
 } from './use-thumbnail-overlay-mapping';
 
 const NO_REDACTIONS: Redaction[] = [];
+const NO_EDITS: ImageEdit[] = [];
 
 interface Props {
   blob: Blob;
@@ -23,6 +24,8 @@ interface Props {
   privacyReviewRequired?: boolean;
   /** The image element is exactly the image's box (see useThumbnailOverlayMapping). */
   exactBox?: boolean;
+  /** Text, arrows and rectangles drawn on the image. */
+  imageEdits?: ImageEdit[];
   screenshotScale: number;
   alt: string;
   className?: string;
@@ -55,6 +58,7 @@ export default function HighlightThumbnail({
   redactions = NO_REDACTIONS,
   privacyReviewRequired = false,
   exactBox = false,
+  imageEdits = NO_EDITS,
   screenshotScale,
   alt,
   className,
@@ -96,7 +100,7 @@ export default function HighlightThumbnail({
 
   const clearOverlays = useCallback(() => setBox(null), []);
 
-  const { imgRef, contentFrame, redactionBoxes, showPixels, remap } = useThumbnailOverlayMapping({
+  const { imgRef, contentFrame, imageCssSize, redactionBoxes, showPixels, remap } = useThumbnailOverlayMapping({
     url,
     fit,
     screenshotScale,
@@ -124,6 +128,8 @@ export default function HighlightThumbnail({
       onImageLoad={remap}
       contentFrame={contentFrame}
       redactionBoxes={redactionBoxes}
+      imageEdits={imageEdits}
+      imageCssSize={imageCssSize}
       overlay={overlay}
     >
       {box && <HighlightFrame box={box} />}

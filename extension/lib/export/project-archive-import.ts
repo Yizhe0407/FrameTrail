@@ -8,6 +8,7 @@ import {
   PROJECT_ARCHIVE_LIMITS,
   PROJECT_ARCHIVE_VERSION,
   SAFE_SCREENSHOT_MEDIA_TYPES,
+  SUPPORTED_ARCHIVE_VERSIONS,
   STEP_KEYS,
   type ImportedProjectArchive,
   type JsonRecord,
@@ -149,7 +150,7 @@ export async function importProjectArchive(
   // fail explicitly instead of being misreported as an unknown-field error.
   if (manifest.format !== PROJECT_ARCHIVE_FORMAT) fail('INVALID_ARCHIVE', 'Unrecognized project archive format.');
   if (!Number.isSafeInteger(manifest.version)) fail('INVALID_ARCHIVE', 'manifest.version must be an integer.');
-  if (manifest.version !== PROJECT_ARCHIVE_VERSION) {
+  if (!SUPPORTED_ARCHIVE_VERSIONS.includes(manifest.version as number)) {
     fail('UNSUPPORTED_VERSION', `Project archive version ${String(manifest.version)} is not supported.`);
   }
   assertExactKeys(envelope, ENVELOPE_KEYS, 'archive');

@@ -1,5 +1,5 @@
 import { compositeHighlight, compositeMultiHighlight } from '../media/annotation-composite';
-import { getEffectiveBounds, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '../storage/models';
+import { getEffectiveBounds, getEntryImageEdits, getEntryPrivacyState, getOrderedAnnotations, type StepEntry } from '../storage/models';
 import { getValidScreenshotScale } from '../media/image-utils';
 
 export type CompositeImageFormat = 'image/jpeg' | 'image/png';
@@ -22,6 +22,7 @@ export async function compositeStepEntry(entry: StepEntry, format: CompositeImag
       format,
       privacy.redactions,
       privacy.reviewRequired,
+      getEntryImageEdits(entry),
     );
   }
 
@@ -33,5 +34,6 @@ export async function compositeStepEntry(entry: StepEntry, format: CompositeImag
     format,
     privacy.redactions,
     privacy.reviewRequired,
+    getEntryImageEdits(entry),
   );
 }

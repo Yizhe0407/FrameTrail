@@ -2,11 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { Button } from '@/components/ui/button';
-import { getEntryImageOwner, getEntryPrivacyState, type Bounds, type StepEntry } from '@/lib/storage/models';
-import { itemsToRedactions, newImageEditItem, redactionsToItems, type ImageEditItemKind } from '@/lib/editor/image-edit-items';
-import type { ImageEditToolId } from '@/lib/editor/image-edit-tools';
+import { getEntryImageEdits, getEntryImageOwner, getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
+import type { TextEdit } from '@/lib/storage/image-edit-model';
+import { appendItem, splitItems, toItems, type ImageEditItem } from '@/lib/editor/image-edit-items';
+import { fitTextHeight } from '@/lib/editor/image-edit-item-geometry';
+import { DEFAULT_IMAGE_EDIT_STYLE, imageEditTool, type ImageEditStyle, type ImageEditToolId } from '@/lib/editor/image-edit-tools';
 import { useImageEditSession } from '@/lib/editor/image-edit-session';
-import { saveEntryRedactions } from '@/lib/editor/save-entry-redactions';
+import { saveEntryImageEdits } from '@/lib/editor/save-entry-image-edits';
 import { useImageCssSize } from '@/lib/editor/use-image-css-size';
 import type { ImageCssSize } from '@/lib/editor/image-edit-geometry';
 import {
@@ -23,6 +25,7 @@ import {
 import { t } from '@/lib/shared/i18n';
 import EntryThumbnail from './EntryThumbnail';
 import ImageEditLayer from './ImageEditLayer';
+import ImageEditStylePanel from './ImageEditStylePanel';
 import ImageEditToolbar from './ImageEditToolbar';
 
 /** Breathing room kept around the fitted image so edge masks are easy to reach. */
@@ -46,17 +49,21 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   const entryRef = useRef(entry);
   entryRef.current = entry;
   const owner = getEntryImageOwner(entry);
-  const [initialItems] = useState(() => redactionsToItems(getEntryPrivacyState(entry).redactions));
+  const [initialItems] = useState(() => toItems(getEntryPrivacyState(entry).redactions, getEntryImageEdits(entry)));
   const session = useImageEditSession({
     initialItems,
-    persist: (items) => saveEntryRedactions(entryRef.current, itemsToRedactions(items)),
+    persist: (items) => saveEntryImageEdits(entryRef.current, splitItems(items)),
   });
-  const draftRedactions = useMemo(() => itemsToRedactions(session.items), [session.items]);
   const imageSize = useImageCssSize(owner.screenshotBlob, owner.screenshotScale ?? owner.devicePixelRatio);
 
   const [tool, setTool] = useState<ImageEditToolId>('redact');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
+  const [style, setStyle] = useState<ImageEditStyle>(DEFAULT_IMAGE_EDIT_STYLE);
+  /** What the gesture in progress would produce, so the image shows it live. */
+  const [preview, setPreview] = useState<ImageEditItem | null>(null);
+  /** The text being typed. `isNew` text exists only here until it has content. */
+  const [editing, setEditing] = useState<{ item: TextEdit; isNew: boolean } | null>(null);
 
   // --- viewport: fit, zoom, pan -------------------------------------------
   // The dialog content mounts through a portal after this component first renders,
@@ -131,7 +138,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   }, [scroller]);
 
   useEffect(() => {
-    const isTypingTarget = (target: EventTarget | null) => target instanceof HTMLButtonElement;
+    const isTypingTarget = (target: EventTarget | null) => target instanceof HTMLButtonElement || target instanceof HTMLTextAreaElement;
     const down = (event: globalThis.KeyboardEvent) => {
       if (event.code !== 'Space' || isTypingTarget(event.target)) return;
       event.preventDefault();
@@ -150,16 +157,90 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
 
   // --- editing ----------------------------------------------------------------
   const { items, commit } = session;
-  const createItem = (kind: ImageEditItemKind, bounds: Bounds) => {
-    const item = newImageEditItem(kind, bounds);
-    setSelectedId(item.id);
-    commit([...items, item]);
+  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  const activeTool = imageEditTool(tool);
+
+  /** What is on screen: the saved items, with the live gesture applied and the text being typed left to the editor. */
+  const displayItems = useMemo(() => {
+    let list: readonly ImageEditItem[] = items;
+    if (editing && !editing.isNew) list = list.filter((item) => item.id !== editing.item.id);
+    if (preview) {
+      list = list.some((item) => item.id === preview.id)
+        ? list.map((item) => (item.id === preview.id ? preview : item))
+        : appendItem(list, preview);
+    }
+    return list;
+  }, [items, preview, editing]);
+  const shown = useMemo(() => splitItems(displayItems), [displayItems]);
+
+  /** Picking a drawing tool means "draw something new": nothing stays selected, so the style
+   * controls set how the next thing looks instead of restyling the last thing drawn. */
+  const changeTool = (next: ImageEditToolId) => {
+    setTool(next);
+    if (imageEditTool(next).create) setSelectedId(null);
   };
-  const updateItem = (id: string, bounds: Bounds) => commit(items.map((item) => (item.id === id ? { ...item, bounds } : item)));
+
+  const replaceItem = (next: ImageEditItem) => commit(items.map((item) => (item.id === next.id ? next : item)));
   const deleteItem = (id: string) => {
     setSelectedId(null);
     commit(items.filter((item) => item.id !== id));
   };
+  const createItem = (item: ImageEditItem) => {
+    if (item.kind === 'text') {
+      setEditing({ item, isNew: true });
+      return;
+    }
+    setSelectedId(item.id);
+    commit(appendItem(items, item));
+  };
+  const startTextEdit = (id: string) => {
+    const item = items.find((candidate) => candidate.id === id);
+    if (item?.kind !== 'text') return;
+    setSelectedId(id);
+    setEditing({ item, isNew: false });
+  };
+  const finishTextEdit = (text: string | null) => {
+    if (!editing) return;
+    const { item, isNew } = editing;
+    setEditing(null);
+    if (text === null) return;
+    // Trailing blank space is never wanted; an emptied text box is removed.
+    const value = text.replace(/\s+$/u, '');
+    if (value === '') {
+      if (!isNew) deleteItem(item.id);
+      return;
+    }
+    const next = fitTextHeight({ ...item, text: value });
+    setSelectedId(next.id);
+    commit(isNew ? appendItem(items, next) : items.map((candidate) => (candidate.id === next.id ? next : candidate)));
+  };
+
+  /** Colour, thickness or size: changes what is selected (or being typed) and what is drawn next. */
+  const applyStyle = (patch: Partial<ImageEditStyle>) => {
+    setStyle((current) => ({ ...current, ...patch }));
+    const restyle = <T extends ImageEditItem>(item: T): T => {
+      if (item.kind === 'redaction') return item;
+      const next = { ...item, ...(patch.color ? { color: patch.color } : {}) } as ImageEditItem;
+      if (next.kind === 'text' && patch.fontSize) return fitTextHeight({ ...next, fontSize: patch.fontSize }) as unknown as T;
+      if ((next.kind === 'arrow' || next.kind === 'rect') && patch.strokeWidth) return { ...next, width: patch.strokeWidth } as unknown as T;
+      return next as T;
+    };
+    if (editing) setEditing({ ...editing, item: restyle(editing.item) });
+    else if (selectedItem && selectedItem.kind !== 'redaction') replaceItem(restyle(selectedItem));
+  };
+
+  /** Style controls follow the selection, or the active tool when nothing is selected. */
+  const styleSource = editing?.item ?? (selectedItem && selectedItem.kind !== 'redaction' ? selectedItem : null);
+  const styleControls = styleSource
+    ? styleSource.kind === 'text' ? 'text' : 'stroke'
+    : activeTool.styleControls;
+  const shownStyle: ImageEditStyle = styleSource
+    ? {
+        color: styleSource.color,
+        fontSize: styleSource.kind === 'text' ? styleSource.fontSize : style.fontSize,
+        strokeWidth: styleSource.kind === 'rect' || styleSource.kind === 'arrow' ? styleSource.width : style.strokeWidth,
+      }
+    : style;
 
   const requestClose = async () => {
     if (closing) return;
@@ -175,7 +256,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || event.target instanceof HTMLTextAreaElement) return;
     const modifier = event.metaKey || event.ctrlKey;
     if (modifier && event.key.toLowerCase() === 'z') {
       event.preventDefault();
@@ -201,6 +282,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
       <DialogContent
         showClose={false}
         onKeyDown={handleKeyDown}
+        // Escape while typing cancels the text, not the whole editor.
+        onEscapeKeyDown={(event) => editing && event.preventDefault()}
         // Land on the canvas, not on the first toolbar button (which would pop its tooltip over the title).
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -215,7 +298,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
           <h2 className="text-base font-bold">{copy.title(number)}</h2>
           <ImageEditToolbar
             tool={tool}
-            onToolChange={setTool}
+            onToolChange={changeTool}
             hasSelection={selectedId !== null}
             onDeleteSelected={() => selectedId && deleteItem(selectedId)}
             itemCount={items.length}
@@ -233,6 +316,9 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
             onDone={() => void requestClose()}
             doneDisabled={closing}
           />
+          {styleControls !== 'none' && (
+            <ImageEditStylePanel controls={styleControls} style={shownStyle} onChange={applyStyle} />
+          )}
           {session.saveFailed && (
             <InlineAlert>
               <span className="flex flex-wrap items-center gap-3">
@@ -279,7 +365,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                 {canvasStyle && (
                   <EntryThumbnail
                     entry={entry}
-                    redactions={draftRedactions}
+                    redactions={shown.redactions}
+                    imageEdits={shown.imageEdits}
                     alt={copy.title(number)}
                     fit="contain"
                     exactBox
@@ -290,11 +377,16 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                         items={items}
                         tool={tool}
                         size={imageSize}
+                        style={style}
                         selectedId={selectedId}
                         onSelect={setSelectedId}
                         onCreate={createItem}
-                        onUpdate={updateItem}
+                        onUpdate={replaceItem}
                         onDelete={deleteItem}
+                        onDraft={setPreview}
+                        editingText={editing?.item ?? null}
+                        onStartTextEdit={startTextEdit}
+                        onFinishTextEdit={finishTextEdit}
                         onPanStart={startPan}
                       />
                     )}

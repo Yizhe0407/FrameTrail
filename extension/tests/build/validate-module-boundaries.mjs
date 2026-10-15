@@ -34,6 +34,7 @@ const storageModelModules = new Set([
   'lib/storage/project-section-model.ts',
   'lib/storage/project-tag-model.ts',
   'lib/storage/persistence-limits.ts',
+  'lib/storage/image-edit-model.ts',
 ]);
 
 function classify(file) {

@@ -1,11 +1,13 @@
 import { BASE64_ALPHABET } from './base64';
-import type { Bounds, Redaction, Step } from '../storage/models';
+import type { Bounds, ImageEdit, Redaction, Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { PROJECT_SECTION_LIMITS, type ProjectSection } from '../storage/project-section-model';
 import { PROJECT_TAG_LIMITS } from '../storage/project-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'stepmark-project';
-export const PROJECT_ARCHIVE_VERSION = 2;
+/** Version 3 adds `imageEdits` (text, arrows, rectangles) to steps. Version 2 files stay importable. */
+export const PROJECT_ARCHIVE_VERSION = 3;
+export const SUPPORTED_ARCHIVE_VERSIONS: readonly number[] = [2, 3];
 export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.stepmark.project+json';
 
 /** Public limits are exported so callers can explain rejected imports before retrying. */
@@ -16,6 +18,8 @@ export const PROJECT_ARCHIVE_LIMITS = Object.freeze({
   maxSteps: PERSISTED_STEP_LIMITS.maxStepsPerProject,
   maxScreenshots: PERSISTED_STEP_LIMITS.maxStepsPerProject,
   maxRedactionsPerStep: PERSISTED_STEP_LIMITS.maxRedactionsPerStep,
+  maxImageEditsPerStep: PERSISTED_STEP_LIMITS.maxImageEditsPerStep,
+  maxImageEditTextLength: PERSISTED_STEP_LIMITS.maxImageEditTextLength,
   maxIdLength: PERSISTED_STEP_LIMITS.maxIdLength,
   maxTitleLength: 120,
   maxDescriptionLength: PERSISTED_STEP_LIMITS.maxDescriptionLength,
@@ -37,6 +41,7 @@ export type ProjectArchiveErrorCode =
   | 'INVALID_ARCHIVE'
   | 'INVALID_BLOB'
   | 'INVALID_JSON'
+  | 'INVALID_IMAGE_EDIT'
   | 'INVALID_REDACTION'
   | 'LIMIT_EXCEEDED'
   | 'UNSAFE_URL'
@@ -100,6 +105,7 @@ export interface ArchiveStep {
   manualBounds?: ArchiveBounds | null;
   redactions?: ArchiveRedaction[];
   redactionReviewRequired?: boolean;
+  imageEdits?: ImageEdit[];
   devicePixelRatio: number;
   screenshotScale?: number;
   description: string;
@@ -147,6 +153,12 @@ export const SECTION_KEYS = ['id', 'title', 'startEntryId'] as const;
 export const BLOB_KEYS = ['id', 'mediaType', 'size', 'encoding', 'data'] as const;
 export const BOUNDS_KEYS = ['x', 'y', 'width', 'height'] as const;
 export const REDACTION_KEYS = ['id', 'bounds', 'kind'] as const;
+export const IMAGE_EDIT_KEYS = {
+  text: ['id', 'kind', 'bounds', 'text', 'fontSize', 'color'],
+  arrow: ['id', 'kind', 'from', 'to', 'width', 'color'],
+  rect: ['id', 'kind', 'bounds', 'width', 'color'],
+} as const;
+export const POINT_KEYS = ['x', 'y'] as const;
 export const STEP_KEYS = [
   'id',
   'sessionId',
@@ -157,6 +169,7 @@ export const STEP_KEYS = [
   'manualBounds',
   'redactions',
   'redactionReviewRequired',
+  'imageEdits',
   'devicePixelRatio',
   'screenshotScale',
   'description',

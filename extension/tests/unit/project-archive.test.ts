@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type Step } from '@/lib/storage/models';
 import { type ProjectArchiveMetadataInput } from '@/lib/export/project-archive-contract';
-import { PROJECT_ARCHIVE_FORMAT, PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_MIME_TYPE, PROJECT_ARCHIVE_VERSION } from '@/lib/export/project-archive-contract';
+import { PROJECT_ARCHIVE_FORMAT, PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_MIME_TYPE, PROJECT_ARCHIVE_VERSION, ProjectArchiveError } from '@/lib/export/project-archive-contract';
 import { exportProjectArchive, serializeProjectArchive } from '@/lib/export/project-archive-serialize';
 import { importProjectArchive } from '@/lib/export/project-archive-import';
 import { STEP_KEYS } from '@/lib/export/project-archive-contract';
@@ -130,6 +130,7 @@ describe('project archive', () => {
       manualBounds: { x: 1, y: 2, width: 3, height: 4 },
       redactions: [{ id: 'mask-1', kind: 'solid', bounds: { x: 2, y: 3, width: 4, height: 5 } }],
       redactionReviewRequired: false,
+      imageEdits: [{ id: 'edit-1', kind: 'rect', bounds: { x: 1, y: 1, width: 5, height: 5 }, width: 2, color: 'red' }],
       screenshotScale: 1.5,
       captureRevision: 3,
       lastCaptureRunId: 'capture-run-3',
@@ -434,5 +435,53 @@ describe('project archive', () => {
     await expect(
       importProjectArchive(new AbortingArchiveBlob([validText]), { signal: importAbort.signal }),
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  describe('image edits', () => {
+    const edits = [
+      { id: 'text-1', kind: 'text' as const, bounds: { x: 10, y: 20, width: 200, height: 31.2 }, text: '點這裡\nClick here', fontSize: 24, color: 'blue' as const },
+      { id: 'arrow-1', kind: 'arrow' as const, from: { x: 5, y: 6 }, to: { x: 80, y: 90 }, width: 4, color: 'red' as const },
+      { id: 'rect-1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 30, height: 40 }, width: 2, color: 'yellow' as const },
+    ];
+
+    it('round-trips text, arrows and rectangles on the image owner', async () => {
+      const step = makeStep({ id: 'drawn', screenshotBlob: pngBlob(4, 4), imageEdits: edits });
+      const { steps } = await importProjectArchive(await exportProjectArchive([step]));
+      expect(steps[0].imageEdits).toEqual(edits);
+    });
+
+    it('still imports a version 2 file that has no image edits', async () => {
+      const archive = await archiveObject([makeStep({ id: 'plain', screenshotBlob: pngBlob(4, 4) })]);
+      archive.manifest.version = 2;
+      const { steps } = await importProjectArchive(JSON.stringify(archive));
+      expect(steps).toHaveLength(1);
+      expect(steps[0].imageEdits).toBeUndefined();
+    });
+
+    it.each([
+      ['an unknown colour', { ...edits[2], color: '#ff0000' }],
+      ['an unknown kind', { ...edits[2], kind: 'circle' }],
+      ['an unknown field', { ...edits[2], extra: true }],
+      ['an empty text', { ...edits[0], text: '' }],
+      ['a huge font size', { ...edits[0], fontSize: 5_000 }],
+      ['a non-finite arrow point', { ...edits[1], to: { x: 'far', y: 1 } }],
+      ['an arrow with bounds fields', { ...edits[1], bounds: { x: 0, y: 0, width: 1, height: 1 } }],
+    ])('rejects %s', async (_name, bad) => {
+      const archive = await archiveObject([makeStep({ id: 'drawn', screenshotBlob: pngBlob(4, 4), imageEdits: [edits[2]] })]);
+      archive.manifest.steps[0].imageEdits = [bad];
+      await expect(importProjectArchive(JSON.stringify(archive))).rejects.toBeInstanceOf(ProjectArchiveError);
+    });
+
+    it('rejects duplicate ids and too many edits', async () => {
+      const archive = await archiveObject([makeStep({ id: 'drawn', screenshotBlob: pngBlob(4, 4), imageEdits: [edits[2]] })]);
+      archive.manifest.steps[0].imageEdits = [edits[2], edits[2]];
+      await expect(importProjectArchive(JSON.stringify(archive))).rejects.toMatchObject({ code: 'DUPLICATE_ID' });
+
+      archive.manifest.steps[0].imageEdits = Array.from(
+        { length: PROJECT_ARCHIVE_LIMITS.maxImageEditsPerStep + 1 },
+        (_, index) => ({ ...edits[2], id: `r-${index}` }),
+      );
+      await expect(importProjectArchive(JSON.stringify(archive))).rejects.toMatchObject({ code: 'LIMIT_EXCEEDED' });
+    });
   });
 });

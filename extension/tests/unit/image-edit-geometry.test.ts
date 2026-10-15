@@ -7,7 +7,7 @@ import {
   moveBounds,
   resizeBounds,
 } from '@/lib/editor/image-edit-geometry';
-import { itemsToRedactions, redactionsToItems } from '@/lib/editor/image-edit-items';
+import { appendItem, splitItems, toItems, type ImageEditItem } from '@/lib/editor/image-edit-items';
 
 const size = { width: 400, height: 200 };
 
@@ -47,8 +47,20 @@ describe('image edit geometry', () => {
 });
 
 describe('image edit items', () => {
-  it('round-trips redactions through the generic item list', () => {
-    const redactions = [{ id: 'a', kind: 'solid' as const, bounds: { x: 1, y: 2, width: 30, height: 40 } }];
-    expect(itemsToRedactions(redactionsToItems(redactions))).toEqual(redactions);
+  const mask = { id: 'm', kind: 'solid' as const, bounds: { x: 1, y: 2, width: 30, height: 40 } };
+  const rect = { id: 'r', kind: 'rect' as const, bounds: { x: 5, y: 6, width: 7, height: 8 }, width: 2, color: 'red' as const };
+  const arrow = { id: 'a', kind: 'arrow' as const, from: { x: 0, y: 0 }, to: { x: 9, y: 9 }, width: 4, color: 'blue' as const };
+
+  it('round-trips both stored fields through the flat item list, masks last', () => {
+    const items = toItems([mask], [rect, arrow]);
+    expect(items.map((item) => item.id)).toEqual(['r', 'a', 'm']);
+    expect(splitItems(items)).toEqual({ redactions: [mask], imageEdits: [rect, arrow] });
+  });
+
+  it('keeps masks last when something is added', () => {
+    const items = toItems([mask], [rect]);
+    const added: ImageEditItem = { ...rect, id: 'r2' };
+    expect(appendItem(items, added).map((item) => item.id)).toEqual(['r', 'r2', 'm']);
+    expect(appendItem(items, { id: 'm2', kind: 'redaction', bounds: mask.bounds }).map((item) => item.id)).toEqual(['r', 'm', 'm2']);
   });
 });
