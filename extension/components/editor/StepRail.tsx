@@ -14,6 +14,7 @@ import {
   useSortableReorder,
 } from '@/lib/editor/dnd';
 import { t } from '@/lib/shared/i18n';
+import { DashedOutline } from '@/components/ui/dashed-outline';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import EntryThumbnail from './EntryThumbnail';
@@ -264,8 +265,9 @@ export default function StepRail({
               type="button"
               onClick={onContinueRecording}
               disabled={reorderDisabled}
-              className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-transparent dashed-outline bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:bg-none hover:bg-secondary hover:border-2 hover:border-border hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
+              className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 relative rounded-md border-2 border-transparent bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:border-2 hover:border-border hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
             >
+              <DashedOutline radius={8} className="-inset-0.5" />
               <Video className="size-3.5" />{t().editor.rail.continueRecording}
             </button>
           </TooltipTrigger>

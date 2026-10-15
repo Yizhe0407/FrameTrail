@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { DashedOutline } from '@/components/ui/dashed-outline';
 import { Input } from '@/components/ui/input';
 import { buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -161,6 +162,7 @@ export default function TagSelectDialog({
                           aria-label={t().editor.tags.addTag(tag)}
                           className="min-w-0 truncate"
                         >
+                          <DashedOutline radius="full" className="-inset-0.5" />
                           {tag}
                         </button>
                       </Badge>

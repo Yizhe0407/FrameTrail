@@ -7,6 +7,7 @@ import { useImageCssSize } from '@/lib/editor/use-image-css-size';
 import ImageEditLayer from './ImageEditLayer';
 import ImageEditToolbar from './ImageEditToolbar';
 import { Badge } from '@/components/ui/badge';
+import { DashedOutline } from '@/components/ui/dashed-outline';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -183,6 +184,7 @@ export default function StepStage({
                   onClick={() => setTagDialogOpen(true)}
                   disabled={editingDisabled}
                 >
+                  <DashedOutline radius="full" className="-inset-0.5" />
                   <Plus className="size-3.5 stroke-[2.5]" />
                   {t().editor.stage.tagButton}
                 </button>

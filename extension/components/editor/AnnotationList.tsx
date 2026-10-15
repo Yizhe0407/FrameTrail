@@ -13,6 +13,7 @@ import { reportError } from '@/components/shared/report-error';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 import SortableItem from './SortableItem';
 import { t } from '@/lib/shared/i18n';
+import { DashedOutline } from '@/components/ui/dashed-outline';
 
 interface RowProps {
   step: Step;
@@ -142,7 +143,7 @@ export default function AnnotationList({
   );
 
   if (annotations.length === 0) {
-    return <p className="rounded-md dashed-outline p-4 text-sm text-muted-foreground">{t().editor.annotations.empty}</p>;
+    return <p className="relative rounded-md p-4 text-sm text-muted-foreground"><DashedOutline radius={8} />{t().editor.annotations.empty}</p>;
   }
 
   return (
