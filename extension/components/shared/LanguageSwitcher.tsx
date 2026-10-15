@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Languages } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getLocalePreference, setLocalePreference } from '@/lib/runtime/locale-preference';
 import { LOCALE_NAMES, SUPPORTED_LOCALES, t, type LocalePreference } from '@/lib/shared/i18n';
 import { cn } from '@/lib/shared/utils';
@@ -40,27 +41,33 @@ export default function LanguageSwitcher({ className }: Props) {
   }
 
   return (
-    <label
-      className={cn(
-        'relative flex h-8 shrink-0 items-center gap-1.5 rounded-md border-2 border-border bg-card pr-2 pl-2.5 text-xs font-bold text-foreground focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus',
-        className,
-      )}
-    >
-      <Languages className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="sr-only">{t().language.label}</span>
-      <select
-        value={preference}
-        onChange={(event) => void choose(event.target.value as LocalePreference)}
-        className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent pr-4 outline-none"
+    <Select value={preference} onValueChange={(next) => void choose(next as LocalePreference)}>
+      {/* Sticker treatment layered over the stock shadcn classes: 2px ink
+          outline, flat card fill, and the shared focus-ring in place of the
+          stock translucent ring. */}
+      <SelectTrigger
+        aria-label={t().language.label}
+        className={cn(
+          // Radix renders the value without forwarding className, so it is laid out
+          // from here: it takes the free space and sits beside the icon.
+          'h-8 gap-1.5 border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground focus-ring focus-visible:border-border focus-visible:ring-0 data-[size=default]:h-8 dark:bg-card dark:hover:bg-secondary *:data-[slot=select-value]:flex-1',
+          className,
+        )}
       >
-        <option value="auto">{t().language.auto}</option>
+        <Languages aria-hidden="true" />
+        <SelectValue />
+      </SelectTrigger>
+      {/* A ring (drawn outside the box) rather than a border keeps the
+          viewport's 4px padding the full inset, so the items' rounded-sm stays
+          concentric. Not an outline: Radix pins `outline: none` inline. */}
+      <SelectContent position="popper" className="border-0 ring-2 ring-border">
+        <SelectItem value="auto" className="font-bold">{t().language.auto}</SelectItem>
         {SUPPORTED_LOCALES.map((locale) => (
-          <option key={locale} value={locale} lang={locale}>{LOCALE_NAMES[locale]}</option>
+          <SelectItem key={locale} value={locale} lang={locale} className="font-bold">
+            {LOCALE_NAMES[locale]}
+          </SelectItem>
         ))}
-      </select>
-      <svg viewBox="0 0 10 6" aria-hidden="true" className="pointer-events-none absolute right-2 h-1.5 w-2.5 fill-current">
-        <path d="M0 0h10L5 6z" />
-      </svg>
-    </label>
+      </SelectContent>
+    </Select>
   );
 }

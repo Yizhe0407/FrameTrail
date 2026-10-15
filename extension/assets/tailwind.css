@@ -79,6 +79,9 @@
   --foreground: var(--text);
   --card: var(--surface);
   --card-foreground: var(--text);
+  /* Floating surfaces (select menus); shadcn components read these names. */
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
   --primary: var(--sora);
   --primary-foreground: var(--on-accent);
   --secondary: var(--surface-muted);
@@ -124,6 +127,8 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -168,14 +173,17 @@
   --radius-2xl: var(--radius);
   --radius-3xl: var(--radius);
   --radius-4xl: var(--radius);
-  /* No surface casts a shadow in this system. */
-  --shadow-2xs: none;
-  --shadow-xs: none;
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
-  --shadow-xl: none;
-  --shadow-2xl: none;
+  /* No surface casts a shadow in this system. A transparent zero shadow, not
+   * `none`: Tailwind composes shadow and ring into one comma-separated
+   * box-shadow, and a `none` inside that list voids the whole declaration,
+   * which would silently drop any ring-* on the same element. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
 
   --font-sans:
     'Huninn', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', -apple-system, BlinkMacSystemFont,

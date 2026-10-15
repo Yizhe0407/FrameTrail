@@ -1,6 +1,4 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+/** Class-name merging for Tailwind. Re-exports shadcn's own `cn` package, the
+ * same one every component the shadcn CLI installs imports directly, so the
+ * project merges classes with a single implementation. */
+export { cn } from 'cn';

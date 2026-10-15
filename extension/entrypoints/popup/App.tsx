@@ -156,7 +156,7 @@ function App() {
         </div>
       )}
 
-      <LanguageSwitcher />
+      <LanguageSwitcher className="w-full" />
     </div>
   );
 }

@@ -1,6 +1,22 @@
 {
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
+    // WXT's generated .wxt/tsconfig.json declares these aliases relative to
+    // .wxt/, which the shadcn CLI resolves against this file instead and so
+    // writes components outside the project. Restating them from the project
+    // root keeps `npx shadcn add` and TypeScript in agreement; Vite's aliases
+    // come from wxt.config, so the build is unaffected.
+    "baseUrl": ".",
+    "paths": {
+      "@": ["."],
+      "@/*": ["./*"],
+      "~": ["."],
+      "~/*": ["./*"],
+      "@@": ["."],
+      "@@/*": ["./*"],
+      "~~": ["."],
+      "~~/*": ["./*"]
+    },
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "noUnusedLocals": true,

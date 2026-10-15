@@ -200,7 +200,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <LanguageSwitcher className="h-10" />
+            <LanguageSwitcher className="h-10 data-[size=default]:h-10" />
             <input
               ref={importInput}
               type="file"

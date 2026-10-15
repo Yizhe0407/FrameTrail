@@ -43,6 +43,20 @@ function Page() {
   );
 }
 
+// jsdom lacks the pointer-capture and scrolling APIs Radix Select calls.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
+/** Opens the language menu by keyboard and picks an option, as a user would. */
+async function pick(name: string) {
+  fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+  const option = await screen.findByRole('option', { name });
+  option.focus();
+  fireEvent.keyDown(option, { key: 'Enter' });
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+}
+
 beforeEach(() => {
   for (const key of Object.keys(storage.values)) delete storage.values[key];
   storage.listeners.clear();
@@ -59,7 +73,8 @@ describe('language switcher', () => {
     render(<Page />);
     expect(screen.getByText('開始錄製')).toBeTruthy();
 
-    fireEvent.change(screen.getByRole('combobox', { name: '語言' }), { target: { value: 'en' } });
+    expect(screen.getByRole('combobox', { name: '語言' })).toBeTruthy();
+    await pick('English');
 
     await waitFor(() => expect(screen.getByText('Start recording')).toBeTruthy());
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeTruthy();
@@ -68,10 +83,11 @@ describe('language switcher', () => {
 
   it('follows the browser again when switched back to automatic', async () => {
     render(<Page />);
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'en' } });
+    await pick('English');
     await waitFor(() => expect(getLocale()).toBe('en'));
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'auto' } });
+    await pick('Match browser');
+    expect(storage.values['frametrail:localePreference']).toBe('auto');
     // The suite pins the browser language to zh-TW.
     await waitFor(() => expect(screen.getByText('開始錄製')).toBeTruthy());
   });
