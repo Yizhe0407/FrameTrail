@@ -14,10 +14,10 @@ import {
   translateItem,
   type ItemHandle,
 } from '@/lib/editor/image-edit-item-geometry';
-import type { ImageEditItem } from '@/lib/editor/image-edit-items';
-import { imageEditTool, type ImageEditStyle, type ImageEditTool, type ImageEditToolId } from '@/lib/editor/image-edit-tools';
+import { nextStepNumber, type ImageEditItem } from '@/lib/editor/image-edit-items';
+import type { ImageEditStyle } from '@/lib/editor/image-edit-style';
+import { constrainDragEnd, imageEditTool, type ImageEditTool, type ImageEditToolId } from '@/lib/editor/image-edit-tools';
 import {
-  IMAGE_EDIT_COLOR_HEX,
   IMAGE_EDIT_FONT_FAMILY,
   IMAGE_EDIT_FONT_WEIGHT,
   textLineHeight,
@@ -69,10 +69,10 @@ const HANDLE_POSITION: Record<string, string> = {
 /** Pixels a keyboard nudge moves the selected item; Shift moves further. */
 const NUDGE = 1;
 const NUDGE_LARGE = 10;
-/** Two presses on the same text within this window start editing it. */
-const DOUBLE_PRESS_MS = 350;
 /** On-screen width of the invisible stroke that lets thin lines be grabbed. */
 const HIT_STROKE = 14;
+/** Two presses on the same text within this window start editing it. */
+const DOUBLE_PRESS_MS = 350;
 
 const percent = (value: number, total: number): string => `${(value / total) * 100}%`;
 
@@ -86,10 +86,6 @@ function boxStyle(item: ImageEditItem, size: ImageCssSize) {
   };
 }
 
-function itemLabel(item: ImageEditItem): string {
-  return t().editor.imageEdit.itemLabel(item.kind);
-}
-
 /** Where an arrow's end handle sits inside the arrow's own box. */
 function arrowHandleStyle(item: Extract<ImageEditItem, { kind: 'arrow' }>, handle: 'from' | 'to') {
   const box = itemBounds(item);
@@ -99,6 +95,9 @@ function arrowHandleStyle(item: Extract<ImageEditItem, { kind: 'arrow' }>, handl
     top: percent(point.y - box.y, box.height),
   };
 }
+
+/** Shapes that are grabbed by their outline, so clicking inside reaches whatever is under them. */
+const isStrokeHit = (item: ImageEditItem): boolean => item.kind === 'rect' || item.kind === 'ellipse' || item.kind === 'arrow';
 
 /** Dims everything outside the crop, so the area that will be kept stands out. */
 function CropShade({ bounds, size }: { bounds: { x: number; y: number; width: number; height: number }; size: ImageCssSize }) {
@@ -172,7 +171,7 @@ function TextEditor({
           finish(null);
         }
       }}
-      className="absolute m-0 box-border resize-none overflow-hidden border-2 border-dashed border-focus bg-card/40 p-0 outline-none"
+      className="absolute m-0 box-border resize-none overflow-hidden rounded-sm border-2 border-dashed border-focus bg-black/25 p-0 outline-none"
       style={{
         left: percent(item.bounds.x, size.width),
         top: percent(item.bounds.y, size.height),
@@ -181,7 +180,7 @@ function TextEditor({
         fontWeight: IMAGE_EDIT_FONT_WEIGHT,
         fontSize: item.fontSize * scale,
         lineHeight: `${textLineHeight(item.fontSize) * scale}px`,
-        color: IMAGE_EDIT_COLOR_HEX[item.color],
+        color: item.color,
       }}
     />
   );
@@ -193,7 +192,8 @@ function TextEditor({
  * resize by handle, nudge, delete, edit text) and reports finished gestures
  * upward; it never persists anything itself. What a gesture would produce is
  * also reported mid-drag (`onDraft`) so the workspace can show the real result
- * live, not just an outline.
+ * live, not just an outline. Holding Shift reshapes a gesture (square, 45°,
+ * locked direction) and is tracked live, so pressing it mid-drag takes effect.
  */
 export default function ImageEditLayer({
   items,
@@ -214,6 +214,7 @@ export default function ImageEditLayer({
 }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<Session | null>(null);
+  const lastPointRef = useRef<Point | null>(null);
   const [draft, setDraft] = useState<ImageEditItem | null>(null);
   const [scale, setScale] = useState(1);
   const lastDownRef = useRef<{ id: string; time: number } | null>(null);
@@ -241,6 +242,7 @@ export default function ImageEditLayer({
   function begin(event: PointerEvent, session: Session) {
     if (disabled || event.button !== 0) return;
     sessionRef.current = session;
+    lastPointRef.current = pointFromEvent(event);
     layerRef.current?.setPointerCapture(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -279,34 +281,62 @@ export default function ImageEditLayer({
     begin(event, { mode: 'create', tool: activeTool, origin: pointFromEvent(event) });
   }
 
-  function draftFor(session: Session, point: Point): ImageEditItem | null {
+  /** What the gesture produces with the pointer at `point`; Shift reshapes it. */
+  function draftFor(session: Session, point: Point, shift: boolean): ImageEditItem | null {
     if (session.mode === 'create') {
-      return session.tool.create?.({ from: session.origin, to: point, size, style }) ?? null;
+      const to = shift ? constrainDragEnd(session.tool, session.origin, point, size) : point;
+      return session.tool.create?.({ from: session.origin, to, size, style, nextNumber: nextStepNumber(items) }) ?? null;
     }
-    const dx = point.x - session.origin.x;
-    const dy = point.y - session.origin.y;
-    return session.mode === 'move'
-      ? translateItem(session.start, dx, dy, size)
-      : resizeItem(session.start, session.handle, dx, dy, size);
+    let dx = point.x - session.origin.x;
+    let dy = point.y - session.origin.y;
+    if (session.mode === 'move') {
+      // Shift locks a move to its dominant axis.
+      if (shift) {
+        if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+        else dx = 0;
+      }
+      return translateItem(session.start, dx, dy, size);
+    }
+    return resizeItem(session.start, session.handle, dx, dy, size, { constrain: shift });
   }
 
-  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+  function refreshDraft(point: Point, shift: boolean) {
     const session = sessionRef.current;
     if (!session) return;
-    const next = draftFor(session, pointFromEvent(event));
+    lastPointRef.current = point;
+    const next = draftFor(session, point, shift);
     setDraft(next);
     onDraft(next);
   }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    refreshDraft(pointFromEvent(event), event.shiftKey);
+  }
+
+  // Pressing or releasing Shift mid-drag reshapes the gesture without waiting for the next pointer move.
+  useEffect(() => {
+    const onShift = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Shift' || !sessionRef.current || !lastPointRef.current) return;
+      refreshDraft(lastPointRef.current, event.type === 'keydown');
+    };
+    window.addEventListener('keydown', onShift);
+    window.addEventListener('keyup', onShift);
+    return () => {
+      window.removeEventListener('keydown', onShift);
+      window.removeEventListener('keyup', onShift);
+    };
+  });
 
   /** Ends the gesture. The result is computed from where the pointer was released, so a press
    * and release without any movement in between (a click) still produces its item. */
   function finish(event: PointerEvent<HTMLDivElement> | null) {
     const session = sessionRef.current;
     sessionRef.current = null;
+    lastPointRef.current = null;
     setDraft(null);
     onDraft(null);
     if (!event || !session) return;
-    const result = draftFor(session, pointFromEvent(event));
+    const result = draftFor(session, pointFromEvent(event), event.shiftKey);
     if (!result) return;
     if (session.mode === 'create') onCreate(result);
     else if (JSON.stringify(result) !== JSON.stringify(session.start)) onUpdate(result);
@@ -341,8 +371,8 @@ export default function ImageEditLayer({
   const shown = items.map((item) => (draft && draft.id === item.id ? draft : item));
   const isNewDraft = draft !== null && !items.some((item) => item.id === draft.id);
   const chromeItems = isNewDraft && draft ? [...shown, draft] : shown;
-  const strokeHitItems = chromeItems.filter((item) => item.kind === 'rect' || item.kind === 'arrow');
-  const hitSvgItems = strokeHitItems.filter((item) => item.id !== editingText?.id);
+  const typingId = editingText?.id;
+  const hitSvgItems = chromeItems.filter((item) => isStrokeHit(item) && item.id !== typingId);
 
   function renderChrome(item: ImageEditItem) {
     const isCrop = item.kind === 'crop';
@@ -350,19 +380,21 @@ export default function ImageEditLayer({
     const inert = tool === 'crop' ? !isCrop : isCrop;
     const selected = isCrop ? tool === 'crop' : item.id === selectedId;
     const isNew = isNewDraft && draft?.id === item.id;
-    const strokeOnly = item.kind === 'rect' || item.kind === 'arrow';
+    const strokeOnly = isStrokeHit(item);
+    const round = item.kind === 'ellipse' || item.kind === 'step';
     return (
       <div
         key={item.id}
         role="button"
         tabIndex={disabled || isNew || inert ? -1 : 0}
-        aria-label={itemLabel(item)}
+        aria-label={t().editor.imageEdit.itemLabel(item.kind)}
         aria-pressed={selected}
         data-stepmark-edit-item={item.id}
         data-stepmark-edit-kind={item.kind}
         className={cn(
           'absolute box-border outline-none',
           (strokeOnly || inert) && 'pointer-events-none',
+          round && 'rounded-full',
           item.kind === 'arrow'
             ? ''
             : isCrop
@@ -394,8 +426,8 @@ export default function ImageEditLayer({
   }
 
   const cropItem = chromeItems.find((item) => item.kind === 'crop') ?? null;
-  const textAndRedactions = chromeItems.filter((item) => item.kind === 'text' || item.kind === 'redaction');
-  const visibleText = textAndRedactions.filter((item) => item.id !== editingText?.id);
+  const boxLike = chromeItems.filter((item) => !isStrokeHit(item) && item.kind !== 'crop' && item.id !== typingId);
+  const strokeLike = chromeItems.filter((item) => isStrokeHit(item) && item.id !== typingId);
 
   return (
     <div
@@ -414,7 +446,7 @@ export default function ImageEditLayer({
       onPointerUp={finish}
       onPointerCancel={() => finish(null)}
     >
-      {/* Thin shapes are grabbed by their stroke, so clicking inside a rectangle reaches whatever is under it. */}
+      {/* Outlined shapes are grabbed by their stroke, so clicking inside a box reaches whatever is under it. */}
       <svg
         className="pointer-events-none absolute inset-0 size-full"
         viewBox={`0 0 ${size.width} ${size.height}`}
@@ -431,15 +463,29 @@ export default function ImageEditLayer({
             className: disabled ? undefined : 'cursor-move',
             onPointerDown: (event: PointerEvent<SVGElement>) => beginMove(event as unknown as PointerEvent, item),
           };
-          return item.kind === 'rect'
-            ? <rect key={item.id} x={item.bounds.x} y={item.bounds.y} width={item.bounds.width} height={item.bounds.height} {...hit} />
-            : item.kind === 'arrow'
-              ? <line key={item.id} x1={item.from.x} y1={item.from.y} x2={item.to.x} y2={item.to.y} strokeLinecap="round" {...hit} />
-              : null;
+          if (item.kind === 'rect') {
+            return <rect key={item.id} x={item.bounds.x} y={item.bounds.y} width={item.bounds.width} height={item.bounds.height} {...hit} />;
+          }
+          if (item.kind === 'ellipse') {
+            return (
+              <ellipse
+                key={item.id}
+                cx={item.bounds.x + item.bounds.width / 2}
+                cy={item.bounds.y + item.bounds.height / 2}
+                rx={item.bounds.width / 2}
+                ry={item.bounds.height / 2}
+                {...hit}
+              />
+            );
+          }
+          if (item.kind === 'arrow') {
+            return <line key={item.id} x1={item.from.x} y1={item.from.y} x2={item.to.x} y2={item.to.y} strokeLinecap="round" {...hit} />;
+          }
+          return null;
         })}
       </svg>
-      {strokeHitItems.filter((item) => item.id !== editingText?.id).map(renderChrome)}
-      {visibleText.map(renderChrome)}
+      {strokeLike.map(renderChrome)}
+      {boxLike.map(renderChrome)}
       {cropItem && (
         <>
           <CropShade bounds={cropItem.bounds} size={size} />

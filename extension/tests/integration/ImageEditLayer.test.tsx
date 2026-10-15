@@ -3,13 +3,13 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import ImageEditLayer from '@/components/editor/ImageEditLayer';
 import type { ImageEditItem } from '@/lib/editor/image-edit-items';
-import { DEFAULT_IMAGE_EDIT_STYLE } from '@/lib/editor/image-edit-tools';
+import { DEFAULT_IMAGE_EDIT_STYLE } from '@/lib/editor/image-edit-style';
 
 const size = { width: 400, height: 200 };
 const mask: ImageEditItem = { id: 'mask-1', kind: 'redaction', bounds: { x: 100, y: 50, width: 80, height: 40 } };
-const rect: ImageEditItem = { id: 'rect-1', kind: 'rect', bounds: { x: 20, y: 20, width: 60, height: 30 }, width: 2, color: 'red' };
-const text: ImageEditItem = { id: 'text-1', kind: 'text', bounds: { x: 200, y: 100, width: 100, height: 30 }, text: 'Hello', fontSize: 24, color: 'black' };
-const arrow: ImageEditItem = { id: 'arrow-1', kind: 'arrow', from: { x: 10, y: 150 }, to: { x: 110, y: 190 }, width: 4, color: 'blue' };
+const rect: ImageEditItem = { id: 'rect-1', kind: 'rect', bounds: { x: 20, y: 20, width: 60, height: 30 }, width: 2, fill: 'none' as const, color: '#ff4747' };
+const text: ImageEditItem = { id: 'text-1', kind: 'text', bounds: { x: 200, y: 100, width: 100, height: 30 }, text: 'Hello', fontSize: 24, look: 'plain' as const, color: '#111111' };
+const arrow: ImageEditItem = { id: 'arrow-1', kind: 'arrow', from: { x: 10, y: 150 }, to: { x: 110, y: 190 }, width: 4, color: '#2f6fed' };
 
 beforeAll(() => {
   // jsdom has no layout or pointer capture: 1 CSS px of image == 1 client px.
@@ -55,12 +55,12 @@ describe('ImageEditLayer creating', () => {
   });
 
   it('creates a styled box and an arrow with the active style', () => {
-    const style = { color: 'green' as const, strokeWidth: 6, fontSize: 24 };
+    const style = { ...DEFAULT_IMAGE_EDIT_STYLE, color: '#22a559', strokeWidth: 6 };
     const box = setup({ tool: 'rect', style });
     fireEvent.pointerDown(box.layer, { clientX: 10, clientY: 10, button: 0 });
     fireEvent.pointerMove(box.layer, { clientX: 60, clientY: 40 });
     fireEvent.pointerUp(box.layer, { clientX: 60, clientY: 40 });
-    expect(box.onCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'rect', color: 'green', width: 6 }));
+    expect(box.onCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'rect', fill: 'none' as const, color: '#22a559', width: 6 }));
     cleanup();
 
     const line = setup({ tool: 'arrow' });

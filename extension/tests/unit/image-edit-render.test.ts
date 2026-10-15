@@ -38,7 +38,7 @@ describe('layoutTextLines', () => {
 });
 
 describe('text placement', () => {
-  const edit: TextEdit = { id: 't', kind: 'text', bounds: { x: 10, y: 20, width: 50, height: 40 }, text: 'hello brave new', fontSize: 10, color: 'red' };
+  const edit: TextEdit = { id: 't', kind: 'text', bounds: { x: 10, y: 20, width: 50, height: 40 }, text: 'hello brave new', fontSize: 10, look: 'plain' as const, color: '#ff4747' };
 
   it('puts each line on its own baseline inside the box', () => {
     const placement = placeText(edit, measure);
@@ -86,7 +86,7 @@ describe('drawImageEdits', () => {
     const calls: string[] = [];
     const record = (name: string) => (...args: unknown[]) => void calls.push(`${name}(${args.join(',')})`);
     const target = new Proxy({}, {
-      get: (_t, property: string) => (['save', 'restore', 'beginPath', 'moveTo', 'lineTo', 'closePath', 'stroke', 'fill', 'strokeRect', 'fillText'].includes(property) ? record(property) : undefined),
+      get: (_t, property: string) => (['save', 'restore', 'beginPath', 'moveTo', 'lineTo', 'closePath', 'stroke', 'fill', 'fillText', 'strokeText', 'roundRect', 'ellipse', 'arc'].includes(property) ? record(property) : undefined),
       set: (_t, property: string, value) => { calls.push(`${property}=${String(value)}`); return true; },
     });
     return { ctx: target as unknown as OffscreenCanvasRenderingContext2D, calls };
@@ -95,24 +95,25 @@ describe('drawImageEdits', () => {
   it('paints edits in order at device pixel scale, each inside save/restore', () => {
     const { ctx, calls } = fakeContext();
     const edits: ImageEdit[] = [
-      { id: 'r', kind: 'rect', bounds: { x: 1, y: 2, width: 3, height: 4 }, width: 2, color: 'red' },
-      { id: 't', kind: 'text', bounds: { x: 5, y: 6, width: 100, height: 20 }, text: 'Hi', fontSize: 10, color: 'black' },
+      { id: 'r', kind: 'rect', bounds: { x: 1, y: 2, width: 3, height: 4 }, width: 2, fill: 'none' as const, color: '#ff4747' },
+      { id: 't', kind: 'text', bounds: { x: 5, y: 6, width: 100, height: 20 }, text: 'Hi', fontSize: 10, look: 'plain' as const, color: '#111111' },
     ];
     drawImageEdits(ctx, edits, 2, measure);
 
-    expect(calls.indexOf('strokeRect(2,4,6,8)')).toBeGreaterThan(-1);
+    const rectCall = calls.find((call) => call.startsWith('roundRect(2,4,6,8,'))!;
+    expect(rectCall).toBeDefined();
     expect(calls).toContain('lineWidth=4');
     expect(calls).toContain('strokeStyle=#ff4747');
     const textCall = calls.find((call) => call.startsWith('fillText('))!;
     expect(textCall.startsWith('fillText(Hi,10,')).toBe(true);
-    expect(calls.indexOf('strokeRect(2,4,6,8)')).toBeLessThan(calls.indexOf(textCall));
+    expect(calls.indexOf(rectCall)).toBeLessThan(calls.indexOf(textCall));
     expect(calls.filter((call) => call === 'save()')).toHaveLength(2);
     expect(calls.filter((call) => call === 'restore()')).toHaveLength(2);
   });
 
   it('skips a degenerate arrow without throwing', () => {
     const { ctx, calls } = fakeContext();
-    expect(() => drawImageEdits(ctx, [{ id: 'a', kind: 'arrow', from: { x: 1, y: 1 }, to: { x: 1, y: 1 }, width: 2, color: 'red' }], 1, vi.fn())).not.toThrow();
+    expect(() => drawImageEdits(ctx, [{ id: 'a', kind: 'arrow', from: { x: 1, y: 1 }, to: { x: 1, y: 1 }, width: 2, color: '#ff4747' }], 1, vi.fn())).not.toThrow();
     expect(calls.some((call) => call.startsWith('fill'))).toBe(false);
   });
 });

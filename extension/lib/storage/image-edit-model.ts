@@ -1,31 +1,42 @@
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 
 /**
- * Things a person draws onto a screenshot in the image editor: text, arrows
- * and outlined rectangles. They live on the step that owns the image (the
- * step itself, or a snapshot's shared anchor) in screenshot CSS pixels, the
- * same space as highlight bounds and privacy masks.
+ * Things a person draws onto a screenshot in the image editor: text, arrows,
+ * boxes, ellipses and numbered markers. They live on the step that owns the
+ * image (the step itself, or a snapshot's shared anchor) in screenshot CSS
+ * pixels, the same space as highlight bounds and privacy masks.
  *
  * Privacy masks are deliberately NOT part of this list. They have their own
  * field, their own fail-closed review state, and are always painted last so
- * nothing drawn here can ever show through a mask.
+ * nothing drawn here can ever show through a mask. The crop is separate too.
  */
 
-/** A small fixed palette instead of free colours: it stays legible on any
- * screenshot, renders identically everywhere, and keeps stored data trivially
- * valid. The hex values live in the render contract. */
-export const IMAGE_EDIT_COLORS = ['red', 'yellow', 'green', 'blue', 'black', 'white'] as const;
-export type ImageEditColor = (typeof IMAGE_EDIT_COLORS)[number];
+/** Colours are `#rrggbb`. The editor offers a palette plus a free picker; the
+ * stored value is always the plain hex, so it renders identically everywhere. */
+export const IMAGE_EDIT_PRESET_COLORS = ['#ff4747', '#ffc800', '#22a559', '#2f6fed', '#111111', '#ffffff'] as const;
+export type ImageEditColor = string;
 
-/** Strokes (rectangle outline, arrow shaft) in CSS px, and text sizes in CSS px. */
+/** Strokes (box and ellipse outlines, arrow shafts) in CSS px, text sizes in CSS px, marker radii in CSS px. */
 export const IMAGE_EDIT_STROKE_WIDTHS = [2, 4, 6] as const;
 export const IMAGE_EDIT_FONT_SIZES = [16, 24, 36, 56] as const;
+export const IMAGE_EDIT_MARKER_RADII = [12, 16, 22] as const;
+
+/** How text keeps its legibility on any background: nothing, an outline in the contrasting colour, or a solid backing. */
+export const TEXT_LOOKS = ['plain', 'outline', 'box'] as const;
+export type TextLook = (typeof TEXT_LOOKS)[number];
+
+/** Whether a box or ellipse is just an outline or also lightly tinted inside. */
+export const SHAPE_FILLS = ['none', 'tint'] as const;
+export type ShapeFill = (typeof SHAPE_FILLS)[number];
 
 export const IMAGE_EDIT_LIMITS = Object.freeze({
   minFontSize: 8,
   maxFontSize: 200,
   minStrokeWidth: 1,
   maxStrokeWidth: 40,
+  minMarkerRadius: 6,
+  maxMarkerRadius: 80,
+  maxMarkerNumber: 999,
   maxTextLength: PERSISTED_STEP_LIMITS.maxImageEditTextLength,
   maxItems: PERSISTED_STEP_LIMITS.maxImageEditsPerStep,
   maxCoordinateMagnitude: PERSISTED_STEP_LIMITS.maxCoordinateMagnitude,
@@ -53,6 +64,7 @@ export interface TextEdit {
   text: string;
   fontSize: number;
   color: ImageEditColor;
+  look: TextLook;
 }
 
 export interface ArrowEdit {
@@ -71,9 +83,30 @@ export interface RectEdit {
   bounds: EditBounds;
   width: number;
   color: ImageEditColor;
+  fill: ShapeFill;
 }
 
-export type ImageEdit = TextEdit | ArrowEdit | RectEdit;
+export interface EllipseEdit {
+  id: string;
+  kind: 'ellipse';
+  /** The ellipse is inscribed in this box. */
+  bounds: EditBounds;
+  width: number;
+  color: ImageEditColor;
+  fill: ShapeFill;
+}
+
+/** A numbered marker, for walking through the steps of a screenshot. */
+export interface StepMarkerEdit {
+  id: string;
+  kind: 'step';
+  center: EditPoint;
+  radius: number;
+  number: number;
+  color: ImageEditColor;
+}
+
+export type ImageEdit = TextEdit | ArrowEdit | RectEdit | EllipseEdit | StepMarkerEdit;
 export type ImageEditKind = ImageEdit['kind'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -96,16 +129,19 @@ function isEditBounds(value: unknown): value is EditBounds {
 const isEditPoint = (value: unknown): value is EditPoint =>
   isRecord(value) && isCoordinate(value.x) && isCoordinate(value.y);
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/;
+
 export const isImageEditColor = (value: unknown): value is ImageEditColor =>
-  typeof value === 'string' && (IMAGE_EDIT_COLORS as readonly string[]).includes(value);
+  typeof value === 'string' && HEX_COLOR.test(value);
+
+const inRange = (value: unknown, min: number, max: number): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 
 const isStrokeWidth = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value)
-  && value >= IMAGE_EDIT_LIMITS.minStrokeWidth && value <= IMAGE_EDIT_LIMITS.maxStrokeWidth;
+  inRange(value, IMAGE_EDIT_LIMITS.minStrokeWidth, IMAGE_EDIT_LIMITS.maxStrokeWidth);
 
 const isFontSize = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value)
-  && value >= IMAGE_EDIT_LIMITS.minFontSize && value <= IMAGE_EDIT_LIMITS.maxFontSize;
+  inRange(value, IMAGE_EDIT_LIMITS.minFontSize, IMAGE_EDIT_LIMITS.maxFontSize);
 
 const isEditId = (value: unknown): value is string =>
   typeof value === 'string'
@@ -113,6 +149,12 @@ const isEditId = (value: unknown): value is string =>
   && value.length <= IMAGE_EDIT_LIMITS.maxIdLength
   && value.trim() === value
   && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
+
+export const isTextLook = (value: unknown): value is TextLook =>
+  typeof value === 'string' && (TEXT_LOOKS as readonly string[]).includes(value);
+
+export const isShapeFill = (value: unknown): value is ShapeFill =>
+  typeof value === 'string' && (SHAPE_FILLS as readonly string[]).includes(value);
 
 /** Strict shape check, used on every boundary (storage, archive, render). */
 export function isValidImageEdit(value: unknown): value is ImageEdit {
@@ -123,11 +165,18 @@ export function isValidImageEdit(value: unknown): value is ImageEdit {
         && typeof value.text === 'string'
         && value.text.length > 0
         && value.text.length <= IMAGE_EDIT_LIMITS.maxTextLength
-        && isFontSize(value.fontSize);
+        && isFontSize(value.fontSize)
+        && isTextLook(value.look);
     case 'arrow':
       return isEditPoint(value.from) && isEditPoint(value.to) && isStrokeWidth(value.width);
     case 'rect':
-      return isEditBounds(value.bounds) && isStrokeWidth(value.width);
+    case 'ellipse':
+      return isEditBounds(value.bounds) && isStrokeWidth(value.width) && isShapeFill(value.fill);
+    case 'step':
+      return isEditPoint(value.center)
+        && inRange(value.radius, IMAGE_EDIT_LIMITS.minMarkerRadius, IMAGE_EDIT_LIMITS.maxMarkerRadius)
+        && Number.isInteger(value.number)
+        && inRange(value.number, 1, IMAGE_EDIT_LIMITS.maxMarkerNumber);
     default:
       return false;
   }
@@ -137,11 +186,15 @@ export function isValidImageEdit(value: unknown): value is ImageEdit {
 export function cloneImageEdit(edit: ImageEdit): ImageEdit {
   switch (edit.kind) {
     case 'text':
-      return { id: edit.id, kind: 'text', bounds: { ...edit.bounds }, text: edit.text, fontSize: edit.fontSize, color: edit.color };
+      return { id: edit.id, kind: 'text', bounds: { ...edit.bounds }, text: edit.text, fontSize: edit.fontSize, color: edit.color, look: edit.look };
     case 'arrow':
       return { id: edit.id, kind: 'arrow', from: { ...edit.from }, to: { ...edit.to }, width: edit.width, color: edit.color };
     case 'rect':
-      return { id: edit.id, kind: 'rect', bounds: { ...edit.bounds }, width: edit.width, color: edit.color };
+      return { id: edit.id, kind: 'rect', bounds: { ...edit.bounds }, width: edit.width, color: edit.color, fill: edit.fill };
+    case 'ellipse':
+      return { id: edit.id, kind: 'ellipse', bounds: { ...edit.bounds }, width: edit.width, color: edit.color, fill: edit.fill };
+    case 'step':
+      return { id: edit.id, kind: 'step', center: { ...edit.center }, radius: edit.radius, number: edit.number, color: edit.color };
   }
 }
 

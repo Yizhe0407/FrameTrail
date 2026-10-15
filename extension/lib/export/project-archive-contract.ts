@@ -155,9 +155,11 @@ export const BLOB_KEYS = ['id', 'mediaType', 'size', 'encoding', 'data'] as cons
 export const BOUNDS_KEYS = ['x', 'y', 'width', 'height'] as const;
 export const REDACTION_KEYS = ['id', 'bounds', 'kind'] as const;
 export const IMAGE_EDIT_KEYS = {
-  text: ['id', 'kind', 'bounds', 'text', 'fontSize', 'color'],
+  text: ['id', 'kind', 'bounds', 'text', 'fontSize', 'color', 'look'],
   arrow: ['id', 'kind', 'from', 'to', 'width', 'color'],
-  rect: ['id', 'kind', 'bounds', 'width', 'color'],
+  rect: ['id', 'kind', 'bounds', 'width', 'color', 'fill'],
+  ellipse: ['id', 'kind', 'bounds', 'width', 'color', 'fill'],
+  step: ['id', 'kind', 'center', 'radius', 'number', 'color'],
 } as const;
 export const POINT_KEYS = ['x', 'y'] as const;
 export const STEP_KEYS = [

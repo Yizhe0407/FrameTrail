@@ -1,9 +1,11 @@
 import type { Bounds } from '@/lib/storage/models';
-import type { ArrowEdit, TextEdit } from '@/lib/storage/image-edit-model';
+import type { TextEdit } from '@/lib/storage/image-edit-model';
 import { measureTextEditHeight, measureTextWidth, type TextMeasure } from '@/lib/media/image-edit-render';
 import {
   moveBounds,
   resizeBounds,
+  resizeBoundsKeepRatio,
+  snapToAngle,
   type ImageCssSize,
   type Point,
   type ResizeHandle,
@@ -17,12 +19,13 @@ export const MIN_TEXT_WIDTH = 24;
 /** Shortest arrow worth keeping; anything shorter is a stray click. */
 export const MIN_ARROW_LENGTH = 8;
 
-/** An arrow's two ends are its handles; boxes use the eight edge handles; text only resizes its width. */
+/** An arrow's two ends are its handles; boxes use the eight edge handles; text only resizes its width; markers have none. */
 export type ItemHandle = ResizeHandle | 'from' | 'to';
 
 const BOX_HANDLES: readonly ItemHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const TEXT_HANDLES: readonly ItemHandle[] = ['w', 'e'];
 const ARROW_HANDLES: readonly ItemHandle[] = ['from', 'to'];
+const NO_HANDLES: readonly ItemHandle[] = [];
 
 const round = (value: number): number => Math.round(value * 100) / 100;
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
@@ -30,19 +33,25 @@ const clamp = (value: number, min: number, max: number): number => Math.min(Math
 export function itemHandles(item: ImageEditItem): readonly ItemHandle[] {
   if (item.kind === 'arrow') return ARROW_HANDLES;
   if (item.kind === 'text') return TEXT_HANDLES;
+  if (item.kind === 'step') return NO_HANDLES;
   return BOX_HANDLES;
 }
 
 /** The box an item occupies, for its selection frame and for keeping it inside the image. */
 export function itemBounds(item: ImageEditItem): Bounds {
-  if (item.kind !== 'arrow') return item.bounds;
-  const x = Math.min(item.from.x, item.to.x);
-  const y = Math.min(item.from.y, item.to.y);
-  return { x, y, width: Math.max(Math.abs(item.to.x - item.from.x), 1), height: Math.max(Math.abs(item.to.y - item.from.y), 1) };
+  if (item.kind === 'arrow') {
+    const x = Math.min(item.from.x, item.to.x);
+    const y = Math.min(item.from.y, item.to.y);
+    return { x, y, width: Math.max(Math.abs(item.to.x - item.from.x), 1), height: Math.max(Math.abs(item.to.y - item.from.y), 1) };
+  }
+  if (item.kind === 'step') {
+    return { x: item.center.x - item.radius, y: item.center.y - item.radius, width: item.radius * 2, height: item.radius * 2 };
+  }
+  return item.bounds;
 }
 
 /** The text box height that fits its content at the current width and size. */
-export function fitTextHeight(edit: TextEdit, measure: TextMeasure = measureTextWidth): TextEdit {
+export function fitTextHeight<T extends TextEdit>(edit: T, measure: TextMeasure = measureTextWidth): T {
   const height = round(Math.max(measureTextEditHeight({ text: edit.text || ' ', fontSize: edit.fontSize, width: edit.bounds.width }, measure), edit.fontSize));
   return height === edit.bounds.height ? edit : { ...edit, bounds: { ...edit.bounds, height } };
 }
@@ -59,6 +68,7 @@ export function translateItem(item: ImageEditItem, dx: number, dy: number, size:
       to: { x: round(item.to.x + moveX), y: round(item.to.y + moveY) },
     };
   }
+  if (item.kind === 'step') return { ...item, center: { x: round(item.center.x + moveX), y: round(item.center.y + moveY) } };
   return { ...item, bounds: moveBounds(item.bounds, dx, dy, size) };
 }
 
@@ -74,6 +84,12 @@ function resizeTextWidth(edit: TextEdit, handle: ItemHandle, dx: number, size: I
   return fitTextHeight({ ...edit, bounds: { ...edit.bounds, x: round(left), width: round(right - left) } }, measure);
 }
 
+export interface ResizeOptions {
+  /** Shift: corner drags keep the box's proportions, arrow ends snap to 45 degrees. */
+  constrain?: boolean;
+  measure?: TextMeasure;
+}
+
 /** Drags one handle by (dx, dy) from the item's state when the drag began. */
 export function resizeItem(
   item: ImageEditItem,
@@ -81,15 +97,19 @@ export function resizeItem(
   dx: number,
   dy: number,
   size: ImageCssSize,
-  measure: TextMeasure = measureTextWidth,
+  { constrain = false, measure = measureTextWidth }: ResizeOptions = {},
 ): ImageEditItem {
   if (item.kind === 'arrow') {
-    const arrow: ArrowEdit = item;
-    if (handle === 'from') return { ...arrow, from: movePoint(arrow.from, dx, dy, size) };
-    if (handle === 'to') return { ...arrow, to: movePoint(arrow.to, dx, dy, size) };
-    return arrow;
+    if (handle !== 'from' && handle !== 'to') return item;
+    const moved = movePoint(handle === 'from' ? item.from : item.to, dx, dy, size);
+    const fixed = handle === 'from' ? item.to : item.from;
+    const end = constrain ? snapToAngle(fixed, moved, size) : moved;
+    return handle === 'from' ? { ...item, from: end } : { ...item, to: end };
   }
-  if (handle === 'from' || handle === 'to') return item;
+  if (handle === 'from' || handle === 'to' || item.kind === 'step') return item;
   if (item.kind === 'text') return resizeTextWidth(item, handle, dx, size, measure);
-  return { ...item, bounds: resizeBounds(item.bounds, handle, dx, dy, size) };
+  const bounds = constrain
+    ? resizeBoundsKeepRatio(item.bounds, handle, dx, dy, size)
+    : resizeBounds(item.bounds, handle, dx, dy, size);
+  return { ...item, bounds };
 }

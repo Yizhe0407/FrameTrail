@@ -37,6 +37,7 @@ export function offsetImageEdits(edits: ImageEdit[], origin: CropOrigin): ImageE
     if (edit.kind === 'arrow') {
       return { ...edit, from: { x: edit.from.x - origin.x, y: edit.from.y - origin.y }, to: { x: edit.to.x - origin.x, y: edit.to.y - origin.y } };
     }
+    if (edit.kind === 'step') return { ...edit, center: { x: edit.center.x - origin.x, y: edit.center.y - origin.y } };
     return { ...edit, bounds: shiftBounds(edit.bounds, origin) };
   });
 }

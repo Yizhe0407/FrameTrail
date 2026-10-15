@@ -38,16 +38,16 @@ describe('crop offset', () => {
     expect(offsetRedactions([{ id: 'm', kind: 'solid', bounds: { x: 100, y: 50, width: 8, height: 8 } }], origin)[0].bounds).toEqual({ x: 0, y: 0, width: 8, height: 8 });
 
     const edits: ImageEdit[] = [
-      { id: 'a', kind: 'arrow', from: { x: 110, y: 60 }, to: { x: 210, y: 160 }, width: 4, color: 'red' },
-      { id: 'r', kind: 'rect', bounds: { x: 150, y: 90, width: 20, height: 10 }, width: 2, color: 'blue' },
-      { id: 't', kind: 'text', bounds: { x: 120, y: 70, width: 90, height: 30 }, text: 'Hi', fontSize: 24, color: 'black' },
+      { id: 'a', kind: 'arrow', from: { x: 110, y: 60 }, to: { x: 210, y: 160 }, width: 4, color: '#ff4747' },
+      { id: 'r', kind: 'rect', bounds: { x: 150, y: 90, width: 20, height: 10 }, width: 2, fill: 'none' as const, color: '#2f6fed' },
+      { id: 't', kind: 'text', bounds: { x: 120, y: 70, width: 90, height: 30 }, text: 'Hi', fontSize: 24, look: 'plain' as const, color: '#111111' },
     ];
     const shifted = offsetImageEdits(edits, origin);
     expect(shifted[0]).toMatchObject({ from: { x: 10, y: 10 }, to: { x: 110, y: 110 } });
     expect(shifted[1]).toMatchObject({ bounds: { x: 50, y: 40 } });
     expect(shifted[2]).toMatchObject({ bounds: { x: 20, y: 20 } });
     // Nothing else about the edits changes, and the inputs are untouched.
-    expect(shifted[2]).toMatchObject({ text: 'Hi', fontSize: 24, color: 'black' });
+    expect(shifted[2]).toMatchObject({ text: 'Hi', fontSize: 24, color: '#111111' });
     expect(edits[0]).toMatchObject({ from: { x: 110, y: 60 } });
   });
 

@@ -73,3 +73,23 @@ export function appendItem(items: readonly ImageEditItem[], item: ImageEditItem)
 export function newItemId(): string {
   return crypto.randomUUID();
 }
+
+/** The number the next marker gets: one past the highest in use. */
+export function nextStepNumber(items: readonly ImageEditItem[]): number {
+  let highest = 0;
+  for (const item of items) if (item.kind === 'step') highest = Math.max(highest, item.number);
+  return Math.min(highest + 1, 999);
+}
+
+/** Moves an item to the front or back of its drawing group. Masks stay above every edit, and the crop never moves. */
+export function reorderItem(items: readonly ImageEditItem[], id: string, to: 'front' | 'back'): ImageEditItem[] {
+  const item = items.find((candidate) => candidate.id === id);
+  if (!item || item.kind === 'crop') return [...items];
+  const group = (candidate: ImageEditItem): boolean => (candidate.kind === 'redaction') === (item.kind === 'redaction');
+  const others = items.filter((candidate) => candidate.id !== id);
+  const members = others.filter(group);
+  if (members.length === 0) return [...items];
+  const anchor = to === 'front' ? members[members.length - 1] : members[0];
+  const at = others.indexOf(anchor);
+  return [...others.slice(0, to === 'front' ? at + 1 : at), item, ...others.slice(to === 'front' ? at + 1 : at)];
+}

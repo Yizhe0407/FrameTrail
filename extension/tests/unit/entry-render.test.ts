@@ -120,7 +120,7 @@ describe('compositeStepEntry', () => {
   });
 
   it('hands the owner\u2019s drawn edits to the compositor so exports match the editor', async () => {
-    const edits = [{ id: 'e1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 3, height: 4 }, width: 2, color: 'red' as const }];
+    const edits = [{ id: 'e1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 3, height: 4 }, width: 2, fill: 'none' as const, color: '#ff4747' }];
     const step = makeStep('drawn', 1, { imageEdits: edits });
     const entry: StepEntry = { kind: 'single', step: step as Step & { screenshotBlob: Blob } };
 
@@ -140,7 +140,7 @@ describe('compositeStepEntry', () => {
         crop,
         bounds: { x: 150, y: 90, width: 30, height: 40 },
         redactions: [{ id: 'm', kind: 'solid', bounds: { x: 120, y: 70, width: 10, height: 10 } }],
-        imageEdits: [{ id: 'e', kind: 'rect', bounds: { x: 200, y: 100, width: 20, height: 20 }, width: 2, color: 'red' }],
+        imageEdits: [{ id: 'e', kind: 'rect', bounds: { x: 200, y: 100, width: 20, height: 20 }, width: 2, fill: 'none' as const, color: '#ff4747' }],
       });
       const entry: StepEntry = { kind: 'single', step: step as Step & { screenshotBlob: Blob } };
 
@@ -154,7 +154,7 @@ describe('compositeStepEntry', () => {
         'image/png',
         [{ id: 'm', kind: 'solid', bounds: { x: 20, y: 20, width: 10, height: 10 } }],
         false,
-        [{ id: 'e', kind: 'rect', bounds: { x: 100, y: 50, width: 20, height: 20 }, width: 2, color: 'red' }],
+        [{ id: 'e', kind: 'rect', bounds: { x: 100, y: 50, width: 20, height: 20 }, width: 2, fill: 'none' as const, color: '#ff4747' }],
       );
     });
 

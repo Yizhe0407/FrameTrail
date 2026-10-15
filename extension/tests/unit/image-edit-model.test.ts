@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { isValidImageEdit, readImageEdits } from '@/lib/storage/image-edit-model';
 import { getEntryImageEdits, sanitizeStepForStorage, type Step, type StepEntry } from '@/lib/storage/models';
 
-const rect = { id: 'r1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 30, height: 40 }, width: 2, color: 'red' as const };
-const text = { id: 't1', kind: 'text' as const, bounds: { x: 1, y: 2, width: 100, height: 31 }, text: 'Hello', fontSize: 24, color: 'black' as const };
-const arrow = { id: 'a1', kind: 'arrow' as const, from: { x: 0, y: 0 }, to: { x: 50, y: 60 }, width: 4, color: 'blue' as const };
+const rect = { id: 'r1', kind: 'rect' as const, bounds: { x: 1, y: 2, width: 30, height: 40 }, width: 2, fill: 'none' as const, color: '#ff4747' };
+const text = { id: 't1', kind: 'text' as const, bounds: { x: 1, y: 2, width: 100, height: 31 }, text: 'Hello', fontSize: 24, look: 'plain' as const, color: '#111111' };
+const arrow = { id: 'a1', kind: 'arrow' as const, from: { x: 0, y: 0 }, to: { x: 50, y: 60 }, width: 4, color: '#2f6fed' };
 
 function step(overrides: Partial<Step> = {}): Step {
   return { id: 's1', sessionId: 'p', order: 0, bounds: null, devicePixelRatio: 1, description: '', url: 'https://x.test', timestamp: 0, ...overrides };

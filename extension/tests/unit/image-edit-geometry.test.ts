@@ -48,8 +48,8 @@ describe('image edit geometry', () => {
 
 describe('image edit items', () => {
   const mask = { id: 'm', kind: 'solid' as const, bounds: { x: 1, y: 2, width: 30, height: 40 } };
-  const rect = { id: 'r', kind: 'rect' as const, bounds: { x: 5, y: 6, width: 7, height: 8 }, width: 2, color: 'red' as const };
-  const arrow = { id: 'a', kind: 'arrow' as const, from: { x: 0, y: 0 }, to: { x: 9, y: 9 }, width: 4, color: 'blue' as const };
+  const rect = { id: 'r', kind: 'rect' as const, bounds: { x: 5, y: 6, width: 7, height: 8 }, width: 2, fill: 'none' as const, color: '#ff4747' };
+  const arrow = { id: 'a', kind: 'arrow' as const, from: { x: 0, y: 0 }, to: { x: 9, y: 9 }, width: 4, color: '#2f6fed' };
 
   it('round-trips both stored fields through the flat item list, masks last', () => {
     const items = toItems([mask], [rect, arrow]);

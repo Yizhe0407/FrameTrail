@@ -1,7 +1,16 @@
 import { throwIfAborted } from '../shared/abort';
 import { isRecord } from '../shared/validation';
 import { buildStepEntries, stepRole, type Bounds, type ImageEdit, type Redaction, type Step } from '../storage/models';
-import { IMAGE_EDIT_COLORS, IMAGE_EDIT_LIMITS, isImageEditColor, type ImageEditColor, type EditPoint } from '../storage/image-edit-model';
+import {
+  IMAGE_EDIT_LIMITS,
+  isImageEditColor,
+  isShapeFill,
+  isTextLook,
+  type EditPoint,
+  type ImageEditColor,
+  type ShapeFill,
+  type TextLook,
+} from '../storage/image-edit-model';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
   repairProjectSections,
@@ -197,7 +206,7 @@ function expectRedactions(value: unknown, path: string): Redaction[] {
 
 function expectEditColor(value: unknown, path: string): ImageEditColor {
   if (!isImageEditColor(value)) {
-    fail('INVALID_IMAGE_EDIT', `${path} must be one of ${IMAGE_EDIT_COLORS.join(', ')}.`);
+    fail('INVALID_IMAGE_EDIT', `${path} must be a colour written as #rrggbb.`);
   }
   return value;
 }
@@ -216,6 +225,11 @@ function expectStrokeWidth(value: unknown, path: string): number {
   return expectFiniteNumber(value, path, IMAGE_EDIT_LIMITS.minStrokeWidth, IMAGE_EDIT_LIMITS.maxStrokeWidth);
 }
 
+function expectChoice<T extends string>(value: unknown, path: string, isChoice: (value: unknown) => value is T, choices: string): T {
+  if (!isChoice(value)) fail('INVALID_IMAGE_EDIT', `${path} must be one of ${choices}.`);
+  return value;
+}
+
 function expectImageEdits(value: unknown, path: string): ImageEdit[] {
   const input = expectArray(value, path);
   if (input.length > PROJECT_ARCHIVE_LIMITS.maxImageEditsPerStep) {
@@ -226,30 +240,48 @@ function expectImageEdits(value: unknown, path: string): ImageEdit[] {
     const itemPath = `${path}[${index}]`;
     const record = expectRecord(item, itemPath);
     const kind = record.kind;
-    if (kind !== 'text' && kind !== 'arrow' && kind !== 'rect') {
-      fail('INVALID_IMAGE_EDIT', `${itemPath}.kind must be "text", "arrow" or "rect".`);
+    if (kind !== 'text' && kind !== 'arrow' && kind !== 'rect' && kind !== 'ellipse' && kind !== 'step') {
+      fail('INVALID_IMAGE_EDIT', `${itemPath}.kind must be "text", "arrow", "rect", "ellipse" or "step".`);
     }
     assertExactKeys(record, IMAGE_EDIT_KEYS[kind], itemPath);
     const id = expectIdentifier(record.id, `${itemPath}.id`);
     if (ids.has(id)) fail('DUPLICATE_ID', `${path} contains duplicate image edit id ${JSON.stringify(id)}.`);
     ids.add(id);
     const color = expectEditColor(record.color, `${itemPath}.color`);
-    if (kind === 'arrow') {
-      return {
-        id, kind, color,
-        from: expectEditPoint(record.from, `${itemPath}.from`),
-        to: expectEditPoint(record.to, `${itemPath}.to`),
-        width: expectStrokeWidth(record.width, `${itemPath}.width`),
-      };
+    switch (kind) {
+      case 'arrow':
+        return {
+          id, kind, color,
+          from: expectEditPoint(record.from, `${itemPath}.from`),
+          to: expectEditPoint(record.to, `${itemPath}.to`),
+          width: expectStrokeWidth(record.width, `${itemPath}.width`),
+        };
+      case 'step':
+        return {
+          id, kind, color,
+          center: expectEditPoint(record.center, `${itemPath}.center`),
+          radius: expectFiniteNumber(record.radius, `${itemPath}.radius`, IMAGE_EDIT_LIMITS.minMarkerRadius, IMAGE_EDIT_LIMITS.maxMarkerRadius),
+          number: expectSafeInteger(record.number, `${itemPath}.number`, 1, IMAGE_EDIT_LIMITS.maxMarkerNumber),
+        };
+      case 'rect':
+      case 'ellipse':
+        return {
+          id, kind, color,
+          bounds: expectBounds(record.bounds, `${itemPath}.bounds`),
+          width: expectStrokeWidth(record.width, `${itemPath}.width`),
+          fill: expectChoice<ShapeFill>(record.fill, `${itemPath}.fill`, isShapeFill, '"none" or "tint"'),
+        };
+      case 'text': {
+        const text = expectText(record.text, `${itemPath}.text`, PROJECT_ARCHIVE_LIMITS.maxImageEditTextLength);
+        if (text.length === 0) fail('INVALID_IMAGE_EDIT', `${itemPath}.text must not be empty.`);
+        return {
+          id, kind, color, text,
+          bounds: expectBounds(record.bounds, `${itemPath}.bounds`),
+          fontSize: expectFiniteNumber(record.fontSize, `${itemPath}.fontSize`, IMAGE_EDIT_LIMITS.minFontSize, IMAGE_EDIT_LIMITS.maxFontSize),
+          look: expectChoice<TextLook>(record.look, `${itemPath}.look`, isTextLook, '"plain", "outline" or "box"'),
+        };
+      }
     }
-    const bounds = expectBounds(record.bounds, `${itemPath}.bounds`);
-    if (kind === 'rect') return { id, kind, color, bounds, width: expectStrokeWidth(record.width, `${itemPath}.width`) };
-    const text = expectText(record.text, `${itemPath}.text`, PROJECT_ARCHIVE_LIMITS.maxImageEditTextLength);
-    if (text.length === 0) fail('INVALID_IMAGE_EDIT', `${itemPath}.text must not be empty.`);
-    return {
-      id, kind, color, bounds, text,
-      fontSize: expectFiniteNumber(record.fontSize, `${itemPath}.fontSize`, IMAGE_EDIT_LIMITS.minFontSize, IMAGE_EDIT_LIMITS.maxFontSize),
-    };
   });
 }
 
