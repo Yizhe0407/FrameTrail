@@ -1,184 +1,198 @@
 # FrameTrail
 
-FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴充功能。每個步驟包含原始截圖、紅框標註與可編輯說明；可在本機作品庫管理多份教學，並發佈成自包含 HTML、PDF、Markdown ZIP（含 `.md` 與圖片）或標註圖片 ZIP。所有資料都留在本機，不需要帳號、雲端服務或後端伺服器。
+在瀏覽器裡「點一點、錄一錄」，自動把網頁操作變成一步一步的圖文教學。
 
-完整架構與技術決策見 [PLAN.md](./PLAN.md)。
+每個步驟都會有截圖、紅框標註和可以自己改的說明文字。做好的教學可以匯出成 **PDF、HTML 網頁、Markdown 或圖片**。所有資料都只存在你自己的電腦裡，不需要帳號，也不會上傳到任何地方。
 
-## 專案結構
+![FrameTrail 編輯器：左邊是步驟列表，中間是帶紅框標註的截圖，下面可以改說明](docs/images/editor.png)
 
-- `extension/`：以 WXT、React、Tailwind CSS 與 shadcn/ui 建立的瀏覽器擴充功能。
-- `README.md`：使用方式、開發流程、驗證項目與已知限制。
-- `PLAN.md`：資料流、模組邊界、演算法與平台決策。
+> **目前還沒有上架到瀏覽器商店。**
+> 請照下面的「安裝」自己建置一次，大約 5 分鐘，之後就能像一般擴充功能一樣使用。
 
-## 主要功能
+---
 
-### 錄製模式
+## 目錄
 
-- **步驟**（內部值 `steps`）：游標滑過任意可見元素時先顯示預覽框，每次選取都建立一張截圖與一個標註。content script 會在 `pointerdown` 同步攔截原始 gesture 並隱藏預覽，等待兩個 paint frame 後才截圖，避免把 hover 樣式烤進底圖；互動控制項優先於內層文字或圖示。截圖尚未真正完成前，預覽不會重新出現，重播的 `element.click()` 也一定排在截圖之後，因此不會拍到點擊後或帶預覽框的畫面；截圖期間會鎖住捲動位置，讓儲存的座標與截圖像素一致。原始滑鼠 gesture 只是被延後重播，捲動、拖曳與瀏覽器捲軸都維持可用；落在捲軸溝槽的 `pointerdown` 會被忽略，不攔截也不記錄。背景截圖若異常卡住，failsafe 會在時限後照常重播點擊以維持頁面可用，但該步驟會被捨棄。
-- **快照**（內部值 `snapshot`）：錄製啟動時只建立一張底圖，游標滑過任意可見元素時先顯示預覽框，之後的選取只在同一張圖新增座標。成功選取後紅框會持續顯示；同一 DOM 節點、穩定元素路徑或視覺框不會重複加入。自動判定的框不符預期時，可用工具列的「裁切擷取區域」自行拖曳範圍。
-- 同一個 session 可以混用兩種模式；每次重新啟動快照錄製都會建立新的快照群組，不會沿用上一輪底圖。只有「重置」會清除整個 session。
-- Popup 只負責選擇模式、是否顯示順序編號與跨頁權限。開始後由頁面右下控制器顯示本輪計數；步驟模式可暫停／繼續，兩種模式都可復原上一筆、在 5 秒內還原並完成錄製。
-- 完成後會開啟或聚焦單一 Editor tab，並自動選中本輪最新步驟或快照群組。錄製控制器、hover preview 與 shield UI 都會在截圖前隱藏，不會出現在成品中。
+- [安裝](#安裝)
+- [開始使用](#開始使用)
+- [更新到新版本](#更新到新版本)
+- [常見問題](#常見問題)
+- [給開發者](#給開發者)
 
-### 快照輸入隔離
+---
 
-- 快照模式使用 extension-origin 的全畫面透明 iframe 作為 input shield。滑鼠、觸控、鍵盤、滾輪與拖放事件終止在 iframe 內，不會進入原頁面的 window、document、目標元素或 default action。
-- shield 透過 closed shadow root、私有 `MessageChannel` 與隨機 token 隔離通訊；偵測元素時只短暫關閉自身 hit testing，再以座標查詢下層頁面。
-- 若頁面已有原生 modal dialog，shield 會掛到作用中的 modal 並進入 top layer，避免被 dialog backdrop 蓋住。
-- 啟動流程有 READY gate：shield、事件監聽器與子 frame probe 全部就緒並穩定兩個 animation frame 後，背景程序才擷取快照底圖並完成「開始錄製」。早期點擊不會穿透到頁面 JavaScript。
-- hover 探測使用 `requestAnimationFrame` 合併事件，而且同一時間最多只有一個請求在途；過期回應會被丟棄，避免快速移動滑鼠時堆積工作或顯示舊框。
+## 安裝
 
-### 元素與框選偵測
+### 1. 準備環境
 
-- 兩種模式都從座標命中的最深可見元素建立 composed ancestor 候選鏈，並辨識原生控制項、有效 ARIA role、click handler、可聚焦元素、contenteditable 與 `cursor: pointer`；語意控制項會優先於內層圖示或文字，一般文字、圖片與容器也能成為目標。
-- 候選只沿命中點的 DOM／composed ancestor 深度處理，不掃描整份文件；完全相同或邊界僅相差 2 CSS px 的近似視覺框會合併，避免元件內層 wrapper 產生多個肉眼無法區分的層級；純裝飾 SVG geometry 會提升到可框選的 SVG 容器。候選鏈的預設層級就是點下去會標註的層級，同一個座標永遠得到同一個框，不保留任何跨座標的選取狀態。自動判定不符預期時，兩種模式都用工具列的「裁切擷取區域」自行拖曳範圍；手動範圍不含 DOM 目標，因此一律以「標記」描述、沒有元素文字，也不會重播點擊，並且必須完整落在 viewport 內。
-- 兩種模式採用不同的遮擋策略：**步驟**忠實保留瀏覽器實際命中的最上層 surface，即使它完全透明，也不會越過 overlay 去重播底層控制項；**快照**只會穿透已證明無文字、無 accessible label、無互動語意，且整個 exclusive branch 都沒有背景、邊框、陰影、影像、filter、mask、backdrop、painted descendant 或 generated pseudo paint 的透明 hit-test shim。任何有實際畫面或語意的上層元素（包含全畫面 modal backdrop）在兩種模式都會保持為目標。
-- 支援 open shadow root，以及瀏覽器 privileged accessor 可取得的 closed shadow root；也支援語意化 SVG、canvas、custom element 與 HTML image map。image map 支援 `rect`、`circle`、`poly`、`default`；座標依瀏覽器規格使用圖片顯示後 border box 的 CSS pixels，不會再按 intrinsic size、`object-fit` 或 `object-position` 二次縮放，圖片本身的 2D CSS transform 則會映射回 viewport。
-- 兩種模式都能標記可見的 `disabled`、`inert` 與 `aria-disabled="true"` 元素，但會使用「標記」而不是「點擊」描述。隱藏、透明、`display: contents` 或零面積元素仍會排除；沒有 `href` 的連結與沒有對應控制項的 label 也可被標記。
-- 多行 inline 元素會選擇點擊位置所在的 client rect，而不是整個文字 union；標註範圍也會裁切到 viewport、overflow scrollport、paint containment 與可見祖先範圍。
-- 快照模式會把 content script 注入所有可存取 frame。巢狀與跨來源 iframe 透過有 timeout 的 `MessageChannel` 遞迴探測；`getBoxQuads()` 可用時採用實際 affine border-box basis，fallback 則可靠處理 axis-aligned scale／zoom 與元素自身的 2D transform。子 frame 無法注入或 120 ms 內未回應時，會退回標註 iframe 的可見外框，不會阻塞整個錄製流程。
+你需要先裝好：
 
-### 標註布局
+| 工具 | 版本 | 用途 |
+| --- | --- | --- |
+| [Git](https://git-scm.com/) | 任何版本 | 下載原始碼 |
+| [Node.js](https://nodejs.org/) | 20.19 以上 | 建置擴充功能 |
+| [pnpm](https://pnpm.io/installation) | 10 以上 | 安裝套件 |
 
-- IndexedDB 只保存原始截圖與 CSS pixel 座標。popup、編輯器與錄影中預覽使用 overlay，複製與匯出時才以 canvas 合成，因此刪除、拖曳、複製或編輯文字不會重新載入圖片或造成畫面閃爍。
-- `layoutAnnotations()` 是預覽、剪貼簿與匯出共用的純幾何函式，確保三條渲染路徑的框、徽章、定位點與引導線一致。
-- 完全相同的幾何先以雜湊合併；其餘候選使用自適應掃描軸與 union-find 找出高度重疊群組。靠近的框只縮減朝向鄰居那一側的 padding；若相鄰控制項的原始 hit area 已部分重疊，則沿交集中央分隔並把相向框線收進 hit area，其餘方向仍維持完整外框。
-- 重疊群組改畫定位點，並依目標分布選擇水平或垂直的單側編號 lane。徽章沿 lane 保持目標順序，以最短距離配置並用直線連回定位點；一般情況不會交叉，也會透過空間索引避開框、定位點與其他徽章。
-- 單一 lane 容量不足時才改用確定性的多欄網格；即使 1,000 個分散或完全重疊的元素，仍保證輸出有限數值、徽章位於 viewport 內且流程可完成。viewport 的物理空間不足時不承諾完全無重疊。
+> 已經裝好 Node.js 但沒有 pnpm？執行 `corepack enable` 就會啟用專案指定的 pnpm 版本。
 
-### 編輯、儲存與匯出
+### 2. 下載並建置
 
-- popup 提供錄製前設定與錄製中摘要；頁面浮動控制器負責錄製中的復原、暫停與完成。獨立編輯器採左側 `StepRail` 加全尺寸 `StepStage`，可快速切換步驟、編輯說明、刪除、複製圖片與拖曳排序。
-- **作品庫與多份 Guide**：作品庫可搜尋、新增、改名、複製、封存、永久刪除、匯出或匯入 `.frametrail` 可編輯檔案。Editor URL 的 `sessionId` 是唯一資料來源；網址缺少或 Guide 不存在時會安全顯示錯誤，不會 fallback 到其他正在錄製的內容。
-- **單選步驟與章節**：StepRail 一次只開啟一個完整步驟或快照群組，可用方向鍵切換、拖曳排序，並在項目邊界管理章節。
-- 拖曳使用 `@dnd-kit`，只由拖曳把手啟動，支援滑鼠、觸控與鍵盤。UI 先做 optimistic reorder，再以單一 IndexedDB transaction 持久化，失敗時復原；不同高度的列只做 translate，不會被縮放閃動。
-- 圖片 Blob 在狀態更新時保留穩定參照，rail、stage 與 lightbox 共用同一個 object URL；最後一個使用者卸載後才 revoke，避免非圖片變更觸發重新解碼與白閃。
-- 刪除步驟、刪除快照群組與重置都使用共用的 shadcn `ConfirmationDialog`。專案不使用 `window.alert()` 或 `window.confirm()`；非阻斷錯誤則顯示在既有 shadcn Alert 區域。
-- 標注說明區使用一致的細型滾動條樣式；所有可操作按鈕、圖片、切換器與拖曳把手都有對應的 pointer、zoom 或 grab 游標。
-- Lightbox 使用 shadcn Dialog，可用按鈕或方向鍵跨步驟模式與快照模式連續瀏覽。
-- **補拍步驟**：普通步驟可從 Editor 回到原始 URL 重新框選並以原子交易替換圖片；單頁快照只有在恰好一個標註時允許補拍，避免其他標註座標失效。補拍會驗證來源分頁、視窗、URL、runId 與權限，清除不再適用於新圖片的舊框選與遮罩，並在 MV3 service worker 重啟後從 durable state 恢復或安全結束。
-- **匯入遮罩安全**：匯入資料中的 owner-level `redactions` 會由預覽、Lightbox、剪貼簿與匯出管線一致渲染；Editor 不提供新增或調整遮罩的介面。
-- **隱私 fail-closed**：讀到待確認或格式錯誤的隱私 metadata 時，圖片預覽保持全黑，複製與匯出被阻擋；使用補拍取代圖片後會清除不再適用的遮罩並解除封鎖。
-- PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與標註圖片 ZIP 全部共用 `compositeStepEntry`，依序合成長 Guide、完整 escaping，且會 revoke 暫用 Blob URL。`.frametrail` v2 可編輯匯出檔案另包含標題、說明與章節；因檔案保留未遮罩原圖，匯出前會明確警告。
-
-### 狀態與效能
-
-- IndexedDB 保存 Guide metadata、章節、截圖與步驟；`chrome.storage.local` 只保存錄製狀態與獨立的目前 Guide selection。快照 annotation 只引用持有共用 Blob 的 anchor，不重複保存圖片。
-- START、STOP、RESET、點擊 transaction、截圖 queue 與 DB 寫入都有序列化邊界。`runId` 與 `controlVersion` 會使舊錄製的延遲工作失效，避免舊資料寫進新 session。
-- `captureVisibleTab` 至少間隔 500 ms，quota 錯誤最多重試 5 次並逐步延長等待；每次真正截圖前都重新驗證作用中分頁、URL 與錄製 run。
-- 錄製期間以 keep-alive port 維持 MV3 service worker；補拍的 capture replacement、result handoff 與 ACK 也使用 durable state，避免 worker 暫停造成半完成狀態。
-- 編輯與補拍使用 `captureRevision` compare-and-set；Guide 結構操作另使用 `contentRevision` CAS 與單一 `guides + steps` transaction。stale reorder／delete／restore／move／duplicate／numbering／section mutation 會整筆 rollback，不會把省略的舊 row 默默 append。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
-- StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。
-
-### 頁面導覽與首次使用
-
-- 作品庫就是首頁。作品庫、編輯器、設定與歡迎頁共用同一個標題列（`components/shared/AppHeader.tsx`）：左側是以作品庫為根的麵包屑（`FrameTrail › 目前頁面`，點 FrameTrail 回到作品庫），右側是該頁的動作，最右邊固定是設定齒輪；在設定頁時齒輪標示目前位置。每一頁都能一步到達其他頁，頁面內容與標題列共用同一條左右邊界。
-- 開頁規則：從擴充功能頁面之間跳轉（麵包屑、齒輪、作品庫開啟作品、歡迎頁與設定頁的按鈕）一律在原分頁換頁，不開新分頁；離開編輯器前會先儲存說明，有需要確認的草稿就留在原頁。唯一例外是編輯器只保留一個分頁：作品庫開啟作品時若別的分頁已有編輯器，會切到那個分頁並先確認草稿。從 popup 或錄製工具列開啟時沒有「目前頁面」可換，所以沿用既有分頁或開新分頁。背景以 `browser.storage.session` 記錄每種頁面所在的分頁；每個頁面載入、取得焦點或從上一頁快取還原時都會重新登記，而且一個分頁只會被記成它目前顯示的那一種頁面。
-- 第一次安裝時，背景服務會自動開啟歡迎頁（`welcome.html`），說明如何把 FrameTrail 釘到工具列、兩種錄製模式，以及「資料只存在本機」與「跨分頁錄製需要授權」兩項限制；擴充功能或瀏覽器更新時不會再開啟。之後可從設定頁重新打開。
-- 工具列圖示與所有尺寸的 icon 都由 `extension/assets/brand/` 的吉祥物 SVG 在建置時產生（`extension/modules/brand-icons.ts`，清單在 `lib/shared/brand-icons.ts`），不提交 PNG。16／32px 使用線條加粗的簡化版，128px 依 Chrome 線上應用程式商店規範留 16px 透明邊。錄製進行中，工具列圖示會換成右下角帶紅點的版本；背景服務依錄製狀態自動切換，結束後換回。
-
-### 介面語言
-
-- 支援繁體中文與英文。預設跟隨瀏覽器介面語言（`chrome.i18n.getUILanguage()`）：所有中文變體（zh-*）顯示繁體中文，其他語言一律顯示英文。
-- 語言設定位於擴充功能的選項頁（options page，以分頁開啟）：可由 popup 與每個頁面標題列右上角的齒輪、工具列圖示右鍵選單的「選項」，或 `chrome://extensions` 的詳細資料進入。選項為跟隨瀏覽器／繁體中文／English，選擇存於 `chrome.storage.local`。所有頁面、背景服務與頁面上的錄製工具列都會訂閱這個設定並立即切換，不需重新整理。擴充功能名稱與快捷鍵說明由瀏覽器依 `_locales` 決定，不受此設定影響。
-- 所有介面文案集中在 `extension/lib/shared/i18n/messages/`。`zh-TW.ts` 定義文案結構，`en.ts` 以同一型別撰寫，少鍵、多鍵或參數不符都會在編譯時失敗；需要語序或複數的句子以函式表達。
-- 程式碼一律在顯示當下以 `t()` 讀取文案，不在模組載入時快取字串（`tests/unit/i18n-usage.test.ts` 會以 TypeScript AST 檢查）。ESLint 也禁止在文案目錄以外寫入中文字串；比對網頁內容的正規表示式不受此限制。
-- 日期、排序、大小寫比較與匯出 HTML 的 `lang` 都跟隨目前語言。新作品的預設標題以建立當下的語言寫入；判斷空白作品時會辨識所有語言的預設標題。
-- 新增語言：在 `messages/` 新增一份 `Messages` 型別的文案、加入 `SUPPORTED_LOCALES` 與 `resolveLocale()` 的對應，並在 `public/_locales/` 補上 manifest 文案。
-
-## 編輯與補拍工作流程
-
-### 補拍
-
-1. 在普通步驟按「補拍」，FrameTrail 會回到來源頁面並顯示一次性補拍控制。
-2. 在來源頁面選取目標後，系統先截圖、驗證來源與版本，再以單一 IndexedDB transaction 替換圖片與 bounds。
-3. 原有說明、排序、步驟 ID 與錄製 provenance 會保留；不再適用於新圖片的手動框選與遮罩會清除。
-4. 多標註快照不直接補拍，請重新製作整張快照；這是避免新底圖與其他座標錯配的安全限制。
-
-## 權限
-
-必要權限為 `storage`、`unlimitedStorage`、`activeTab`、`scripting`、`downloads` 與 `clipboardWrite`。預設以 `activeTab` 錄製目前頁面；只有使用者主動開啟「跨頁錄製」時才請求 `<all_urls>` optional host permission，用於跨網域導航與子 frame 注入。拒絕時仍可錄製目前頂層頁面，但無法存取的子 frame 只會標註外框。
-
-## 開發流程
-
-需求：Node.js 與 pnpm。
+打開終端機，依序執行：
 
 ```bash
+git clone https://github.com/Yizhe0407/FrameTrail.git
+cd FrameTrail/extension
+pnpm install
+pnpm build
+```
+
+建置完成後，擴充功能就在這個資料夾裡：
+
+```text
+FrameTrail/extension/.output/chrome-mv3
+```
+
+記下這個位置，下一步會用到。
+
+### 3. 載入到 Chrome
+
+以 Chrome 為例（Edge、Brave 等 Chromium 系瀏覽器操作相同，網址改成 `edge://extensions`、`brave://extensions`）。
+
+1. 在網址列輸入 `chrome://extensions` 並按 Enter。
+2. 打開右上角的 **開發人員模式**（圖中標示 1）。
+3. 按左上角的 **載入未封裝項目**（圖中標示 2），選擇剛才的 `extension/.output/chrome-mv3` 資料夾。
+
+![在 Chrome 擴充功能頁面開啟開發人員模式，再按載入未封裝項目](docs/images/install-extensions-page.png)
+
+載入成功後，清單裡會出現 **FrameTrail**，同時會自動開啟一個歡迎頁。
+
+### 4. 把 FrameTrail 釘到工具列
+
+點瀏覽器右上角的拼圖圖示，再點 FrameTrail 旁邊的圖釘，之後隨時點工具列上的圖示就能開始錄製。歡迎頁裡也有同樣的圖解。
+
+![歡迎頁：先把 FrameTrail 釘到工具列、選一種錄法、先說好的事](docs/images/welcome.png)
+
+### 用 Firefox？
+
+```bash
+cd FrameTrail/extension
+pnpm install
+pnpm build:firefox
+```
+
+在 Firefox 開啟 `about:debugging#/runtime/this-firefox`，按 **載入暫時性附加元件**，選擇 `extension/.output/firefox-mv2/manifest.json`。
+
+Firefox 的暫時性附加元件在**關閉瀏覽器後就會消失**，下次要重新載入。自動化測試目前也只在 Chromium 上跑，建議優先使用 Chrome。
+
+---
+
+## 開始使用
+
+### 錄一份新教學
+
+1. 切到你想示範的網頁，點工具列的 FrameTrail 圖示。
+2. 選一種錄法，按 **開始錄製**：
+
+   | 錄法 | 適合 | 怎麼運作 |
+   | --- | --- | --- |
+   | **步驟** | 操作流程（點這裡、再點那裡） | 每點一下就擷取一張截圖，自動編號成一連串步驟 |
+   | **快照** | 說明一個畫面（這裡有哪些東西） | 只拍一張底圖，你在上面標出多個重點 |
+
+   ![FrameTrail 彈出視窗：選擇步驟或快照，再按開始錄製](docs/images/popup.png)
+
+3. 在網頁上照平常的方式操作。滑鼠移到元素上會先出現紅框預覽，點下去就記錄一步。
+4. 頁面右下角會有錄製控制列，可以**復原上一步**、**暫停／繼續**，做完按 **完成**。
+
+   ![錄製中：被選取的按鈕有紅框，右下角是錄製控制列](docs/images/recording.png)
+
+> 第一次用「步驟」錄製時，瀏覽器會問你要不要允許 FrameTrail 存取所有網站。這是為了在你錄製途中**跳到別的分頁**時也能繼續記錄；不允許也沒關係，只是只能錄目前這一個分頁。
+
+### 編輯教學
+
+按 **完成** 後會自動開啟編輯器：
+
+- 左邊是步驟列表，可以拖曳排序、刪除、複製圖片。
+- 中間是截圖，可以放大檢視；紅框是自動標上的。
+- 下面的 **說明** 可以直接改文字，會自動儲存。
+- 標題旁的鉛筆可以改教學名稱，也可以加標籤方便之後找。
+
+### 接續錄製：把新步驟加到舊教學
+
+有兩種方式：
+
+- **在彈出視窗選**：點工具列圖示後，在「開始錄製」上方的下拉選單選擇既有的教學（會列出最近的 5 份，顯示名稱與畫面數），按鈕就會變成 **接續錄製**，新的步驟會加在那份教學的最後面。預設一律是「新專案」，不會不小心蓋到舊的。
+
+  ![在彈出視窗的「錄到哪裡」選單選擇新專案或既有的教學](docs/images/popup-target.png)
+
+- **在編輯器裡**：點步驟列表底部的 **接續錄製**。
+
+### 作品庫：管理所有教學
+
+點彈出視窗的 **作品庫**（或編輯器左上角的 FrameTrail），可以搜尋、改名、複製、刪除、匯出與匯入所有教學。
+
+![作品庫：所有教學以卡片顯示，可開啟、複製、匯出、刪除](docs/images/library.png)
+
+### 匯出與分享
+
+在編輯器右上角按 **匯出**，可以下載：
+
+- **PDF**
+- **HTML 網頁**（單一檔案，用瀏覽器就能開）
+- **Markdown**（含圖片的 ZIP）
+- **圖片**（已標註好的圖片 ZIP）
+
+另外，作品庫卡片上的下載按鈕可以匯出 **`.frametrail` 檔案**：它保留完整原始資料，之後能再匯入編輯，適合備份或換電腦。它含有未遮罩的原圖，**不要當成對外公開的檔案**。
+
+### 語言
+
+介面支援繁體中文與英文，預設跟著瀏覽器語言走。想手動切換，點任何頁面右上角的齒輪進入設定即可。
+
+---
+
+## 更新到新版本
+
+```bash
+cd FrameTrail
+git pull
 cd extension
 pnpm install
-pnpm dev
+pnpm build
 ```
 
-- Chrome 開發輸出：`extension/.output/chrome-mv3-dev`
-- Chrome production 輸出：`extension/.output/chrome-mv3`
-- Firefox production 輸出：`extension/.output/firefox-mv2`
+然後到 `chrome://extensions`，按 FrameTrail 卡片上的 **重新載入** 圖示（圓形箭頭）。**你的教學資料不會被清掉**。
 
-在 Chrome 開啟 `chrome://extensions`，啟用「開發人員模式」，選「載入未封裝項目」並載入 `extension/.output/chrome-mv3-dev`。修改 popup 或 editor 時 WXT 會熱重載；修改 content script 或 background 後，需重新載入擴充功能並重新整理測試頁。
+> 請一直使用同一個資料夾載入。Chrome 以資料夾位置辨識未封裝的擴充功能，換了位置會被當成另一個擴充功能，原本的教學資料不會跟過去。
 
-常用指令：
+---
+
+## 常見問題
+
+**錄製按鈕是灰的，或提示這個頁面不能錄製？**
+瀏覽器內建頁面（`chrome://`、`about:`、Chrome 線上應用程式商店）和擴充功能自己的頁面，瀏覽器不允許擴充功能錄製。請切到一般網站再試。
+
+**資料存在哪裡？會不會上傳？**
+全部存在這個瀏覽器的本機儲存空間，沒有帳號、雲端或伺服器。也代表**清除瀏覽器資料或換電腦會遺失教學**，重要的請先用 `.frametrail` 匯出備份。
+
+**錄到的畫面有敏感資訊怎麼辦？**
+截圖原檔會保留在本機。請在匯出前檢查畫面；`.frametrail` 檔案含未遮罩的原圖，分享給別人之前請特別留意。
+
+**重新整理頁面、或錄一半跳去別的網站會怎樣？**
+點擊會導向新頁面的連結時，FrameTrail 會先拍下「點擊前」的畫面，再放行導覽，所以步驟是對的。「步驟」模式會跟著你錄；「快照」模式只針對單一畫面，換頁就會停止。
+
+**建置失敗？**
+先確認 `node -v` 是 20.19 以上，且是在 `FrameTrail/extension` 資料夾裡執行 `pnpm install`。
+
+---
+
+## 給開發者
+
+開發時用 `pnpm dev`（在 `extension/` 資料夾），改完程式會自動重新載入；載入的資料夾改成 `extension/.output/chrome-mv3-dev`。
 
 ```bash
 cd extension
-pnpm test
-pnpm test:e2e
-pnpm test:all
-pnpm compile
-pnpm lint
-pnpm validate
-pnpm build
-pnpm build:firefox
-pnpm zip
-pnpm zip:firefox
+pnpm dev        # 開發模式（熱重載）
+pnpm test       # 單元與整合測試
+pnpm compile    # 型別檢查
+pnpm lint       # ESLint
+pnpm validate   # 完整驗證（型別、lint、測試、Chrome 與 Firefox 建置）
 ```
-
-## 驗證基準
-
-Vitest unit/integration 與 Playwright Chromium E2E 測試套件會隨功能演進調整；請以各指令當次輸出確認實際執行範圍。E2E 與 Firefox build 仍須在具備完整 pnpm／瀏覽器環境時執行，且不應以本文件視為其驗證結果。測試分層與放置規則見 [extension/tests/README.md](./extension/tests/README.md)。
-
-Unit 與 integration 覆蓋：
-
-- 快照啟動 READY gate、事件隔離、十字準星、hover 背壓、父子候選切換、同元素/同框去重與錄影 overlay 清理。
-- 一般文字與容器、open/slotted shadow root、disabled/inert、ARIA、SVG、canvas、custom element 與各種 image map。
-- 同來源、跨來源、巢狀、旋轉與斜切 iframe，以及不可存取 frame 的 timeout fallback。
-- 1,000 個分散標註與 1,000 個重疊標註的有界布局。
-- browser API mock 邊界、編輯器資料 transaction、object URL 共用與匯出資源清理。
-- 補拍來源信任、單例快照限制、durable recovery、原子替換、舊視覺 metadata 清除與 capture revision conflict。
-- 舊遮罩資料的預覽／Clipboard／ZIP render propagation，以及 malformed metadata 的 fail-closed 行為。
-
-Chromium E2E 覆蓋：
-
-- production extension 的步驟/快照預覽、一般元素與控制項選取、原頁事件重播、快照輸入隔離、父子候選與去重。
-- 跨來源與巢狀 iframe 座標、無 probe frame 的 timeout fallback、步驟導覽後重新注入、快照導覽停止與空 anchor 清除。
-- popup 模式與編號設定、START/STOP、開啟 editor，以及 editor 說明、標注、兩層拖曳、Lightbox、Clipboard PNG、ZIP/JPEG、刪除與重置。
-
-## 手動端到端測試
-
-1. 載入開發版，在一般網站選「步驟」並開始錄製。
-2. 將游標移到按鈕、連結、表單控制、純文字、圖片、一般容器、disabled/inert、open shadow DOM 與多行 inline 元素；確認都先顯示預覽框，選取後產生步驟，互動目標使用「點擊」描述，其餘使用「標記」。
-3. 點擊會導覽的連結，確認保存的是導覽前畫面，完成後頁面互動才被重播。
-4. 從頁面控制器測試暫停、繼續、復原與還原，再按「完成」；確認 Editor 自動開啟並選中最新步驟。
-5. 測試說明 autosave、拖曳、刪除還原、複製、Lightbox 與 ZIP 匯出取消／成功摘要；再以 320px 與 768px 寬度確認底部 StepRail、圖片及標註面板不重疊或水平溢出。
-6. 選「快照」並開始錄製；在開始按鈕完成後立刻操作頁面，確認原頁面 handler、導覽、表單、捲動與拖放都不會觸發。
-7. 移到按鈕、文字、標題、圖片與一般容器，確認即時預覽與 crosshair 游標；點選後確認正式標註持續顯示，再點同一元素或同框元素確認不會重複新增。遇到自動判定不符預期的框，改用工具列的「裁切擷取區域」拖曳範圍，確認兩種模式都能完成並以「標記」描述。
-8. 從 shield 內控制器測試復原、還原與「完成快照」，確認 Editor 自動定位到該群組。
-9. 測試密集相鄰元素、同位置元素、iframe 內元素、SVG、canvas、custom element 與 image map；完成後確認頁面 overlay 全部消失。
-10. 重新開始快照錄製，確認建立新底圖而不是接續舊群組；改變 viewport、捲動位置或導覽時，確認系統拒絕把新座標寫到舊底圖。
-11. 測試刪除單一步驟與整個快照群組，確認會直接刪除並可在 5 秒內還原；重置整個 session 才顯示 shadcn Dialog，且不出現瀏覽器原生 alert/confirm。
-12. 對普通步驟補拍；再對含多個標註的快照嘗試補拍，確認前者原子替換並清除舊視覺 metadata，後者明確拒絕且不破壞資料。
-13. 匯入含遮罩的資料，確認 Editor、Lightbox、Clipboard PNG 與 ZIP/JPEG 仍安全覆蓋敏感資訊；待確認資料保持全黑並要求補拍取代。
-
-## 已知限制
-
-- `captureVisibleTab` 只能取得目前可視區域，無法直接取得整頁。步驟模式會把畫面外元素捲入 viewport 後截圖，並在截圖完成、重播點擊前把捲動位置還原到使用者原本所在，因此不再殘留位移。
-- 步驟模式重播的 click 不是 trusted event。一般控制項與 SPA handler 可正常運作，但檔案選擇器、部分剪貼簿、全螢幕或其他要求即時 user activation 的 API 可能拒絕執行。
-- 快照 shield 隔離的是使用者輸入，不是停用 JavaScript 引擎。頁面的 timer、網路回應、動畫或程式性 DOM 更新仍可能改變畫面；iframe 取得焦點也可能產生 `focus`/`blur`。導覽會停止該次快照錄製，viewport、捲動位置或 DPR 改變則會拒絕新增標註。
-- content script 會優先使用瀏覽器提供給擴充功能的 privileged open-or-closed shadow-root accessor；若該 API 不存在、拒絕存取或節點狀態使呼叫失敗，closed shadow root 才會退回其可見 host。canvas 內部物件沒有 DOM 語意，因此只能標註整個 canvas；`pointer-events: none` 元素與 pseudo-element 不會成為獨立 DOM hit-test 目標，但其可辨識 paint 會阻止快照穿透；非矩形 clip-path 與圓形／多邊形 image-map 最終以矩形 bounding box 表示。
-- 未取得跨來源 frame 權限、子 frame 未載入探測器或探測逾時時，只能標註 iframe 可見外框。沒有 `getBoxQuads()` 時，巢狀 rotated／skewed ancestors 或 3D perspective 可能只能退回 axis-aligned bounding box，無法保證完整仿射反解。
-- 步驟模式的子 frame relay 只讓 page-visible `postMessage` 傳遞 hop-local 幾何與一次性 token：原始 child content script 先透過 extension runtime 向 background 建立綁定 active run／tab／frame 的授權，top content script 必須 claim 並消耗 token 才能截圖，background 再換發不暴露給頁面的 settle token，最後以指定 `frameId` 的 runtime message 直接通知原始 child 是否重播。頁面 script 可觀察或偽造 public hop，但無法自行 mint runtime authorization，因此不能在沒有 trusted gesture 時觸發錄製；`event.source` 只負責 iframe 幾何路由。closed-shadow iframe 仍無法由目前的 relay frame scan 定位，因此步驟模式暫不支援其內部步驟轉送。
-- 快照鍵盤候選目前只列舉 top document 的一般 DOM；shadow tree 與跨 frame 目標仍可用滑鼠命中，但尚未加入完整的跨樹／跨 frame 鍵盤 traversal。
-- 極端密度下若 viewport 連一個徽章都放不下，或標註數超過幾何上可用槽位，位置會確定性重用，無法保證完全不重疊；演算法仍保證不產生無限值、不無限搜尋，也不讓工作量失控。
-- Chrome Web Store、`chrome://`、`edge://`、`about:` 與其他瀏覽器受限頁面禁止擴充功能注入或截圖。
-- 原始截圖會留在本機 IndexedDB；敏感資訊遮罩是輸出保護，不是安全刪除或加密儲存。若裝置或瀏覽器 profile 本身遭到入侵，FrameTrail 無法保護本機原始資料。
-- 大量 4K/8K 步驟目前只使用 `loading=lazy`、`decoding=async` 與共享 Blob URL，尚未導入完整 list virtualization 或專用低解析 thumbnail；大量長錄製仍可能有記憶體與解碼壓力。
-- 真實 Chrome MV3 worker 重啟、權限提示、clipboard、4K/8K ZIP、fractional DPR、320×480、鍵盤／螢幕閱讀器與高對比模式仍需實機驗收。
-- 無帳號、雲端儲存、分享連結、多人協作、全頁拼接與 AI 描述；互動步驟使用 `點擊 <元素文字>`，一般元素步驟與快照標記使用 `標記 <元素文字>`。

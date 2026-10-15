@@ -1,6 +1,6 @@
 # FrameTrail 擴充功能
 
-這個目錄包含 FrameTrail 的 WXT + React 瀏覽器擴充功能。完整功能、權限、手動測試與已知限制請見 [專案 README](../README.md)，架構與演算法請見 [PLAN.md](../PLAN.md)。
+這個目錄包含 FrameTrail 的 WXT + React 瀏覽器擴充功能。安裝與使用請見 [專案 README](../README.md)。
 
 ## 環境
 
