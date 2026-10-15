@@ -164,4 +164,73 @@ describe('HighlightThumbnail', () => {
     act(() => stubs.flushAnimationFrames());
     expect(image.style.visibility).toBe('');
   });
+
+  // Editing masks must not flicker: once the image is measured, a changed mask
+  // list is applied in the same render, with the image never hidden and no
+  // remap frame needed.
+  it('applies added and moved redactions immediately without hiding the image', () => {
+    const redactionAt = (x: number) => [{ id: 'mask-1', kind: 'solid' as const, bounds: { x, y: 20, width: 30, height: 40 } }];
+    const blob = new Blob(['image']);
+    const view = render(
+      <HighlightThumbnail
+        blob={blob}
+        bounds={null}
+        redactions={redactionAt(50)}
+        screenshotScale={1}
+        alt="edited preview"
+        fit="contain"
+      />,
+    );
+    const image = view.container.querySelector<HTMLImageElement>('img')!;
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 100, height: 50 } });
+    act(() => fireEvent.load(image));
+    act(() => stubs.flushAnimationFrames());
+    const initialLeft = view.container.querySelector<HTMLElement>('[data-stepmark-redaction="mask-1"]')!.style.left;
+
+    view.rerender(
+      <HighlightThumbnail
+        blob={blob}
+        bounds={null}
+        redactions={redactionAt(100)}
+        screenshotScale={1}
+        alt="edited preview"
+        fit="contain"
+      />,
+    );
+
+    expect(image.style.visibility).toBe('');
+    expect(stubs.animationFrames.size).toBe(0);
+    expect(view.container.querySelector<HTMLElement>('[data-stepmark-redaction="mask-1"]')!.style.left).not.toBe(initialLeft);
+  });
+
+  // When the image element is exactly the image's box (the zoomable editor), a
+  // mask is a percentage of that box: resizing it can never separate mask and
+  // pixels, so the image is never hidden and nothing is remeasured for masks.
+  it('places masks as percentages in an exact box and survives resizes without hiding the image', () => {
+    const view = render(
+      <HighlightThumbnail
+        blob={new Blob(['image'])}
+        bounds={null}
+        redactions={[{ id: 'mask-1', kind: 'solid', bounds: { x: 50, y: 20, width: 30, height: 40 } }]}
+        screenshotScale={1}
+        alt="exact box"
+        fit="contain"
+        exactBox
+      />,
+    );
+    const image = view.container.querySelector<HTMLImageElement>('img')!;
+    stubImageMetrics(image, { naturalWidth: 200, naturalHeight: 100, rendered: { width: 400, height: 200 } });
+    act(() => fireEvent.load(image));
+
+    const mask = view.container.querySelector<HTMLElement>('[data-stepmark-redaction="mask-1"]')!;
+    // The 2px safety margin around the mask is part of the box: (50-2)/200, (20-2)/100, (30+4)/200, (40+4)/100.
+    expect(mask.style.left).toBe('24%');
+    expect(mask.style.top).toBe('18%');
+    expect(mask.style.width).toBe('17%');
+    expect(mask.style.height).toBe('44%');
+
+    act(() => stubs.triggerResize());
+    expect(image.style.visibility).toBe('');
+    expect(view.container.querySelector('[data-stepmark-redaction="mask-1"]')).toBe(mask);
+  });
 });

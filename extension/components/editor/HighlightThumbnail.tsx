@@ -21,6 +21,8 @@ interface Props {
   redactions?: Redaction[];
   /** Hide all source pixels until privacy metadata is explicitly reviewed. */
   privacyReviewRequired?: boolean;
+  /** The image element is exactly the image's box (see useThumbnailOverlayMapping). */
+  exactBox?: boolean;
   screenshotScale: number;
   alt: string;
   className?: string;
@@ -52,6 +54,7 @@ export default function HighlightThumbnail({
   bounds,
   redactions = NO_REDACTIONS,
   privacyReviewRequired = false,
+  exactBox = false,
   screenshotScale,
   alt,
   className,
@@ -99,6 +102,7 @@ export default function HighlightThumbnail({
     screenshotScale,
     redactions,
     privacyReviewRequired,
+    exactBox,
     measure,
     mapOverlays,
     clearOverlays,

@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { ProjectContentConflictError, addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, moveProjectEntriesAtomically, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically, setProjectEntryRedactionsAtomically } from '@/lib/storage/project-structure';
+import { ProjectContentConflictError, addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, moveProjectEntriesAtomically, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically } from '@/lib/storage/project-structure';
 import { ProjectStructureIntegrityError, type ProjectSection, type Step } from '@/lib/storage/models';
 import { closeDatabase } from '@/lib/storage/database';
 import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, getProjectSummaries, resetProject } from '@/lib/storage/project-repository';
@@ -467,25 +467,5 @@ describe('strict annotation and visual CAS mutations', () => {
     expect(result.previousEntryIds).toEqual(before.entryIds);
     expect(result.previousSections).toEqual(before.project.sections);
     expect(result.project.contentRevision).toBe(before.project.contentRevision + 1);
-  });
-
-  it('stores masks on the image owner: the step itself, or a snapshot anchor only', async () => {
-    const { project, snapshot } = await createTrackedProject(makeMixedSteps());
-    const redaction = { id: 'mask-1', kind: 'solid' as const, bounds: { x: 5, y: 6, width: 50, height: 20 } };
-
-    const single = await setProjectEntryRedactionsAtomically(project.id, snapshot.entryIds[0], [redaction], snapshot.project.contentRevision);
-    const group = await setProjectEntryRedactionsAtomically(project.id, snapshot.entryIds[1], [redaction], single.project.contentRevision);
-
-    const stored = await getSteps(project.id);
-    expect(stored[0]?.redactions).toEqual([redaction]);
-    expect(stored[1]?.redactions).toEqual([redaction]);
-    expect(stored[2]?.redactions).toBeUndefined();
-    expect(group.project.contentRevision).toBe(single.project.contentRevision + 1);
-
-    await expect(setProjectEntryRedactionsAtomically(project.id, snapshot.entryIds[0], [], snapshot.project.contentRevision))
-      .rejects.toBeInstanceOf(ProjectContentConflictError);
-    const cleared = await setProjectEntryRedactionsAtomically(project.id, snapshot.entryIds[0], [], group.project.contentRevision);
-    expect((await getSteps(project.id))[0]?.redactions).toEqual([]);
-    expect(cleared.affectedEntryIds).toEqual([snapshot.entryIds[0]]);
   });
 });

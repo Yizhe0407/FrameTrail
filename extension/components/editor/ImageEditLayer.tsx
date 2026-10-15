@@ -26,6 +26,8 @@ interface Props {
   onCreate: (kind: ImageEditItemKind, bounds: Bounds) => void;
   onUpdate: (id: string, bounds: Bounds) => void;
   onDelete: (id: string) => void;
+  /** Dragging empty image with the pointer tool pans the workspace instead. */
+  onPanStart?: (event: PointerEvent<HTMLElement>) => void;
   disabled?: boolean;
 }
 
@@ -79,6 +81,7 @@ export default function ImageEditLayer({
   onCreate,
   onUpdate,
   onDelete,
+  onPanStart,
   disabled = false,
 }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
@@ -104,6 +107,7 @@ export default function ImageEditLayer({
     if (event.target !== event.currentTarget) return;
     if (creates === null) {
       onSelect(null);
+      onPanStart?.(event);
       return;
     }
     onSelect(null);
@@ -147,10 +151,6 @@ export default function ImageEditLayer({
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       onDelete(item.id);
-      return;
-    }
-    if (event.key === 'Escape') {
-      onSelect(null);
       return;
     }
     const step = event.shiftKey ? NUDGE_LARGE : NUDGE;

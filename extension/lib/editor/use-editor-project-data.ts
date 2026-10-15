@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getProject } from '../storage/project-repository';
 import { getProjectStructureSnapshot, type ProjectStructureSnapshot } from '../storage/project-structure';
 import { type Project } from '../storage/models';
+import { retainScreenshotBlobs } from './retain-screenshot-blobs';
 
 export type EditorProjectLoadState = 'loading' | 'ready' | 'missing' | 'invalid';
 
@@ -22,7 +23,11 @@ export function useEditorProjectData(sessionId: string | null, steps: readonly u
   /** Publishes a freshly read canonical snapshot as the current editor data. */
   const adoptSnapshot = useCallback((snapshot: ProjectStructureSnapshot) => {
     setProject(snapshot.project);
-    setCanonicalSnapshot(snapshot);
+    // Unchanged screenshots keep their Blob identity so reloading after an edit doesn't reload every image.
+    setCanonicalSnapshot((current) => ({
+      ...snapshot,
+      entries: retainScreenshotBlobs(current?.entries ?? [], snapshot.entries),
+    }));
     setProjectLoadState('ready');
   }, []);
 

@@ -14,7 +14,6 @@ import {
   sanitizeProject,
   sanitizeStepForStorage,
   type Project,
-  type Redaction,
   type Step,
   type StepEntry,
 } from './models';
@@ -510,28 +509,6 @@ export async function setProjectEntriesNumberedAtomically(
   });
 }
 
-
-/** Replaces the privacy masks of the entry's image-owning step: the step itself
- * for an ordinary entry, the shared anchor for a snapshot. Annotation rows never
- * carry masks, so the rest of a snapshot group is left untouched. */
-export async function setProjectEntryRedactionsAtomically(
-  sessionId: string,
-  entryIdToUpdate: string,
-  redactions: readonly Redaction[],
-  expectedContentRevision: number,
-): Promise<ProjectStructureMutationResult> {
-  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
-    requireEntrySelection(structure.entries, [entryIdToUpdate]);
-    const nextEntries = structure.entries.map((entry): StepEntry => {
-      if (entryId(entry) !== entryIdToUpdate) return entry;
-      const next = redactions.map((redaction) => ({ ...redaction, bounds: { ...redaction.bounds } }));
-      return entry.kind === 'single'
-        ? { kind: 'single', step: { ...entry.step, redactions: next } }
-        : { ...entry, anchor: { ...entry.anchor, redactions: next } };
-    });
-    return commitProjectStructure(tx, structure, nextEntries, structure.project.sections, [entryIdToUpdate]);
-  });
-}
 
 export async function addProjectSectionAtomically(
   sessionId: string,

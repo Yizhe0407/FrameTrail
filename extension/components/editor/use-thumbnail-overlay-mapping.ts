@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getExpandedRedactionBounds } from '@/lib/media/annotation-composite';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import { type Redaction } from '@/lib/storage/models';
@@ -6,19 +6,20 @@ import { type Redaction } from '@/lib/storage/models';
 // Re-exported for the thumbnails: the drawable-frame guard is the raster compositor's contract.
 export { isDrawableHighlightFrame } from '@/lib/media/annotation-contract';
 
+/** CSS lengths: pixels (numbers) once measured, or percentages of the image box when the box is exact. */
 export interface ImageContentFrame {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
+  left: number | string;
+  top: number | string;
+  width: number | string;
+  height: number | string;
 }
 
 export interface RedactionStyle {
   id: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
+  left: number | string;
+  top: number | string;
+  width: number | string;
+  height: number | string;
 }
 
 /** Everything needed to map screenshot CSS coordinates onto rendered pixels. */
@@ -87,6 +88,13 @@ interface UseThumbnailOverlayMappingOptions {
   /** Opaque masks in screenshot CSS coordinates. */
   redactions: Redaction[];
   privacyReviewRequired: boolean;
+  /**
+   * The image element is exactly the image's own box: it has the image's aspect
+   * ratio, so nothing is letterboxed or cropped. Masks and the content frame are
+   * then plain percentages of that box and cannot drift from the pixels they
+   * cover, however the box is resized, so no remap (or hiding) is needed on resize.
+   */
+  exactBox?: boolean;
   /** Measure the mounted image, or return null while it has no usable size. */
   measure: (img: HTMLImageElement) => OverlayGeometry | null;
   /** Recompute the component's own overlays from fresh geometry. */
@@ -95,10 +103,51 @@ interface UseThumbnailOverlayMappingOptions {
   clearOverlays: () => void;
 }
 
+/** Where each mask lands for the measured geometry. Pure, so a mask edit is
+ * reflected in the very render that receives it. */
+function mapRedactionBoxes(
+  redactions: readonly Redaction[],
+  geometry: OverlayGeometry,
+  exactBox: boolean,
+): RedactionStyle[] {
+  const cssWidth = geometry.naturalWidth / geometry.dpr;
+  const cssHeight = geometry.naturalHeight / geometry.dpr;
+  return redactions.flatMap<RedactionStyle>((redaction) => {
+    const expanded = getExpandedRedactionBounds(redaction.bounds, cssWidth, cssHeight);
+    if (!expanded) return [];
+    if (exactBox) {
+      return [{
+        id: redaction.id,
+        left: `${(expanded.x / cssWidth) * 100}%`,
+        top: `${(expanded.y / cssHeight) * 100}%`,
+        width: `${(expanded.width / cssWidth) * 100}%`,
+        height: `${(expanded.height / cssHeight) * 100}%`,
+      }];
+    }
+    return [{
+      id: redaction.id,
+      left: geometry.mapX(expanded.x),
+      top: geometry.mapY(expanded.y),
+      width: expanded.width * geometry.dpr * geometry.scale,
+      height: expanded.height * geometry.dpr * geometry.scale,
+    }];
+  });
+}
+
+const EXACT_CONTENT_FRAME: ImageContentFrame = { left: 0, top: 0, width: '100%', height: '100%' };
+
 /**
- * Shared overlay-mapping lifecycle for the highlight thumbnails: owns the content frame, the redaction
- * mask mapping, and the fail-closed contract that no source pixel shows while a redaction's on-screen
- * position is stale (`showPixels`). Remaps are coalesced into one animation frame per resize burst.
+ * Shared overlay-mapping lifecycle for the highlight thumbnails. It owns one
+ * piece of state, the measured `geometry` of the image on screen, and derives
+ * everything else from it:
+ *
+ * - The mask boxes are computed from `geometry` and `redactions` during render,
+ *   so adding, moving or deleting a mask never leaves a frame where the
+ *   image is hidden or a mask sits at a stale position.
+ * - The fail-closed contract is about *geometry*: while the image has not been
+ *   measured, or its on-screen size is changing (load, resize), no source
+ *   pixel is shown behind a mask whose position cannot yet be trusted
+ *   (`showPixels`). Remaps are coalesced into one animation frame per burst.
  */
 export function useThumbnailOverlayMapping({
   url,
@@ -106,71 +155,51 @@ export function useThumbnailOverlayMapping({
   screenshotScale,
   redactions,
   privacyReviewRequired,
+  exactBox = false,
   measure,
   mapOverlays,
   clearOverlays,
 }: UseThumbnailOverlayMappingOptions) {
   const imgRef = useRef<HTMLImageElement>(null);
   const mapFrameRef = useRef<number | null>(null);
-  const [contentFrame, setContentFrame] = useState<ImageContentFrame | null>(null);
-  const [redactionBoxes, setRedactionBoxes] = useState<RedactionStyle[]>([]);
-  const [mappedRedactionKey, setMappedRedactionKey] = useState<string | null>(null);
+  const [geometry, setGeometry] = useState<OverlayGeometry | null>(null);
+  // True from the moment the on-screen size may have changed until the next
+  // measurement lands: `geometry` is then the last known one, not a current one.
+  const [stale, setStale] = useState(true);
 
-  const redactionSignature = redactions.map((redaction) => `${redaction.id}:${redaction.bounds.x},${redaction.bounds.y},${redaction.bounds.width},${redaction.bounds.height}`).join('|');
-  const redactionMapKey = `${url ?? ''}:${fit}:${screenshotScale}:${redactionSignature}`;
-  const redactionReady = redactions.length === 0 || mappedRedactionKey === redactionMapKey;
-  const showPixels = !privacyReviewRequired && redactionReady;
+  // The observer and frame callbacks outlive renders, so they read the latest
+  // measure/redaction state through a ref instead of being re-subscribed.
+  const latest = useRef({ measure, hasRedactions: redactions.length > 0, exactBox });
+  latest.current = { measure, hasRedactions: redactions.length > 0, exactBox };
 
   const remap = useCallback(() => {
     const img = imgRef.current;
-    const geometry = img ? measure(img) : null;
-    if (!geometry) {
-      clearOverlays();
-      setRedactionBoxes([]);
-      setContentFrame(null);
-      return;
-    }
-    setContentFrame(geometry.contentFrame);
-    mapOverlays(geometry);
-    setRedactionBoxes(
-      redactions.flatMap((redaction) => {
-        const expanded = getExpandedRedactionBounds(
-          redaction.bounds,
-          geometry.naturalWidth / geometry.dpr,
-          geometry.naturalHeight / geometry.dpr,
-        );
-        return expanded
-          ? [{
-              id: redaction.id,
-              left: geometry.mapX(expanded.x),
-              top: geometry.mapY(expanded.y),
-              width: expanded.width * geometry.dpr * geometry.scale,
-              height: expanded.height * geometry.dpr * geometry.scale,
-            }]
-          : [];
-      }),
-    );
-    setMappedRedactionKey(redactionMapKey);
-  }, [clearOverlays, mapOverlays, measure, redactionMapKey, redactions]);
+    setGeometry(img ? latest.current.measure(img) : null);
+    setStale(false);
+  }, []);
 
-  const hasRedactions = redactions.length > 0;
   const scheduleMapping = useCallback(() => {
-    // Recompute on the next frame so React can first hide the source image behind the fail-closed
-    // surface, instead of briefly showing a stale mask position.
-    if (hasRedactions && imgRef.current) imgRef.current.style.visibility = 'hidden';
-    setMappedRedactionKey(null);
+    // Hide the source image before the next paint, not after React's render,
+    // so a resize can never show it next to a mask still at its old position.
+    // An exact box has nothing to go stale: masks are percentages of the box itself.
+    if (!latest.current.exactBox) {
+      if (latest.current.hasRedactions && imgRef.current) imgRef.current.style.visibility = 'hidden';
+      setStale(true);
+    }
     if (mapFrameRef.current !== null) return;
     mapFrameRef.current = requestAnimationFrame(() => {
       mapFrameRef.current = null;
       remap();
     });
-  }, [hasRedactions, remap]);
+  }, [remap]);
 
   useEffect(() => {
     const img = imgRef.current;
     if (!img) return;
     const observer = new ResizeObserver(scheduleMapping);
     observer.observe(img);
+    // A new image has no geometry of its own yet; never reuse the previous one.
+    setGeometry(null);
     scheduleMapping();
     return () => {
       observer.disconnect();
@@ -178,6 +207,29 @@ export function useThumbnailOverlayMapping({
       mapFrameRef.current = null;
     };
   }, [url, scheduleMapping]);
+
+  // A different way of measuring (fit, capture scale, decoded size) changes the
+  // geometry itself, so it re-measures; ordinary mask or highlight edits do not.
+  const firstMeasure = useRef(true);
+  useEffect(() => {
+    if (firstMeasure.current) {
+      firstMeasure.current = false;
+      return;
+    }
+    scheduleMapping();
+  }, [fit, screenshotScale, measure, scheduleMapping]);
+
+  useLayoutEffect(() => {
+    if (geometry) mapOverlays(geometry);
+    else clearOverlays();
+  }, [geometry, mapOverlays, clearOverlays]);
+
+  const redactionBoxes = useMemo(
+    () => (geometry ? mapRedactionBoxes(redactions, geometry, exactBox) : []),
+    [geometry, redactions, exactBox],
+  );
+  const showPixels = !privacyReviewRequired && (redactions.length === 0 || (geometry !== null && (exactBox || !stale)));
+  const contentFrame = geometry ? (exactBox ? EXACT_CONTENT_FRAME : geometry.contentFrame) : null;
 
   return { imgRef, contentFrame, redactionBoxes, showPixels, remap };
 }

@@ -264,18 +264,28 @@ export const en: Messages = {
 
     imageEdit: {
       open: 'Edit image',
-      openTooltip: 'Mask sensitive information on this image',
+      openTooltip: 'Enlarge this image to edit it, for example to mask sensitive information',
+      title: (number: number) => `Edit image · Step ${number}`,
       done: 'Done',
       toolbarLabel: 'Image editing tools',
       tools: { select: 'Select', redact: 'Mask' },
       hints: {
-        select: 'Click a mask to select it. Drag to move, drag the handles to resize, press Delete to remove.',
-        redact: 'Drag on the image to cover sensitive information with an opaque black box.',
+        select: 'Click a mask to select it. Drag to move, drag the handles to resize, press Delete to remove. Drag empty space to pan.',
+        redact: 'Drag to draw an opaque black mask over sensitive information.',
+        navigate: 'Scroll to zoom. Hold Space or the middle mouse button and drag to pan.',
       },
-      itemLabel: (kind: string) => (kind === 'redaction' ? 'Mask' : 'Item'),
+      itemLabel: (kind: string): string => (kind === 'redaction' ? 'Mask' : 'Item'),
       deleteSelected: 'Delete selected',
+      undo: 'Undo',
+      redo: 'Redo',
+      zoomIn: 'Zoom in',
+      zoomOut: 'Zoom out',
+      zoomFit: 'Fit to window',
+      zoomLevel: (percent: number) => `${percent}%`,
       count: (n: number) => (n === 1 ? '1 mask' : `${n} masks`),
-      saveFailed: 'Couldn’t save the image edits. Please try again.',
+      saving: 'Saving…',
+      saveFailed: 'Couldn’t save the image edits.',
+      retry: 'Try again',
     },
 
     stage: {
@@ -474,11 +484,6 @@ export const en: Messages = {
         pending: 'Saving snapshot numbering…',
         failed: 'Couldn’t change snapshot numbering. The current data was reloaded.',
         done: (numbered: boolean) => (numbered ? 'Snapshot numbering on' : 'Snapshot numbering off'),
-      },
-      redactions: {
-        pending: 'Saving image edits…',
-        failed: 'Couldn’t save the image edits. The current data was reloaded.',
-        done: 'Image edited',
       },
       renameSection: {
         pending: 'Renaming section…',
