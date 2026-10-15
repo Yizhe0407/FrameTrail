@@ -201,7 +201,7 @@ describe('popup record target picker', () => {
     mocks.getGuideSummaries.mockResolvedValue(RECENT);
     render(<RecordControls recording={IDLE_RECORDING} />);
 
-    expect((await screen.findByRole('combobox', { name: '錄到哪裡' })).textContent).toContain('新專案');
+    expect((await screen.findByRole('combobox', { name: '錄到哪裡' })).textContent).toContain('新作品');
     fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
 
     await waitFor(() => expect(mocks.createGuide).toHaveBeenCalledOnce());

@@ -111,7 +111,7 @@ export default function RecordControls({
   className,
 }: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
-  // null = brand-new guide. Never persisted: every popup open starts at 新專案.
+  // null = brand-new guide. Never persisted: every popup open starts at 新作品.
   const [targetGuideId, setTargetGuideId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);

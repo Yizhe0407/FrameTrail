@@ -35,7 +35,7 @@ describe('welcome page', () => {
 
     expect(mocks.registerPage).toHaveBeenCalled();
     expect(breadcrumb().getByText('歡迎').closest('li')?.getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('heading', { level: 1, name: '嗨！我是 Stepmark' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: '歡迎使用 Stepmark' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /前往作品庫/ }));
     expect(mocks.navigateInPlace).toHaveBeenCalledWith('library');
@@ -44,11 +44,11 @@ describe('welcome page', () => {
   it('covers pinning, both recording modes and the up-front limits', () => {
     render(<WelcomeApp />);
 
-    expect(screen.getByRole('heading', { level: 2, name: /先把我釘到工具列/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: /將 Stepmark 釘選到工具列/ })).toBeTruthy();
     expect(screen.getByRole('img', { name: /擴充功能選單/ })).toBeTruthy();
     expect(screen.getByText('每次點擊都會擷取一張截圖，自動編號成一連串操作步驟。')).toBeTruthy();
     expect(screen.getByText('鎖定目前畫面，在同一張截圖上加入多個標註點。')).toBeTruthy();
-    expect(screen.getByText('所有截圖都只存在這台電腦，不會上傳。')).toBeTruthy();
+    expect(screen.getByText('所有截圖只儲存在這台電腦，不會上傳。')).toBeTruthy();
   });
 });
 
@@ -75,7 +75,7 @@ describe('settings page', () => {
   it('turns into the welcome page on request', () => {
     render(<OptionsApp />);
 
-    fireEvent.click(screen.getByRole('button', { name: /打開歡迎頁/ }));
+    fireEvent.click(screen.getByRole('button', { name: /開啟歡迎頁/ }));
 
     expect(mocks.navigateInPlace).toHaveBeenCalledWith('welcome');
   });
