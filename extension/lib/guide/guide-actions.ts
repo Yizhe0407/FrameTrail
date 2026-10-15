@@ -81,25 +81,69 @@ export function discardUntouchedGuide(
   });
 }
 
+/** The Guide a run records into, claimed before START_RECORDING is sent. */
+export interface RecordingGuideClaim {
+  guide: Guide;
+  /** True when the claim created the Guide, so an empty run may reclaim it. */
+  autoCreated: boolean;
+  /** Undoes the claim after a start that never produced a live run: reclaims
+   * an auto-created shell, or puts the pre-claim selection back. */
+  release: () => Promise<void>;
+}
+
+function restoreSelection(previousGuideId: string | null, claimedGuideId: string): Promise<void> {
+  return queueSelectionAction(async () => {
+    if (previousGuideId === claimedGuideId) return;
+    const previous = previousGuideId ? await getGuide(previousGuideId) : undefined;
+    if (previous) await setActiveGuideId(previous.id);
+    else await clearActiveGuideId(claimedGuideId);
+  });
+}
+
 /**
- * The popup's start transaction. Industry convention (Scribe/Tango): every
- * popup start records into a brand-new Guide — appending to an existing Guide
- * is exclusively the editor's 接續錄製 flow. Creates and selects a fresh
- * Guide, asks the background to start recording into it, and on failure rolls
- * the world back to exactly how it was (the pre-start selection restored, the
- * empty shell reclaimed). Returns the Guide the live run records into.
+ * Picks the Guide a popup-initiated run records into and makes it the UI
+ * selection. `null` creates a brand-new Guide; an id appends to that existing
+ * one (the same append the editor's 接續錄製 performs). Shared by the popup
+ * and the background's permission-resumed start so both resolve a target the
+ * same way.
  */
-export async function startRecordingIntoNewGuide(mode: RecordingMode): Promise<Guide> {
-  // The pre-start selection is remembered so a failed start is invisible.
+export async function claimRecordingGuide(targetGuideId: string | null): Promise<RecordingGuideClaim> {
+  // The pre-claim selection is remembered so a failed start is invisible.
   const previousGuideId = (await getSelectedGuide())?.id ?? null;
-  const guide = await createAndSelectGuide();
+  if (targetGuideId === null) {
+    const guide = await createAndSelectGuide();
+    return {
+      guide,
+      autoCreated: true,
+      release: async () => {
+        await discardUntouchedGuide(guide.id, previousGuideId);
+      },
+    };
+  }
+  const guide = await selectGuide(targetGuideId);
+  return { guide, autoCreated: false, release: () => restoreSelection(previousGuideId, guide.id) };
+}
+
+/**
+ * The popup's start transaction. By default every start records into a
+ * brand-new Guide (Scribe/Tango convention); passing `targetGuideId` is the
+ * explicit opt-in to append to an existing one. Claims the Guide, asks the
+ * background to start recording into it, and on failure rolls the world back
+ * to exactly how it was. Returns the Guide the live run records into.
+ */
+export async function startRecordingIntoGuide(
+  mode: RecordingMode,
+  targetGuideId: string | null = null,
+): Promise<Guide> {
+  const claim = await claimRecordingGuide(targetGuideId);
+  const { guide } = claim;
   try {
     const result = requireRuntimeMessageResult<StartRecordingResult>(
       await browser.runtime.sendMessage({
         type: 'START_RECORDING',
         sessionId: guide.id,
         mode,
-        autoCreatedGuide: true,
+        ...(claim.autoCreated ? { autoCreatedGuide: true } : {}),
       }),
       isStartRecordingResult,
       t().runtime.recordingServiceUnavailable,
@@ -107,16 +151,14 @@ export async function startRecordingIntoNewGuide(mode: RecordingMode): Promise<G
     if (!result.ok) throw new Error(result.error);
     return guide;
   } catch (startError) {
-    // Best-effort rollback of the Guide created above. The recording-state
-    // probe covers the odd case where the run actually started but the
-    // response was lost — deleting a live run's Guide would strand it.
+    // Best-effort rollback of the claim above. The recording-state probe
+    // covers the odd case where the run actually started but the response was
+    // lost — releasing a live run's Guide would strand it.
     try {
       const live = await getRecordingState();
-      if (!(live.isRecording && live.sessionId === guide.id)) {
-        await discardUntouchedGuide(guide.id, previousGuideId);
-      }
+      if (!(live.isRecording && live.sessionId === guide.id)) await claim.release();
     } catch (rollbackError) {
-      console.error('[frametrail] failed to roll back the auto-created guide', rollbackError);
+      console.error('[frametrail] failed to roll back the recording guide claim', rollbackError);
     }
     throw startError;
   }

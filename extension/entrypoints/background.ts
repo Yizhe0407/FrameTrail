@@ -14,7 +14,7 @@ import { syncActionIconWithRecordingState } from '@/lib/recording/background/act
 import { focusTab } from '@/lib/runtime/navigation';
 import { claimPendingStart } from '@/lib/runtime/pending-start';
 import { clearCrossTabRecordingDecline } from '@/lib/runtime/cross-tab-recording';
-import { createAndSelectGuide, discardUntouchedGuide, getSelectedGuide } from '@/lib/guide/guide-actions';
+import { claimRecordingGuide } from '@/lib/guide/guide-actions';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -2058,11 +2058,15 @@ export default defineBackground(() => {
       if (!pending) return;
       await clearCrossTabRecordingDecline();
       const tab = await browser.tabs.get(pending.tabId);
-      const previousGuideId = (await getSelectedGuide())?.id ?? null;
-      const guide = await createAndSelectGuide();
+      const claim = await claimRecordingGuide(pending.guideId);
       const result = await queueLifecycle(() =>
         startRecording(
-          { type: 'START_RECORDING', sessionId: guide.id, mode: pending.mode, autoCreatedGuide: true },
+          {
+            type: 'START_RECORDING',
+            sessionId: claim.guide.id,
+            mode: pending.mode,
+            ...(claim.autoCreated ? { autoCreatedGuide: true } : {}),
+          },
           {},
           tab,
         ),
@@ -2070,9 +2074,7 @@ export default defineBackground(() => {
       if (!result.ok) {
         console.warn('[frametrail] resumed start failed', result.error);
         const live = await getRecordingState();
-        if (!(live.isRecording && live.sessionId === guide.id)) {
-          await discardUntouchedGuide(guide.id, previousGuideId);
-        }
+        if (!(live.isRecording && live.sessionId === claim.guide.id)) await claim.release();
       }
     })().catch((error) => {
       console.error('[frametrail] failed to resume the start after the permission grant', error);

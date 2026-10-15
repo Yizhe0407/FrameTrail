@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createGuide: vi.fn(),
   getGuide: vi.fn(),
   discardPristineGuide: vi.fn(),
+  getGuideSummaries: vi.fn(),
 }));
 
 vi.mock('wxt/browser', async () => {
@@ -20,6 +21,7 @@ vi.mock('@/lib/storage/guide-repository', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
   discardPristineGuide: mocks.discardPristineGuide,
+  getGuideSummaries: mocks.getGuideSummaries,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -35,6 +37,7 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
 const IDLE_RECORDING = makeRecordingState();
 
 beforeEach(() => {
+  mocks.getGuideSummaries.mockResolvedValue([]);
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
   mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
   mocks.getGuide.mockResolvedValue(undefined);

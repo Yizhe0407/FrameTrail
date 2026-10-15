@@ -4,10 +4,11 @@ import { Camera, ExternalLink, ListOrdered, Loader2, TriangleAlert } from 'lucid
 import { buttonVariants } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
 import OpenEditorButton from '@/components/popup/OpenEditorButton';
+import RecordTargetPicker from '@/components/popup/RecordTargetPicker';
 import { reportError } from '@/components/shared/report-error';
 import { cn } from '@/lib/shared/utils';
 import type { RecordingMode, RecordingState } from '@/lib/storage/recording-state';
-import { startRecordingIntoNewGuide } from '@/lib/guide/guide-actions';
+import { startRecordingIntoGuide } from '@/lib/guide/guide-actions';
 import {
   recordingItemCountLabel,
   recordingModeCopy,
@@ -110,6 +111,8 @@ export default function RecordControls({
   className,
 }: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
+  // null = brand-new guide. Never persisted: every popup open starts at 新專案.
+  const [targetGuideId, setTargetGuideId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const { crossTab, setCrossTab, restrictedPage, setRestrictedPage, activeTabId } = useStartPreflight(setControlError);
@@ -120,13 +123,13 @@ export default function RecordControls({
    * once; a later grant clears it so a reconsidered user gets asked again.
    */
   async function requestCrossTabPermission(
-    resumeStart?: { mode: RecordingMode; tabId: number },
+    resumeStart?: { mode: RecordingMode; tabId: number; guideId: string | null },
   ): Promise<{ granted: boolean; parked: boolean }> {
     try {
       // Not awaited: Firefox needs permissions.request to run synchronously within the click.
       const parking = resumeStart
         ? Promise.all([
-            parkPendingStart(resumeStart.mode, resumeStart.tabId),
+            parkPendingStart(resumeStart),
             markCrossTabRecordingDeclined(),
           ]).then(() => true, (error) => {
             console.warn('[frametrail] failed to park the pending recording start', error);
@@ -155,7 +158,7 @@ export default function RecordControls({
       // continues single-tab. Must be the first await here — see requestCrossTabPermission.
       if (mode === 'steps' && crossTab !== 'granted' && crossTab !== 'declined') {
         const { granted, parked } = await requestCrossTabPermission(
-          activeTabId != null ? { mode, tabId: activeTabId } : undefined,
+          activeTabId != null ? { mode, tabId: activeTabId, guideId: targetGuideId } : undefined,
         );
         if (granted && parked && !(await claimPendingStart())) {
           onStarted?.();
@@ -168,7 +171,7 @@ export default function RecordControls({
         setRestrictedPage(true);
         throw new Error(t().popup.restrictedPageError);
       }
-      await startRecordingIntoNewGuide(mode);
+      await startRecordingIntoGuide(mode, targetGuideId);
       onStarted?.();
     } catch (error) {
       setControlError(reportError('[frametrail] failed to start recording', error, t().popup.startFailed));
@@ -306,6 +309,7 @@ export default function RecordControls({
             );
           })}
         </div>
+        <RecordTargetPicker value={targetGuideId} onChange={setTargetGuideId} disabled={pending} />
         {/* Passive affordance, never a nag: shown whenever the grant is absent
             (even after a remembered decline), and the request runs directly in
             the click handler so the browser accepts it as a user gesture. */}
@@ -349,7 +353,11 @@ export default function RecordControls({
         ) : (
           <span className="size-3 rounded-full border-2 border-current bg-current/40" aria-hidden="true" />
         )}
-        {pending ? activeMode.startingLabel : t().common.startRecording}
+        {pending
+          ? activeMode.startingLabel
+          : targetGuideId === null
+            ? t().common.startRecording
+            : t().popup.continueRecording}
       </button>
     </div>
   );

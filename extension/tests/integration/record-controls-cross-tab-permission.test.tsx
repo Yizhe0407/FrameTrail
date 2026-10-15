@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createGuide: vi.fn(),
   getGuide: vi.fn(),
   discardPristineGuide: vi.fn(),
+  getGuideSummaries: vi.fn(),
   permissionsContains: vi.fn(),
   permissionsRequest: vi.fn(),
   storageGet: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('@/lib/storage/guide-repository', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
   discardPristineGuide: mocks.discardPristineGuide,
+  getGuideSummaries: mocks.getGuideSummaries,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -66,6 +68,7 @@ async function clickStartAndWaitForSend(times: number) {
 }
 
 beforeEach(() => {
+  mocks.getGuideSummaries.mockResolvedValue([]);
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
   mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
   mocks.getGuide.mockResolvedValue(undefined);
@@ -178,5 +181,27 @@ describe('cross-tab permission ask at recording start', () => {
     // The decline is remembered, so the next start proceeds without an ask.
     await clickStartAndWaitForSend(1);
     expect(mocks.permissionsRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('parks the chosen guide so the permission-resumed start appends to it', async () => {
+    mocks.getGuideSummaries.mockResolvedValue([
+      { id: 'guide-old', title: '既有教學', entryCount: 3, stepCount: 3, updatedAt: 1 },
+    ]);
+    mocks.getGuide.mockResolvedValue({ id: 'guide-old', title: '既有教學' });
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.scrollIntoView ??= () => {};
+    await renderIdleControls();
+    fireEvent.keyDown(await screen.findByRole('combobox', { name: '錄到哪裡' }), { key: 'Enter' });
+    const option = await screen.findByRole('option', { name: '既有教學・3 個畫面' });
+    option.focus();
+    fireEvent.keyDown(option, { key: 'Enter' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '接續錄製' }));
+    await waitFor(() => expect(mocks.permissionsRequest).toHaveBeenCalled());
+
+    expect(mocks.storageSet).toHaveBeenCalledWith({
+      'frametrail:pending-start:v1': expect.objectContaining({ mode: 'steps', tabId: 7, guideId: 'guide-old' }),
+    });
   });
 });

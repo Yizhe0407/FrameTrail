@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   createGuide: vi.fn(),
   getGuide: vi.fn(),
   discardPristineGuide: vi.fn(),
+  getGuideSummaries: vi.fn(),
 }));
 
 vi.mock('wxt/browser', async () => {
@@ -30,6 +31,7 @@ vi.mock('@/lib/storage/guide-repository', () => ({
   createGuide: mocks.createGuide,
   getGuide: mocks.getGuide,
   discardPristineGuide: mocks.discardPristineGuide,
+  getGuideSummaries: mocks.getGuideSummaries,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -60,6 +62,7 @@ function selectGuideInStorage(guide: { id: string } & Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  mocks.getGuideSummaries.mockResolvedValue([]);
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
   mocks.storageGet.mockResolvedValue({});
   mocks.storageSet.mockResolvedValue(undefined);
@@ -164,5 +167,72 @@ describe('popup mode picker', () => {
       '鎖定目前畫面，在同一張截圖上加入多個標註點。',
     );
     expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+});
+
+// jsdom lacks the pointer-capture and scrolling APIs Radix Select calls.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
+describe('popup record target picker', () => {
+  const RECENT = [
+    { id: 'guide-old', title: '既有教學', entryCount: 3, stepCount: 3, updatedAt: 2 },
+    { id: 'guide-b', title: '', entryCount: 0, stepCount: 0, updatedAt: 1 },
+  ];
+
+  async function pickTarget(name: string) {
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '錄到哪裡' }), { key: 'Enter' });
+    const option = await screen.findByRole('option', { name });
+    option.focus();
+    fireEvent.keyDown(option, { key: 'Enter' });
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+  }
+
+  it('is absent until a guide exists', async () => {
+    render(<RecordControls recording={IDLE_RECORDING} />);
+    await waitFor(() => expect(mocks.query).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.getGuideSummaries).toHaveBeenCalled());
+
+    expect(screen.queryByRole('combobox', { name: '錄到哪裡' })).toBeNull();
+  });
+
+  it('defaults to a new guide, so starting unchanged still creates one', async () => {
+    mocks.getGuideSummaries.mockResolvedValue(RECENT);
+    render(<RecordControls recording={IDLE_RECORDING} />);
+
+    expect((await screen.findByRole('combobox', { name: '錄到哪裡' })).textContent).toContain('新專案');
+    fireEvent.click(screen.getByRole('button', { name: '開始錄製' }));
+
+    await waitFor(() => expect(mocks.createGuide).toHaveBeenCalledOnce());
+  });
+
+  it('appends to the chosen guide without creating one', async () => {
+    mocks.getGuideSummaries.mockResolvedValue(RECENT);
+    mocks.getGuide.mockImplementation(async (id: string) => RECENT.find((guide) => guide.id === id));
+    const onStarted = vi.fn();
+    render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
+    await screen.findByRole('combobox', { name: '錄到哪裡' });
+
+    await pickTarget('既有教學・3 個畫面');
+    fireEvent.click(screen.getByRole('button', { name: '接續錄製' }));
+
+    await waitFor(() => expect(onStarted).toHaveBeenCalledOnce());
+    expect(mocks.createGuide).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).toHaveBeenCalledExactlyOnceWith({
+      type: 'START_RECORDING',
+      sessionId: 'guide-old',
+      mode: 'steps',
+    });
+  });
+
+  it('labels an untitled guide with the untitled placeholder', async () => {
+    mocks.getGuideSummaries.mockResolvedValue(RECENT);
+    render(<RecordControls recording={IDLE_RECORDING} />);
+    await screen.findByRole('combobox', { name: '錄到哪裡' });
+
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '錄到哪裡' }), { key: 'Enter' });
+
+    expect(await screen.findByRole('option', { name: '未命名作品・0 個畫面' })).toBeTruthy();
   });
 });
