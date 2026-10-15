@@ -195,24 +195,24 @@
  * as busy), so draw it as an SVG background. Colour follows the theme; pair
  * with `rounded-md`. The rect is inset by half the 2px stroke so nothing is
  * clipped, the image covers the border box (badges keep a transparent 2px
- * border), and solid corner arcs are overlaid so the corners never open a gap
- * where the dash pattern happens to land. */
+ * border). Dashes are one uniform length all the way round, corners included;
+ * the only irregularity is a single seam where the pattern wraps. */
 @utility dashed-outline {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20rx='7'%20ry='7'%20stroke='%231f1b16'%20stroke-width='2'%20stroke-dasharray='6%207'/%3E%3Csvg%20x='0'%20y='0'%20style='overflow:visible'%3E%3Cpath%20d='M1%208A7%207%200%200%201%208%201'%20fill='none'%20stroke='%231f1b16'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='100%25'%20y='0'%20style='overflow:visible'%3E%3Cpath%20d='M-8%201A7%207%200%200%201%20-1%208'%20fill='none'%20stroke='%231f1b16'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='100%25'%20y='100%25'%20style='overflow:visible'%3E%3Cpath%20d='M-1%20-8A7%207%200%200%201%20-8%20-1'%20fill='none'%20stroke='%231f1b16'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='0'%20y='100%25'%20style='overflow:visible'%3E%3Cpath%20d='M8%20-1A7%207%200%200%201%201%20-8'%20fill='none'%20stroke='%231f1b16'%20stroke-width='2'/%3E%3C/svg%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20rx='7'%20ry='7'%20stroke='%231f1b16'%20stroke-width='2'%20stroke-dasharray='7%207'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-origin: border-box;
   @media (prefers-color-scheme: dark) {
-    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20rx='7'%20ry='7'%20stroke='%23d9cdb8'%20stroke-width='2'%20stroke-dasharray='6%207'/%3E%3Csvg%20x='0'%20y='0'%20style='overflow:visible'%3E%3Cpath%20d='M1%208A7%207%200%200%201%208%201'%20fill='none'%20stroke='%23d9cdb8'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='100%25'%20y='0'%20style='overflow:visible'%3E%3Cpath%20d='M-8%201A7%207%200%200%201%20-1%208'%20fill='none'%20stroke='%23d9cdb8'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='100%25'%20y='100%25'%20style='overflow:visible'%3E%3Cpath%20d='M-1%20-8A7%207%200%200%201%20-8%20-1'%20fill='none'%20stroke='%23d9cdb8'%20stroke-width='2'/%3E%3C/svg%3E%3Csvg%20x='0'%20y='100%25'%20style='overflow:visible'%3E%3Cpath%20d='M8%20-1A7%207%200%200%201%201%20-8'%20fill='none'%20stroke='%23d9cdb8'%20stroke-width='2'/%3E%3C/svg%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20rx='7'%20ry='7'%20stroke='%23d9cdb8'%20stroke-width='2'%20stroke-dasharray='7%207'/%3E%3C/svg%3E");
   }
 }
 
 /* Same, for fully rounded (pill) controls. */
 @utility dashed-outline-pill {
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20ry='50%25'%20stroke='%231f1b16'%20stroke-width='2'%20stroke-dasharray='6%207'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20ry='50%25'%20stroke='%231f1b16'%20stroke-width='2'%20stroke-dasharray='7%207'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-origin: border-box;
   @media (prefers-color-scheme: dark) {
-    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20ry='50%25'%20stroke='%23d9cdb8'%20stroke-width='2'%20stroke-dasharray='6%207'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100%25'%20height='100%25'%3E%3Crect%20x='1'%20y='1'%20style='width:calc(100%25%20-%202px);height:calc(100%25%20-%202px)'%20fill='none'%20ry='50%25'%20stroke='%23d9cdb8'%20stroke-width='2'%20stroke-dasharray='7%207'/%3E%3C/svg%3E");
   }
 }
 
