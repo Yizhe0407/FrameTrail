@@ -65,11 +65,20 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
         {value === null ? <FilePlus2 aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
         <SelectValue />
       </SelectTrigger>
-      <SelectContent position="popper" className="border-0 ring-2 ring-border">
+      {/* The popup is a fixed 320px window that clips anything drawn past its
+          edge, so the list is pinned to the trigger's width instead of growing
+          with its longest title; titles truncate and the count stays visible. */}
+      <SelectContent
+        position="popper"
+        className="w-(--radix-select-trigger-width) max-w-(--radix-select-trigger-width) min-w-0 border-0 ring-2 ring-border"
+      >
         <SelectItem value={NEW_VALUE} className="font-bold">{t().popup.recordTargetNew}</SelectItem>
         {guides.map((guide) => (
           <SelectItem key={guide.id} value={`${GUIDE_PREFIX}${guide.id}`} className="font-bold">
-            {t().popup.recordTargetGuide(guide.title.trim() || t().common.untitledGuide, guide.entryCount)}
+            <span className="min-w-0 flex-1 truncate">{guide.title.trim() || t().common.untitledGuide}</span>
+            <span className="shrink-0 text-xs font-bold text-muted-foreground">
+              {t().popup.recordTargetCount(guide.entryCount)}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>

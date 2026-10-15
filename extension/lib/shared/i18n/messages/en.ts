@@ -106,7 +106,7 @@ export const en: Messages = {
   popup: {
     recordTarget: 'Record into',
     recordTargetNew: 'New guide',
-    recordTargetGuide: (title: string, count: number) => `${title} · ${count} ${count === 1 ? 'screen' : 'screens'}`,
+    recordTargetCount: (count: number) => `${count} ${count === 1 ? 'screen' : 'screens'}`,
     continueRecording: 'Continue recording',
     editorServiceUnavailable: 'Couldn’t reach the editor. Reopen FrameTrail and try again.',
     activeTabUnreadable: 'Couldn’t read the current tab. Reopen FrameTrail and try again.',

@@ -110,7 +110,7 @@ export const zhTW = {
   popup: {
     recordTarget: '錄到哪裡',
     recordTargetNew: '新專案',
-    recordTargetGuide: (title: string, count: number) => `${title}・${count} 個畫面`,
+    recordTargetCount: (count: number) => `${count} 個畫面`,
     continueRecording: '接續錄製',
     editorServiceUnavailable: '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
     activeTabUnreadable: '無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。',
