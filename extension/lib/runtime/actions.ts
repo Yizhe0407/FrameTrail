@@ -27,6 +27,11 @@ export async function resetSession(sessionId: string): Promise<void> {
   if (!result.ok) throw new Error(result.error);
 }
 
+/** Opens the options page, focusing it if it is already open. */
+export async function openSettings(): Promise<void> {
+  await browser.runtime.openOptionsPage();
+}
+
 /**
  * Asks the background to bring up the library. Only the background can find an
  * already-open library tab — an extension page cannot read tab URLs, and

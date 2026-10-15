@@ -10,7 +10,7 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
   return rtlRender(ui, { wrapper: TooltipProvider, ...options });
 }
 
-const runtime = vi.hoisted(() => ({ sendMessage: vi.fn() }));
+const runtime = vi.hoisted(() => ({ sendMessage: vi.fn(), openOptionsPage: vi.fn() }));
 
 vi.mock('wxt/browser', () => ({
   browser: {
@@ -74,5 +74,15 @@ describe('popup editor open', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('無法連接編輯器服務');
     expect(window.close).not.toHaveBeenCalled();
+  });
+
+  it('opens the settings page and closes the popup', async () => {
+    runtime.openOptionsPage.mockResolvedValue(undefined);
+    render(<PopupApp />);
+
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+
+    await waitFor(() => expect(runtime.openOptionsPage).toHaveBeenCalledTimes(1));
+    expect(window.close).toHaveBeenCalled();
   });
 });

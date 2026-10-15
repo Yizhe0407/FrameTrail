@@ -41,11 +41,19 @@ export const en: Messages = {
     auto: 'Match browser',
   },
 
+  settings: {
+    title: 'Settings',
+    open: 'Settings',
+    openFailed: 'Couldn’t open settings. Please try again.',
+    languageDescription: 'The language FrameTrail’s interface uses. “Match browser” follows your browser’s language.',
+  },
+
   page: {
     popup: 'FrameTrail',
     library: 'FrameTrail Library',
     editor: 'FrameTrail Editor',
     snapshotShield: 'FrameTrail snapshot annotation',
+    options: 'FrameTrail Settings',
   },
 
   mode: {

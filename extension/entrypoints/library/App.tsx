@@ -8,6 +8,7 @@ import {
   PencilLine,
   Plus,
   Search,
+  Settings,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -36,7 +37,7 @@ import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
 import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
-import LanguageSwitcher from '@/components/shared/LanguageSwitcher';
+import { openSettings } from '@/lib/runtime/actions';
 
 /** Derives the .frametrail archive name from the same stem the publication
  * exporters use; strips the extension the (unexported) stem helper's facade appends. */
@@ -127,6 +128,15 @@ export default function App() {
     return outcome ?? false;
   }
 
+  async function openSettingsPage() {
+    try {
+      await openSettings();
+    } catch (settingsError) {
+      console.error('[frametrail] failed to open settings', settingsError);
+      setError(t().settings.openFailed);
+    }
+  }
+
   async function createNewGuide() {
     await run('new', async () => {
       const guide = await createAndSelectGuide();
@@ -200,7 +210,9 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <LanguageSwitcher className="h-10 data-[size=default]:h-10" />
+            <Button variant="outline" onClick={() => void openSettingsPage()}>
+              <Settings />{t().settings.open}
+            </Button>
             <input
               ref={importInput}
               type="file"

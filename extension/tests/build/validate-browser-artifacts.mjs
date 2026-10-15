@@ -50,6 +50,7 @@ const htmlEntrypoints = [
   'popup.html',
   'editor.html',
   'library.html',
+  'options.html',
   'snapshot-shield.html',
 ];
 
@@ -64,6 +65,13 @@ for (const build of [chrome, firefox]) {
     if (html.includes('rel="modulepreload"')) {
       throw new Error(`${build.directory}/${entrypoint} must not preload extension chunks across Chromium worlds.`);
     }
+  }
+}
+
+for (const build of [chrome, firefox]) {
+  // Settings live on the options page, opened in a full tab.
+  if (build.manifest.options_ui?.page !== 'options.html' || build.manifest.options_ui.open_in_tab !== true) {
+    throw new Error(`${build.directory} must declare options.html as a tab-opened options page.`);
   }
 }
 

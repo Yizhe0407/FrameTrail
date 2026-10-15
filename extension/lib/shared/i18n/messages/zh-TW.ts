@@ -44,11 +44,19 @@ export const zhTW = {
     auto: '跟隨瀏覽器',
   },
 
+  settings: {
+    title: '設定',
+    open: '設定',
+    openFailed: '無法開啟設定頁，請再試一次。',
+    languageDescription: '介面使用的語言。選擇「跟隨瀏覽器」時，會依瀏覽器的語言自動切換。',
+  },
+
   page: {
     popup: 'FrameTrail',
     library: 'FrameTrail 作品庫',
     editor: 'FrameTrail 編輯器',
     snapshotShield: 'FrameTrail 快照標註',
+    options: 'FrameTrail 設定',
   },
 
   mode: {

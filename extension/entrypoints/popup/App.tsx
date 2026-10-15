@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { AlertCircle, Library } from 'lucide-react';
+import { AlertCircle, Library, Settings } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import OpenEditorButton from '@/components/popup/OpenEditorButton';
@@ -11,13 +11,13 @@ import BrandMark from '@/components/shared/BrandMark';
 import { cn } from '@/lib/shared/utils';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import type { OpenEditorResult } from '@/lib/runtime/messages';
-import { openLibrary } from '@/lib/runtime/actions';
+import { openLibrary, openSettings } from '@/lib/runtime/actions';
 import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { getGuide } from '@/lib/storage/guide-repository';
 import { reportError } from '@/components/shared/report-error';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t } from '@/lib/shared/i18n';
-import LanguageSwitcher from '@/components/shared/LanguageSwitcher';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 function App() {
   // Opts out of step reads: the full hook re-fetches every step (screenshot
@@ -52,6 +52,17 @@ function App() {
     };
     // phase re-runs the read after a run finishes and bumps the counts.
   }, [sessionId, recording.phase]);
+
+  async function openSettingsPage() {
+    setEditorOpenError(null);
+    try {
+      await openSettings();
+      window.close();
+    } catch (settingsError) {
+      console.error('[frametrail] failed to open settings', settingsError);
+      setEditorOpenError(t().settings.openFailed);
+    }
+  }
 
   async function openLibraryView() {
     setEditorOpenError(null);
@@ -104,21 +115,37 @@ function App() {
     <div className="flex w-[320px] flex-col gap-4 bg-card p-5">
       <div className="flex items-center justify-between gap-3">
         <BrandMark />
-        <span
-          className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded-full border-2 px-2.5 py-0.5 text-xs font-bold',
-            recording.phase === 'starting'
-              ? 'border-border bg-tamago text-on-accent'
-              : isRecording
-                ? 'border-recording bg-danger-soft text-danger'
-                : 'border-border bg-secondary text-foreground',
-          )}
-        >
-          {isRecording && recording.phase !== 'starting' && (
-            <span className="size-1.5 rounded-full bg-recording" aria-hidden="true" />
-          )}
-          {recording.phase === 'starting' ? t().popup.status.starting : isRecording ? t().popup.status.recording : t().popup.status.idle}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-full border-2 px-2.5 py-0.5 text-xs font-bold',
+              recording.phase === 'starting'
+                ? 'border-border bg-tamago text-on-accent'
+                : isRecording
+                  ? 'border-recording bg-danger-soft text-danger'
+                  : 'border-border bg-secondary text-foreground',
+            )}
+          >
+            {isRecording && recording.phase !== 'starting' && (
+              <span className="size-1.5 rounded-full bg-recording" aria-hidden="true" />
+            )}
+            {recording.phase === 'starting' ? t().popup.status.starting : isRecording ? t().popup.status.recording : t().popup.status.idle}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label={t().settings.open}
+                onClick={() => void openSettingsPage()}
+              >
+                <Settings />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t().settings.open}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {(editorOpenError || recoverableError?.message || error || dataError) && !isRecording && (
@@ -156,7 +183,6 @@ function App() {
         </div>
       )}
 
-      <LanguageSwitcher className="w-full" />
     </div>
   );
 }
