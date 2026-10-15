@@ -79,11 +79,6 @@ export const zhTW = {
   },
 
   popup: {
-    status: {
-      idle: '待命',
-      starting: '準備中',
-      recording: '錄製中',
-    },
     libraryOpenFailed: '無法開啟作品庫，請再試一次。',
     editorServiceUnavailable: '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
     activeTabUnreadable: '無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。',

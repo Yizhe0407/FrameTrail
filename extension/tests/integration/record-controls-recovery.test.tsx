@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), permissionsContains: vi.fn(), storageGet: vi.fn() }));
@@ -18,6 +18,13 @@ vi.mock('wxt/browser', async () => {
 import RecordControls from '@/components/popup/RecordControls';
 import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
 import { makeRecordingState } from '../setup/recording-state';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// The mode picker uses the shadcn Tooltip, which requires a TooltipProvider
+// ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 function recoveryState(recoverableError: RecoverableRecordingError): RecordingState {
   return makeRecordingState({

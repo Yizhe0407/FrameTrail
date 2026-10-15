@@ -115,22 +115,7 @@ function App() {
     <div className="flex w-[320px] flex-col gap-4 bg-card p-5">
       <div className="flex items-center justify-between gap-3">
         <BrandMark />
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-full border-2 px-2.5 py-0.5 text-xs font-bold',
-              recording.phase === 'starting'
-                ? 'border-border bg-tamago text-on-accent'
-                : isRecording
-                  ? 'border-recording bg-danger-soft text-danger'
-                  : 'border-border bg-secondary text-foreground',
-            )}
-          >
-            {isRecording && recording.phase !== 'starting' && (
-              <span className="size-1.5 rounded-full bg-recording" aria-hidden="true" />
-            )}
-            {recording.phase === 'starting' ? t().popup.status.starting : isRecording ? t().popup.status.recording : t().popup.status.idle}
-          </span>
+        <div className="flex shrink-0 items-center">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

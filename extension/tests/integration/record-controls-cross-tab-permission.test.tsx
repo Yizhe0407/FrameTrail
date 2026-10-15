@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -39,6 +39,13 @@ vi.mock('@/lib/storage/guide-repository', () => ({
 import RecordControls from '@/components/popup/RecordControls';
 import { CROSS_TAB_DECLINE_STORAGE_KEY } from '@/lib/runtime/cross-tab-recording';
 import { makeRecordingState } from '../setup/recording-state';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// The mode picker uses the shadcn Tooltip, which requires a TooltipProvider
+// ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const ALL_URLS = { origins: ['<all_urls>'] };
 const HINT_TEXT = /目前僅錄製單一分頁/;

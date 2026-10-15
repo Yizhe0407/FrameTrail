@@ -75,7 +75,7 @@ test.describe('popup workflows', () => {
     await expect(stepsMode).toHaveAttribute('aria-checked', 'true');
     await snapshotMode.click();
     await expect(snapshotMode).toHaveAttribute('aria-checked', 'true');
-    await expect(popupPage.getByText('鎖定目前畫面，在同一張截圖上加入多個標註點。')).toBeVisible();
+    await expect(snapshotMode).toHaveAccessibleDescription('鎖定目前畫面，在同一張截圖上加入多個標註點。');
 
     await expect(popupPage.getByRole('switch', { name: '自動編號' })).toHaveCount(0);
 

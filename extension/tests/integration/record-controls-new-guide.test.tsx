@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 
@@ -36,6 +36,13 @@ import RecordControls from '@/components/popup/RecordControls';
 import { RECORDING_STATE_KEY } from '@/lib/storage/recording-state';
 import { ACTIVE_GUIDE_ID_KEY } from '@/lib/storage/storage';
 import { makeRecordingState } from '../setup/recording-state';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// The mode picker uses the shadcn Tooltip, which requires a TooltipProvider
+// ancestor — wrap every render() the same way the app roots do.
+function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof rtlRender>[1]) {
+  return rtlRender(ui, { wrapper: TooltipProvider, ...options });
+}
 
 const IDLE_RECORDING = makeRecordingState();
 
@@ -139,5 +146,23 @@ describe('popup start always records into a fresh guide', () => {
     expect(screen.queryByText(/接續錄製/)).toBeNull();
     expect(mocks.getGuide).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '開始錄製' })).toBeTruthy();
+  });
+});
+
+describe('popup mode picker', () => {
+  it('keeps each mode explanation out of the layout but on the radio as its description', async () => {
+    render(<RecordControls recording={IDLE_RECORDING} />);
+    await waitFor(() => expect(mocks.query).toHaveBeenCalled());
+
+    const steps = screen.getByRole('radio', { name: /步驟/ });
+    const snapshot = screen.getByRole('radio', { name: /快照/ });
+    expect(steps.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(steps.getAttribute('aria-describedby')!)?.textContent).toBe(
+      '每次點擊都會擷取一張截圖，自動編號成一連串操作步驟。',
+    );
+    expect(document.getElementById(snapshot.getAttribute('aria-describedby')!)?.textContent).toBe(
+      '鎖定目前畫面，在同一張截圖上加入多個標註點。',
+    );
+    expect(screen.queryByRole('tooltip')).toBeNull();
   });
 });

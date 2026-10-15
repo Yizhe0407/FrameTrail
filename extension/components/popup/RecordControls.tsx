@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { Camera, ExternalLink, ListOrdered, Loader2, TriangleAlert } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
 } from '@/lib/runtime/cross-tab-recording';
 import { claimPendingStart, discardPendingStart, parkPendingStart } from '@/lib/runtime/pending-start';
 import { t } from '@/lib/shared/i18n';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface Props {
   recording: RecordingState;
@@ -268,31 +269,43 @@ export default function RecordControls({
         <div role="radiogroup" aria-label={t().common.recordingMode} className="flex gap-0.5 rounded-md border-2 border-border bg-secondary p-0.5">
           {MODE_ORDER.map((candidate) => {
             const Icon = MODE_ICONS[candidate];
+            const copy = recordingModeCopy(candidate);
+            const descriptionId = `record-mode-${candidate}-description`;
             return (
-              <button
-                key={candidate}
-                type="button"
-                role="radio"
-                aria-checked={mode === candidate}
-                onClick={() => setMode(candidate)}
-                disabled={pending}
-                className={cn(
-                  'flex h-9 flex-1 items-center justify-center gap-1.5 rounded-sm border-2 text-sm font-bold outline-none transition-colors focus-ring',
-                  // Pastel fill + ink text in both themes, like every selection.
-                  mode === candidate
-                    ? 'border-border bg-selected text-on-accent'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4" aria-hidden="true" />
-                {recordingModeCopy(candidate).label}
-              </button>
+              <Fragment key={candidate}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={mode === candidate}
+                      aria-describedby={descriptionId}
+                      onClick={() => setMode(candidate)}
+                      disabled={pending}
+                      className={cn(
+                        'flex h-9 flex-1 items-center justify-center gap-1.5 rounded-sm border-2 text-sm font-bold outline-none transition-colors focus-ring',
+                        // Pastel fill + ink text in both themes, like every selection.
+                        mode === candidate
+                          ? 'border-border bg-selected text-on-accent'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Icon className="size-4" aria-hidden="true" />
+                      {copy.label}
+                    </button>
+                  </TooltipTrigger>
+                  {/* Visual only: the sibling sr-only span below is the radio's
+                      description, so it is announced on focus without waiting
+                      for the tooltip and never leaks into the radio's name. */}
+                  <TooltipContent side="bottom" sideOffset={6} aria-hidden="true" className="max-w-60 text-center">
+                    {copy.description}
+                  </TooltipContent>
+                </Tooltip>
+                <span id={descriptionId} className="sr-only">{copy.description}</span>
+              </Fragment>
             );
           })}
         </div>
-        <p className="rounded-md border-2 border-dashed border-border-soft px-3 py-2.5 text-[13px] leading-relaxed text-muted-foreground">
-          {activeMode.description}
-        </p>
         {/* Passive affordance, never a nag: shown whenever the grant is absent
             (even after a remembered decline), and the request runs directly in
             the click handler so the browser accepts it as a user gesture. */}

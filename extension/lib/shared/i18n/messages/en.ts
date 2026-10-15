@@ -76,11 +76,6 @@ export const en: Messages = {
   },
 
   popup: {
-    status: {
-      idle: 'Ready',
-      starting: 'Starting',
-      recording: 'Recording',
-    },
     libraryOpenFailed: 'Couldn’t open the library. Please try again.',
     editorServiceUnavailable: 'Couldn’t reach the editor. Reopen FrameTrail and try again.',
     activeTabUnreadable: 'Couldn’t read the current tab. Reopen FrameTrail and try again.',
