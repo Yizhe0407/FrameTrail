@@ -14,7 +14,7 @@ describe('validatePreparedPermissionSource', () => {
 
   it('rejects a source origin that is not a parseable URL', () => {
     expect(() => validatePreparedPermissionSource('not a url', 'https://example.com/*'))
-      .toThrow('來源網站授權資料無效，已停止操作。');
+      .toThrow('無法取得來源網站的存取權限，已停止操作。請重新整理後再試一次。');
   });
 
   it('rejects non-http(s) schemes', () => {
@@ -24,15 +24,15 @@ describe('validatePreparedPermissionSource', () => {
       ['ftp://example.com', 'ftp://example.com/*'],
     ] as const) {
       expect(() => validatePreparedPermissionSource(origin, pattern))
-        .toThrow('來源網站授權資料不符合安全規則，已停止操作。');
+        .toThrow('無法使用這個來源網站的存取權限，已停止操作。請重新整理後再試一次。');
     }
   });
 
   it('rejects a source that carries more than a bare origin', () => {
     expect(() => validatePreparedPermissionSource('https://example.com/path', 'https://example.com/*'))
-      .toThrow('來源網站授權資料不符合安全規則，已停止操作。');
+      .toThrow('無法使用這個來源網站的存取權限，已停止操作。請重新整理後再試一次。');
     expect(() => validatePreparedPermissionSource('https://user:pass@example.com', 'https://example.com/*'))
-      .toThrow('來源網站授權資料不符合安全規則，已停止操作。');
+      .toThrow('無法使用這個來源網站的存取權限，已停止操作。請重新整理後再試一次。');
   });
 
   it('rejects a permission pattern that does not cover exactly the origin', () => {
@@ -45,7 +45,7 @@ describe('validatePreparedPermissionSource', () => {
       '<all_urls>',
     ]) {
       expect(() => validatePreparedPermissionSource('https://example.com', pattern))
-        .toThrow('來源網站授權資料不符合安全規則，已停止操作。');
+        .toThrow('無法使用這個來源網站的存取權限，已停止操作。請重新整理後再試一次。');
     }
   });
 });

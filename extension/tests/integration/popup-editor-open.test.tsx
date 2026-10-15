@@ -72,7 +72,7 @@ describe('popup editor open', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '編輯器' }));
 
-    expect((await screen.findByRole('alert')).textContent).toContain('無法連接編輯器服務');
+    expect((await screen.findByRole('alert')).textContent).toContain('無法連接編輯器');
     expect(window.close).not.toHaveBeenCalled();
   });
 

@@ -112,7 +112,7 @@ describe('Project UI selection', () => {
     mocks.getProject.mockResolvedValue(project('project-a'));
     mocks.sendMessage.mockResolvedValue(undefined);
 
-    await expect(openSelectedProjectInEditor('project-a')).rejects.toThrow('無法連接編輯器服務');
+    await expect(openSelectedProjectInEditor('project-a')).rejects.toThrow('無法連接編輯器');
   });
 
   it('compare-and-clears selection without consulting capture operation state', async () => {
@@ -207,7 +207,7 @@ describe('popup start transaction (startRecordingIntoProject)', () => {
     mocks.sendMessage.mockResolvedValue(undefined);
     mocks.getRecordingState.mockResolvedValue({ isRecording: true, sessionId: 'project-new' });
 
-    await expect(startRecordingIntoProject('steps')).rejects.toThrow('無法連接錄製服務');
+    await expect(startRecordingIntoProject('steps')).rejects.toThrow('無法連接錄製功能');
 
     expect(mocks.discardPristineProject).not.toHaveBeenCalled();
   });
@@ -248,7 +248,7 @@ describe('popup start transaction into an existing project', () => {
     mocks.sendMessage.mockResolvedValue(undefined);
     mocks.getRecordingState.mockResolvedValue({ isRecording: true, sessionId: 'project-target' });
 
-    await expect(startRecordingIntoProject('steps', 'project-target')).rejects.toThrow('無法連接錄製服務');
+    await expect(startRecordingIntoProject('steps', 'project-target')).rejects.toThrow('無法連接錄製功能');
 
     expect(mocks.setActiveProjectId).toHaveBeenCalledExactlyOnceWith('project-target');
   });

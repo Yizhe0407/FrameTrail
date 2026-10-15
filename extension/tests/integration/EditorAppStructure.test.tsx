@@ -381,7 +381,7 @@ describe('Editor App structure wiring', () => {
     render(<EditorApp />);
 
     expect(await screen.findByRole('heading', { name: '找不到這個專案' })).toBeTruthy();
-    expect(screen.getByText(/編輯器網址缺少專案識別碼/)).toBeTruthy();
+    expect(screen.getByText(/編輯器網址不完整/)).toBeTruthy();
     expect(recordingSession.useRecordingSession).toHaveBeenCalledWith(null);
     expect(recordingSession.useRecordingSession).not.toHaveBeenCalledWith(undefined);
     expect(database.getProject).not.toHaveBeenCalled();

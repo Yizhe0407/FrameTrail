@@ -960,7 +960,7 @@ describe('cancelStepRecapture', () => {
       editorSender('project-b'),
     );
 
-    expect(result).toEqual({ ok: false, error: '無效的補拍來源。' });
+    expect(result).toEqual({ ok: false, error: '無法使用這個補拍來源，請回到編輯器重新操作。' });
     expect(harness.getState().operation).toBe('recapture');
   });
 
@@ -1109,7 +1109,7 @@ describe('focusStepRecaptureSource', () => {
         { type: 'FOCUS_STEP_RECAPTURE_SOURCE', runId: 'recapture-1' },
         editorSender('project-b'),
       ),
-    ).resolves.toEqual({ ok: false, error: '無效的編輯器來源。' });
+    ).resolves.toEqual({ ok: false, error: '無法從這個頁面開始補拍，請回到 Stepmark 編輯器重新操作。' });
   });
 
   it('reports a source tab that can no longer be focused', async () => {

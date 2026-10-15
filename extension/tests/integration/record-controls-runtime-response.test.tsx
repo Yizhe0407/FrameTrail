@@ -64,7 +64,7 @@ describe('record controls runtime responses', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^開始/ }));
 
-    expect((await screen.findByRole('alert')).textContent).toContain('無法連接錄製服務');
+    expect((await screen.findByRole('alert')).textContent).toContain('無法連接錄製功能');
     expect(onStarted).not.toHaveBeenCalled();
   });
 });
