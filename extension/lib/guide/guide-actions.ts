@@ -62,7 +62,7 @@ export async function getSelectedGuide(): Promise<Guide | null> {
  * lib/storage; this wrapper only adds selection-queue ordering and the
  * restorePreviousGuideId behavior, which re-selects the pre-start selection
  * after a failed start so the aborted attempt is invisible. Callers must only
- * pass ids they themselves auto-created — an explicitly created 作品庫 guide
+ * pass ids they themselves auto-created — an explicitly created 專案庫 guide
  * shares the same empty shape and must never reach this. Returns whether it
  * deleted.
  */

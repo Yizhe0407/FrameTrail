@@ -135,7 +135,7 @@ test.describe('popup workflows', () => {
     }
 
     await expect(popupPage.getByRole('button', { name: '重置' })).toBeDisabled();
-    await expect(popupPage.getByRole('button', { name: '作品庫', exact: true })).toBeEnabled();
+    await expect(popupPage.getByRole('button', { name: '專案庫', exact: true })).toBeEnabled();
 
     const editorPromise = extensionContext.waitForEvent('page');
     await popupPage.getByRole('button', { name: '編輯器' }).click();

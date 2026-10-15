@@ -1,7 +1,7 @@
 import { test, expect } from '../support/fixture';
 import { resetExtensionData, seedAndSelectGuide } from '../support/harness';
 
-const LONG_TITLE = '未命名作品 · 2026年10月15日 下午3:37 · 一段非常長的標題用來測試選單不會超出視窗';
+const LONG_TITLE = '未命名專案 · 2026年10月15日 下午3:37 · 一段非常長的標題用來測試選單不會超出視窗';
 
 test.describe('popup record target picker', () => {
   test('keeps the option list inside the 320px popup, however long a guide title is', async ({ popupPage, browserErrors }) => {

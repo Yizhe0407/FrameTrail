@@ -209,6 +209,6 @@ describe('section delete undo', () => {
 
     await waitFor(() => expect(screen.queryByText('已刪除章節「準備」')).toBeNull());
     expect(database.addGuideSectionAtomically).not.toHaveBeenCalled();
-    expect(await screen.findByText('內容已在其他操作中變更，因此無法安全還原舊版本。')).toBeTruthy();
+    expect(await screen.findByText('專案已在其他操作中變更，因此無法安全還原舊版本。')).toBeTruthy();
   });
 });

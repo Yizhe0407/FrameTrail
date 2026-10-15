@@ -256,7 +256,7 @@ describe('popup start transaction into an existing guide', () => {
   it('fails without starting when the target guide no longer exists', async () => {
     mocks.getGuide.mockImplementation(async (id: string) => (id === 'guide-old' ? guide(id) : undefined));
 
-    await expect(startRecordingIntoGuide('steps', 'guide-gone')).rejects.toThrow('找不到這份內容');
+    await expect(startRecordingIntoGuide('steps', 'guide-gone')).rejects.toThrow('找不到這個專案');
 
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });

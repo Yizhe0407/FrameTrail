@@ -92,7 +92,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('作品庫', () => {
+describe('專案庫', () => {
   it('永久刪除成功後才 compare-and-clear UI selection', async () => {
     const order: string[] = [];
     database.deleteGuidePermanently.mockImplementation(async () => { order.push('delete'); });
@@ -138,7 +138,7 @@ describe('作品庫', () => {
 
   // The card grid used to close with a dashed "add" tile, a third way to reach
   // the same action. The header button is the one that is always visible.
-  it('作品卡片格線只保留標題列的新增入口', async () => {
+  it('專案卡片格線只保留標題列的新增入口', async () => {
     render(<LibraryApp />);
     await screen.findByDisplayValue('安全教學');
 
@@ -151,12 +151,12 @@ describe('作品庫', () => {
     expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('new-guide', { inPlace: true });
   });
 
-  it('作品庫只顯示必要的作品資訊', async () => {
+  it('專案庫只顯示必要的專案資訊', async () => {
     render(<LibraryApp />);
     await screen.findByDisplayValue('安全教學');
 
     expect(screen.queryByText('所有內容只保存在這個瀏覽器設定檔中。')).toBeNull();
-    expect(screen.queryByText('1 份作品 · 100 B')).toBeNull();
+    expect(screen.queryByText('1 個專案 · 100 B')).toBeNull();
     expect(screen.queryByText('100 B')).toBeNull();
     expect(screen.queryByText(/更新於/)).toBeNull();
 
@@ -165,24 +165,24 @@ describe('作品庫', () => {
     expect(counts.getAttribute('title')).toBeNull();
   });
 
-  it('作品沒有說明時不加入預設提示文字', async () => {
+  it('專案沒有說明時不加入預設提示文字', async () => {
     database.getGuideSummaries.mockResolvedValue([{ ...guide, description: '' }]);
     render(<LibraryApp />);
 
     await screen.findByDisplayValue('安全教學');
-    expect(screen.queryByText('尚未加入作品說明')).toBeNull();
+    expect(screen.queryByText('尚未加入專案說明')).toBeNull();
   });
 
   // Different situation: an otherwise empty page needs its own call to action.
-  it('作品庫為空時額外提供空狀態的新增 CTA', async () => {
+  it('專案庫為空時額外提供空狀態的新增 CTA', async () => {
     database.getGuideSummaries.mockResolvedValue([]);
     render(<LibraryApp />);
 
-    await screen.findByRole('heading', { name: '建立第一份作品' });
+    await screen.findByRole('heading', { name: '建立第一個專案' });
     await waitFor(() => expect(screen.getAllByRole('button', { name: '新增' })).toHaveLength(2));
   });
 
-  it('即時訂閱全域 operation lock，避免錄製中修改作品庫', async () => {
+  it('即時訂閱全域 operation lock，避免錄製中修改專案庫', async () => {
     render(<LibraryApp />);
     const deleteButton = await screen.findByRole('button', { name: '刪除' }) as HTMLButtonElement;
     expect(deleteButton.disabled).toBe(false);
@@ -207,7 +207,7 @@ describe('作品庫', () => {
 
     await waitFor(() => expect(database.getGuideSummaries).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue(guide.title)).toBeTruthy();
-    expect(screen.queryByText('讀取作品庫…')).toBeNull();
+    expect(screen.queryByText('讀取專案庫…')).toBeNull();
 
     await act(async () => { resolveRefresh([]); });
     await waitFor(() => expect(screen.queryByDisplayValue(guide.title)).toBeNull());
@@ -239,7 +239,7 @@ describe('作品庫', () => {
     expect(database.updateGuide).not.toHaveBeenCalled();
   });
 
-  it('視窗重新取得焦點時在背景重新整理作品庫', async () => {
+  it('視窗重新取得焦點時在背景重新整理專案庫', async () => {
     render(<LibraryApp />);
     await screen.findByDisplayValue('安全教學');
     expect(database.getGuideSummaries).toHaveBeenCalledTimes(1);
@@ -247,7 +247,7 @@ describe('作品庫', () => {
     fireEvent.focus(window);
 
     await waitFor(() => expect(database.getGuideSummaries).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText('讀取作品庫…')).toBeNull();
+    expect(screen.queryByText('讀取專案庫…')).toBeNull();
   });
 
   it('可依多個標籤交集篩選並清除篩選', async () => {
@@ -269,7 +269,7 @@ describe('作品庫', () => {
     expect(await screen.findByDisplayValue('個人入門')).toBeTruthy();
   });
 
-  it('匯出可編輯檔案時包含完整 metadata、使用安全檔名且不重新載入作品庫', async () => {
+  it('匯出可編輯檔案時包含完整 metadata、使用安全檔名且不重新載入專案庫', async () => {
     const steps = [{ id: 'step-1' }];
     database.getSteps.mockResolvedValue(steps);
     archive.exportProjectArchive.mockResolvedValue(new Blob(['archive']));
@@ -299,7 +299,7 @@ describe('作品庫', () => {
     expect(database.getGuideSummaries).toHaveBeenCalledOnce();
   });
 
-  it('匯出失敗時保留作品卡片、顯示錯誤並允許重試', async () => {
+  it('匯出失敗時保留專案卡片、顯示錯誤並允許重試', async () => {
     silenceIntentionalErrorLogs();
     database.getSteps.mockResolvedValue([{ id: 'step-1' }]);
     archive.exportProjectArchive.mockRejectedValueOnce(new Error('匯出空間不足'));
@@ -315,7 +315,7 @@ describe('作品庫', () => {
     expect(database.getGuideSummaries).toHaveBeenCalledOnce();
   });
 
-  it('匯入失敗時保留作品卡片並以 alert 公告錯誤', async () => {
+  it('匯入失敗時保留專案卡片並以 alert 公告錯誤', async () => {
     silenceIntentionalErrorLogs();
     archive.importProjectArchive.mockRejectedValue(new Error('檔案內容損毀'));
     render(<LibraryApp />);
@@ -332,7 +332,7 @@ describe('作品庫', () => {
     expect(database.getGuideSummaries).toHaveBeenCalledOnce();
   });
 
-  it('同一事件迴圈內不會啟動兩個重疊的作品庫寫入', async () => {
+  it('同一事件迴圈內不會啟動兩個重疊的專案庫寫入', async () => {
     let resolveDuplicate!: () => void;
     database.duplicateGuide.mockReturnValue(new Promise<void>((resolve) => {
       resolveDuplicate = resolve;

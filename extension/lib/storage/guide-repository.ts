@@ -193,7 +193,7 @@ export async function duplicateGuide(sourceId: string, title?: string): Promise<
  * only while it is still a pristine empty shell (see isPristineGuide), so a
  * guide the user has meanwhile named or filled is never destroyed. Callers
  * must only pass ids they themselves auto-created — an explicitly created
- * 作品庫 guide shares the same empty shape and must never reach this.
+ * 專案庫 guide shares the same empty shape and must never reach this.
  * Returns whether it deleted.
  */
 export async function discardPristineGuide(guideId: string): Promise<boolean> {

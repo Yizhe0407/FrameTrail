@@ -37,7 +37,7 @@ describe('welcome page', () => {
     expect(breadcrumb().getByText('歡迎').closest('li')?.getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('heading', { level: 1, name: '歡迎使用 Stepmark' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /前往作品庫/ }));
+    fireEvent.click(screen.getByRole('button', { name: /前往專案庫/ }));
     expect(mocks.navigateInPlace).toHaveBeenCalledWith('library');
   });
 
@@ -67,7 +67,7 @@ describe('settings page', () => {
     render(<OptionsApp />);
 
     expect(mocks.registerPage).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 作品庫' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
 
     await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('library'));
   });

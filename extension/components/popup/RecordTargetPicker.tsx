@@ -25,7 +25,7 @@ interface Props {
 
 /**
  * 「錄到哪裡」: the popup's opt-in for appending to an existing Guide. The
- * default stays 新作品 so a stray click can never mix steps into finished work.
+ * default stays 新專案 so a stray click can never mix steps into finished work.
  * Renders nothing until the Library holds at least one Guide, so a first-time
  * user sees no extra control.
  */

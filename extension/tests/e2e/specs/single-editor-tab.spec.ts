@@ -67,7 +67,7 @@ test.describe('single editor tab', () => {
     // the editor turns that very tab into the library, adding no tab.
     await firstEditor.bringToFront();
     const pagesBefore = extensionContext.pages().length;
-    await firstEditor.getByRole('button', { name: 'Stepmark 作品庫' }).click();
+    await firstEditor.getByRole('button', { name: 'Stepmark 專案庫' }).click();
     await firstEditor.waitForURL(/\/library\.html$/);
     expect(extensionPages(extensionContext, 'editor')).toHaveLength(0);
     expect(extensionContext.pages()).toHaveLength(pagesBefore);
@@ -90,14 +90,14 @@ test.describe('single editor tab', () => {
     expect(extensionContext.pages()).toHaveLength(pagesBefore);
 
     // The tab is now remembered as the editor, not the library: the popup's
-    // 作品庫 has to open a library tab of its own rather than focus this one.
+    // 專案庫 has to open a library tab of its own rather than focus this one.
     await popupPage.goto(`chrome-extension://${extensionId}/popup.html`);
     // The real popup closes itself after opening a page; keep this tab-hosted one.
     await popupPage.evaluate(() => {
       window.close = () => {};
     });
     const libraryOpened = extensionContext.waitForEvent('page');
-    await popupPage.getByRole('button', { name: '作品庫', exact: true }).click();
+    await popupPage.getByRole('button', { name: '專案庫', exact: true }).click();
     const reopened = await libraryOpened;
     await reopened.waitForURL(/\/library\.html$/);
     expect(new URL(library.url()).pathname).toBe('/editor.html');

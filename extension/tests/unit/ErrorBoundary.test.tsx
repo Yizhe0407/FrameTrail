@@ -72,7 +72,7 @@ describe('ErrorBoundary', () => {
 
     withSilencedErrorLog(() => {
       render(
-        <ErrorBoundary label="作品庫" onReset={onReset}>
+        <ErrorBoundary label="專案庫" onReset={onReset}>
           <Flaky />
         </ErrorBoundary>,
       );

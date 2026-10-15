@@ -74,7 +74,7 @@ export default function App() {
     }
   }
 
-  // Lets "回到作品庫" reuse this tab instead of opening a second library.
+  // Lets "回到專案庫" reuse this tab instead of opening a second library.
   useExtensionPageRegistration();
 
   useEffect(() => {

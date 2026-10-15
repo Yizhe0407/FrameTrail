@@ -44,7 +44,7 @@ describe('EditorHeader', () => {
   it('offers exactly one control per action', () => {
     renderHeader();
 
-    expect(screen.getAllByRole('button', { name: 'Stepmark 作品庫' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Stepmark 專案庫' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '設定' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '匯出' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: '重置目前錄製' })).toHaveLength(1);
@@ -75,15 +75,15 @@ describe('EditorHeader', () => {
     expect(screen.getByRole('heading', { level: 1, name: '編輯器' })).toBeTruthy();
     cleanup();
     renderHeader({ guideTitle: '  ' });
-    expect(screen.getByRole('heading', { level: 1, name: '未命名作品' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: '未命名專案' })).toBeTruthy();
   });
 
   it('returns to the library in the same tab from the Stepmark crumb', async () => {
     renderHeader();
 
-    fireEvent.focus(screen.getByRole('button', { name: 'Stepmark 作品庫' }));
-    expect(screen.getByRole('tooltip').textContent).toBe('回到作品庫');
-    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 作品庫' }));
+    fireEvent.focus(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
+    expect(screen.getByRole('tooltip').textContent).toBe('回到專案庫');
+    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
 
     await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('library'));
   });
@@ -100,7 +100,7 @@ describe('EditorHeader', () => {
     const beforeNavigate = vi.fn().mockResolvedValue(false);
     renderHeader({ beforeNavigate });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 作品庫' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
 
     await waitFor(() => expect(beforeNavigate).toHaveBeenCalledOnce());
     expect(mocks.navigateInPlace).not.toHaveBeenCalled();

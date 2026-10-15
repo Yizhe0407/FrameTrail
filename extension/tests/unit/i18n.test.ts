@@ -75,7 +75,7 @@ describe('active locale', () => {
     const createdAt = Date.UTC(2026, 9, 15, 3, 4);
     setLocale('en');
     const englishTitle = defaultGuideTitle(createdAt);
-    expect(englishTitle.startsWith('Untitled guide · ')).toBe(true);
+    expect(englishTitle.startsWith('Untitled project · ')).toBe(true);
     setLocale('zh-TW');
     expect(isDefaultGuideTitle(englishTitle, createdAt)).toBe(true);
     expect(isDefaultGuideTitle(defaultGuideTitle(createdAt), createdAt)).toBe(true);

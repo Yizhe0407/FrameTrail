@@ -169,7 +169,7 @@ describe('the single editor opener', () => {
 
     await expect(openEditor({ sessionId: 'guide-gone' })).resolves.toEqual({
       ok: false,
-      error: '找不到這份內容。',
+      error: '找不到這個專案。',
     });
 
     expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
