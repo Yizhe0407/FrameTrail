@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import RecordingToolbar, { type RecordingToolbarState } from './recording-toolbar';
+import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from '../capture/overlay-layers';
 import { createViewportOverlayHost } from '../capture/viewport-overlay-host';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
@@ -23,9 +24,9 @@ export function mountRecordingToolbar(
   initialState: RecordingToolbarState,
   options: Options,
 ): MountedRecordingToolbar {
-  // Not a popover: the toolbar is always shown, and the attribute would hide
-  // it until showPopover().
-  const host = createViewportOverlayHost('data-frametrail-recording-toolbar', { 'pointer-events': 'none' });
+  // A popover so it shares the top layer with the hover frame and the page's
+  // own modals; plain z-index would always lose to either.
+  const host = createViewportOverlayHost('data-frametrail-recording-toolbar', { 'pointer-events': 'none' }, { popover: true });
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   const container = document.createElement('div');
@@ -51,6 +52,7 @@ export function mountRecordingToolbar(
   };
 
   document.documentElement.append(host);
+  showInTopLayer(host, OVERLAY_LAYER.chrome);
   render(initialState);
 
   return {
@@ -65,6 +67,7 @@ export function mountRecordingToolbar(
       if (removed) return;
       removed = true;
       root.unmount();
+      releaseTopLayer(host);
       host.remove();
     },
   };

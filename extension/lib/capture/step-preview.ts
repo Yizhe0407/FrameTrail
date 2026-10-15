@@ -1,6 +1,7 @@
 import { HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_PREVIEW_FILL_COLOR, HIGHLIGHT_RADIUS } from '../media/annotation-contract';
 import { fitHighlightFrame } from '../media/annotation-geometry';
 import { type Bounds } from '../storage/models';
+import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from './overlay-layers';
 import { createViewportOverlayHost, setImportantStyle } from './viewport-overlay-host';
 
 export interface StepPreview {
@@ -65,21 +66,14 @@ export function createStepPreview(): StepPreview {
     if (removed || host.isConnected) return;
     document.documentElement.append(host);
   };
-  const showInTopLayer = () => {
-    if (typeof host.showPopover !== 'function') return;
-    try {
-      if (!host.matches(':popover-open')) host.showPopover();
-    } catch {
-      // The fixed z-index fallback remains usable without popover support.
-    }
-  };
+  const showInTopLayerAsAnnotation = () => showInTopLayer(host, OVERLAY_LAYER.annotation);
   mount();
-  showInTopLayer();
+  showInTopLayerAsAnnotation();
 
   const observer = new MutationObserver(() => {
     if (!removed && !host.isConnected) {
       mount();
-      showInTopLayer();
+      showInTopLayerAsAnnotation();
     }
   });
   observer.observe(document.documentElement, { childList: true });
@@ -93,7 +87,7 @@ export function createStepPreview(): StepPreview {
     show(bounds) {
       if (removed) return;
       mount();
-      showInTopLayer();
+      showInTopLayerAsAnnotation();
       const frame = fitHighlightFrame(bounds, window.innerWidth, window.innerHeight);
       setImportantStyle(box, 'left', `${frame.x}px`);
       setImportantStyle(box, 'top', `${frame.y}px`);
@@ -116,6 +110,7 @@ export function createStepPreview(): StepPreview {
       if (removed) return;
       removed = true;
       observer.disconnect();
+      releaseTopLayer(host);
       try {
         if (typeof host.hidePopover === 'function' && host.matches(':popover-open')) host.hidePopover();
       } catch {

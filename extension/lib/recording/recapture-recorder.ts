@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { resolveSnapshotTargetAtPoint } from './snapshot-targeting';
 import { installRecorderLifecycle } from './recorder-lifecycle';
+import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from '../capture/overlay-layers';
 import { createStepPreview } from '../capture/step-preview';
 import {
   isInScrollbarGutter,
@@ -25,6 +26,8 @@ import { t } from '@/lib/shared/i18n';
 function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remove(): void } {
   const host = document.createElement('div');
   host.setAttribute('data-frametrail-recording-toolbar', '');
+  // Top layer like the hover preview it must stay above; z-index alone loses to it.
+  host.setAttribute('popover', 'manual');
   host.style.setProperty('all', 'initial', 'important');
   host.style.setProperty('position', 'fixed', 'important');
   host.style.setProperty('top', '16px', 'important');
@@ -69,7 +72,14 @@ function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remo
   wrapper.append(label, cancel);
   root.append(wrapper);
   document.documentElement.append(host);
-  return { host, remove: () => host.remove() };
+  showInTopLayer(host, OVERLAY_LAYER.chrome);
+  return {
+    host,
+    remove: () => {
+      releaseTopLayer(host);
+      host.remove();
+    },
+  };
 }
 
 export async function installRecaptureRecorder(context: StepRecaptureContext): Promise<void> {

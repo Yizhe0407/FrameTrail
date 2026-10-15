@@ -1,4 +1,5 @@
 import { BRAND_DANGER } from './brand-colors';
+import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from './overlay-layers';
 import { createViewportOverlayHost } from './viewport-overlay-host';
 import { t } from '@/lib/shared/i18n';
 
@@ -231,6 +232,7 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     closed = true;
     window.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('resize', onResize, true);
+    releaseTopLayer(host);
     host.remove();
     if (notify) options.onClose?.();
   };
@@ -333,12 +335,7 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   window.addEventListener('resize', onResize, { capture: true });
 
   document.documentElement.append(host);
-  const showPopover = (host as HTMLElement & { showPopover?: () => void }).showPopover;
-  try {
-    showPopover?.call(host);
-  } catch {
-    // Popover support is optional; the hardened z-index remains the fallback.
-  }
+  showInTopLayer(host, OVERLAY_LAYER.modal);
   queueMicrotask(() => blocker.focus({ preventScroll: true }));
 
   return {
