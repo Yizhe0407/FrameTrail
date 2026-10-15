@@ -84,7 +84,6 @@ export default function RecordingToolbar({
     handlePositionPointerDown,
     handlePositionPointerMove,
     finishPositionDrag,
-    handlePositionKeyDown,
   } = useToolbarPosition({
     floatingRef,
     // The floating element remounts when collapse toggles and resizes when the
@@ -364,7 +363,6 @@ export default function RecordingToolbar({
               onPointerMove={handlePositionPointerMove}
               onPointerUp={finishPositionDrag}
               onPointerCancel={finishPositionDrag}
-              onKeyDown={handlePositionKeyDown}
               onClick={() => {
                 if (suppressNextClick.current) {
                   suppressNextClick.current = false;
@@ -439,7 +437,6 @@ export default function RecordingToolbar({
                     onPointerMove={handlePositionPointerMove}
                     onPointerUp={finishPositionDrag}
                     onPointerCancel={finishPositionDrag}
-                    onKeyDown={handlePositionKeyDown}
                   >
                     <span className="ft-dot" aria-hidden="true" />
                     <span className="ft-status-text">

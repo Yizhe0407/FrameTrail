@@ -196,14 +196,7 @@ test.describe('snapshot recording', () => {
       return result['stepmark:recordingToolbarCorner'];
     });
 
-    const positionControl = shield.getByRole('button', { name: /拖曳或使用方向鍵移動/ });
-    await positionControl.focus();
-    await positionControl.press('ArrowUp');
-    await expect.poll(() => shield.locator('.ft-toolbar').evaluate((element) => {
-      return Math.round(element.getBoundingClientRect().top);
-    })).toBe(16);
-    await expect.poll(readToolbarCorner).toBe('top-right');
-
+    const positionControl = shield.getByRole('button', { name: /拖曳移動/ });
     const handle = await positionControl.boundingBox();
     const viewportHeight = await appPage.evaluate(() => window.innerHeight);
     expect(handle).not.toBeNull();

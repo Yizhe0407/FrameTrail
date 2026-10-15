@@ -64,23 +64,6 @@ export function snapToolbarCorner(
   return `${vertical}-${horizontal}`;
 }
 
-export function moveToolbarCorner(
-  corner: RecordingToolbarCorner,
-  direction: 'up' | 'down' | 'left' | 'right',
-): RecordingToolbarCorner {
-  const vertical = direction === 'up'
-    ? 'top'
-    : direction === 'down'
-      ? 'bottom'
-      : corner.startsWith('top') ? 'top' : 'bottom';
-  const horizontal = direction === 'left'
-    ? 'left'
-    : direction === 'right'
-      ? 'right'
-      : corner.endsWith('left') ? 'left' : 'right';
-  return `${vertical}-${horizontal}`;
-}
-
 export function toolbarCornerLabel(corner: RecordingToolbarCorner): string {
   return t().toolbar.corner[corner];
 }

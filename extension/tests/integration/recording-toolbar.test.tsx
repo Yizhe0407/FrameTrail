@@ -35,15 +35,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('recording toolbar', () => {
-  it('moves between corners by keyboard and persists the preference', async () => {
+  it('offers the position control as drag-only: arrow keys do not move it', async () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
-    const positionControl = screen.getByRole('button', { name: /拖曳或使用方向鍵移動/ });
+    const positionControl = screen.getByRole('button', { name: /拖曳移動/ });
     await waitFor(() => expect(mocks.get).toHaveBeenCalledWith(RECORDING_TOOLBAR_CORNER_KEY));
+    expect(positionControl.getAttribute('aria-label')).not.toContain('方向鍵');
 
-    fireEvent.keyDown(positionControl, { key: 'ArrowUp' });
+    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      fireEvent.keyDown(positionControl, { key });
+    }
 
-    expect(mocks.set).toHaveBeenCalledWith({ [RECORDING_TOOLBAR_CORNER_KEY]: 'top-right' });
-    expect(screen.getByText('錄製控制已移到右上角')).toBeTruthy();
+    expect(mocks.set).not.toHaveBeenCalled();
   });
 
   it('requires confirmation before discarding the current recording', async () => {

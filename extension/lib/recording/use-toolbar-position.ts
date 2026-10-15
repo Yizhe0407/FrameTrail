@@ -3,7 +3,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
@@ -11,7 +10,6 @@ import { browser } from 'wxt/browser';
 import {
   clampToolbarPosition,
   isRecordingToolbarCorner,
-  moveToolbarCorner,
   positionForToolbarCorner,
   RECORDING_TOOLBAR_CORNER_KEY,
   snapToolbarCorner,
@@ -162,21 +160,6 @@ export function useToolbarPosition({
     announce(t().toolbar.movedTo(toolbarCornerLabel(nextCorner)));
   };
 
-  const handlePositionKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    const directions = {
-      ArrowUp: 'up',
-      ArrowDown: 'down',
-      ArrowLeft: 'left',
-      ArrowRight: 'right',
-    } as const;
-    const direction = directions[event.key as keyof typeof directions];
-    if (!direction) return;
-    event.preventDefault();
-    const nextCorner = moveToolbarCorner(corner, direction);
-    moveToCorner(nextCorner);
-    announce(t().toolbar.movedTo(toolbarCornerLabel(nextCorner)));
-  };
-
   return {
     corner,
     position,
@@ -184,6 +167,5 @@ export function useToolbarPosition({
     handlePositionPointerDown,
     handlePositionPointerMove,
     finishPositionDrag,
-    handlePositionKeyDown,
   };
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   clampToolbarPosition,
   isRecordingToolbarCorner,
-  moveToolbarCorner,
   positionForToolbarCorner,
   snapToolbarCorner,
 } from '@/lib/recording/recording-toolbar-position';
@@ -25,11 +24,9 @@ describe('recording toolbar position', () => {
     });
   });
 
-  it('snaps by the toolbar center and supports keyboard corner movement', () => {
+  it('snaps by the toolbar center', () => {
     expect(snapToolbarCorner({ x: 20, y: 20 }, size, viewport)).toBe('top-left');
     expect(snapToolbarCorner({ x: 460, y: 520 }, size, viewport)).toBe('bottom-right');
-    expect(moveToolbarCorner('bottom-right', 'up')).toBe('top-right');
-    expect(moveToolbarCorner('top-right', 'left')).toBe('top-left');
   });
 
   it('rejects corrupt stored values', () => {
