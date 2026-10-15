@@ -88,7 +88,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         <Button
           variant="outline"
           size="icon"
-          className="fixed top-1/2 left-2 z-50 size-11 -translate-y-1/2 rounded-full disabled:opacity-30 sm:left-6"
+          className="fixed inset-y-0 left-2 z-50 my-auto size-11 rounded-full disabled:opacity-30 sm:left-6"
           onClick={() => onNavigate(index - 1)}
           disabled={!hasPrev}
           aria-label={t().editor.lightbox.previous}
@@ -98,7 +98,7 @@ export default function Lightbox({ entries, index, onClose, onNavigate }: Props)
         <Button
           variant="outline"
           size="icon"
-          className="fixed top-1/2 right-2 z-50 size-11 -translate-y-1/2 rounded-full disabled:opacity-30 sm:right-6"
+          className="fixed inset-y-0 right-2 z-50 my-auto size-11 rounded-full disabled:opacity-30 sm:right-6"
           onClick={() => onNavigate(index + 1)}
           disabled={!hasNext}
           aria-label={t().editor.lightbox.next}
