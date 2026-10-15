@@ -26,6 +26,7 @@ import type {
   SnapshotRecorderFailureMessage,
 } from '@/lib/runtime/messages';
 import { t } from '@/lib/shared/i18n';
+import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 export default defineContentScript({
@@ -36,6 +37,11 @@ export default defineContentScript({
     // its first await; the instance token makes only the latest one install listeners.
     document.dispatchEvent(new CustomEvent(CLEANUP_EVENT));
     const instanceId = crypto.randomUUID();
+    // The in-page toolbar follows the chosen language; a reinjection's cleanup
+    // event retires this instance's subscription along with everything else.
+    void initLocalePreference().then((stopFollowing) => {
+      document.addEventListener(CLEANUP_EVENT, stopFollowing, { once: true });
+    });
     const instanceHost = globalThis as unknown as Record<string, unknown>;
     instanceHost[INSTANCE_KEY] = instanceId;
 

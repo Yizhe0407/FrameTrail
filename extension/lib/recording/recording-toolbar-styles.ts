@@ -71,7 +71,7 @@ export const recordingToolbarStyles = `
   }
   .ft-modal-backdrop { position: absolute; inset: 0; z-index: 1; pointer-events: auto; background: transparent; }
   .ft-toolbar {
-    height: 58px; width: max-content; max-width: min(620px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px;
+    height: 58px; width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 12px;
     padding: 0 8px 0 18px; border: 2px solid var(--ft-border); border-radius: 999px;
     background: var(--ft-surface); color: var(--ft-text);
   }
@@ -187,23 +187,25 @@ export const recordingToolbarStyles = `
   .ft-position[data-vertical="top"] [data-tooltip]::after { bottom: auto; top: calc(100% + 8px); transform: translate(-50%, -2px); }
   .ft-position[data-vertical="top"] [data-tooltip]:hover::after,
   .ft-position[data-vertical="top"] [data-tooltip]:focus-visible::after { transform: translate(-50%, 0); }
-  @media (max-width: 660px) {
-    .ft-position { max-width: calc(100vw - 16px); }
-    .ft-toolbar:not(.ft-toolbar--invalidated) {
-      width: calc(100vw - 16px); height: auto; min-height: 0; max-width: calc(100vw - 16px);
-      flex-wrap: wrap; gap: 6px; padding: 7px 8px; border-radius: var(--ft-radius);
-    }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-status { flex: 1 1 100%; height: 32px; padding: 0 4px; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-divider { display: none; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-mode-switch { flex: 1 1 100%; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-mode-switch button { flex: 1; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-actions-group { flex: 1 1 0; justify-content: space-around; gap: 0; padding: 3px; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-button { width: 32px; height: 32px; }
-    .ft-toolbar:not(.ft-toolbar--invalidated) .ft-finish { height: 38px; padding: 0 14px; font-size: 14px; }
-    .ft-toolbar--invalidated { width: calc(100vw - 16px); max-width: calc(100vw - 16px); flex-wrap: wrap; }
-    .ft-invalidated-status { flex-basis: 100%; padding: 2px 4px; }
-    .ft-invalidated-actions { width: 100%; }
-    .ft-invalidated-actions .ft-secondary, .ft-invalidated-actions .ft-finish { flex: 1; }
+  /* Stacked layout, chosen by measurement rather than a viewport breakpoint:
+   * recording-toolbar.tsx sets data-compact only when the single row would
+   * overflow, so the switch follows the real content width in every language. */
+  .ft-position:has(.ft-toolbar[data-compact]) { max-width: calc(100vw - 16px); }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) {
+    width: calc(100vw - 16px); height: auto; min-height: 0; max-width: calc(100vw - 16px);
+    flex-wrap: wrap; gap: 6px; padding: 7px 8px; border-radius: var(--ft-radius);
   }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-status { flex: 1 1 100%; height: 32px; padding: 0 4px; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-divider { display: none; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-mode-switch { flex: 1 1 100%; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-mode-switch button { flex: 1; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-actions-group { flex: 1 1 0; justify-content: space-around; gap: 0; padding: 3px; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-button { width: 32px; height: 32px; }
+  .ft-toolbar[data-compact]:not(.ft-toolbar--invalidated) .ft-finish { height: 38px; padding: 0 14px; font-size: 14px; }
+  .ft-toolbar--invalidated[data-compact] { width: calc(100vw - 16px); max-width: calc(100vw - 16px); flex-wrap: wrap; }
+  .ft-toolbar--invalidated[data-compact] .ft-invalidated-status { flex-basis: 100%; padding: 2px 4px; }
+  .ft-toolbar--invalidated[data-compact] .ft-invalidated-actions { width: 100%; }
+  .ft-toolbar--invalidated[data-compact] .ft-invalidated-actions .ft-secondary,
+  .ft-toolbar--invalidated[data-compact] .ft-invalidated-actions .ft-finish { flex: 1; }
   @media (prefers-reduced-motion: reduce) { .ft-layer * { animation: none !important; transition: none !important; } }
 `;

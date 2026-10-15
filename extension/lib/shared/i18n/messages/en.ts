@@ -36,6 +36,11 @@ export const en: Messages = {
     quoted: (text: string) => `“${text}”`,
   },
 
+  language: {
+    label: 'Language',
+    auto: 'Match browser',
+  },
+
   page: {
     popup: 'FrameTrail',
     library: 'FrameTrail Library',

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -24,7 +25,7 @@ import { recordingModeCopy } from './recording-mode-copy';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
-import { t } from '@/lib/shared/i18n';
+import { t, useActiveLocale } from '@/lib/shared/i18n';
 
 type ToolbarAction = RecordingControlMessage['type'];
 
@@ -58,6 +59,7 @@ export default function RecordingToolbar({
   onStartRegionCapture,
   regionCaptureActive = false,
 }: Props) {
+  useActiveLocale();
   const [collapsed, setCollapsed] = useState(false);
   const [pending, setPending] = useState<ToolbarAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -203,6 +205,21 @@ export default function RecordingToolbar({
       first.focus();
     }
   };
+
+  // Stack the toolbar only when its single row would not fit. Measured after
+  // every render, before paint, so it follows the real labels (any language,
+  // mode or phase) and the viewport rather than a hard-coded breakpoint.
+  useLayoutEffect(() => {
+    const toolbar = floatingRef.current;
+    if (!toolbar?.classList.contains('ft-toolbar')) return;
+    const fit = () => {
+      toolbar.removeAttribute('data-compact');
+      if (toolbar.scrollWidth > toolbar.clientWidth + 1) toolbar.setAttribute('data-compact', '');
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  });
 
   const paused = state.phase === 'paused';
   const statusLabel = t().toolbar.status(paused, modeCopy.label, state.itemCount);

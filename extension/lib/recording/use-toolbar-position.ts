@@ -60,7 +60,9 @@ export function useToolbarPosition({
   } | null>(null);
 
   const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
-  const margin = () => window.innerWidth <= 520 ? 8 : 16;
+  // The stacked (compact) toolbar spans the viewport minus 8px a side; the
+  // single-row one keeps a 16px gutter.
+  const margin = () => (floatingRef.current?.hasAttribute('data-compact') ? 8 : 16);
   const floatingSize = () => {
     const rect = floatingRef.current?.getBoundingClientRect();
     return {

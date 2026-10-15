@@ -39,6 +39,11 @@ export const zhTW = {
     quoted: (text: string) => `「${text}」`,
   },
 
+  language: {
+    label: '語言',
+    auto: '跟隨瀏覽器',
+  },
+
   page: {
     popup: 'FrameTrail',
     library: 'FrameTrail 作品庫',

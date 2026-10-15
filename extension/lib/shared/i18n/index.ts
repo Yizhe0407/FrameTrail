@@ -1,9 +1,15 @@
 import { en } from './messages/en';
 import { zhTW, type Messages } from './messages/zh-TW';
+import { useSyncExternalStore } from 'react';
 import { detectBrowserLanguage, documentLanguage, resolveLocale, type Locale } from './locale';
 
 export type { Messages } from './messages/zh-TW';
 export { SUPPORTED_LOCALES, resolveLocale, type Locale } from './locale';
+export { LOCALE_NAMES } from './messages/locale-names';
+
+/** What the user picked in the language switcher: a fixed locale, or follow
+ * the browser UI language. */
+export type LocalePreference = 'auto' | Locale;
 
 const CATALOGS: Record<Locale, Messages> = {
   'zh-TW': zhTW,
@@ -31,9 +37,33 @@ export function getLocale(): Locale {
   return activeLocale;
 }
 
-/** Overrides the browser-derived locale (tests, or a future in-app switch). */
+const listeners = new Set<() => void>();
+
+/** Switches the active locale and tells every subscriber, so mounted UI
+ * re-renders in the new language. */
 export function setLocale(locale: Locale): void {
+  if (locale === activeLocale) return;
   activeLocale = locale;
+  for (const listener of listeners) listener();
+}
+
+/** Resolves a stored preference ('auto' follows the browser) and applies it. */
+export function applyLocalePreference(preference: LocalePreference): void {
+  setLocale(preference === 'auto' ? resolveLocale(detectBrowserLanguage()) : preference);
+}
+
+export function onLocaleChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Re-renders the calling component whenever the active locale changes. Used
+ * at each React root: copy is read through t() during render, so re-rendering
+ * the root is all a language switch needs. */
+export function useActiveLocale(): Locale {
+  return useSyncExternalStore(onLocaleChange, getLocale, getLocale);
 }
 
 /** BCP 47 tag for Intl formatting, sorting and case folding in the active locale. */

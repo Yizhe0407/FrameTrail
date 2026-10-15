@@ -104,6 +104,7 @@ import type {
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
 import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
+import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
 /** 標示 anchor viewport 不符，讓整個快照流程失效。 */
 class SnapshotViewportChangedError extends Error {}
@@ -1758,6 +1759,8 @@ async function handleClick(
 
 
 export default defineBackground(() => {
+  // Error copy the worker reports back to pages follows the chosen language.
+  void initLocalePreference();
   const stepFrameRelayBroker = createStepFrameRelayBroker({
     sendResult: async (tabId, frameId, message) => {
       await browser.tabs.sendMessage(tabId, message, { frameId });

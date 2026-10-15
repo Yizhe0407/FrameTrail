@@ -17,6 +17,7 @@ import { getGuide } from '@/lib/storage/guide-repository';
 import { reportError } from '@/components/shared/report-error';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t } from '@/lib/shared/i18n';
+import LanguageSwitcher from '@/components/shared/LanguageSwitcher';
 
 function App() {
   // Opts out of step reads: the full hook re-fetches every step (screenshot
@@ -154,6 +155,8 @@ function App() {
           </div>
         </div>
       )}
+
+      <LanguageSwitcher />
     </div>
   );
 }

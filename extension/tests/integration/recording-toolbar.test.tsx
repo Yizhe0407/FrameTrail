@@ -175,3 +175,28 @@ describe('recording toolbar', () => {
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('SWITCH_TO_STEPS_MODE', undefined));
   });
 });
+
+describe('recording toolbar layout', () => {
+  function stubWidths(scrollWidth: number, clientWidth: number) {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(scrollWidth);
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(clientWidth);
+    return () => {
+      scroll.mockRestore();
+      client.mockRestore();
+    };
+  }
+
+  it('stays on one row while its content fits', () => {
+    const restore = stubWidths(600, 600);
+    render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
+    expect(screen.getByRole('toolbar', { hidden: true }).hasAttribute('data-compact')).toBe(false);
+    restore();
+  });
+
+  it('stacks only when the single row would overflow, whatever the language', () => {
+    const restore = stubWidths(700, 600);
+    render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
+    expect(screen.getByRole('toolbar', { hidden: true }).hasAttribute('data-compact')).toBe(true);
+    restore();
+  });
+});

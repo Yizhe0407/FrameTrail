@@ -34,7 +34,8 @@ import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
-import { localizeDocument, t } from '@/lib/shared/i18n';
+import { localizeDocument, onLocaleChange, t } from '@/lib/shared/i18n';
+import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
 const SHIELD_HOVER_TIMEOUT_MS = 4_000;
 const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
@@ -43,6 +44,8 @@ function shieldChannelFailure(): RecordingControlResult {
 }
 
 localizeDocument(t().page.snapshotShield);
+onLocaleChange(() => localizeDocument(t().page.snapshotShield));
+void initLocalePreference();
 
 // Same freeze list as the frozen page, except pointerdown (its own handler
 // consumes selectively) and submit (nothing here can host a form submission).
@@ -409,6 +412,9 @@ function tryInitialize(event: MessageEvent): void {
     skipLink.type = 'button';
     skipLink.className = 'snapshot-skip-link';
     skipLink.textContent = t().shield.skipToControls;
+    onLocaleChange(() => {
+      if (skipLink) skipLink.textContent = t().shield.skipToControls;
+    });
     skipLink.addEventListener('click', () => focusToolbar());
     skipContainer.append(skipLink);
     document.body.append(skipContainer);
