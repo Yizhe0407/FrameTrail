@@ -84,7 +84,7 @@ export interface BackgroundBrowserMockHandles {
   windowsUpdate?: Mock;
   /** Captures the background's permissions.onAdded listener. */
   onPermissionsAdded?: (listener: (permissions: { origins?: string[] }) => void) => void;
-  /** browser.storage.local, where the pending start and Guide selection live. */
+  /** browser.storage.local, where the pending start and Project selection live. */
   localGet?: Mock;
   localSet?: Mock;
   localRemove?: Mock;

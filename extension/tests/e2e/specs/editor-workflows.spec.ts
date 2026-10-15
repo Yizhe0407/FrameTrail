@@ -56,11 +56,11 @@ async function openEditor(
   expectedEntries: number,
 ): Promise<Page> {
   const sessionId = await popupPage.evaluate(async () => {
-    const stored = await chrome.storage.local.get('stepmark:activeGuideId');
-    return stored['stepmark:activeGuideId'];
+    const stored = await chrome.storage.local.get('stepmark:activeProjectId');
+    return stored['stepmark:activeProjectId'];
   });
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
-    throw new Error('No active E2E Guide was initialized.');
+    throw new Error('No active E2E Project was initialized.');
   }
   const editor = await extensionContext.newPage();
   await editor.goto(`chrome-extension://${extensionId}/editor.html?sessionId=${encodeURIComponent(sessionId)}`);
@@ -443,7 +443,7 @@ test.describe('editor workflows', () => {
     await expect(annotationPanel.getByLabel('標註 1 說明')).toBeVisible();
   });
 
-  test('continues recording the same guide on a different page via 改在其他頁面接續', async ({
+  test('continues recording the same project on a different page via 改在其他頁面接續', async ({
     appPage,
     popupPage,
     extensionContext,
@@ -453,7 +453,7 @@ test.describe('editor workflows', () => {
     await recordStepTargets(appPage, popupPage, ['#plain-text']);
     const editor = await openEditor(extensionContext, extensionId, popupPage, 1);
 
-    // The user has since moved on to a completely different page than the guide's stored source URL.
+    // The user has since moved on to a completely different page than the project's stored source URL.
     await appPage.goto(`${FIXTURE_URL}navigated.html`);
     await editor.bringToFront();
     const pagesBefore = extensionContext.pages().length;
@@ -464,7 +464,7 @@ test.describe('editor workflows', () => {
     await expect(dialog).toContainText('新步驟會接在最後。');
     await dialog.getByRole('button', { name: '改在其他頁面接續' }).click();
 
-    // The elsewhere path shows an explicit tab picker; navigated.html differs from the guide's last-step URL, so it is preselected.
+    // The elsewhere path shows an explicit tab picker; navigated.html differs from the project's last-step URL, so it is preselected.
     const picker = dialog.getByRole('radiogroup', { name: '選擇要接續錄製的分頁' });
     await expect(picker).toBeVisible();
     const preselected = picker.getByRole('radio', { name: /Stepmark Navigated Fixture/ });

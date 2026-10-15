@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GuideSummary } from '@/lib/storage/models';
+import type { ProjectSummary } from '@/lib/storage/models';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
-const database = vi.hoisted(() => ({ getGuideSummaries: vi.fn() }));
+const database = vi.hoisted(() => ({ getProjectSummaries: vi.fn() }));
 
-vi.mock('@/lib/storage/guide-repository', () => ({ getGuideSummaries: database.getGuideSummaries }));
+vi.mock('@/lib/storage/project-repository', () => ({ getProjectSummaries: database.getProjectSummaries }));
 
 import TagSelectDialog from '@/components/editor/TagSelectDialog';
 
@@ -18,8 +18,8 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
 
 const INVENTED_PRESETS = ['入門', '團隊', '專案', '整合', '報表', '行動', '說明', '設定'];
 
-function summary(tags: string[]): GuideSummary {
-  return { tags } as GuideSummary;
+function summary(tags: string[]): ProjectSummary {
+  return { tags } as ProjectSummary;
 }
 
 function renderDialog(selectedTags: readonly string[] = [], onSave = vi.fn()) {
@@ -36,7 +36,7 @@ function renderDialog(selectedTags: readonly string[] = [], onSave = vi.fn()) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  database.getGuideSummaries.mockResolvedValue([]);
+  database.getProjectSummaries.mockResolvedValue([]);
 });
 
 afterEach(cleanup);
@@ -66,10 +66,10 @@ describe('TagSelectDialog', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(['既有', '驗收']));
   });
 
-  // Tags the user already applied elsewhere are a real signal, and guide
+  // Tags the user already applied elsewhere are a real signal, and project
   // summaries are denormalized rows, so reading them opens no screenshot Blob.
   it('suggests tags already used across the library, minus the ones already applied', async () => {
-    database.getGuideSummaries.mockResolvedValue([summary(['驗收', '交付']), summary(['交付'])]);
+    database.getProjectSummaries.mockResolvedValue([summary(['驗收', '交付']), summary(['交付'])]);
     const onSave = renderDialog(['驗收']);
 
     const suggestion = await screen.findByRole('button', { name: '新增 交付 標籤' });
@@ -82,7 +82,7 @@ describe('TagSelectDialog', () => {
 
   it('still accepts free text when the suggestion read fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    database.getGuideSummaries.mockRejectedValue(new Error('IndexedDB is unavailable'));
+    database.getProjectSummaries.mockRejectedValue(new Error('IndexedDB is unavailable'));
     const onSave = renderDialog();
 
     const input = await screen.findByPlaceholderText('輸入後按 Enter');

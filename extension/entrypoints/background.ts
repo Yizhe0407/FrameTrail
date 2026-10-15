@@ -14,7 +14,7 @@ import { syncActionIconWithRecordingState } from '@/lib/recording/background/act
 import { focusTab } from '@/lib/runtime/navigation';
 import { claimPendingStart } from '@/lib/runtime/pending-start';
 import { clearCrossTabRecordingDecline } from '@/lib/runtime/cross-tab-recording';
-import { claimRecordingGuide } from '@/lib/guide/guide-actions';
+import { claimRecordingProject } from '@/lib/project/project-actions';
 import {
   isBackgroundMessage,
   isExtensionPageOnlyMessage,
@@ -29,7 +29,7 @@ import {
   withCapturePresentation,
 } from '@/lib/capture/capture-presentation';
 import { addStep, addSteps, deleteStep, deleteStepsAndReorder, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
-import { getGuide, resetGuide } from '@/lib/storage/guide-repository';
+import { getProject, resetProject } from '@/lib/storage/project-repository';
 import { stepRole, type Step } from '@/lib/storage/models';
 import {
   getCaptureGuardFailure,
@@ -38,7 +38,7 @@ import {
   isTrustedRecordedPageSender,
   isValidSnapshotViewportContext,
 } from '@/lib/recording/recording-guards';
-import { discardPristineGuide } from '@/lib/storage/guide-repository';
+import { discardPristineProject } from '@/lib/storage/project-repository';
 import {
   createControlPlane,
   type SnapshotCaptureContext,
@@ -56,7 +56,7 @@ import { createFollowMode } from '@/lib/recording/background/follow-mode';
 import {
   isEditorSenderForSession,
   resolveContinuationTab,
-  resolveGuideContinuationSourceUrl,
+  resolveProjectContinuationSourceUrl,
   sourcePermissionPreflightSuccess,
 } from '@/lib/recording/background/source-tab';
 import {
@@ -88,12 +88,12 @@ import type {
   StepmarkSnapshotActiveMessage,
   OpenEditorResult,
   OpenLibraryResult,
-  PreflightGuideContinuationSourcePermissionErrorCode,
-  PreflightGuideContinuationSourcePermissionMessage,
-  PreflightGuideContinuationSourcePermissionResult,
+  PreflightProjectContinuationSourcePermissionErrorCode,
+  PreflightProjectContinuationSourcePermissionMessage,
+  PreflightProjectContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
-  ResetGuideMessage,
-  ResetGuideResult,
+  ResetProjectMessage,
+  ResetProjectResult,
   RecordingControlMessage,
   RecordingControlResult,
   SnapshotInvalidatedMessage,
@@ -254,9 +254,9 @@ async function handleStopRunWithError(
       recoverableError: recoverableError ?? { code: 'RECORDING_STOPPED', message: error },
       groupAnchorId: null,
       runId: null,
-      // Error stops never reclaim the auto-created Guide: the recovery flow
+      // Error stops never reclaim the auto-created Project: the recovery flow
       // (完成並開啟編輯器) still targets sessionId and must find it.
-      autoCreatedGuideId: null,
+      autoCreatedProjectId: null,
       snapshotViewport: null,
       snapshotDevicePixelRatio: null,
     }),
@@ -406,16 +406,16 @@ async function createAndActivateSnapshotAnchor(
 }
 
 function continuationPreflightFailure(
-  code: PreflightGuideContinuationSourcePermissionErrorCode,
+  code: PreflightProjectContinuationSourcePermissionErrorCode,
   message: string,
-): PreflightGuideContinuationSourcePermissionResult {
+): PreflightProjectContinuationSourcePermissionResult {
   return { ok: false, code, message };
 }
 
-async function preflightGuideContinuationSourcePermission(
-  message: PreflightGuideContinuationSourcePermissionMessage,
+async function preflightProjectContinuationSourcePermission(
+  message: PreflightProjectContinuationSourcePermissionMessage,
   sender: Browser.runtime.MessageSender,
-): Promise<PreflightGuideContinuationSourcePermissionResult> {
+): Promise<PreflightProjectContinuationSourcePermissionResult> {
   if (
     typeof message.sessionId !== 'string' ||
     message.sessionId.trim().length === 0 ||
@@ -423,7 +423,7 @@ async function preflightGuideContinuationSourcePermission(
   ) {
     return continuationPreflightFailure('INVALID_EDITOR', t().background.editorOnlyContinuation);
   }
-  const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
+  const sourceUrl = await resolveProjectContinuationSourceUrl(message.sessionId);
   if (!sourceUrl) {
     return continuationPreflightFailure('SOURCE_NOT_FOUND', t().background.noContinuationSource);
   }
@@ -535,12 +535,12 @@ async function startRecording(
 ): Promise<StartRecordingResult> {
   const current = await getRecordingState();
   // A global capture operation remains single-owner. Never let a second start
-  // invalidate another Guide's recording or one-shot replacement.
+  // invalidate another Project's recording or one-shot replacement.
   if (current.operation !== null || current.isRecording || recaptureFlow.isStartingRecapture()) {
     return { ok: false, error: t().recaptureFlow.activeOperation };
   }
-  const targetGuide = await getGuide(message.sessionId);
-  if (!targetGuide) return { ok: false, error: t().background.recordTargetMissing };
+  const targetProject = await getProject(message.sessionId);
+  if (!targetProject) return { ok: false, error: t().background.recordTargetMissing };
 
   let continuationTab: Browser.tabs.Tab | null = targetTab;
   if (message.continuation) {
@@ -625,8 +625,8 @@ async function handleStartRecording(
     groupAnchorId: null,
     runId,
     // Durable (not module state): a MV3 service-worker restart mid-run must
-    // not forget that this run's Guide is reclaimable when it ends empty.
-    autoCreatedGuideId: message.autoCreatedGuide === true ? message.sessionId : null,
+    // not forget that this run's Project is reclaimable when it ends empty.
+    autoCreatedProjectId: message.autoCreatedProject === true ? message.sessionId : null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
     recapture: null,
@@ -825,20 +825,20 @@ async function handleStopRecording(version: number): Promise<void> {
   await deleteEmptySnapshotAnchorBestEffort(current);
   await recorderRuntime.stopRecorderInTab(current.tabId);
   // After the anchor cleanup so a zero-annotation snapshot run counts as empty.
-  await reclaimAbandonedAutoCreatedGuide(current);
+  await reclaimAbandonedAutoCreatedProject(current);
 }
 
 /**
- * 僅回收 popup 建立且仍為空白的 Guide。完成與錯誤路徑仍需該 id
+ * 僅回收 popup 建立且仍為空白的 Project。完成與錯誤路徑仍需該 id
  * 供編輯器導頁或復原，因此予以保留。
  */
-async function reclaimAbandonedAutoCreatedGuide(state: RecordingState): Promise<void> {
-  if (!state.autoCreatedGuideId || state.autoCreatedGuideId !== state.sessionId) return;
+async function reclaimAbandonedAutoCreatedProject(state: RecordingState): Promise<void> {
+  if (!state.autoCreatedProjectId || state.autoCreatedProjectId !== state.sessionId) return;
   try {
-    await discardPristineGuide(state.autoCreatedGuideId);
+    await discardPristineProject(state.autoCreatedProjectId);
   } catch (error) {
     console.error(
-      '[stepmark] failed to reclaim the abandoned auto-created guide:',
+      '[stepmark] failed to reclaim the abandoned auto-created project:',
       describeBrowserError(error),
       error,
     );
@@ -1302,13 +1302,13 @@ async function switchToStepsMode(
   }
 }
 
-async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGuideResult> {
+async function resetProjectLifecycle(message: ResetProjectMessage): Promise<ResetProjectResult> {
   const initial = await getRecordingState();
   if (initial.operation !== null || initial.isRecording || recaptureFlow.isStartingRecapture()) {
     return { ok: false, error: t().background.resetDuringOperation };
   }
-  const guide = await getGuide(message.sessionId);
-  if (!guide) return { ok: false, error: t().runtime.resetTargetMissing };
+  const project = await getProject(message.sessionId);
+  if (!project) return { ok: false, error: t().runtime.resetTargetMissing };
 
   // Invalidate any in-memory work first, then wait for all already-queued DB
   // writes. Persisted run/session guards remain authoritative after restarts.
@@ -1319,9 +1319,9 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
     return { ok: false, error: t().background.resetStateChanged };
   }
   try {
-    const updated = await resetGuide(message.sessionId);
+    const updated = await resetProject(message.sessionId);
     if (current.sessionId === message.sessionId) {
-      // resetRunStateToIdle also nulls autoCreatedGuideId; with operation already
+      // resetRunStateToIdle also nulls autoCreatedProjectId; with operation already
       // null, the field reads as null through state normalization either way.
       await control.writeStateForControl(version, (latest) => latest.sessionId === message.sessionId
         ? resetRunStateToIdle(latest)
@@ -1329,7 +1329,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
     }
     return { ok: true, contentRevision: updated.contentRevision };
   } catch (error) {
-    console.error('[stepmark] failed to reset Guide', error);
+    console.error('[stepmark] failed to reset Project', error);
     return { ok: false, error: t().background.resetFailedReload };
   }
 }
@@ -1380,7 +1380,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
 
   const version = control.bumpVersion();
   // No reclaim on FINISH even at zero items: openEditor below opens this very
-  // Guide, and the user reaches it visibly in the editor.
+  // Project, and the user reaches it visibly in the editor.
   const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
   if (!stopped) return controlFailure(t().background.finishFailed);
 
@@ -1430,9 +1430,9 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
     const stopped = await control.writeStateForControl(version, resetRunStateToIdle);
     if (!stopped) return controlFailure(t().background.discardFailed);
     await recorderRuntime.stopRecorderInTab(state.tabId);
-    // The run's steps are already deleted, so a popup-created Guide is back to
+    // The run's steps are already deleted, so a popup-created Project is back to
     // an empty shell here — the exact case the reclaim exists for.
-    await reclaimAbandonedAutoCreatedGuide(state);
+    await reclaimAbandonedAutoCreatedProject(state);
     return { ok: true };
   } catch (error) {
     console.error('[stepmark] failed to discard current recording', error);
@@ -1843,15 +1843,15 @@ export default defineBackground(() => {
             message: t().background.recaptureServiceFailedReload,
           } satisfies PreflightStepRecaptureSourcePermissionResult,
         );
-      case 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION':
+      case 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION':
         return withMessageFailureFallback(
-          preflightGuideContinuationSourcePermission(message, sender),
+          preflightProjectContinuationSourcePermission(message, sender),
           'continuation source preflight failed',
           {
             ok: false,
             code: 'INVALID_EDITOR',
             message: t().background.continuationServiceFailed,
-          } satisfies PreflightGuideContinuationSourcePermissionResult,
+          } satisfies PreflightProjectContinuationSourcePermissionResult,
         );
       case 'START_STEP_RECAPTURE':
         return withMessageFailureFallback(
@@ -1889,11 +1889,11 @@ export default defineBackground(() => {
           'stop recording request failed',
           undefined,
         );
-      case 'RESET_GUIDE':
+      case 'RESET_PROJECT':
         return withMessageFailureFallback(
-          queueLifecycle(() => resetGuideLifecycle(message)),
-          'reset guide request failed',
-          { ok: false, error: t().background.resetFailed } satisfies ResetGuideResult,
+          queueLifecycle(() => resetProjectLifecycle(message)),
+          'reset project request failed',
+          { ok: false, error: t().background.resetFailed } satisfies ResetProjectResult,
         );
       case 'OPEN_EDITOR':
         return withMessageFailureFallback(
@@ -2058,14 +2058,14 @@ export default defineBackground(() => {
       if (!pending) return;
       await clearCrossTabRecordingDecline();
       const tab = await browser.tabs.get(pending.tabId);
-      const claim = await claimRecordingGuide(pending.guideId);
+      const claim = await claimRecordingProject(pending.projectId);
       const result = await queueLifecycle(() =>
         startRecording(
           {
             type: 'START_RECORDING',
-            sessionId: claim.guide.id,
+            sessionId: claim.project.id,
             mode: pending.mode,
-            ...(claim.autoCreated ? { autoCreatedGuide: true } : {}),
+            ...(claim.autoCreated ? { autoCreatedProject: true } : {}),
           },
           {},
           tab,
@@ -2074,7 +2074,7 @@ export default defineBackground(() => {
       if (!result.ok) {
         console.warn('[stepmark] resumed start failed', result.error);
         const live = await getRecordingState();
-        if (!(live.isRecording && live.sessionId === claim.guide.id)) await claim.release();
+        if (!(live.isRecording && live.sessionId === claim.project.id)) await claim.release();
       }
     })().catch((error) => {
       console.error('[stepmark] failed to resume the start after the permission grant', error);

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
 import { type StepEntry } from '@/lib/storage/models';
-import type { GuideSection } from '@/lib/guide/guide-sections';
+import type { ProjectSection } from '@/lib/project/project-sections';
 import { makeEntry } from '../setup/step-entries';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -248,7 +248,7 @@ describe('StepRail keyboard navigation', () => {
   });
 
   it('把章節標題與其起始步驟放在同一個 sortable 項目', () => {
-    const sections: GuideSection[] = [{ id: 'section-1', title: '準備工作', startEntryId: 'step-2' }];
+    const sections: ProjectSection[] = [{ id: 'section-1', title: '準備工作', startEntryId: 'step-2' }];
     render(
       <StepRail
         entries={[makeEntry('step-1', 0), makeEntry('step-2', 1)]}

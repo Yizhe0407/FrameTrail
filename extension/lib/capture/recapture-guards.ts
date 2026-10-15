@@ -56,7 +56,7 @@ function hasSessionQuery(url: string | undefined, expectedSessionId: string): bo
 }
 
 /** Requires both the actual editor frame and its top-level tab to carry the
- * expected Guide identity. Use this after (or together with) origin/path trust
+ * expected Project identity. Use this after (or together with) origin/path trust
  * checks for recapture controls whose payload/context names a session. */
 export function hasMatchingEditorSessionQuery(
   sender: RecaptureMessageSender,

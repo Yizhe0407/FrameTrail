@@ -24,8 +24,8 @@ function renderHeader(overrides: Partial<React.ComponentProps<typeof EditorHeade
     <EditorHeader
       operationActive={false}
       steps={steps}
-      sessionId="guide-1"
-      guideTitle="新增成員"
+      sessionId="project-1"
+      projectTitle="新增成員"
       onOpenPublish={vi.fn()}
       {...overrides}
     />,
@@ -61,7 +61,7 @@ describe('EditorHeader', () => {
     expect(within(button).getByText('匯出').className).toContain('hidden sm:inline');
   });
 
-  it('places the guide in the breadcrumb as the page heading', () => {
+  it('places the project in the breadcrumb as the page heading', () => {
     renderHeader();
 
     const breadcrumb = screen.getByRole('navigation', { name: '目前位置' });
@@ -70,11 +70,11 @@ describe('EditorHeader', () => {
     expect(heading.closest('li')?.getAttribute('aria-current')).toBe('page');
   });
 
-  it('names the location even before the guide loads, and for an untitled guide', () => {
-    renderHeader({ guideTitle: null });
+  it('names the location even before the project loads, and for an untitled project', () => {
+    renderHeader({ projectTitle: null });
     expect(screen.getByRole('heading', { level: 1, name: '編輯器' })).toBeTruthy();
     cleanup();
-    renderHeader({ guideTitle: '  ' });
+    renderHeader({ projectTitle: '  ' });
     expect(screen.getByRole('heading', { level: 1, name: '未命名專案' })).toBeTruthy();
   });
 
@@ -113,7 +113,7 @@ describe('EditorHeader', () => {
   it.each<[string, Partial<React.ComponentProps<typeof EditorHeader>>]>([
     ['an operation is running', { operationActive: true }],
     ['editing is disabled', { editingDisabled: true }],
-    ['the guide has no steps', { steps: [] }],
+    ['the project has no steps', { steps: [] }],
     ['no publish handler is wired', { onOpenPublish: undefined }],
   ])('disables 匯出 when %s', (_label, overrides) => {
     renderHeader(overrides);

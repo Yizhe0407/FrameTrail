@@ -14,12 +14,12 @@ vi.mock('@/lib/export/entry-render', () => ({
 // re-encode → draw into the page raster → fail the export) is reachable with
 // kilobyte-sized fixtures instead of the production limits.
 const LIMITS = vi.hoisted(() => ({ maxPdfBytes: 60_000, maxPdfPages: 40 }));
-vi.mock('@/lib/export/guide-export-contract', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/export/guide-export-contract')>();
+vi.mock('@/lib/export/project-export-contract', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/export/project-export-contract')>();
   return {
     ...actual,
-    GUIDE_EXPORT_LIMITS: {
-      ...actual.GUIDE_EXPORT_LIMITS,
+    PROJECT_EXPORT_LIMITS: {
+      ...actual.PROJECT_EXPORT_LIMITS,
       // Getters so tests can retune the budget after the module is loaded.
       get maxPdfBytes() {
         return LIMITS.maxPdfBytes;
@@ -31,11 +31,11 @@ vi.mock('@/lib/export/guide-export-contract', async (importOriginal) => {
   };
 });
 
-import { GuideExportLimitError } from '@/lib/export/guide-export-contract';
-import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
+import { ProjectExportLimitError } from '@/lib/export/project-export-contract';
+import { generateProjectPdf } from '@/lib/export/project-export-pdf';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 
-/** Same minimal valid baseline JPEG used by guide-export-pdf-real.test.ts. */
+/** Same minimal valid baseline JPEG used by project-export-pdf-real.test.ts. */
 const TINY_JPEG = Uint8Array.from(
   atob(
     '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0a' +
@@ -89,7 +89,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('generateGuidePdf byte-budget degradation', () => {
+describe('generateProjectPdf byte-budget degradation', () => {
   it('re-encodes an oversized screenshot and embeds the smaller bytes', async () => {
     stubPdfCanvas({
       pageBlob: new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }),
@@ -98,7 +98,7 @@ describe('generateGuidePdf byte-budget degradation', () => {
       convertToBlob: () => new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }),
     });
 
-    const pdf = await generateGuidePdf([entry('step-1', 1)], { title: 'Budget' });
+    const pdf = await generateProjectPdf([entry('step-1', 1)], { title: 'Budget' });
     const bytes = new Uint8Array(await pdf.arrayBuffer());
 
     // The original 40 000-byte capture was replaced, not embedded.
@@ -119,7 +119,7 @@ describe('generateGuidePdf byte-budget degradation', () => {
           : new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }),
     });
 
-    const pdf = await generateGuidePdf([entry('step-1', 1)], { title: 'Budget' });
+    const pdf = await generateProjectPdf([entry('step-1', 1)], { title: 'Budget' });
     const bytes = new Uint8Array(await pdf.arrayBuffer());
 
     // Degraded but exported: only the page raster's JPEG stream remains, and
@@ -133,7 +133,7 @@ describe('generateGuidePdf byte-budget degradation', () => {
     expect(loaded.getPageCount()).toBe(1);
   });
 
-  it('throws GuideExportLimitError when the page count exceeds maxPdfPages', async () => {
+  it('throws ProjectExportLimitError when the page count exceeds maxPdfPages', async () => {
     LIMITS.maxPdfPages = 2;
     try {
       stubPdfCanvas({
@@ -143,17 +143,17 @@ describe('generateGuidePdf byte-budget degradation', () => {
       mocks.composite.mockResolvedValue(new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }));
 
       await expect(
-        generateGuidePdf([entry('step-1', 1), entry('step-2', 2), entry('step-3', 3)], { title: 'Budget' }),
-      ).rejects.toThrow(GuideExportLimitError);
+        generateProjectPdf([entry('step-1', 1), entry('step-2', 2), entry('step-3', 3)], { title: 'Budget' }),
+      ).rejects.toThrow(ProjectExportLimitError);
       await expect(
-        generateGuidePdf([entry('step-1', 1), entry('step-2', 2), entry('step-3', 3)], { title: 'Budget' }),
+        generateProjectPdf([entry('step-1', 1), entry('step-2', 2), entry('step-3', 3)], { title: 'Budget' }),
       ).rejects.toThrow('page limit');
     } finally {
       LIMITS.maxPdfPages = 40;
     }
   });
 
-  it('throws GuideExportLimitError when committed page bytes exceed maxPdfBytes', async () => {
+  it('throws ProjectExportLimitError when committed page bytes exceed maxPdfBytes', async () => {
     // A single page raster larger than the whole document budget must be
     // rejected by the paginator's single enforcement point (before pdf-lib
     // ever sees the bytes), not silently emitted.
@@ -163,7 +163,7 @@ describe('generateGuidePdf byte-budget degradation', () => {
     });
     mocks.composite.mockResolvedValue(new Blob([TINY_JPEG.slice()], { type: 'image/jpeg' }));
 
-    await expect(generateGuidePdf([entry('step-1', 1)], { title: 'Budget' })).rejects.toThrow(
+    await expect(generateProjectPdf([entry('step-1', 1)], { title: 'Budget' })).rejects.toThrow(
       'output size limit',
     );
   });

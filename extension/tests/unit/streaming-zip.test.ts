@@ -6,14 +6,14 @@ describe('streaming zip helper', () => {
   it('builds a ZIP Blob containing exactly the files the builder added', async () => {
     const blob = await buildZipBlob((addFile) => {
       addFile('01.jpg', strToU8('first-image'));
-      addFile('docs/guide.md', strToU8('# guide'));
+      addFile('docs/project.md', strToU8('# project'));
     });
 
     expect(blob.type).toBe('application/zip');
     const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
-    expect(Object.keys(files).sort()).toEqual(['01.jpg', 'docs/guide.md']);
+    expect(Object.keys(files).sort()).toEqual(['01.jpg', 'docs/project.md']);
     expect(strFromU8(files['01.jpg'])).toBe('first-image');
-    expect(strFromU8(files['docs/guide.md'])).toBe('# guide');
+    expect(strFromU8(files['docs/project.md'])).toBe('# project');
   });
 
   it('supports an async builder that interleaves awaits between files', async () => {

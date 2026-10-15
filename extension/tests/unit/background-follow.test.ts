@@ -10,8 +10,8 @@ vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>
@@ -22,7 +22,7 @@ function recordingState(overrides: Partial<RecordingState> = {}): RecordingState
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
     ...overrides,
@@ -147,7 +147,7 @@ describe('follow-the-active-tab recording (steps mode)', () => {
     storedState = recordingState({ mode: 'snapshot', groupAnchorId: 'anchor-1' });
     mocks.getStep.mockResolvedValue({
       id: 'anchor-1',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       groupId: 'anchor-1',
       url: 'https://example.com/flow',
       screenshotBlob: new Blob(['image']),

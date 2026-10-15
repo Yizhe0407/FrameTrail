@@ -18,7 +18,7 @@ const DEFAULT_STATE: RecordingState = createDefaultRecordingState();
 
 /**
  * Ends the current run by returning every run-scoped field to its idle
- * default while preserving durable, non-run state: sessionId (the Guide the
+ * default while preserving durable, non-run state: sessionId (the Project the
  * UI still targets), mode, numbered, and the recapture handoff fields
  * (recapture/recaptureResult), which have their own lifecycle. This is the
  * clean-stop shape; error stops differ deliberately (phase 'error' plus a
@@ -36,7 +36,7 @@ export function resetRunStateToIdle(current: RecordingState): RecordingState {
     itemCount: 0,
     groupAnchorId: null,
     runId: null,
-    autoCreatedGuideId: null,
+    autoCreatedProjectId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
   };
@@ -191,7 +191,7 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
   const hasValidItemCount =
     raw.itemCount == null ||
     (Number.isSafeInteger(raw.itemCount) && (raw.itemCount as number) >= 0 &&
-      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerGuide);
+      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerProject);
   const hasCompleteRecordingIdentity =
     raw.isRecording === true && sessionId !== null && tabId !== null && runId !== null && hasValidItemCount;
   const operation = requestedRecapture
@@ -229,7 +229,7 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
     itemCount:
       Number.isSafeInteger(raw.itemCount) &&
       (raw.itemCount as number) >= 0 &&
-      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerGuide
+      (raw.itemCount as number) <= PERSISTED_STEP_LIMITS.maxStepsPerProject
         ? raw.itemCount as number
         : 0,
     numbered: typeof raw.numbered === 'boolean' ? raw.numbered : DEFAULT_STATE.numbered,
@@ -239,11 +239,11 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
         : null,
     runId: operation === 'recording' ? runId : null,
     // Meaningful only while its run is alive: once the run ends (including
-    // error stops, whose recovery flow must keep the guide), the reclaim
+    // error stops, whose recovery flow must keep the project), the reclaim
     // window is over and the flag must not leak into a later run.
-    autoCreatedGuideId:
+    autoCreatedProjectId:
       operation === 'recording'
-        ? normalizeNullableString(raw.autoCreatedGuideId, MAX_STATE_ID_LENGTH)
+        ? normalizeNullableString(raw.autoCreatedProjectId, MAX_STATE_ID_LENGTH)
         : null,
     snapshotViewport: operation === 'recording' && mode === 'snapshot' ? snapshotViewport : null,
     snapshotDevicePixelRatio: operation === 'recording' && mode === 'snapshot' ? snapshotDevicePixelRatio : null,
@@ -252,47 +252,47 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
   };
 }
 
-/** UI-only Guide selection. RecordingState remains the durable owner of an
+/** UI-only Project selection. RecordingState remains the durable owner of an
  * active capture transaction and must never be rewritten merely to navigate. */
-export const ACTIVE_GUIDE_ID_KEY = 'stepmark:activeGuideId';
+export const ACTIVE_PROJECT_ID_KEY = 'stepmark:activeProjectId';
 
-function normalizeActiveGuideId(value: unknown): string | null {
+function normalizeActiveProjectId(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 // Serializes same-context selection mutations so a compare-and-clear cannot
 // remove a selection queued after it. browser.storage has no cross-context
 // compare-and-swap primitive, so callers should always use these helpers.
-let activeGuideMutation: Promise<void> = Promise.resolve();
+let activeProjectMutation: Promise<void> = Promise.resolve();
 
-function queueActiveGuideMutation<T>(mutation: () => Promise<T>): Promise<T> {
-  const result = activeGuideMutation.then(mutation, mutation);
-  activeGuideMutation = result.then(() => undefined, () => undefined);
+function queueActiveProjectMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const result = activeProjectMutation.then(mutation, mutation);
+  activeProjectMutation = result.then(() => undefined, () => undefined);
   return result;
 }
 
-export async function getActiveGuideId(): Promise<string | null> {
-  const result = await browser.storage.local.get(ACTIVE_GUIDE_ID_KEY);
-  return normalizeActiveGuideId(result[ACTIVE_GUIDE_ID_KEY]);
+export async function getActiveProjectId(): Promise<string | null> {
+  const result = await browser.storage.local.get(ACTIVE_PROJECT_ID_KEY);
+  return normalizeActiveProjectId(result[ACTIVE_PROJECT_ID_KEY]);
 }
 
-export function setActiveGuideId(guideId: string): Promise<void> {
-  const normalized = normalizeActiveGuideId(guideId);
-  if (!normalized) return Promise.reject(new TypeError('Guide id must be a non-empty string.'));
-  return queueActiveGuideMutation(async () => {
-    await browser.storage.local.set({ [ACTIVE_GUIDE_ID_KEY]: normalized });
+export function setActiveProjectId(projectId: string): Promise<void> {
+  const normalized = normalizeActiveProjectId(projectId);
+  if (!normalized) return Promise.reject(new TypeError('Project id must be a non-empty string.'));
+  return queueActiveProjectMutation(async () => {
+    await browser.storage.local.set({ [ACTIVE_PROJECT_ID_KEY]: normalized });
   });
 }
 
-/** Removes the UI selection only if it still points at expectedGuideId.
+/** Removes the UI selection only if it still points at expectedProjectId.
  * Returns false when another selection has already won the race. */
-export function clearActiveGuideId(expectedGuideId: string): Promise<boolean> {
-  const expected = normalizeActiveGuideId(expectedGuideId);
-  if (!expected) return Promise.reject(new TypeError('Expected Guide id must be a non-empty string.'));
-  return queueActiveGuideMutation(async () => {
-    const current = await getActiveGuideId();
+export function clearActiveProjectId(expectedProjectId: string): Promise<boolean> {
+  const expected = normalizeActiveProjectId(expectedProjectId);
+  if (!expected) return Promise.reject(new TypeError('Expected Project id must be a non-empty string.'));
+  return queueActiveProjectMutation(async () => {
+    const current = await getActiveProjectId();
     if (current !== expected) return false;
-    await browser.storage.local.remove(ACTIVE_GUIDE_ID_KEY);
+    await browser.storage.local.remove(ACTIVE_PROJECT_ID_KEY);
     return true;
   });
 }

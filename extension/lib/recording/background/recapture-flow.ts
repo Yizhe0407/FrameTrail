@@ -523,7 +523,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     sender: Browser.runtime.MessageSender,
   ): Promise<StartStepRecaptureResult> {
     if (!isEditorSenderForSession(sender, message.sessionId)) {
-      return recaptureFailure('INVALID_EDITOR', t().recaptureFlow.editorOnlyGuideStart);
+      return recaptureFailure('INVALID_EDITOR', t().recaptureFlow.editorOnlyProjectStart);
     }
     if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.alreadyStarting);
     startingRecapture = true;
@@ -741,7 +741,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
   }
 
   return {
-    /** Read by START_RECORDING and RESET_GUIDE: their single-owner check must
+    /** Read by START_RECORDING and RESET_PROJECT: their single-owner check must
      * also cover a recapture start that has not published state yet. */
     isStartingRecapture: () => startingRecapture,
     preflightStepRecaptureSourcePermission,

@@ -139,7 +139,7 @@ describe('recording state normalization', () => {
     expect(normalized.snapshotDevicePixelRatio).toBe(ratio === 1 ? 1 : null);
   });
 
-  it('keeps autoCreatedGuideId only while its run is alive', () => {
+  it('keeps autoCreatedProjectId only while its run is alive', () => {
     const liveRun = {
       operation: 'recording',
       isRecording: true,
@@ -147,17 +147,17 @@ describe('recording state normalization', () => {
       sessionId: 'session-1',
       tabId: 2,
       runId: 'run-1',
-      autoCreatedGuideId: 'session-1',
+      autoCreatedProjectId: 'session-1',
     } as const;
 
-    expect(normalizeRecordingState(liveRun).autoCreatedGuideId).toBe('session-1');
+    expect(normalizeRecordingState(liveRun).autoCreatedProjectId).toBe('session-1');
     // Once the run has ended (including error stops, whose recovery flow must
-    // keep the guide), the reclaim window is over.
+    // keep the project), the reclaim window is over.
     expect(
-      normalizeRecordingState({ ...liveRun, operation: null, isRecording: false }).autoCreatedGuideId,
+      normalizeRecordingState({ ...liveRun, operation: null, isRecording: false }).autoCreatedProjectId,
     ).toBeNull();
     expect(
-      normalizeRecordingState({ ...liveRun, autoCreatedGuideId: {} as never }).autoCreatedGuideId,
+      normalizeRecordingState({ ...liveRun, autoCreatedProjectId: {} as never }).autoCreatedProjectId,
     ).toBeNull();
   });
 
@@ -195,7 +195,7 @@ describe('recording state normalization', () => {
     expect(invalid.recaptureResult).toBeNull();
   });
 
-  it('fails closed for a persisted recording count beyond the durable guide limit', () => {
+  it('fails closed for a persisted recording count beyond the durable project limit', () => {
     const normalized = normalizeRecordingState({
       operation: 'recording',
       isRecording: true,

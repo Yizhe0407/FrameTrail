@@ -2,14 +2,14 @@ import { downloadBlobViaBrowser } from './download-utils';
 import { throwIfAborted } from '../shared/abort';
 import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
-import { renderEntryImages, type EntryImageBudget } from './guide-export-render';
+import { renderEntryImages, type EntryImageBudget } from './project-export-render';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 
-/** Derived from the persisted-step limits so every stored guide stays
+/** Derived from the persisted-step limits so every stored project stays
  * exportable; the total allows twice the persisted screenshot payload because
  * annotated re-encodes can exceed their raw sources. */
 export const IMAGE_ZIP_EXPORT_LIMITS = Object.freeze({
-  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerProject,
   maxImageBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
   maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });
@@ -33,7 +33,7 @@ const IMAGE_ZIP_ENTRY_BUDGET: EntryImageBudget = {
   createLimitError: (violation) => {
     switch (violation.kind) {
       case 'entry-count':
-        return new ImageZipExportLimitError('Guide contains too many images to export safely.');
+        return new ImageZipExportLimitError('Project contains too many images to export safely.');
       case 'image-bytes':
         return new ImageZipExportLimitError(`Image ${violation.ordinal} exceeds the per-image ZIP export limit.`);
       case 'total-bytes':

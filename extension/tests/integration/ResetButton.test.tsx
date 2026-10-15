@@ -35,10 +35,10 @@ describe('ResetButton', () => {
     let finishRefresh: (() => void) | undefined;
     const onReset = vi.fn(() => new Promise<void>((resolve) => { finishRefresh = resolve; }));
 
-    render(<ResetButton hasSteps sessionId="guide-1" onReset={onReset} />);
+    render(<ResetButton hasSteps sessionId="project-1" onReset={onReset} />);
     await confirmReset();
 
-    await waitFor(() => expect(mocks.resetSession).toHaveBeenCalledWith('guide-1'));
+    await waitFor(() => expect(mocks.resetSession).toHaveBeenCalledWith('project-1'));
     expect(onReset).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: '處理中' }).hasAttribute('disabled')).toBe(true);
 
@@ -51,7 +51,7 @@ describe('ResetButton', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const onReset = vi.fn();
 
-    render(<ResetButton hasSteps sessionId="guide-1" onReset={onReset} />);
+    render(<ResetButton hasSteps sessionId="project-1" onReset={onReset} />);
     await confirmReset();
 
     await waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain('重置失敗'));

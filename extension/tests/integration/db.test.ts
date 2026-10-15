@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { addStep as addStepToDatabase, addSteps, deleteStepsAndReorder, deleteStepsForRun, getSteps, reorderSteps, replaceStepCaptureAtomically, restoreStepsAndReorder, saveStepDescription, StepNotFoundError, updateStep, updateStepsAtomically } from '@/lib/storage/step-repository';
 import { buildStepEntries, getEffectiveBounds, getOrderedAnnotations, STEP_STORAGE_LIMITS, StepStorageValidationError, type Step } from '@/lib/storage/models';
 import { closeDatabase } from '@/lib/storage/database';
-import { createGuideFromSteps, deleteGuidePermanently, duplicateGuide, ensureGuide, getGuide, getGuideSummaries, resetGuide } from '@/lib/storage/guide-repository';
+import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, ensureProject, getProject, getProjectSummaries, resetProject } from '@/lib/storage/project-repository';
 
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {
@@ -21,7 +21,7 @@ function makeStep(overrides: Partial<Step> = {}): Step {
 }
 
 async function addStep(step: Step): Promise<void> {
-  await ensureGuide(step.sessionId, step.timestamp);
+  await ensureProject(step.sessionId, step.timestamp);
   await addStepToDatabase(step);
 }
 
@@ -96,7 +96,7 @@ describe('step storage boundaries', () => {
 
   it.each([
     ['id', { id: ' bad-id' }],
-    ['session id', { sessionId: `guide-${'x'.repeat(STEP_STORAGE_LIMITS.maxIdLength)}` }],
+    ['session id', { sessionId: `project-${'x'.repeat(STEP_STORAGE_LIMITS.maxIdLength)}` }],
     ['run id', { runId: 'run\npoison' }],
     ['group id', { groupId: '' }],
   ])('rejects an invalid %s before writing', async (_label, overrides) => {
@@ -176,16 +176,16 @@ describe('step storage boundaries', () => {
     });
   });
 
-  it('rejects guides above the durable step and aggregate screenshot budgets', async () => {
+  it('rejects projects above the durable step and aggregate screenshot budgets', async () => {
     const sessionId = crypto.randomUUID();
     const tinyBlob = new Blob(['x']);
-    const tooMany = Array.from({ length: STEP_STORAGE_LIMITS.maxStepsPerGuide + 1 }, (_, order) => makeStep({
+    const tooMany = Array.from({ length: STEP_STORAGE_LIMITS.maxStepsPerProject + 1 }, (_, order) => makeStep({
       id: `step-${order}`,
       sessionId,
       order,
       screenshotBlob: tinyBlob,
     }));
-    await expect(createGuideFromSteps(tooMany)).rejects.toBeInstanceOf(StepStorageValidationError);
+    await expect(createProjectFromSteps(tooMany)).rejects.toBeInstanceOf(StepStorageValidationError);
 
     const largeBlob = new Blob([new Uint8Array(STEP_STORAGE_LIMITS.maxScreenshotBytes)]);
     const tooLarge = Array.from({ length: 5 }, (_, order) => makeStep({
@@ -194,12 +194,12 @@ describe('step storage boundaries', () => {
       order,
       screenshotBlob: largeBlob,
     }));
-    await expect(createGuideFromSteps(tooLarge)).rejects.toBeInstanceOf(StepStorageValidationError);
+    await expect(createProjectFromSteps(tooLarge)).rejects.toBeInstanceOf(StepStorageValidationError);
   });
 
   it('rejects oversized mutation vectors before opening a transaction', async () => {
     await expect(reorderSteps(
-      'missing-guide',
+      'missing-project',
       Array.from({ length: STEP_STORAGE_LIMITS.maxMutationItems + 1 }, (_, index) => `step-${index}`),
     )).rejects.toBeInstanceOf(StepStorageValidationError);
   });
@@ -208,26 +208,26 @@ describe('step storage boundaries', () => {
 describe('step persistence', () => {
   it('persists a batch in one transaction with a single summary refresh', async () => {
     const sessionId = crypto.randomUUID();
-    const guide = await ensureGuide(sessionId);
+    const project = await ensureProject(sessionId);
     const steps = [0, 1, 2].map((order) => makeStep({ sessionId, order, timestamp: 100 + order }));
 
     await addSteps(steps);
 
     const persisted = await getSteps(sessionId);
     expect(persisted.map((step) => step.order)).toEqual([0, 1, 2]);
-    const updated = await getGuide(sessionId);
+    const updated = await getProject(sessionId);
     expect(updated?.stepCount).toBe(3);
     // One refresh for the whole batch — not one contentRevision per row.
-    expect(updated?.contentRevision).toBe(guide.contentRevision + 1);
+    expect(updated?.contentRevision).toBe(project.contentRevision + 1);
   });
 
-  it('rejects a cross-guide batch atomically', async () => {
+  it('rejects a cross-project batch atomically', async () => {
     const sessionId = crypto.randomUUID();
-    await ensureGuide(sessionId);
+    await ensureProject(sessionId);
     const foreign = makeStep({ order: 1 });
 
     await expect(addSteps([makeStep({ sessionId, order: 0 }), foreign])).rejects.toThrow(
-      /belongs to another guide/,
+      /belongs to another project/,
     );
     expect(await getSteps(sessionId)).toHaveLength(0);
   });
@@ -546,23 +546,23 @@ describe('atomic visual edits and recapture', () => {
 });
 
 
-describe('guide transaction safety', () => {
-  it('allows capture writes to an existing guide', async () => {
+describe('project transaction safety', () => {
+  it('allows capture writes to an existing project', async () => {
     const step = makeStep();
-    await ensureGuide(step.sessionId, step.timestamp);
+    await ensureProject(step.sessionId, step.timestamp);
 
     await expect(addStepToDatabase(step)).resolves.toBeUndefined();
     expect(await getSteps(step.sessionId)).toHaveLength(1);
   });
 
-  it('does not resurrect a permanently deleted guide from a stale capture write', async () => {
+  it('does not resurrect a permanently deleted project from a stale capture write', async () => {
     const step = makeStep();
-    await ensureGuide(step.sessionId, step.timestamp);
+    await ensureProject(step.sessionId, step.timestamp);
     await addStepToDatabase(step);
-    await deleteGuidePermanently(step.sessionId);
+    await deleteProjectPermanently(step.sessionId);
 
-    await expect(addStepToDatabase({ ...step, description: 'stale write' })).rejects.toThrow('Guide not found.');
-    expect(await getGuide(step.sessionId)).toBeUndefined();
+    await expect(addStepToDatabase({ ...step, description: 'stale write' })).rejects.toThrow('Project not found.');
+    expect(await getProject(step.sessionId)).toBeUndefined();
     expect(await getSteps(step.sessionId)).toEqual([]);
   });
 
@@ -570,23 +570,23 @@ describe('guide transaction safety', () => {
     const sessionId = crypto.randomUUID();
     const first = makeStep({ sessionId, order: 0, screenshotBlob: new Blob(['first']) });
     const second = makeStep({ sessionId, order: 1, screenshotBlob: new Blob(['second']) });
-    await ensureGuide(sessionId);
+    await ensureProject(sessionId);
     await addStepToDatabase(first);
     await addStepToDatabase(second);
-    const before = (await getGuide(sessionId))!;
+    const before = (await getProject(sessionId))!;
 
-    const reset = await resetGuide(sessionId);
+    const reset = await resetProject(sessionId);
 
     expect(reset.contentRevision).toBe(before.contentRevision + 1);
     expect(reset).toMatchObject({ stepCount: 0, entryCount: 0, storageBytes: 0 });
     expect(await getSteps(sessionId)).toEqual([]);
-    expect(await getGuide(sessionId)).toEqual(reset);
+    expect(await getProject(sessionId)).toEqual(reset);
   });
 
-  it('serves summaries from guide metadata without opening the step index or Blob payload', async () => {
+  it('serves summaries from project metadata without opening the step index or Blob payload', async () => {
     const sessionId = crypto.randomUUID();
     const groupId = crypto.randomUUID();
-    await ensureGuide(sessionId);
+    await ensureProject(sessionId);
     await addStepToDatabase(makeStep({ sessionId, order: 0, screenshotBlob: new Blob(['plain']) }));
     await addStepToDatabase(makeStep({ id: groupId, sessionId, groupId, bounds: null, order: 1, screenshotBlob: new Blob(['anchor']) }));
     await addStepToDatabase(makeStep({ sessionId, groupId, order: 2, screenshotBlob: undefined }));
@@ -599,7 +599,7 @@ describe('guide transaction safety', () => {
     const blobTextSpy = vi.spyOn(Blob.prototype, 'text');
     const blobArrayBufferSpy = vi.spyOn(Blob.prototype, 'arrayBuffer');
     try {
-      const summary = (await getGuideSummaries()).find((guide) => guide.id === sessionId);
+      const summary = (await getProjectSummaries()).find((project) => project.id === sessionId);
       expect(summary).toMatchObject({ stepCount: 2, entryCount: 2, storageBytes: 11 });
       expect(blobTextSpy).not.toHaveBeenCalled();
       expect(blobArrayBufferSpy).not.toHaveBeenCalled();
@@ -610,7 +610,7 @@ describe('guide transaction safety', () => {
     }
   });
 
-  it('rolls back an imported guide when a later cloned step violates a key constraint', async () => {
+  it('rolls back an imported project when a later cloned step violates a key constraint', async () => {
     const destinationId = crypto.randomUUID();
     const duplicateStepId = crypto.randomUUID();
     const source = [makeStep({ id: 'source-a', order: 0 }), makeStep({ id: 'source-b', order: 1 })];
@@ -619,28 +619,28 @@ describe('guide transaction safety', () => {
       .mockReturnValueOnce(duplicateStepId)
       .mockReturnValueOnce(duplicateStepId);
     try {
-      await expect(createGuideFromSteps(source, { title: 'import' })).rejects.toBeTruthy();
+      await expect(createProjectFromSteps(source, { title: 'import' })).rejects.toBeTruthy();
     } finally {
       uuidSpy.mockRestore();
     }
-    expect(await getGuide(destinationId)).toBeUndefined();
+    expect(await getProject(destinationId)).toBeUndefined();
     expect(await getSteps(destinationId)).toEqual([]);
   });
 
-  it('rolls back duplicate guide metadata if cloning a source step fails', async () => {
+  it('rolls back duplicate project metadata if cloning a source step fails', async () => {
     const sourceStep = makeStep();
-    await ensureGuide(sourceStep.sessionId);
+    await ensureProject(sourceStep.sessionId);
     await addStepToDatabase(sourceStep);
     const destinationId = crypto.randomUUID();
     const uuidSpy = vi.spyOn(crypto, 'randomUUID')
       .mockReturnValueOnce(destinationId)
       .mockReturnValueOnce(sourceStep.id as ReturnType<Crypto['randomUUID']>);
     try {
-      await expect(duplicateGuide(sourceStep.sessionId)).rejects.toBeTruthy();
+      await expect(duplicateProject(sourceStep.sessionId)).rejects.toBeTruthy();
     } finally {
       uuidSpy.mockRestore();
     }
-    expect(await getGuide(destinationId)).toBeUndefined();
+    expect(await getProject(destinationId)).toBeUndefined();
     expect((await getSteps(sourceStep.sessionId)).map((step) => step.id)).toEqual([sourceStep.id]);
   });
 });

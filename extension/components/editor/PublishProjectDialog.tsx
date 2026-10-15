@@ -6,34 +6,34 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { generateGuideHtml } from '@/lib/export/guide-export-html';
-import { generateGuideMarkdownArchive } from '@/lib/export/guide-export-markdown';
-import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
-import { guideExportFilename, type GuideExportMetadata } from '@/lib/export/guide-export-contract';
+import { generateProjectHtml } from '@/lib/export/project-export-html';
+import { generateProjectMarkdownArchive } from '@/lib/export/project-export-markdown';
+import { generateProjectPdf } from '@/lib/export/project-export-pdf';
+import { projectExportFilename, type ProjectExportMetadata } from '@/lib/export/project-export-contract';
 import { type StepEntry } from '@/lib/storage/models';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { t } from '@/lib/shared/i18n';
 import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
 
-type GuideEntriesSnapshot = {
+type ProjectEntriesSnapshot = {
   entries: readonly StepEntry[];
-  metadata?: GuideExportMetadata;
+  metadata?: ProjectExportMetadata;
 };
 
-type GuideEntriesProvider = (
+type ProjectEntriesProvider = (
   signal: AbortSignal,
 ) =>
   | readonly StepEntry[]
-  | GuideEntriesSnapshot
-  | Promise<readonly StepEntry[] | GuideEntriesSnapshot>;
+  | ProjectEntriesSnapshot
+  | Promise<readonly StepEntry[] | ProjectEntriesSnapshot>;
 
-type PublishGuideDialogProps = {
+type PublishProjectDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Resolves the entries (and optionally fresher metadata) to publish. */
-  getGuideEntries: GuideEntriesProvider;
-  metadata?: GuideExportMetadata;
+  getProjectEntries: ProjectEntriesProvider;
+  metadata?: ProjectExportMetadata;
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 };
 
@@ -93,13 +93,13 @@ function PublicationOptionCard({ option, pending }: { option: PublicationOption;
   );
 }
 
-function isGuideEntriesSnapshot(
-  value: readonly StepEntry[] | GuideEntriesSnapshot,
-): value is GuideEntriesSnapshot {
+function isProjectEntriesSnapshot(
+  value: readonly StepEntry[] | ProjectEntriesSnapshot,
+): value is ProjectEntriesSnapshot {
   return !Array.isArray(value);
 }
 
-export default function PublishGuideDialog(props: PublishGuideDialogProps) {
+export default function PublishProjectDialog(props: PublishProjectDialogProps) {
   const { open, onOpenChange, metadata = {}, onExportImages } = props;
   const [pendingAction, setPendingAction] = useState<PublicationAction | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,14 +120,14 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     onOpenChange(nextOpen);
   }
 
-  async function resolveGuideEntries(signal: AbortSignal): Promise<GuideEntriesSnapshot> {
-    const result = await props.getGuideEntries(signal);
+  async function resolveProjectEntries(signal: AbortSignal): Promise<ProjectEntriesSnapshot> {
+    const result = await props.getProjectEntries(signal);
     throwIfAborted(signal);
 
-    const snapshot = isGuideEntriesSnapshot(result)
+    const snapshot = isProjectEntriesSnapshot(result)
       ? { entries: result.entries, metadata: result.metadata ?? metadata }
       : { entries: result, metadata };
-    if (snapshot.entries.length === 0) throw new Error('No guide entries are available.');
+    if (snapshot.entries.length === 0) throw new Error('No project entries are available.');
     return snapshot;
   }
 
@@ -151,7 +151,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       if (isAbortError(actionError) || controller.signal.aborted) {
         setNotice(t().editor.publish.cancelled);
       } else {
-        console.error(`[stepmark] guide export failed: ${action}`, actionError);
+        console.error(`[stepmark] project export failed: ${action}`, actionError);
         setError(publicationCopy(action).failed);
       }
     } finally {
@@ -160,40 +160,40 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     }
   }
 
-  function downloadGuide(action: DownloadPublicationAction) {
+  function downloadProject(action: DownloadPublicationAction) {
     void runAction(
       action,
       async (signal) => {
-        const snapshot = await resolveGuideEntries(signal);
+        const snapshot = await resolveProjectEntries(signal);
         switch (action) {
           // downloadBlobViaBrowser resolves only once the browser has queued the transfer,
           // which survives this page closing, so the success notice below is always accurate.
           case 'markdown': {
-            const archive = await generateGuideMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
+            const archive = await generateProjectMarkdownArchive(snapshot.entries, snapshot.metadata, { signal });
             throwIfAborted(signal);
             await downloadBlobViaBrowser(
               archive.blob,
-              guideExportFilename(snapshot.metadata, 'markdown-archive'),
+              projectExportFilename(snapshot.metadata, 'markdown-archive'),
               { signal },
             );
             return;
           }
 
           case 'html': {
-            const html = await generateGuideHtml(snapshot.entries, snapshot.metadata, { signal });
+            const html = await generateProjectHtml(snapshot.entries, snapshot.metadata, { signal });
             throwIfAborted(signal);
             await downloadBlobViaBrowser(
               new Blob([html], { type: 'text/html;charset=utf-8' }),
-              guideExportFilename(snapshot.metadata, 'html'),
+              projectExportFilename(snapshot.metadata, 'html'),
               { signal },
             );
             return;
           }
 
           case 'pdf': {
-            const pdf = await generateGuidePdf(snapshot.entries, snapshot.metadata, { signal });
+            const pdf = await generateProjectPdf(snapshot.entries, snapshot.metadata, { signal });
             throwIfAborted(signal);
-            await downloadBlobViaBrowser(pdf, guideExportFilename(snapshot.metadata, 'pdf'), { signal });
+            await downloadBlobViaBrowser(pdf, projectExportFilename(snapshot.metadata, 'pdf'), { signal });
             return;
           }
         }
@@ -211,7 +211,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     );
   }
 
-  const titleText = metadata.title?.trim() || t().common.untitledGuide;
+  const titleText = metadata.title?.trim() || t().common.untitledProject;
   const publicationOptions: readonly PublicationOption[] = [
     {
       action: 'markdown',
@@ -220,7 +220,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       description: publicationCopy('markdown').description,
       icon: <MonoGlyph className="text-sm">M↓</MonoGlyph>,
       disabled: busy,
-      onSelect: () => downloadGuide('markdown'),
+      onSelect: () => downloadProject('markdown'),
     },
     {
       action: 'pdf',
@@ -229,7 +229,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       description: publicationCopy('pdf').description,
       icon: <MonoGlyph className="text-sm">PDF</MonoGlyph>,
       disabled: busy,
-      onSelect: () => downloadGuide('pdf'),
+      onSelect: () => downloadProject('pdf'),
     },
     {
       action: 'images',
@@ -247,7 +247,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       description: publicationCopy('html').description,
       icon: <MonoGlyph className="text-sm">&lt;/&gt;</MonoGlyph>,
       disabled: busy,
-      onSelect: () => downloadGuide('html'),
+      onSelect: () => downloadProject('html'),
     },
   ];
 

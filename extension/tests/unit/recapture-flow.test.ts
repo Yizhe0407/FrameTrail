@@ -33,7 +33,7 @@ vi.mock('@/lib/storage/storage', async (importOriginal) =>
 
 const EDITOR_URL = 'chrome-extension://extension-id/editor.html';
 const SOURCE_URL = 'https://source.example/page';
-const SESSION_ID = 'guide-a';
+const SESSION_ID = 'project-a';
 const SOURCE_TAB_ID = 11;
 const SOURCE_WINDOW_ID = 5;
 
@@ -215,7 +215,7 @@ describe('preflightStepRecaptureSourcePermission', () => {
 
     const result = await harness.flow.preflightStepRecaptureSourcePermission(
       { type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION', sessionId: SESSION_ID, target: singleTarget },
-      editorSender('guide-b'),
+      editorSender('project-b'),
     );
 
     expect(result).toEqual({ ok: false, code: 'INVALID_EDITOR', message: expect.any(String) });
@@ -241,7 +241,7 @@ describe('preflightStepRecaptureSourcePermission', () => {
       ),
     ).resolves.toMatchObject({ ok: false, code: 'TARGET_NOT_FOUND' });
 
-    mocks.getStep.mockResolvedValueOnce(step({ sessionId: 'other-guide' }));
+    mocks.getStep.mockResolvedValueOnce(step({ sessionId: 'other-project' }));
     await expect(
       harness.flow.preflightStepRecaptureSourcePermission(
         { type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION', sessionId: SESSION_ID, target: singleTarget },
@@ -383,7 +383,7 @@ describe('startStepRecapture', () => {
   it('rejects a sender that is not the editor for the session', async () => {
     const result = await harness.flow.startStepRecapture(
       { type: 'START_STEP_RECAPTURE', sessionId: SESSION_ID, target: singleTarget },
-      editorSender('guide-b'),
+      editorSender('project-b'),
     );
 
     expect(result).toMatchObject({ ok: false, code: 'INVALID_EDITOR' });
@@ -957,7 +957,7 @@ describe('cancelStepRecapture', () => {
 
     const result = await harness.flow.cancelStepRecapture(
       { type: 'CANCEL_STEP_RECAPTURE', runId: 'recapture-1' },
-      editorSender('guide-b'),
+      editorSender('project-b'),
     );
 
     expect(result).toEqual({ ok: false, error: '無效的補拍來源。' });
@@ -1074,8 +1074,8 @@ describe('ackStepRecaptureResult', () => {
     harness.setState(settled());
     await expect(
       harness.flow.ackStepRecaptureResult(
-        { type: 'ACK_STEP_RECAPTURE_RESULT', runId: 'recapture-1', sessionId: 'guide-b' },
-        editorSender('guide-b'),
+        { type: 'ACK_STEP_RECAPTURE_RESULT', runId: 'recapture-1', sessionId: 'project-b' },
+        editorSender('project-b'),
       ),
     ).resolves.toBe(false);
     expect(harness.getState().recaptureResult).not.toBeNull();
@@ -1107,7 +1107,7 @@ describe('focusStepRecaptureSource', () => {
     await expect(
       harness.flow.focusStepRecaptureSource(
         { type: 'FOCUS_STEP_RECAPTURE_SOURCE', runId: 'recapture-1' },
-        editorSender('guide-b'),
+        editorSender('project-b'),
       ),
     ).resolves.toEqual({ ok: false, error: '無效的編輯器來源。' });
   });

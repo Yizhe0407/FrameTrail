@@ -1,13 +1,13 @@
 import { test, expect } from '../support/fixture';
-import { resetExtensionData, seedAndSelectGuide } from '../support/harness';
+import { resetExtensionData, seedAndSelectProject } from '../support/harness';
 
 const LONG_TITLE = '未命名專案 · 2026年10月15日 下午3:37 · 一段非常長的標題用來測試選單不會超出視窗';
 
 test.describe('popup record target picker', () => {
-  test('keeps the option list inside the 320px popup, however long a guide title is', async ({ popupPage, browserErrors }) => {
+  test('keeps the option list inside the 320px popup, however long a project title is', async ({ popupPage, browserErrors }) => {
     await resetExtensionData(popupPage);
-    await seedAndSelectGuide(popupPage, LONG_TITLE);
-    await seedAndSelectGuide(popupPage, `${LONG_TITLE}（第二份）`);
+    await seedAndSelectProject(popupPage, LONG_TITLE);
+    await seedAndSelectProject(popupPage, `${LONG_TITLE}（第二份）`);
     await popupPage.reload({ waitUntil: 'domcontentloaded' });
 
     const trigger = popupPage.getByRole('combobox', { name: '錄到哪裡' });

@@ -6,22 +6,22 @@ import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  createGuide: vi.fn(),
-  getGuide: vi.fn(),
-  discardPristineGuide: vi.fn(),
-  getGuideSummaries: vi.fn(),
+  createProject: vi.fn(),
+  getProject: vi.fn(),
+  discardPristineProject: vi.fn(),
+  getProjectSummaries: vi.fn(),
 }));
 
 vi.mock('wxt/browser', async () => {
   const { makePopupBrowserMock } = await import('../setup/browser-mocks');
   return { browser: makePopupBrowserMock({ sendMessage: mocks.sendMessage, tabsQuery: mocks.query }) };
 });
-// Only the storage primitives are mocked; the real guide-actions flow runs.
-vi.mock('@/lib/storage/guide-repository', () => ({
-  createGuide: mocks.createGuide,
-  getGuide: mocks.getGuide,
-  discardPristineGuide: mocks.discardPristineGuide,
-  getGuideSummaries: mocks.getGuideSummaries,
+// Only the storage primitives are mocked; the real project-actions flow runs.
+vi.mock('@/lib/storage/project-repository', () => ({
+  createProject: mocks.createProject,
+  getProject: mocks.getProject,
+  discardPristineProject: mocks.discardPristineProject,
+  getProjectSummaries: mocks.getProjectSummaries,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -37,11 +37,11 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
 const IDLE_RECORDING = makeRecordingState();
 
 beforeEach(() => {
-  mocks.getGuideSummaries.mockResolvedValue([]);
+  mocks.getProjectSummaries.mockResolvedValue([]);
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
-  mocks.getGuide.mockResolvedValue(undefined);
-  mocks.discardPristineGuide.mockResolvedValue(true);
+  mocks.createProject.mockResolvedValue({ id: 'project-a' });
+  mocks.getProject.mockResolvedValue(undefined);
+  mocks.discardPristineProject.mockResolvedValue(true);
   mocks.sendMessage.mockResolvedValue(null);
 });
 
@@ -53,7 +53,7 @@ afterEach(() => {
 describe('record controls runtime responses', () => {
   it.each([
     ['missing', null],
-    ['incomplete success', { ok: true, sessionId: 'guide-a' }],
+    ['incomplete success', { ok: true, sessionId: 'project-a' }],
     ['malformed failure', { ok: false, error: 503 }],
   ])('shows a transport error for a %s START_RECORDING response', async (_case, response) => {
     silenceIntentionalErrorLogs();

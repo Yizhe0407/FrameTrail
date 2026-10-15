@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe('useRecordingSession', () => {
-  it('reads an explicit Guide from IndexedDB only once during initial mount', async () => {
+  it('reads an explicit Project from IndexedDB only once during initial mount', async () => {
     mocks.getRecordingState.mockResolvedValue(state('recording-session'));
     mocks.getSteps.mockResolvedValue([{ id: 'url-step' }]);
 
@@ -129,7 +129,7 @@ describe('useRecordingSession', () => {
     expect(result.current.steps).toEqual([{ id: 'new-step' }]);
   });
 
-  it('不會讓缺少 sessionId 的編輯器退回顯示其他錄製中的 Guide', async () => {
+  it('不會讓缺少 sessionId 的編輯器退回顯示其他錄製中的 Project', async () => {
     mocks.getRecordingState.mockResolvedValue(state('recording-session'));
     mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step` }]);
 
@@ -158,7 +158,7 @@ describe('useRecordingSession', () => {
     expect(mocks.getSteps).not.toHaveBeenCalledWith('other-recording-session');
   });
 
-  it('refreshes the explicit Guide after same-session recording-state events', async () => {
+  it('refreshes the explicit Project after same-session recording-state events', async () => {
     let revision = 1;
     mocks.getRecordingState.mockResolvedValue(state('recording-session'));
     mocks.getSteps.mockImplementation(async (sessionId: string) => [{ id: `${sessionId}-step-${revision}` }]);

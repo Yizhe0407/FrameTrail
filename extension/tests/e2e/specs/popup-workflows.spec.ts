@@ -13,22 +13,22 @@ declare const chrome: {
   storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
 };
 
-async function readActiveGuideId(page: import('@playwright/test').Page): Promise<string | null> {
+async function readActiveProjectId(page: import('@playwright/test').Page): Promise<string | null> {
   return page.evaluate(async () => {
-    const stored = await chrome.storage.local.get('stepmark:activeGuideId');
-    const value = stored['stepmark:activeGuideId'];
+    const stored = await chrome.storage.local.get('stepmark:activeProjectId');
+    const value = stored['stepmark:activeProjectId'];
     return typeof value === 'string' && value.length > 0 ? value : null;
   });
 }
 
-async function readGuideIds(page: import('@playwright/test').Page): Promise<string[]> {
+async function readProjectIds(page: import('@playwright/test').Page): Promise<string[]> {
   return page.evaluate(async () => new Promise<string[]>((resolve, reject) => {
     const request = indexedDB.open('stepmark', 1);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
       try {
-        const keysRequest = db.transaction('guides', 'readonly').objectStore('guides').getAllKeys();
+        const keysRequest = db.transaction('projects', 'readonly').objectStore('projects').getAllKeys();
         keysRequest.onsuccess = () => {
           db.close();
           resolve((keysRequest.result as string[]).sort());
@@ -89,8 +89,8 @@ test.describe('popup workflows', () => {
     });
     await popupPage.getByRole('radio', { name: '快照' }).click();
     await expect(popupPage.getByRole('radio', { name: '快照' })).toHaveAttribute('aria-checked', 'true');
-    const seededGuideId = await readActiveGuideId(statePage);
-    expect(seededGuideId).toBeTruthy();
+    const seededProjectId = await readActiveProjectId(statePage);
+    expect(seededProjectId).toBeTruthy();
     await clickPopupCommandWithoutActivatingTab(popupPage, '開始錄製');
 
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(true);
@@ -99,10 +99,10 @@ test.describe('popup workflows', () => {
     await expect.poll(async () => (await readRecordingState(statePage)).numbered).toBe(true);
     await expect.poll(() => appPage.locator('[data-stepmark-snapshot-shield]').count()).toBe(1);
 
-    // Popup start always records into a brand-new Guide (Scribe/Tango convention); the previously selected Guide is never appended to.
+    // Popup start always records into a brand-new Project (Scribe/Tango convention); the previously selected Project is never appended to.
     const runSessionId = (await readRecordingState(statePage)).sessionId;
     expect(runSessionId).toBeTruthy();
-    expect(runSessionId).not.toBe(seededGuideId);
+    expect(runSessionId).not.toBe(seededProjectId);
 
     await expect(popupPage.getByText('快照 · 0 個標註')).toBeVisible();
     await expect(popupPage.getByRole('button', { name: '回到錄製分頁' })).toBeEnabled();
@@ -111,9 +111,9 @@ test.describe('popup workflows', () => {
     await expect.poll(async () => (await readRecordingState(statePage)).isRecording).toBe(false);
     await expect.poll(() => appPage.locator('[data-stepmark-snapshot-shield]').count()).toBe(0);
 
-    // The run captured nothing, so the auto-created Guide is reclaimed: only the seeded Guide survives and the selection is cleared.
-    await expect.poll(() => readGuideIds(statePage)).toEqual([seededGuideId]);
-    await expect.poll(() => readActiveGuideId(statePage)).toBeNull();
+    // The run captured nothing, so the auto-created Project is reclaimed: only the seeded Project survives and the selection is cleared.
+    await expect.poll(() => readProjectIds(statePage)).toEqual([seededProjectId]);
+    await expect.poll(() => readActiveProjectId(statePage)).toBeNull();
   });
 
   test('opens the editor and keeps data actions disabled for an empty session', async ({
@@ -122,16 +122,16 @@ test.describe('popup workflows', () => {
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    // Keep this id so the assertion verifies URL-owned Guide selection rather than whatever recording state is current when the editor initializes.
-    const activeGuideId = await popupPage.evaluate(async () => {
+    // Keep this id so the assertion verifies URL-owned Project selection rather than whatever recording state is current when the editor initializes.
+    const activeProjectId = await popupPage.evaluate(async () => {
       const extensionChrome = globalThis as typeof globalThis & {
         chrome: { storage: { local: { get(keys: string): Promise<Record<string, unknown>> } } };
       };
-      const stored = await extensionChrome.chrome.storage.local.get('stepmark:activeGuideId');
-      return stored['stepmark:activeGuideId'];
+      const stored = await extensionChrome.chrome.storage.local.get('stepmark:activeProjectId');
+      return stored['stepmark:activeProjectId'];
     });
-    if (typeof activeGuideId !== 'string' || activeGuideId.length === 0) {
-      throw new Error('Expected reset data to select an empty Guide.');
+    if (typeof activeProjectId !== 'string' || activeProjectId.length === 0) {
+      throw new Error('Expected reset data to select an empty Project.');
     }
 
     await expect(popupPage.getByRole('button', { name: '重置' })).toBeDisabled();
@@ -146,7 +146,7 @@ test.describe('popup workflows', () => {
     expect(editorUrl.protocol).toBe('chrome-extension:');
     expect(editorUrl.host).toBe(extensionId);
     expect(editorUrl.pathname).toBe('/editor.html');
-    expect(editorUrl.searchParams.get('sessionId')).toBe(activeGuideId);
+    expect(editorUrl.searchParams.get('sessionId')).toBe(activeProjectId);
     expect(editorUrl.searchParams.get('entryId')).toBeNull();
 
     await expect(editor.getByText('尚未建立內容', { exact: true })).toBeVisible();
@@ -155,7 +155,7 @@ test.describe('popup workflows', () => {
     await expect(editor.getByRole('button', { name: '重置' })).toBeDisabled();
   });
 
-  test('opens a multi-step guide at its first entry, not its latest capture', async ({
+  test('opens a multi-step project at its first entry, not its latest capture', async ({
     appPage,
     popupPage,
     extensionContext,
@@ -171,7 +171,7 @@ test.describe('popup workflows', () => {
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
 
-    // Ordinary navigation must not inherit the newest capture as its target: opening a finished guide should start reading it from the top.
+    // Ordinary navigation must not inherit the newest capture as its target: opening a finished project should start reading it from the top.
     expect(new URL(editor.url()).searchParams.get('entryId')).toBeNull();
     await expect(editor.getByRole('button', { name: '開啟步驟 1' })).toHaveAttribute('aria-current', 'step');
     await expect(editor.getByRole('button', { name: '開啟步驟 2' })).not.toHaveAttribute('aria-current', 'step');

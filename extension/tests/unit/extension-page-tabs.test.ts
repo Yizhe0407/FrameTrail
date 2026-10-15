@@ -43,8 +43,8 @@ beforeEach(() => {
 function editorSender(overrides: Record<string, unknown> = {}) {
   return {
     frameId: 0,
-    url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a',
-    tab: { id: 12, windowId: 4, url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a' },
+    url: 'chrome-extension://extension-id/editor.html?sessionId=project-a',
+    tab: { id: 12, windowId: 4, url: 'chrome-extension://extension-id/editor.html?sessionId=project-a' },
     ...overrides,
   };
 }

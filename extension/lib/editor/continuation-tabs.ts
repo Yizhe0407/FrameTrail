@@ -52,7 +52,7 @@ export async function listRecordableTabs(): Promise<ContinuationTabOption[]> {
 }
 
 /** The tab preselected in the picker: the most recent tab showing something
- * OTHER than the Guide's last-step URL. Auto-picking by recency alone kept
+ * OTHER than the Project's last-step URL. Auto-picking by recency alone kept
  * landing on the page the user had just finished recording. */
 export function defaultContinuationTab(
   tabs: ContinuationTabOption[],

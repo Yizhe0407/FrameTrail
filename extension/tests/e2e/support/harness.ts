@@ -1,16 +1,16 @@
 import { expect, type Frame, type Page } from '@playwright/test';
 import { inflateSync } from 'node:zlib';
-// Type-only import: erased at runtime (Playwright never loads extension code), but keeps the guide template below from drifting off the model.
-import type { Guide } from '../../../lib/storage/models';
+// Type-only import: erased at runtime (Playwright never loads extension code), but keeps the project template below from drifting off the model.
+import type { Project } from '../../../lib/storage/models';
 
 /** Browser 內的 page.evaluate 無法匯入 Node 模組，因此在此集中管理持久化契約字面值。 */
 const SCRIBE_DB = { name: 'stepmark', version: 1 } as const;
 // `as const` keeps the literal types non-widening so the typed chrome.storage.local.get overloads still apply inside evaluate bodies.
 const RECORDING_STATE_KEY = 'stepmark:recordingState' as const;
-const ACTIVE_GUIDE_ID_KEY = 'stepmark:activeGuideId' as const;
+const ACTIVE_PROJECT_ID_KEY = 'stepmark:activeProjectId' as const;
 
-/** Pristine guide row seeded by resetExtensionData; `satisfies` fails the typecheck if the Guide model (via createGuide) gains or renames a field. */
-const E2E_GUIDE_TEMPLATE = {
+/** Pristine project row seeded by resetExtensionData; `satisfies` fails the typecheck if the Project model (via createProject) gains or renames a field. */
+const E2E_PROJECT_TEMPLATE = {
   title: 'E2E 測試教學',
   description: '',
   sections: [],
@@ -21,7 +21,7 @@ const E2E_GUIDE_TEMPLATE = {
   stepCount: 0,
   entryCount: 0,
   storageBytes: 0,
-} satisfies Omit<Guide, 'id'>;
+} satisfies Omit<Project, 'id'>;
 
 declare const chrome: {
   runtime: {
@@ -163,8 +163,8 @@ export interface StoredStep {
 }
 
 export async function resetExtensionData(popup: Page): Promise<void> {
-  await popup.evaluate(async ({ scribeDb, recordingStateKey, activeGuideIdKey, guideTemplate }) => {
-    const guideId = crypto.randomUUID();
+  await popup.evaluate(async ({ scribeDb, recordingStateKey, activeProjectIdKey, projectTemplate }) => {
+    const projectId = crypto.randomUUID();
     const state = await chrome.storage.local.get(recordingStateKey);
     if (state[recordingStateKey]?.isRecording) {
       await chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
@@ -179,14 +179,14 @@ export async function resetExtensionData(popup: Page): Promise<void> {
           const steps = db.createObjectStore('steps', { keyPath: 'id' });
           steps.createIndex('by-session', 'sessionId');
         }
-        if (!db.objectStoreNames.contains('guides')) {
-          const guides = db.createObjectStore('guides', { keyPath: 'id' });
-          guides.createIndex('by-updated-at', 'updatedAt');
+        if (!db.objectStoreNames.contains('projects')) {
+          const projects = db.createObjectStore('projects', { keyPath: 'id' });
+          projects.createIndex('by-updated-at', 'updatedAt');
         }
       };
       request.onsuccess = () => {
         const db = request.result;
-        const storeNames = ['guides', 'steps'].filter((name) => db.objectStoreNames.contains(name));
+        const storeNames = ['projects', 'steps'].filter((name) => db.objectStoreNames.contains(name));
         if (storeNames.length !== 2) {
           db.close();
           reject(new Error(`Stepmark IndexedDB v${scribeDb.version} stores are incomplete.`));
@@ -194,7 +194,7 @@ export async function resetExtensionData(popup: Page): Promise<void> {
         }
         const tx = db.transaction(storeNames, 'readwrite');
         for (const storeName of storeNames) tx.objectStore(storeName).clear();
-        tx.objectStore('guides').add({ id: guideId, ...guideTemplate });
+        tx.objectStore('projects').add({ id: projectId, ...projectTemplate });
         tx.oncomplete = () => {
           db.close();
           resolve();
@@ -205,43 +205,43 @@ export async function resetExtensionData(popup: Page): Promise<void> {
     });
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
-      [activeGuideIdKey]: guideId,
+      [activeProjectIdKey]: projectId,
     });
   }, {
     scribeDb: SCRIBE_DB,
     recordingStateKey: RECORDING_STATE_KEY,
-    activeGuideIdKey: ACTIVE_GUIDE_ID_KEY,
-    guideTemplate: E2E_GUIDE_TEMPLATE,
+    activeProjectIdKey: ACTIVE_PROJECT_ID_KEY,
+    projectTemplate: E2E_PROJECT_TEMPLATE,
   });
   await popup.reload({ waitUntil: 'domcontentloaded' });
 }
 
-/** Adds another pristine Guide (same shape as resetExtensionData) and selects it, so a spec can record into a different Guide, as a popup start always does. */
-export async function seedAndSelectGuide(popup: Page, title: string): Promise<string> {
-  return popup.evaluate(async ({ scribeDb, activeGuideIdKey, guideTemplate, guideTitle }) => {
-    const guideId = crypto.randomUUID();
+/** Adds another pristine Project (same shape as resetExtensionData) and selects it, so a spec can record into a different Project, as a popup start always does. */
+export async function seedAndSelectProject(popup: Page, title: string): Promise<string> {
+  return popup.evaluate(async ({ scribeDb, activeProjectIdKey, projectTemplate, projectTitle }) => {
+    const projectId = crypto.randomUUID();
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;
-        const tx = db.transaction('guides', 'readwrite');
-        tx.objectStore('guides').add({ id: guideId, ...guideTemplate, title: guideTitle, updatedAt: Date.now() });
+        const tx = db.transaction('projects', 'readwrite');
+        tx.objectStore('projects').add({ id: projectId, ...projectTemplate, title: projectTitle, updatedAt: Date.now() });
         tx.oncomplete = () => {
           db.close();
           resolve();
         };
         tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error ?? new Error('Guide seed transaction was aborted.'));
+        tx.onabort = () => reject(tx.error ?? new Error('Project seed transaction was aborted.'));
       };
     });
-    await chrome.storage.local.set({ [activeGuideIdKey]: guideId });
-    return guideId;
+    await chrome.storage.local.set({ [activeProjectIdKey]: projectId });
+    return projectId;
   }, {
     scribeDb: SCRIBE_DB,
-    activeGuideIdKey: ACTIVE_GUIDE_ID_KEY,
-    guideTemplate: E2E_GUIDE_TEMPLATE,
-    guideTitle: title,
+    activeProjectIdKey: ACTIVE_PROJECT_ID_KEY,
+    projectTemplate: E2E_PROJECT_TEMPLATE,
+    projectTitle: title,
   });
 }
 
@@ -409,12 +409,12 @@ export async function readScreenshotScrollbarStats(popup: Page, stepId: string):
 
 export async function startRecording(appPage: Page, popup: Page, mode: RecordingMode): Promise<void> {
   await appPage.bringToFront();
-  await popup.evaluate(async ({ mode, activeGuideIdKey }) => {
+  await popup.evaluate(async ({ mode, activeProjectIdKey }) => {
     try {
-      const stored = await chrome.storage.local.get(activeGuideIdKey);
-      const sessionId = stored[activeGuideIdKey];
+      const stored = await chrome.storage.local.get(activeProjectIdKey);
+      const sessionId = stored[activeProjectIdKey];
       if (typeof sessionId !== 'string' || sessionId.length === 0) {
-        throw new Error('No active E2E Guide was initialized.');
+        throw new Error('No active E2E Project was initialized.');
       }
       const result = await chrome.runtime.sendMessage({
         type: 'START_RECORDING',
@@ -432,7 +432,7 @@ export async function startRecording(appPage: Page, popup: Page, mode: Recording
           : `START_RECORDING rejected: ${String(error)}`,
       );
     }
-  }, { mode, activeGuideIdKey: ACTIVE_GUIDE_ID_KEY });
+  }, { mode, activeProjectIdKey: ACTIVE_PROJECT_ID_KEY });
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   if (mode === 'steps') {
     await expect.poll(() => appPage.locator('[data-stepmark-step-preview]').count()).toBe(1);

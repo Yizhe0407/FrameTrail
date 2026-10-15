@@ -3,22 +3,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
-import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
+import PublishProjectDialog from '@/components/editor/PublishProjectDialog';
 import { type StepEntry } from '@/lib/storage/models';
 
 const mocks = vi.hoisted(() => ({
-  generateGuideHtml: vi.fn(),
-  generateGuideMarkdownArchive: vi.fn(),
-  generateGuidePdf: vi.fn(),
-  guideExportFilename: vi.fn((_metadata: unknown, format: string) => `guide.${format === 'markdown-archive' ? 'zip' : format === 'markdown' ? 'md' : format}`),
+  generateProjectHtml: vi.fn(),
+  generateProjectMarkdownArchive: vi.fn(),
+  generateProjectPdf: vi.fn(),
+  projectExportFilename: vi.fn((_metadata: unknown, format: string) => `project.${format === 'markdown-archive' ? 'zip' : format === 'markdown' ? 'md' : format}`),
   downloadBlobViaBrowser: vi.fn(),
 }));
 
-vi.mock('@/lib/export/guide-export-html', () => ({ generateGuideHtml: mocks.generateGuideHtml }));
-vi.mock('@/lib/export/guide-export-markdown', () => ({ generateGuideMarkdownArchive: mocks.generateGuideMarkdownArchive }));
-vi.mock('@/lib/export/guide-export-pdf', () => ({ generateGuidePdf: mocks.generateGuidePdf }));
-vi.mock('@/lib/export/guide-export-contract', () => ({
-  guideExportFilename: mocks.guideExportFilename,
+vi.mock('@/lib/export/project-export-html', () => ({ generateProjectHtml: mocks.generateProjectHtml }));
+vi.mock('@/lib/export/project-export-markdown', () => ({ generateProjectMarkdownArchive: mocks.generateProjectMarkdownArchive }));
+vi.mock('@/lib/export/project-export-pdf', () => ({ generateProjectPdf: mocks.generateProjectPdf }));
+vi.mock('@/lib/export/project-export-contract', () => ({
+  projectExportFilename: mocks.projectExportFilename,
 }));
 
 vi.mock('@/lib/export/download-utils', () => ({
@@ -28,7 +28,7 @@ vi.mock('@/lib/export/download-utils', () => ({
   },
 }));
 
-const guideEntries = [{ kind: 'single' }] as unknown as readonly StepEntry[];
+const projectEntries = [{ kind: 'single' }] as unknown as readonly StepEntry[];
 
 afterEach(() => {
   cleanup();
@@ -36,22 +36,22 @@ afterEach(() => {
 });
 
 function renderDialog(overrides: {
-  guideEntries?: readonly StepEntry[];
+  projectEntries?: readonly StepEntry[];
   onOpenChange?: (open: boolean) => void;
   onExportImages?: (signal: AbortSignal) => void | Promise<void>;
 } = {}) {
   return render(
-    <PublishGuideDialog
+    <PublishProjectDialog
       open
       onOpenChange={overrides.onOpenChange ?? vi.fn()}
-      getGuideEntries={() => overrides.guideEntries ?? guideEntries}
+      getProjectEntries={() => overrides.projectEntries ?? projectEntries}
       metadata={{ title: '核准教學' }}
       onExportImages={overrides.onExportImages}
     />,
   );
 }
 
-describe('PublishGuideDialog', () => {
+describe('PublishProjectDialog', () => {
   it('renders a Traditional Chinese accessible publication dialog and optional image ZIP action', () => {
     renderDialog({ onExportImages: vi.fn() });
 
@@ -64,59 +64,59 @@ describe('PublishGuideDialog', () => {
 
   it('downloads a Markdown ZIP using one provider snapshot and current metadata', async () => {
     const snapshotEntries = [{ kind: 'multiple' }] as unknown as readonly StepEntry[];
-    const snapshotMetadata = { title: '目前教學', filename: 'current-guide' };
-    const getGuideEntries = vi.fn().mockResolvedValue({ entries: snapshotEntries, metadata: snapshotMetadata });
+    const snapshotMetadata = { title: '目前教學', filename: 'current-project' };
+    const getProjectEntries = vi.fn().mockResolvedValue({ entries: snapshotEntries, metadata: snapshotMetadata });
     const archiveBlob = new Blob(['zip'], { type: 'application/zip' });
-    mocks.generateGuideMarkdownArchive.mockResolvedValue({
+    mocks.generateProjectMarkdownArchive.mockResolvedValue({
       blob: archiveBlob,
-      markdownFilename: 'current-guide.md',
+      markdownFilename: 'current-project.md',
       imageCount: 1,
     });
     mocks.downloadBlobViaBrowser.mockResolvedValue(undefined);
     render(
-      <PublishGuideDialog
+      <PublishProjectDialog
         open
         onOpenChange={vi.fn()}
-        getGuideEntries={getGuideEntries}
-        metadata={{ title: '過期的畫面標題', filename: 'stale-guide' }}
+        getProjectEntries={getProjectEntries}
+        metadata={{ title: '過期的畫面標題', filename: 'stale-project' }}
       />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /下載 Markdown/ }));
 
     await waitFor(() => expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledOnce());
-    const signal = getGuideEntries.mock.calls[0][0] as AbortSignal;
-    expect(getGuideEntries).toHaveBeenCalledOnce();
-    expect(mocks.generateGuideMarkdownArchive).toHaveBeenCalledWith(snapshotEntries, snapshotMetadata, { signal });
-    expect(mocks.guideExportFilename).toHaveBeenCalledWith(snapshotMetadata, 'markdown-archive');
-    expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledWith(archiveBlob, 'guide.zip', { signal });
+    const signal = getProjectEntries.mock.calls[0][0] as AbortSignal;
+    expect(getProjectEntries).toHaveBeenCalledOnce();
+    expect(mocks.generateProjectMarkdownArchive).toHaveBeenCalledWith(snapshotEntries, snapshotMetadata, { signal });
+    expect(mocks.projectExportFilename).toHaveBeenCalledWith(snapshotMetadata, 'markdown-archive');
+    expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledWith(archiveBlob, 'project.zip', { signal });
     expect((await screen.findByRole('status')).textContent).toContain('Markdown ZIP 已開始下載。');
   });
 
   it('downloads a PDF using one provider snapshot and current metadata', async () => {
     const snapshotEntries = [{ kind: 'multiple' }] as unknown as readonly StepEntry[];
-    const snapshotMetadata = { title: '原子 PDF 教學', filename: 'atomic-pdf-guide' };
-    const getGuideEntries = vi.fn().mockResolvedValue({ entries: snapshotEntries, metadata: snapshotMetadata });
+    const snapshotMetadata = { title: '原子 PDF 教學', filename: 'atomic-pdf-project' };
+    const getProjectEntries = vi.fn().mockResolvedValue({ entries: snapshotEntries, metadata: snapshotMetadata });
     const pdfBlob = new Blob(['pdf'], { type: 'application/pdf' });
-    mocks.generateGuidePdf.mockResolvedValue(pdfBlob);
+    mocks.generateProjectPdf.mockResolvedValue(pdfBlob);
     mocks.downloadBlobViaBrowser.mockResolvedValue(undefined);
     render(
-      <PublishGuideDialog
+      <PublishProjectDialog
         open
         onOpenChange={vi.fn()}
-        getGuideEntries={getGuideEntries}
-        metadata={{ title: '過期的畫面標題', filename: 'stale-guide' }}
+        getProjectEntries={getProjectEntries}
+        metadata={{ title: '過期的畫面標題', filename: 'stale-project' }}
       />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /下載 PDF/ }));
 
     await waitFor(() => expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledOnce());
-    const signal = getGuideEntries.mock.calls[0][0] as AbortSignal;
-    expect(getGuideEntries).toHaveBeenCalledOnce();
-    expect(mocks.generateGuidePdf).toHaveBeenCalledWith(snapshotEntries, snapshotMetadata, { signal });
-    expect(mocks.guideExportFilename).toHaveBeenCalledWith(snapshotMetadata, 'pdf');
-    expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledWith(pdfBlob, 'guide.pdf', { signal });
+    const signal = getProjectEntries.mock.calls[0][0] as AbortSignal;
+    expect(getProjectEntries).toHaveBeenCalledOnce();
+    expect(mocks.generateProjectPdf).toHaveBeenCalledWith(snapshotEntries, snapshotMetadata, { signal });
+    expect(mocks.projectExportFilename).toHaveBeenCalledWith(snapshotMetadata, 'pdf');
+    expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledWith(pdfBlob, 'project.pdf', { signal });
     expect((await screen.findByRole('status')).textContent).toContain('PDF 已開始下載。');
   });
 
@@ -138,12 +138,12 @@ describe('PublishGuideDialog', () => {
     expect((await screen.findByRole('status')).textContent).toContain('已取消匯出操作。');
   });
 
-  it('falls back to the shared untitled-guide name when the title is empty', () => {
+  it('falls back to the shared untitled-project name when the title is empty', () => {
     render(
-      <PublishGuideDialog
+      <PublishProjectDialog
         open
         onOpenChange={vi.fn()}
-        getGuideEntries={() => guideEntries}
+        getProjectEntries={() => projectEntries}
         metadata={{ title: '   ' }}
       />,
     );
@@ -154,12 +154,12 @@ describe('PublishGuideDialog', () => {
 
   it('reports a failed export when the provider resolves no entries', async () => {
     silenceIntentionalErrorLogs();
-    renderDialog({ guideEntries: [] });
+    renderDialog({ projectEntries: [] });
 
     fireEvent.click(screen.getByRole('button', { name: /下載 Markdown/ }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('無法下載 Markdown');
-    expect(mocks.generateGuideMarkdownArchive).not.toHaveBeenCalled();
+    expect(mocks.generateProjectMarkdownArchive).not.toHaveBeenCalled();
     expect(mocks.downloadBlobViaBrowser).not.toHaveBeenCalled();
   });
 });

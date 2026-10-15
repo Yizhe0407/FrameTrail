@@ -43,7 +43,7 @@ interface FlowToken {
  * - `generation` increments on every begin/clear; async continuations re-check it via FlowToken
  *   so a cancelled or superseded flow can never apply stale state or errors.
  * - `lock` is held from preflight until the flow clears, blocking data operations and re-entrant preflights.
- * - `flowEntryId`/`flowSessionId` bind a prepared grant to its entry/Guide; a selection or session change cancels it.
+ * - `flowEntryId`/`flowSessionId` bind a prepared grant to its entry/Project; a selection or session change cancels it.
  */
 export function usePermissionFlow({
   sessionId,
@@ -92,7 +92,7 @@ export function usePermissionFlow({
     setSelectedContinuationTabId(null);
   }, []);
 
-  /** Cancels a prepared grant when the selection or Guide it was bound to is
+  /** Cancels a prepared grant when the selection or Project it was bound to is
    * no longer current. */
   const syncWithSelection = useCallback((selectedEntryId: string | null, currentSessionId: string | null) => {
     const boundEntryId = flowEntryId.current;
@@ -102,7 +102,7 @@ export function usePermissionFlow({
     }
   }, [clearPreparedPermission]);
 
-  /** Whether a new flow may begin: the editor must be viewing a Guide with no
+  /** Whether a new flow may begin: the editor must be viewing a Project with no
    * data operation, no live run, and no flow already holding the lock. */
   function canBeginFlow(): boolean {
     return Boolean(sessionId) && !isDataOperationLocked() && !lock.current && !operationActive;
@@ -311,7 +311,7 @@ export function usePermissionFlow({
     }
   }
 
-  // Resuming a recording reopens the Guide's own source page and appends its captures, so the
+  // Resuming a recording reopens the Project's own source page and appends its captures, so the
   // editor never has to fabricate a step from an unrelated image.
   async function handleContinueRecording(): Promise<void> {
     if (!canBeginFlow()) return;

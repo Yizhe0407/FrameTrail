@@ -1,37 +1,37 @@
-import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
+import { repairProjectSections, type ProjectSection } from '../project/project-sections';
 import { type StepEntry } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { intlLocale } from '@/lib/shared/i18n';
 
-export interface GuideExportMetadata {
+export interface ProjectExportMetadata {
   /** 未指定 filename 時亦作為檔名來源。 */
   title?: string;
   description?: string;
-  /** 副檔名由 guideExportFilename 加入。 */
+  /** 副檔名由 projectExportFilename 加入。 */
   filename?: string;
-  sections?: readonly GuideSection[];
+  sections?: readonly ProjectSection[];
   /** 僅供顯示的 epoch 毫秒，不影響檔名。 */
   createdAt?: number;
 }
 
-export interface GuideExportOptions {
+export interface ProjectExportOptions {
   signal?: AbortSignal;
 }
 
-export type GuideExportFormat = 'markdown' | 'markdown-archive' | 'html' | 'pdf';
+export type ProjectExportFormat = 'markdown' | 'markdown-archive' | 'html' | 'pdf';
 
-export interface GuideMarkdownArchive {
+export interface ProjectMarkdownArchive {
   blob: Blob;
   markdownFilename: string;
   imageCount: number;
 }
 
-export const DEFAULT_TITLE = 'Stepmark Guide';
-const DEFAULT_FILENAME = 'stepmark-guide';
+export const DEFAULT_TITLE = 'Stepmark Project';
+const DEFAULT_FILENAME = 'stepmark-project';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
 /** HTML 螢幕與 PDF 共用主題；HTML 列印仍使用省墨配色。 */
-export const GUIDE_EXPORT_THEME = Object.freeze({
+export const PROJECT_EXPORT_THEME = Object.freeze({
   text: '#1d2129',
   secondaryText: '#454d59',
   mutedText: '#6d7585',
@@ -46,35 +46,35 @@ export const GUIDE_EXPORT_THEME = Object.freeze({
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif',
 });
 
-/** Derived from the persisted-step limits so every guide accepted by storage
+/** Derived from the persisted-step limits so every project accepted by storage
  * remains exportable; PDF budgets carry headroom (spill pages beyond one per
  * step, page rasters on top of the screenshot payload). The image total allows
  * twice the persisted screenshot payload — the same re-encode headroom as the
  * image-ZIP export, because both feed the renderEntryImages pipeline whose
  * annotated re-encodes can exceed their raw sources. */
-export const GUIDE_EXPORT_LIMITS = Object.freeze({
-  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+export const PROJECT_EXPORT_LIMITS = Object.freeze({
+  maxEntries: PERSISTED_STEP_LIMITS.maxStepsPerProject,
   maxImageBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
   maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
-  maxPdfPages: PERSISTED_STEP_LIMITS.maxStepsPerGuide * 2,
+  maxPdfPages: PERSISTED_STEP_LIMITS.maxStepsPerProject * 2,
   maxPdfBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });
 
-export class GuideExportLimitError extends Error {
+export class ProjectExportLimitError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'GuideExportLimitError';
+    this.name = 'ProjectExportLimitError';
   }
 }
 
 /** 產生確定且檔案系統安全的名稱，確保重試結果穩定。 */
-export function guideExportFilename(metadata: GuideExportMetadata = {}, format: GuideExportFormat): string {
+export function projectExportFilename(metadata: ProjectExportMetadata = {}, format: ProjectExportFormat): string {
   const extension = format === 'markdown' ? 'md' : format === 'markdown-archive' ? 'zip' : format;
   return `${filenameStem(metadata)}.${extension}`;
 }
 
 /** Escapes text before placing it in generated HTML text or attribute content. */
-export function escapeGuideHtml(value: string): string {
+export function escapeProjectHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => {
     switch (character) {
       case '&':
@@ -96,9 +96,9 @@ export function escapeGuideHtml(value: string): string {
 /**
  * Escapes text for the Markdown constructs emitted by this module. This keeps
  * descriptions and titles text-only instead of allowing them to add links,
- * headings, HTML, or image syntax to the generated guide.
+ * headings, HTML, or image syntax to the generated project.
  */
-export function escapeGuideMarkdown(value: string): string {
+export function escapeProjectMarkdown(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/[[\]()<>`*_#!+\-|{}~=]/g, '\\$&')
@@ -109,7 +109,7 @@ export function escapeGuideMarkdown(value: string): string {
     .replace(/\n/g, '  \n');
 }
 
-function filenameStem(metadata: GuideExportMetadata): string {
+function filenameStem(metadata: ProjectExportMetadata): string {
   const source = textValue(metadata.filename) || textValue(metadata.title);
   const stem = source
     .normalize('NFKD')
@@ -126,7 +126,7 @@ function filenameStem(metadata: GuideExportMetadata): string {
 }
 
 /** 時間戳缺少或無效時回傳空字串。 */
-export function formatGuideCreatedAt(timestamp: unknown): string {
+export function formatProjectCreatedAt(timestamp: unknown): string {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
@@ -147,6 +147,6 @@ export function textOrDefault(value: unknown, fallback: string): string {
 }
 
 
-export function sectionsByStartEntry(value: unknown, entries: readonly StepEntry[]): Map<string, GuideSection> {
-  return new Map(repairGuideSections(value, entries).map((section) => [section.startEntryId, section]));
+export function sectionsByStartEntry(value: unknown, entries: readonly StepEntry[]): Map<string, ProjectSection> {
+  return new Map(repairProjectSections(value, entries).map((section) => [section.startEntryId, section]));
 }

@@ -32,8 +32,8 @@ export interface StartRecordingMessage {
   type: 'START_RECORDING';
   sessionId: string;
   mode: RecordingMode;
-  /** 未擷取內容時，允許 background 回收該流程建立的 Guide。 */
-  autoCreatedGuide?: boolean;
+  /** 未擷取內容時，允許 background 回收該流程建立的 Project。 */
+  autoCreatedProject?: boolean;
   /** 從持久化來源接續；一律不信任呼叫端提供的來源 URL。 */
   continuation?: { preferredTabId?: number };
 }
@@ -56,7 +56,7 @@ export interface StopRecordingMessage {
 
 export interface OpenEditorMessage {
   type: 'OPEN_EDITOR';
-  /** Explicit Guide target for normal navigation. Omitted only for recovery. */
+  /** Explicit Project target for normal navigation. Omitted only for recovery. */
   sessionId?: string;
   entryId?: string;
   /**
@@ -86,7 +86,7 @@ export interface RegisterExtensionPageMessage {
 
 /**
  * Background-to-editor handoff, delivered with tabs.sendMessage before the
- * background reuses an existing editor tab. Only the page knows which Guide it
+ * background reuses an existing editor tab. Only the page knows which Project it
  * currently displays and whether it holds unsaved work, so it answers whether
  * it is already showing this target (`ready`), consents to being navigated
  * there, or must keep its draft.
@@ -101,12 +101,12 @@ export type EditorHandoffResult =
   | { ok: true; ready: boolean }
   | { ok: false; error: string };
 
-export interface ResetGuideMessage {
-  type: 'RESET_GUIDE';
+export interface ResetProjectMessage {
+  type: 'RESET_PROJECT';
   sessionId: string;
 }
 
-export type ResetGuideResult =
+export type ResetProjectResult =
   | { ok: true; contentRevision?: number }
   | { ok: false; error: string };
 
@@ -295,8 +295,8 @@ export type PreflightStepRecaptureSourcePermissionResult =
   | SourcePermissionPreflightSuccess
   | { ok: false; code: PreflightStepRecaptureSourcePermissionErrorCode; message: string };
 
-export interface PreflightGuideContinuationSourcePermissionMessage {
-  type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION';
+export interface PreflightProjectContinuationSourcePermissionMessage {
+  type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION';
   sessionId: string;
 }
 
@@ -306,12 +306,12 @@ export const CONTINUATION_PREFLIGHT_ERROR_CODES = [
   'RESTRICTED_SOURCE',
 ] as const;
 
-export type PreflightGuideContinuationSourcePermissionErrorCode =
+export type PreflightProjectContinuationSourcePermissionErrorCode =
   (typeof CONTINUATION_PREFLIGHT_ERROR_CODES)[number];
 
-export type PreflightGuideContinuationSourcePermissionResult =
+export type PreflightProjectContinuationSourcePermissionResult =
   | SourcePermissionPreflightSuccess
-  | { ok: false; code: PreflightGuideContinuationSourcePermissionErrorCode; message: string };
+  | { ok: false; code: PreflightProjectContinuationSourcePermissionErrorCode; message: string };
 
 export interface StartStepRecaptureMessage {
   type: 'START_STEP_RECAPTURE';
@@ -396,11 +396,11 @@ export type BackgroundMessage =
   | OpenEditorMessage
   | OpenLibraryMessage
   | RegisterExtensionPageMessage
-  | ResetGuideMessage
+  | ResetProjectMessage
   | RecordingControlMessage
   | RecorderReadyMessage
   | PreflightStepRecaptureSourcePermissionMessage
-  | PreflightGuideContinuationSourcePermissionMessage
+  | PreflightProjectContinuationSourcePermissionMessage
   | StartStepRecaptureMessage
   | StepmarkRecaptureReadyMessage
   | StepmarkRecaptureTargetMessage

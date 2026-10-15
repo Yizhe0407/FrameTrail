@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertCircle, Library, Loader2 } from 'lucide-react';
 import { useRecordingSession } from '@/lib/recording/use-recording-session';
-import { useEditorGuideData } from '@/lib/editor/use-editor-guide-data';
+import { useEditorProjectData } from '@/lib/editor/use-editor-project-data';
 import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
 import { entryId, type StepEntry } from '@/lib/storage/models';
-import { updateGuide } from '@/lib/storage/guide-repository';
-import { type GuideStructureSnapshot } from '@/lib/storage/guide-structure';
+import { updateProject } from '@/lib/storage/project-repository';
+import { type ProjectStructureSnapshot } from '@/lib/storage/project-structure';
 import { DraftConfirmationRequiredError, EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import EditorHeader from '@/components/editor/EditorHeader';
@@ -20,10 +20,10 @@ import Lightbox from '@/components/editor/Lightbox';
 import RecaptureProgressDialog from '@/components/editor/RecaptureProgressDialog';
 import SourcePermissionDialog from '@/components/editor/SourcePermissionDialog';
 import UndoSnackbar from '@/components/editor/UndoSnackbar';
-import PublishGuideDialog from '@/components/editor/PublishGuideDialog';
+import PublishProjectDialog from '@/components/editor/PublishProjectDialog';
 import { usePermissionFlow } from '@/components/editor/use-permission-flow';
-import { useGuideUndo } from '@/components/editor/use-guide-undo';
-import { useGuideMutations } from '@/components/editor/use-guide-mutations';
+import { useProjectUndo } from '@/components/editor/use-project-undo';
+import { useProjectMutations } from '@/components/editor/use-project-mutations';
 import { exportImagesAsZip } from '@/lib/export/export-images';
 import { throwIfAborted } from '@/lib/shared/abort';
 import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
@@ -47,16 +47,16 @@ function EditorApp() {
   const viewedSessionId = useMemo(() => getEditorSessionIdFromUrl(window.location.href), []);
   const { sessionId, tabId, steps, error, dataError, refresh, recording } = useRecordingSession(viewedSessionId);
   const {
-    guide,
+    project,
     canonicalSnapshot,
-    guideLoadState,
+    projectLoadState,
     reload,
-    adoptGuide,
-  } = useEditorGuideData(sessionId, steps);
-  const operationBelongsToViewedGuide = Boolean(sessionId && recording.sessionId === sessionId);
-  const operationActive = operationBelongsToViewedGuide && recording.operation !== null;
-  const ordinaryRecordingActive = operationBelongsToViewedGuide && recording.operation === 'recording';
-  const recaptureActive = operationBelongsToViewedGuide && recording.operation === 'recapture' && recording.recapture !== null;
+    adoptProject,
+  } = useEditorProjectData(sessionId, steps);
+  const operationBelongsToViewedProject = Boolean(sessionId && recording.sessionId === sessionId);
+  const operationActive = operationBelongsToViewedProject && recording.operation !== null;
+  const ordinaryRecordingActive = operationBelongsToViewedProject && recording.operation === 'recording';
+  const recaptureActive = operationBelongsToViewedProject && recording.operation === 'recapture' && recording.recapture !== null;
   const { flushAll } = useEditorSaveRegistry();
   const dbEntries = canonicalSnapshot?.entries ?? EMPTY_STEP_ENTRIES;
 
@@ -126,17 +126,17 @@ function EditorApp() {
   }, [syncWithSelection, selectedEntryId, sessionId]);
 
   // The two halves of "there is only ever one editor tab": register this page
-  // with the background, and answer its handoff when asked to open a Guide already open here.
+  // with the background, and answer its handoff when asked to open a Project already open here.
   useExtensionPageRegistration();
   useEditorHandoff({ viewedSessionId: sessionId, flushDescriptions, selectEntry });
 
   // A lightbox with no entry to show must not stay armed, or it would pop open
-  // unexpectedly once entries reappear (e.g. after a deletion or Guide reload).
+  // unexpectedly once entries reappear (e.g. after a deletion or Project reload).
   useEffect(() => {
     if (!selectedEntry) setZoomOpen(false);
   }, [selectedEntry, setZoomOpen]);
 
-  const { undoAction, offerUndo, clearUndo } = useGuideUndo({ guide, operationActive });
+  const { undoAction, offerUndo, clearUndo } = useProjectUndo({ project, operationActive });
 
   useEffect(() => {
     const result = recording.recaptureResult;
@@ -221,9 +221,9 @@ function EditorApp() {
     });
   }
 
-  // Load/fallback semantics live in useEditorGuideData; this only prepends the
+  // Load/fallback semantics live in useEditorProjectData; this only prepends the
   // recording-session refresh so steps and structure move together.
-  async function refreshEditorData(): Promise<GuideStructureSnapshot | null> {
+  async function refreshEditorData(): Promise<ProjectStructureSnapshot | null> {
     await refresh();
     return reload();
   }
@@ -237,9 +237,9 @@ function EditorApp() {
     renameSection,
     deleteSection,
     handleUndo,
-  } = useGuideMutations({
+  } = useProjectMutations({
     sessionId,
-    guide,
+    project,
     entries,
     selectedEntryId,
     beginDataOperation,
@@ -247,7 +247,7 @@ function EditorApp() {
     setOptimisticEntries,
     flushDescriptions,
     refreshEditorData,
-    adoptGuide,
+    adoptProject,
     requireSelectedEntry,
     setSelectedEntryId,
     setZoomOpen,
@@ -294,10 +294,10 @@ function EditorApp() {
       return {
         entries: snapshot.entries,
         metadata: {
-          title: snapshot.guide.title,
-          description: snapshot.guide.description,
-          filename: snapshot.guide.title,
-          sections: snapshot.guide.sections,
+          title: snapshot.project.title,
+          description: snapshot.project.description,
+          filename: snapshot.project.title,
+          sections: snapshot.project.sections,
         },
       };
     } finally {
@@ -320,13 +320,13 @@ function EditorApp() {
 
   // Rejects instead of reporting through `operationError`: the caller's input
   // must roll back to the stored value, so it needs the failure directly.
-  async function updateGuideMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
-    if (!guide) throw new Error(t().editor.editTargetMissing);
+  async function updateProjectMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
+    if (!project) throw new Error(t().editor.editTargetMissing);
     if (isPermissionFlowLocked() || dataOperationLock.current || operationActive) {
       throw new Error(t().editor.editBusy);
     }
-    const updated = await updateGuide(guide.id, changes);
-    adoptGuide(updated);
+    const updated = await updateProject(project.id, changes);
+    adoptProject(updated);
   }
 
   return (
@@ -338,8 +338,8 @@ function EditorApp() {
         operation={recording.operation}
         steps={steps}
         sessionId={sessionId}
-        guideTitle={guide?.title ?? null}
-        guideActionsAvailable={guideLoadState !== 'missing'}
+        projectTitle={project?.title ?? null}
+        projectActionsAvailable={projectLoadState !== 'missing'}
         beforeNavigate={leaveEditor}
         onOpenPublish={() => { if (!isPermissionFlowLocked()) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
@@ -384,11 +384,11 @@ function EditorApp() {
         </div>
       )}
       <div className="flex min-h-0 flex-1 pb-32 lg:pb-0">
-        {guideLoadState === 'loading' ? (
+        {projectLoadState === 'loading' ? (
           <main role="status" className="flex min-w-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
             {t().editor.loading}
           </main>
-        ) : guideLoadState === 'missing' ? (
+        ) : projectLoadState === 'missing' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
             <div className="flex max-w-md flex-col items-center text-muted-foreground">
               <Mascot className="mb-4 size-16" />
@@ -403,7 +403,7 @@ function EditorApp() {
               </Button>
             </div>
           </main>
-        ) : guideLoadState === 'invalid' ? (
+        ) : projectLoadState === 'invalid' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
             <div className="flex max-w-md flex-col items-center text-muted-foreground">
               <span className="mb-4 flex size-14 items-center justify-center rounded-full border-2 border-border bg-warning-soft">
@@ -422,7 +422,7 @@ function EditorApp() {
             <StepRail
               entries={entries}
               selectedEntryId={selectedEntryId}
-              sections={guide?.sections}
+              sections={project?.sections}
               onSelect={selectEntrySafely}
               onRenameSection={renameSection}
               onDeleteSection={deleteSection}
@@ -435,10 +435,10 @@ function EditorApp() {
                 key={entryId(selectedEntry)}
                 entry={selectedEntry}
                 index={selectedIndex}
-                guideTitle={guide?.title}
-                guideTags={guide?.tags}
-                onTitleChange={(title) => updateGuideMetadata({ title })}
-                onTagsChange={(tags) => updateGuideMetadata({ tags })}
+                projectTitle={project?.title}
+                projectTags={project?.tags}
+                onTitleChange={(title) => updateProjectMetadata({ title })}
+                onTagsChange={(tags) => updateProjectMetadata({ tags })}
                 onChange={refresh}
                 onDelete={deleteEntry}
                 onDeleteAnnotation={handleDeleteAnnotation}
@@ -465,15 +465,15 @@ function EditorApp() {
         onClose={() => setZoomOpen(false)}
         onNavigate={(i) => selectEntrySafely(entryId(entries[i]))}
       />
-      <PublishGuideDialog
+      <PublishProjectDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
-        getGuideEntries={publicationEntries}
+        getProjectEntries={publicationEntries}
         metadata={{
-          title: guide?.title,
-          description: guide?.description,
-          filename: guide?.title,
-          sections: guide?.sections,
+          title: project?.title,
+          description: project?.description,
+          filename: project?.title,
+          sections: project?.sections,
         }}
         onExportImages={exportImages}
       />

@@ -38,10 +38,10 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import {
-  ACTIVE_GUIDE_ID_KEY,
-  clearActiveGuideId,
-  getActiveGuideId,
-  setActiveGuideId,
+  ACTIVE_PROJECT_ID_KEY,
+  clearActiveProjectId,
+  getActiveProjectId,
+  setActiveProjectId,
 } from '@/lib/storage/storage';
 import { RECORDING_STATE_KEY } from '@/lib/storage/recording-state';
 
@@ -55,30 +55,30 @@ beforeEach(() => {
   mocks.listeners.clear();
 });
 
-describe('active Guide storage', () => {
+describe('active Project storage', () => {
   it('stores UI selection under an independent key without touching RecordingState', async () => {
-    await setActiveGuideId('guide-a');
+    await setActiveProjectId('project-a');
 
-    expect(ACTIVE_GUIDE_ID_KEY).not.toBe(RECORDING_STATE_KEY);
-    expect(mocks.local.set).toHaveBeenCalledWith({ [ACTIVE_GUIDE_ID_KEY]: 'guide-a' });
+    expect(ACTIVE_PROJECT_ID_KEY).not.toBe(RECORDING_STATE_KEY);
+    expect(mocks.local.set).toHaveBeenCalledWith({ [ACTIVE_PROJECT_ID_KEY]: 'project-a' });
     expect(mocks.values[RECORDING_STATE_KEY]).toBeUndefined();
-    await expect(getActiveGuideId()).resolves.toBe('guide-a');
+    await expect(getActiveProjectId()).resolves.toBe('project-a');
   });
 
   it('compare-and-clears only the expected selection', async () => {
-    mocks.values[ACTIVE_GUIDE_ID_KEY] = 'guide-b';
+    mocks.values[ACTIVE_PROJECT_ID_KEY] = 'project-b';
 
-    await expect(clearActiveGuideId('guide-a')).resolves.toBe(false);
+    await expect(clearActiveProjectId('project-a')).resolves.toBe(false);
     expect(mocks.local.remove).not.toHaveBeenCalled();
-    expect(mocks.values[ACTIVE_GUIDE_ID_KEY]).toBe('guide-b');
+    expect(mocks.values[ACTIVE_PROJECT_ID_KEY]).toBe('project-b');
 
-    await expect(clearActiveGuideId('guide-b')).resolves.toBe(true);
-    expect(mocks.local.remove).toHaveBeenCalledWith(ACTIVE_GUIDE_ID_KEY);
-    expect(mocks.values[ACTIVE_GUIDE_ID_KEY]).toBeUndefined();
+    await expect(clearActiveProjectId('project-b')).resolves.toBe(true);
+    expect(mocks.local.remove).toHaveBeenCalledWith(ACTIVE_PROJECT_ID_KEY);
+    expect(mocks.values[ACTIVE_PROJECT_ID_KEY]).toBeUndefined();
   });
 
   it('serializes a clear followed by a newer select so the newer selection survives', async () => {
-    mocks.values[ACTIVE_GUIDE_ID_KEY] = 'guide-a';
+    mocks.values[ACTIVE_PROJECT_ID_KEY] = 'project-a';
     let releaseRead!: () => void;
     const blockedRead = new Promise<void>((resolve) => { releaseRead = resolve; });
     mocks.local.get.mockImplementationOnce(async (key: string) => {
@@ -86,12 +86,12 @@ describe('active Guide storage', () => {
       return { [key]: mocks.values[key] };
     });
 
-    const clearing = clearActiveGuideId('guide-a');
-    const selecting = setActiveGuideId('guide-b');
+    const clearing = clearActiveProjectId('project-a');
+    const selecting = setActiveProjectId('project-b');
     releaseRead();
     await Promise.all([clearing, selecting]);
 
-    expect(mocks.values[ACTIVE_GUIDE_ID_KEY]).toBe('guide-b');
+    expect(mocks.values[ACTIVE_PROJECT_ID_KEY]).toBe('project-b');
     expect(mocks.local.remove.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.local.set.mock.invocationCallOrder[0],
     );

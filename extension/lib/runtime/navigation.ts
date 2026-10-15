@@ -1,8 +1,8 @@
 import { browser } from 'wxt/browser';
 
-/** Reads the Guide identity carried by an editor URL. The caller can pass the
+/** Reads the Project identity carried by an editor URL. The caller can pass the
  * result to useRecordingSession so URL navigation, not mutable global capture
- * state, chooses which Guide the editor renders. */
+ * state, chooses which Project the editor renders. */
 export function getEditorSessionIdFromUrl(url: string | URL): string | null {
   try {
     const sessionId = (url instanceof URL ? url : new URL(url)).searchParams.get('sessionId');

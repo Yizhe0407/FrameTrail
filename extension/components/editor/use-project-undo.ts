@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PendingUndoAction, UndoAction } from '@/lib/editor/editor-app-model';
-import { type Guide } from '@/lib/storage/models';
+import { type Project } from '@/lib/storage/models';
 
 /**
  * Bookkeeping for the editor's single offered undo action. An undo is only valid against the exact
- * revision its mutation produced, so it's dropped as soon as the Guide moves on.
+ * revision its mutation produced, so it's dropped as soon as the Project moves on.
  */
-export function useGuideUndo({ guide, operationActive }: {
-  guide: Guide | null;
+export function useProjectUndo({ project, operationActive }: {
+  project: Project | null;
   operationActive: boolean;
 }) {
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
@@ -18,18 +18,18 @@ export function useGuideUndo({ guide, operationActive }: {
       if (!current) return null;
       if (
         operationActive ||
-        !guide ||
-        current.guideId !== guide.id ||
-        current.expectedRevision !== guide.contentRevision
+        !project ||
+        current.projectId !== project.id ||
+        current.expectedRevision !== project.contentRevision
       ) {
         return null;
       }
       return current;
     });
-  }, [guide, operationActive]);
+  }, [project, operationActive]);
 
-  const offerUndo = useCallback((pending: PendingUndoAction, guideId: string) => {
-    setUndoAction({ ...pending, id: ++undoSequence.current, guideId });
+  const offerUndo = useCallback((pending: PendingUndoAction, projectId: string) => {
+    setUndoAction({ ...pending, id: ++undoSequence.current, projectId });
   }, []);
 
   const clearUndo = useCallback(() => setUndoAction(null), []);

@@ -5,10 +5,10 @@ import type {
   FocusStepRecaptureSourceResult,
   OpenEditorResult,
   OpenLibraryResult,
-  PreflightGuideContinuationSourcePermissionResult,
+  PreflightProjectContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   RecordingControlResult,
-  ResetGuideResult,
+  ResetProjectResult,
   StartRecordingResult,
   StartStepRecaptureResult,
   StepRecaptureTargetResult,
@@ -28,7 +28,7 @@ export type RuntimeMessageResultGuard<T> = (value: unknown) => value is T;
 
 const RUNTIME_ERROR_LIMIT = 4_096;
 const RUNTIME_PERMISSION_PATTERN_LIMIT = 8_192;
-const MAX_GUIDE_ITEMS = PERSISTED_STEP_LIMITS.maxStepsPerGuide;
+const MAX_PROJECT_ITEMS = PERSISTED_STEP_LIMITS.maxStepsPerProject;
 
 function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]): boolean {
   const allowed = new Set(allowedKeys);
@@ -80,7 +80,7 @@ export function isStartRecordingResult(value: unknown): value is StartRecordingR
   return isFailureResult(value);
 }
 
-export function isResetGuideResult(value: unknown): value is ResetGuideResult {
+export function isResetProjectResult(value: unknown): value is ResetProjectResult {
   if (!isRecord(value)) return false;
   if (value.ok === true) {
     return (
@@ -117,7 +117,7 @@ function isFinishResult(value: unknown): boolean {
   return (
     isId(value.sessionId) &&
     (value.entryId === null || isId(value.entryId)) &&
-    isSafeNonNegativeInteger(value.itemCount, MAX_GUIDE_ITEMS)
+    isSafeNonNegativeInteger(value.itemCount, MAX_PROJECT_ITEMS)
   );
 }
 
@@ -131,7 +131,7 @@ export function isRecordingControlResult(value: unknown): value is RecordingCont
     (value.removedItemNumber === undefined ||
       (Number.isSafeInteger(value.removedItemNumber) &&
         (value.removedItemNumber as number) > 0 &&
-        (value.removedItemNumber as number) <= MAX_GUIDE_ITEMS)) &&
+        (value.removedItemNumber as number) <= MAX_PROJECT_ITEMS)) &&
     (value.finish === undefined || isFinishResult(value.finish))
   );
 }
@@ -159,9 +159,9 @@ export function isPreflightStepRecaptureSourcePermissionResult(
   return isSourcePermissionPreflightResult(value, RECAPTURE_PREFLIGHT_ERROR_CODES);
 }
 
-export function isPreflightGuideContinuationSourcePermissionResult(
+export function isPreflightProjectContinuationSourcePermissionResult(
   value: unknown,
-): value is PreflightGuideContinuationSourcePermissionResult {
+): value is PreflightProjectContinuationSourcePermissionResult {
   return isSourcePermissionPreflightResult(value, CONTINUATION_PREFLIGHT_ERROR_CODES);
 }
 

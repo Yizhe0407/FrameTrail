@@ -31,8 +31,8 @@ function normalized(file) {
 // may depend on as peers. The existence check below fails loudly if one is renamed.
 const storageModelModules = new Set([
   'lib/storage/models.ts',
-  'lib/storage/guide-section-model.ts',
-  'lib/storage/guide-tag-model.ts',
+  'lib/storage/project-section-model.ts',
+  'lib/storage/project-tag-model.ts',
   'lib/storage/persistence-limits.ts',
 ]);
 
@@ -69,9 +69,9 @@ function boundaryViolation(from, target) {
         ? null
         : 'components/ui may not depend on feature components or lib domains';
     case 'storage-models':
-      return (target.startsWith('lib/storage/') || target.startsWith('lib/guide/'))
+      return (target.startsWith('lib/storage/') || target.startsWith('lib/project/'))
         && !storageModelModules.has(target) && !storageModelModules.has(`${target}.ts`)
-        ? 'storage/models must stay independent of repositories, database, and guide services'
+        ? 'storage/models must stay independent of repositories, database, and project services'
         : null;
     case 'domain-lib':
       return target.startsWith('components/')

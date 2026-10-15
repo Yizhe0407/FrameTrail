@@ -3,11 +3,11 @@ import { encodeBase64 } from './base64';
 import { compositeStepEntry } from './entry-render';
 import { type Step, type StepEntry } from '../storage/models';
 import {
-  GUIDE_EXPORT_LIMITS,
-  GuideExportLimitError,
+  PROJECT_EXPORT_LIMITS,
+  ProjectExportLimitError,
   IMAGE_MIME_TYPE,
   textValue,
-} from './guide-export-contract';
+} from './project-export-contract';
 
 export type RenderedEntryContent = {
   entryId: string;
@@ -45,7 +45,7 @@ export type EntryImageBudgetViolation =
 
 /**
  * Limits plus an error factory so every consumer of the shared sequential
- * rendering loop (guide publications, image ZIP export) enforces the same
+ * rendering loop (project publications, image ZIP export) enforces the same
  * budget checks while surfacing its own error class and wording.
  */
 export interface EntryImageBudget {
@@ -55,18 +55,18 @@ export interface EntryImageBudget {
   createLimitError: (violation: EntryImageBudgetViolation) => Error;
 }
 
-const GUIDE_ENTRY_IMAGE_BUDGET: EntryImageBudget = {
-  maxEntries: GUIDE_EXPORT_LIMITS.maxEntries,
-  maxImageBytes: GUIDE_EXPORT_LIMITS.maxImageBytes,
-  maxTotalImageBytes: GUIDE_EXPORT_LIMITS.maxTotalImageBytes,
+const PROJECT_ENTRY_IMAGE_BUDGET: EntryImageBudget = {
+  maxEntries: PROJECT_EXPORT_LIMITS.maxEntries,
+  maxImageBytes: PROJECT_EXPORT_LIMITS.maxImageBytes,
+  maxTotalImageBytes: PROJECT_EXPORT_LIMITS.maxTotalImageBytes,
   createLimitError: (violation) => {
     switch (violation.kind) {
       case 'entry-count':
-        return new GuideExportLimitError('Guide contains too many entries to export safely.');
+        return new ProjectExportLimitError('Project contains too many entries to export safely.');
       case 'image-bytes':
-        return new GuideExportLimitError(`Step ${violation.ordinal} exceeds the per-image guide export limit.`);
+        return new ProjectExportLimitError(`Step ${violation.ordinal} exceeds the per-image project export limit.`);
       case 'total-bytes':
-        return new GuideExportLimitError('Guide images exceed the total export limit.');
+        return new ProjectExportLimitError('Project images exceed the total export limit.');
     }
   },
 };
@@ -88,7 +88,7 @@ function assertEntryImageBudget(
 export async function* renderEntryImages(
   entries: readonly StepEntry[],
   signal?: AbortSignal,
-  budget: EntryImageBudget = GUIDE_ENTRY_IMAGE_BUDGET,
+  budget: EntryImageBudget = PROJECT_ENTRY_IMAGE_BUDGET,
 ): AsyncGenerator<RenderedEntryImage> {
   if (entries.length > budget.maxEntries) {
     throw budget.createLimitError({ kind: 'entry-count' });

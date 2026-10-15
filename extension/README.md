@@ -24,7 +24,7 @@ pnpm dev:firefox
 
 ## 本機 UX 與資料安全
 
-- 專案庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
+- 專案庫可管理多份 Project；Editor 只讀取 URL 指定 Project，不會追隨或顯示其他全域錄製內容。
 - 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
 - 發佈支援 PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
 - `.stepmark` 是包含原始未遮罩圖的可編輯匯出檔案，不應當作公開輸出。
@@ -36,10 +36,10 @@ pnpm dev:firefox
 - `components/popup/`：Popup 專用的錄製與匯出元件。
 - `components/shared/`：跨入口共用元件；`components/ui/` 保留無領域狀態的 UI primitives。
 - `lib/capture/`：DOM 候選、座標、frame probe 與擷取流程。
-- `lib/editor/`、`lib/export/`、`lib/guide/`：各功能領域的純邏輯與 hooks。
+- `lib/editor/`、`lib/export/`、`lib/project/`：各功能領域的純邏輯與 hooks。
 - `lib/media/`：annotation layout、圖片標註與 screenshot 工具；`annotate.ts` 僅保留公開 facade。
 - `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting、注入頁面與 snapshot shield 使用的錄製 UI（`recording-toolbar*.tsx` 等），以及瀏覽器訊息／導覽邊界。
-- `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema 與 transaction 基礎，`*-repository.ts` 與 `guide-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
+- `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema 與 transaction 基礎，`*-repository.ts` 與 `project-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
 - `lib/shared/`：僅放真正無領域狀態的工具。
 
 新增檔案時應優先放入最接近的功能領域，內部程式碼與測試 mock 也應直接 import 具體責任模組，以免隱藏依賴方向、形成循環引用，或讓單一聚合 mock 意外攔截不相關行為。

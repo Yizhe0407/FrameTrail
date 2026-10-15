@@ -12,8 +12,8 @@ import { buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
-import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-model';
-import { getGuideSummaries } from '@/lib/storage/guide-repository';
+import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from '@/lib/storage/project-tag-model';
+import { getProjectSummaries } from '@/lib/storage/project-repository';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
 import { intlLocale, t } from '@/lib/shared/i18n';
@@ -42,9 +42,9 @@ export default function TagSelectDialog({
     setCustomInput('');
     setSaveError(null);
     let stale = false;
-    // Guide summaries are denormalized rows (no step cursor, no screenshot Blob), so reading
+    // Project summaries are denormalized rows (no step cursor, no screenshot Blob), so reading
     // them on open to suggest previously-used tags is cheap.
-    void getGuideSummaries()
+    void getProjectSummaries()
       .then((summaries) => {
         if (stale) return;
         setUsedTags([...new Set(summaries.flatMap((summary) => summary.tags))]
@@ -52,7 +52,7 @@ export default function TagSelectDialog({
       })
       .catch((loadFailure) => {
         // Suggestions are a shortcut, not the feature, so a failed read isn't a save failure.
-        console.warn('[stepmark] failed to read previously used guide tags', loadFailure);
+        console.warn('[stepmark] failed to read previously used project tags', loadFailure);
       });
     return () => { stale = true; };
   }, [open]);
@@ -60,25 +60,25 @@ export default function TagSelectDialog({
   // `selectedTags` stays the only source of truth (no local mirror), so a refused or failed
   // write can never leave this dialog showing an unsaved tag.
   async function addTag(tag: string) {
-    if (selectedTags.includes(tag) || selectedTags.length >= GUIDE_TAG_LIMITS.maxTags) return;
+    if (selectedTags.includes(tag) || selectedTags.length >= PROJECT_TAG_LIMITS.maxTags) return;
     setSaveError(null);
     try {
       await onSave([...selectedTags, tag]);
     } catch (saveFailure) {
-      setSaveError(reportError('[stepmark] failed to update guide tags', saveFailure, t().editor.tags.saveFailed));
+      setSaveError(reportError('[stepmark] failed to update project tags', saveFailure, t().editor.tags.saveFailed));
     }
   }
 
   function handleAddCustom() {
-    const nextTag = sanitizeGuideTag(customInput);
+    const nextTag = sanitizeProjectTag(customInput);
     setCustomInput('');
     if (!nextTag) return;
     void addTag(nextTag);
   }
 
-  const limitReached = selectedTags.length >= GUIDE_TAG_LIMITS.maxTags;
+  const limitReached = selectedTags.length >= PROJECT_TAG_LIMITS.maxTags;
   const suggestions = usedTags.filter((tag) => !selectedTags.includes(tag));
-  const customTag = sanitizeGuideTag(customInput);
+  const customTag = sanitizeProjectTag(customInput);
   const canAddCustom = Boolean(customTag) && !selectedTags.includes(customTag) && !limitReached;
 
   return (
@@ -104,7 +104,7 @@ export default function TagSelectDialog({
             <Input
               type="text"
               value={customInput}
-              maxLength={GUIDE_TAG_LIMITS.maxTagLength}
+              maxLength={PROJECT_TAG_LIMITS.maxTagLength}
               onChange={(e) => setCustomInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -129,7 +129,7 @@ export default function TagSelectDialog({
 
           {limitReached && (
             <p className="text-xs text-muted-foreground">
-              {t().editor.tags.limitReached(GUIDE_TAG_LIMITS.maxTags)}
+              {t().editor.tags.limitReached(PROJECT_TAG_LIMITS.maxTags)}
             </p>
           )}
 

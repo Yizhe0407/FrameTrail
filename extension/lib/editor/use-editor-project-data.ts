@@ -1,54 +1,54 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getGuide } from '../storage/guide-repository';
-import { getGuideStructureSnapshot, type GuideStructureSnapshot } from '../storage/guide-structure';
-import { type Guide } from '../storage/models';
+import { getProject } from '../storage/project-repository';
+import { getProjectStructureSnapshot, type ProjectStructureSnapshot } from '../storage/project-structure';
+import { type Project } from '../storage/models';
 
-export type EditorGuideLoadState = 'loading' | 'ready' | 'missing' | 'invalid';
+export type EditorProjectLoadState = 'loading' | 'ready' | 'missing' | 'invalid';
 
 /**
- * Owns the canonical Guide/entry snapshot load and its fail-closed state:
+ * Owns the canonical Project/entry snapshot load and its fail-closed state:
  * the mount-time load, explicit reloads, and the shared fallback that
  * downgrades to 'invalid'/'missing' when the structure cannot be read all
  * live here once. Mutations remain in the editor controller, which publishes
- * their results through `reload`/`adoptGuide` instead of raw setters.
+ * their results through `reload`/`adoptProject` instead of raw setters.
  */
-export function useEditorGuideData(sessionId: string | null, steps: readonly unknown[]) {
-  const [guide, setGuide] = useState<Guide | null>(null);
-  const [canonicalSnapshot, setCanonicalSnapshot] = useState<GuideStructureSnapshot | null>(null);
-  const [guideLoadState, setGuideLoadState] = useState<EditorGuideLoadState>(
+export function useEditorProjectData(sessionId: string | null, steps: readonly unknown[]) {
+  const [project, setProject] = useState<Project | null>(null);
+  const [canonicalSnapshot, setCanonicalSnapshot] = useState<ProjectStructureSnapshot | null>(null);
+  const [projectLoadState, setProjectLoadState] = useState<EditorProjectLoadState>(
     sessionId ? 'loading' : 'missing',
   );
 
   /** Publishes a freshly read canonical snapshot as the current editor data. */
-  const adoptSnapshot = useCallback((snapshot: GuideStructureSnapshot) => {
-    setGuide(snapshot.guide);
+  const adoptSnapshot = useCallback((snapshot: ProjectStructureSnapshot) => {
+    setProject(snapshot.project);
     setCanonicalSnapshot(snapshot);
-    setGuideLoadState('ready');
+    setProjectLoadState('ready');
   }, []);
 
-  /** Publishes the fresh Guide a successful compare-and-swap returned. The
+  /** Publishes the fresh Project a successful compare-and-swap returned. The
    * entry list stays canonical until the caller's follow-up `reload`. */
-  const adoptGuide = useCallback((nextGuide: Guide | null) => {
-    setGuide(nextGuide);
+  const adoptProject = useCallback((nextProject: Project | null) => {
+    setProject(nextProject);
   }, []);
 
-  /** Falls back after a failed structure read: keep the bare Guide when it
+  /** Falls back after a failed structure read: keep the bare Project when it
    * still exists ('invalid') and report 'missing' otherwise. */
   const applyLoadFailure = useCallback(async (
     failedSessionId: string,
     isCancelled: () => boolean = () => false,
   ) => {
-    const existingGuide = await getGuide(failedSessionId).catch(() => undefined);
+    const existingProject = await getProject(failedSessionId).catch(() => undefined);
     if (isCancelled()) return;
-    setGuide(existingGuide ?? null);
+    setProject(existingProject ?? null);
     setCanonicalSnapshot(null);
-    setGuideLoadState(existingGuide ? 'invalid' : 'missing');
+    setProjectLoadState(existingProject ? 'invalid' : 'missing');
   }, []);
 
   const clear = useCallback(() => {
-    setGuide(null);
+    setProject(null);
     setCanonicalSnapshot(null);
-    setGuideLoadState('missing');
+    setProjectLoadState('missing');
   }, []);
 
   /** Re-reads and adopts the canonical snapshot, returning it so callers that
@@ -56,13 +56,13 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
    * read-then-adopt pair. Unlike the mount-time load it rethrows the
    * structure-read failure (after downgrading the state) so callers can
    * report the reload that went wrong. */
-  const reload = useCallback(async (): Promise<GuideStructureSnapshot | null> => {
+  const reload = useCallback(async (): Promise<ProjectStructureSnapshot | null> => {
     if (!sessionId) {
       clear();
       return null;
     }
     try {
-      const snapshot = await getGuideStructureSnapshot(sessionId);
+      const snapshot = await getProjectStructureSnapshot(sessionId);
       adoptSnapshot(snapshot);
       return snapshot;
     } catch (reloadError) {
@@ -77,12 +77,12 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
       clear();
       return () => { disposed = true; };
     }
-    setGuideLoadState((current) => current === 'ready' ? current : 'loading');
-    void getGuideStructureSnapshot(sessionId).then((snapshot) => {
+    setProjectLoadState((current) => current === 'ready' ? current : 'loading');
+    void getProjectStructureSnapshot(sessionId).then((snapshot) => {
       if (disposed) return;
       adoptSnapshot(snapshot);
     }).catch(async (loadError) => {
-      console.error('[stepmark] failed to read the guide structure', loadError);
+      console.error('[stepmark] failed to read the project structure', loadError);
       if (disposed) return;
       await applyLoadFailure(sessionId, () => disposed);
     });
@@ -90,10 +90,10 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
   }, [adoptSnapshot, applyLoadFailure, clear, sessionId, steps]);
 
   return {
-    guide,
+    project,
     canonicalSnapshot,
-    guideLoadState,
+    projectLoadState,
     reload,
-    adoptGuide,
+    adoptProject,
   };
 }

@@ -85,8 +85,8 @@ export interface UseRecordingSessionOptions {
 
 /** Shared popup/editor state: current recording status, steps, and any error.
  * Omitting explicitSessionId follows the active recording (popup behavior).
- * Passing a string pins the data source to that Guide; passing null explicitly
- * means the editor URL has no Guide and must not fall back to unrelated global state. */
+ * Passing a string pins the data source to that Project; passing null explicitly
+ * means the editor URL has no Project and must not fall back to unrelated global state. */
 export function useRecordingSession(
   explicitSessionId?: string | null,
   { withSteps = true }: UseRecordingSessionOptions = {},
@@ -98,13 +98,13 @@ export function useRecordingSession(
   const stepsRefreshInFlight = useRef<Promise<void> | null>(null);
   const mounted = useRef(true);
   const hasExplicitSession = explicitSessionId !== undefined;
-  const explicitGuideSessionId =
+  const explicitProjectSessionId =
     typeof explicitSessionId === 'string' && explicitSessionId.length > 0
       ? explicitSessionId
       : null;
-  const explicitSessionIdRef = useRef(explicitGuideSessionId);
+  const explicitSessionIdRef = useRef(explicitProjectSessionId);
   const hasExplicitSessionRef = useRef(hasExplicitSession);
-  const sessionId = hasExplicitSession ? explicitGuideSessionId : recordingState.sessionId;
+  const sessionId = hasExplicitSession ? explicitProjectSessionId : recordingState.sessionId;
   const effectiveSessionIdRef = useRef(sessionId);
 
   // These mirrors exist so the long-lived storage subscription below can read
@@ -114,7 +114,7 @@ export function useRecordingSession(
   // Storage callbacks are delivered as tasks, so they always observe the
   // committed value.
   useEffect(() => {
-    explicitSessionIdRef.current = explicitGuideSessionId;
+    explicitSessionIdRef.current = explicitProjectSessionId;
     hasExplicitSessionRef.current = hasExplicitSession;
     effectiveSessionIdRef.current = sessionId;
   });
@@ -212,7 +212,7 @@ export function useRecordingSession(
 
   // The editor may supply its URL session as the authoritative data source.
   // Keeping this separate from RecordingState lets an editor continue showing
-  // Guide A while a global operation belongs to Guide B.
+  // Project A while a global operation belongs to Project B.
   useEffect(() => {
     void refreshStepsSafely(sessionId);
   }, [refreshStepsSafely, sessionId]);

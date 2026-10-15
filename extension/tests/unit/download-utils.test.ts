@@ -45,9 +45,9 @@ describe('download utilities', () => {
       vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:publication');
       const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
-      await downloadBlobViaBrowser(new Blob(['pdf']), 'guide.pdf');
+      await downloadBlobViaBrowser(new Blob(['pdf']), 'project.pdf');
 
-      expect(mocks.download).toHaveBeenCalledWith({ url: 'blob:publication', filename: 'guide.pdf', saveAs: true });
+      expect(mocks.download).toHaveBeenCalledWith({ url: 'blob:publication', filename: 'project.pdf', saveAs: true });
       // Queued is not settled: the blob must survive until a terminal state.
       expect(revokeObjectURL).not.toHaveBeenCalled();
       expect(mocks.listeners).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('download utilities', () => {
       const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
       mocks.download.mockRejectedValue(new Error('download failed'));
 
-      await expect(downloadBlobViaBrowser(new Blob(['pdf']), 'guide.pdf')).rejects.toThrow('download failed');
+      await expect(downloadBlobViaBrowser(new Blob(['pdf']), 'project.pdf')).rejects.toThrow('download failed');
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:publication');
     });
 
@@ -73,7 +73,7 @@ describe('download utilities', () => {
       const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
       mocks.download.mockResolvedValue(undefined);
 
-      await expect(downloadBlobViaBrowser(new Blob(['pdf']), 'guide.pdf')).rejects.toThrow('瀏覽器沒有開始下載');
+      await expect(downloadBlobViaBrowser(new Blob(['pdf']), 'project.pdf')).rejects.toThrow('瀏覽器沒有開始下載');
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:publication');
     });
 
@@ -83,7 +83,7 @@ describe('download utilities', () => {
       controller.abort();
 
       await expect(
-        downloadBlobViaBrowser(new Blob(['pdf']), 'guide.pdf', { signal: controller.signal }),
+        downloadBlobViaBrowser(new Blob(['pdf']), 'project.pdf', { signal: controller.signal }),
       ).rejects.toMatchObject({ name: 'AbortError' });
       expect(createObjectURL).not.toHaveBeenCalled();
       expect(mocks.download).not.toHaveBeenCalled();

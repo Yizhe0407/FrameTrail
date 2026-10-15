@@ -13,8 +13,8 @@ vi.mock('@/lib/export/entry-render', () => ({
   compositeStepEntry: mocks.composite,
 }));
 
-import { GUIDE_EXPORT_LIMITS } from '@/lib/export/guide-export-contract';
-import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
+import { PROJECT_EXPORT_LIMITS } from '@/lib/export/project-export-contract';
+import { generateProjectPdf } from '@/lib/export/project-export-pdf';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 
 /**
@@ -93,16 +93,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('generateGuidePdf with the real pdf-lib', () => {
+describe('generateProjectPdf with the real pdf-lib', () => {
   it('produces a loadable A4 PDF with one page per entry across CJK, English, and emoji text', async () => {
     const entries = [
       entry('step-1', 1, '點擊瀏覽器工具列上的擴充功能圖示，開啟設定頁面。'),
       entry('step-2', 2, 'Open the extension settings and enable automatic capture for every tab.'),
-      entry('step-3', 3, '完成後按下儲存 ✅ and share the guide 👩‍👩‍👧‍👦 with your team 🚀'),
+      entry('step-3', 3, '完成後按下儲存 ✅ and share the project 👩‍👩‍👧‍👦 with your team 🚀'),
     ];
 
-    const pdf = await generateGuidePdf(entries, {
-      title: '安裝指南 Setup Guide 🚀',
+    const pdf = await generateProjectPdf(entries, {
+      title: '安裝指南 Setup Project 🚀',
       description: '本指南示範 how mixed-script descriptions survive real PDF assembly.',
     });
     expect(pdf.type).toBe('application/pdf');
@@ -111,7 +111,7 @@ describe('generateGuidePdf with the real pdf-lib', () => {
     // %PDF- header proves this is genuine pdf-lib output, not a mock artifact.
     expect(Array.from(bytes.slice(0, 5))).toEqual([0x25, 0x50, 0x44, 0x46, 0x2d]);
     expect(bytes.byteLength).toBeGreaterThan(1_000);
-    expect(bytes.byteLength).toBeLessThanOrEqual(GUIDE_EXPORT_LIMITS.maxPdfBytes);
+    expect(bytes.byteLength).toBeLessThanOrEqual(PROJECT_EXPORT_LIMITS.maxPdfBytes);
 
     // pdf-lib must be able to parse its own save() output.
     const loaded = await PDFDocument.load(bytes);
@@ -123,7 +123,7 @@ describe('generateGuidePdf with the real pdf-lib', () => {
     }
     expect(mocks.composite).toHaveBeenCalledTimes(entries.length);
 
-    // Layout invariants: every page carries a running footer with the guide
+    // Layout invariants: every page carries a running footer with the project
     // title and a zh-Hant page number, each step draws its numbered badge, and
     // each screenshot is framed with a border.
     const drawnText = canvasContext.fillText.mock.calls.map(([text]) => String(text));
@@ -131,7 +131,7 @@ describe('generateGuidePdf with the real pdf-lib', () => {
     expect(drawnText).toContain('第 2 頁');
     expect(drawnText).toContain('第 3 頁');
     expect(drawnText).not.toContain('第 4 頁');
-    expect(drawnText.filter((text) => text.includes('安裝指南 Setup Guide 🚀')).length)
+    expect(drawnText.filter((text) => text.includes('安裝指南 Setup Project 🚀')).length)
       .toBeGreaterThanOrEqual(entries.length);
     expect(canvasContext.arc).toHaveBeenCalledTimes(entries.length);
     expect(canvasContext.strokeRect).toHaveBeenCalledTimes(entries.length);
@@ -162,7 +162,7 @@ describe('generateGuidePdf with the real pdf-lib', () => {
   });
 
   it('emits a single-page PDF for a lone entry and keeps the title page merged with it', async () => {
-    const pdf = await generateGuidePdf([entry('step-1', 1, 'Only step')], { title: 'One pager' });
+    const pdf = await generateProjectPdf([entry('step-1', 1, 'Only step')], { title: 'One pager' });
 
     const loaded = await PDFDocument.load(new Uint8Array(await pdf.arrayBuffer()));
     expect(loaded.getPageCount()).toBe(1);
@@ -174,7 +174,7 @@ describe('generateGuidePdf with the real pdf-lib', () => {
       groupEntry('anchor-1', 2, '標記快照重點', ['點擊登入按鈕', '輸入電子郵件']),
     ];
 
-    const pdf = await generateGuidePdf(entries, {
+    const pdf = await generateProjectPdf(entries, {
       title: '章節指南',
       sections: [
         { id: 'section-1', title: '第一章 前置作業', startEntryId: 'step-1' },

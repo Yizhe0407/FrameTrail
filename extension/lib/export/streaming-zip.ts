@@ -72,7 +72,7 @@ export async function buildZipBlob(build: (addFile: ZipFileWriter) => Promise<vo
 
 /**
  * Zero-padded ordinal for ZIP image filenames. Padding is always at least two
- * digits so exports sort correctly even for guides with fewer than ten steps.
+ * digits so exports sort correctly even for projects with fewer than ten steps.
  */
 export function paddedZipOrdinal(ordinal: number, entryCount: number): string {
   return String(ordinal).padStart(Math.max(2, String(entryCount).length), '0');

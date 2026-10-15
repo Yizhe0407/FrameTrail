@@ -40,31 +40,31 @@ describe('isTrustedEditorSender', () => {
 describe('editor session query validation', () => {
   it('requires the expected session on both the actual frame and top-level tab URLs', () => {
     const valid = sender({
-      url: `${editorUrl}?sessionId=guide-a&entryId=step-1`,
-      tab: { id: 0, windowId: 7, url: `${editorUrl}?entryId=step-1&sessionId=guide-a` },
+      url: `${editorUrl}?sessionId=project-a&entryId=step-1`,
+      tab: { id: 0, windowId: 7, url: `${editorUrl}?entryId=step-1&sessionId=project-a` },
     });
 
-    expect(hasMatchingEditorSessionQuery(valid, 'guide-a')).toBe(true);
-    expect(isTrustedEditorSenderForSession(valid, editorUrl, 'guide-a')).toBe(true);
-    expect(hasMatchingEditorSessionQuery(valid, 'guide-b')).toBe(false);
+    expect(hasMatchingEditorSessionQuery(valid, 'project-a')).toBe(true);
+    expect(isTrustedEditorSenderForSession(valid, editorUrl, 'project-a')).toBe(true);
+    expect(hasMatchingEditorSessionQuery(valid, 'project-b')).toBe(false);
     expect(
       hasMatchingEditorSessionQuery(
-        { ...valid, tab: { ...valid.tab, url: `${editorUrl}?sessionId=guide-b` } },
-        'guide-a',
+        { ...valid, tab: { ...valid.tab, url: `${editorUrl}?sessionId=project-b` } },
+        'project-a',
       ),
     ).toBe(false);
-    expect(hasMatchingEditorSessionQuery({ ...valid, url: 'not a url' }, 'guide-a')).toBe(false);
+    expect(hasMatchingEditorSessionQuery({ ...valid, url: 'not a url' }, 'project-a')).toBe(false);
   });
 
   it('does not let a matching query bypass editor origin/path trust', () => {
     const evil = {
       frameId: 0,
-      url: 'https://evil.example/editor.html?sessionId=guide-a',
-      tab: { id: 3, windowId: 7, url: 'https://evil.example/editor.html?sessionId=guide-a' },
+      url: 'https://evil.example/editor.html?sessionId=project-a',
+      tab: { id: 3, windowId: 7, url: 'https://evil.example/editor.html?sessionId=project-a' },
     };
 
-    expect(hasMatchingEditorSessionQuery(evil, 'guide-a')).toBe(true);
-    expect(isTrustedEditorSenderForSession(evil, editorUrl, 'guide-a')).toBe(false);
+    expect(hasMatchingEditorSessionQuery(evil, 'project-a')).toBe(true);
+    expect(isTrustedEditorSenderForSession(evil, editorUrl, 'project-a')).toBe(false);
   });
 });
 

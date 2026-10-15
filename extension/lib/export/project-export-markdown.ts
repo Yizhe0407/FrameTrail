@@ -4,35 +4,35 @@ import { type StepEntry } from '../storage/models';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 import {
   DEFAULT_TITLE,
-  escapeGuideMarkdown,
-  guideExportFilename,
+  escapeProjectMarkdown,
+  projectExportFilename,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportMetadata,
-  type GuideExportOptions,
-  type GuideMarkdownArchive,
-} from './guide-export-contract';
+  type ProjectExportMetadata,
+  type ProjectExportOptions,
+  type ProjectMarkdownArchive,
+} from './project-export-contract';
 import {
   renderEntryImages,
   type RenderedEntryContent,
   type RenderedMarkdownEntry,
-} from './guide-export-render';
+} from './project-export-render';
 import { t } from '@/lib/shared/i18n';
 
 /**
  * Builds a portable Markdown ZIP containing one Markdown document and every
- * composited guide image under images/. The Markdown uses relative paths so
+ * composited project image under images/. The Markdown uses relative paths so
  * the archive remains editable without embedding large data URIs.
  */
-export async function generateGuideMarkdownArchive(
+export async function generateProjectMarkdownArchive(
   entries: readonly StepEntry[],
-  metadata: GuideExportMetadata = {},
-  options: GuideExportOptions = {},
-): Promise<GuideMarkdownArchive> {
+  metadata: ProjectExportMetadata = {},
+  options: ProjectExportOptions = {},
+): Promise<ProjectMarkdownArchive> {
   const { signal } = options;
   const markdownEntries: RenderedMarkdownEntry[] = [];
-  const markdownFilename = guideExportFilename(metadata, 'markdown');
+  const markdownFilename = projectExportFilename(metadata, 'markdown');
 
   const blob = await buildZipBlob(async (addFile) => {
     for await (const rendered of renderEntryImages(entries, signal)) {
@@ -42,7 +42,7 @@ export async function generateGuideMarkdownArchive(
     }
 
     throwIfAborted(signal);
-    const markdown = renderGuideMarkdown(
+    const markdown = renderProjectMarkdown(
       markdownEntries,
       entries,
       metadata,
@@ -54,35 +54,35 @@ export async function generateGuideMarkdownArchive(
   return { blob, markdownFilename, imageCount: markdownEntries.length };
 }
 
-function renderGuideMarkdown<T extends RenderedEntryContent>(
+function renderProjectMarkdown<T extends RenderedEntryContent>(
   renderedEntries: readonly T[],
   sourceEntries: readonly StepEntry[],
-  metadata: GuideExportMetadata,
+  metadata: ProjectExportMetadata,
   imageReference: (entry: T) => string,
 ): string {
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
-  const lines = [`# ${escapeGuideMarkdown(title)}`];
+  const lines = [`# ${escapeProjectMarkdown(title)}`];
   const description = textValue(metadata.description);
-  if (description) lines.push('', escapeGuideMarkdown(description));
+  if (description) lines.push('', escapeProjectMarkdown(description));
 
   const sections = sectionsByStartEntry(metadata.sections, sourceEntries);
   for (const entry of renderedEntries) {
     const section = sections.get(entry.entryId);
     if (section) {
-      lines.push('', `## ${escapeGuideMarkdown(section.title)}`);
+      lines.push('', `## ${escapeProjectMarkdown(section.title)}`);
     }
     // Text-first reading order matches the HTML and PDF publications: the step
     // description leads, its screenshot follows, then any group annotations.
     const description = textValue(entry.description);
     if (description || entry.annotations.length === 0) {
-      lines.push('', escapeGuideMarkdown(textOrDefault(description, t().export.missingDescription)));
+      lines.push('', escapeProjectMarkdown(textOrDefault(description, t().export.missingDescription)));
     }
     const alt = textOrDefault(entry.description, t().export.imageAlt);
-    lines.push('', `![${escapeGuideMarkdown(alt)}](${imageReference(entry)})`);
+    lines.push('', `![${escapeProjectMarkdown(alt)}](${imageReference(entry)})`);
     if (entry.annotations.length > 0) {
       lines.push('');
       for (const [index, annotation] of entry.annotations.entries()) {
-        lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, t().export.missingDescription))}`);
+        lines.push(`${index + 1}. ${escapeProjectMarkdown(textOrDefault(annotation.description, t().export.missingDescription))}`);
       }
     }
   }

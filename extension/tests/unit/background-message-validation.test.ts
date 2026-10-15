@@ -74,8 +74,8 @@ describe('recording mode switch controls', () => {
 describe('background runtime message validation', () => {
   it.each<unknown>([
     validClick,
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps' },
-    { type: 'OPEN_EDITOR', sessionId: 'guide-1', entryId: 'step-1' },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps' },
+    { type: 'OPEN_EDITOR', sessionId: 'project-1', entryId: 'step-1' },
     { type: 'PAUSE_RECORDING', runId: 'run-1' },
     {
       type: 'STEPMARK_READY',
@@ -90,15 +90,15 @@ describe('background runtime message validation', () => {
     { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'shield-channel' },
     {
       type: 'START_STEP_RECAPTURE',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       target: { kind: 'snapshot-singleton', anchorId: 'anchor-1', annotationId: 'annotation-1' },
       preferredTabId: 7,
     },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: {} },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: 4 } },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', autoCreatedGuide: true },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'snapshot', autoCreatedGuide: false },
-    { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: 'guide-1' },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', continuation: {} },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', continuation: { preferredTabId: 4 } },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', autoCreatedProject: true },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'snapshot', autoCreatedProject: false },
+    { type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION', sessionId: 'project-1' },
     { type: 'OPEN_LIBRARY' },
     { type: 'REGISTER_EXTENSION_PAGE' },
   ])('accepts a structurally valid message %#', (message) => {
@@ -125,21 +125,21 @@ describe('background runtime message validation', () => {
     { type: 'SNAPSHOT_RECORDER_FAILED', runId: '', reason: 'shield-channel' },
     {
       type: 'START_STEP_RECAPTURE',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       target: { kind: 'single', stepId: 'step-1' },
       preferredTabId: -1,
     },
     {
       type: 'START_STEP_RECAPTURE',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       target: { kind: 'snapshot-singleton', anchorId: 'same', annotationId: 'same' },
     },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { preferredTabId: -1 } },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: null },
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', autoCreatedGuide: 'yes' },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', continuation: { preferredTabId: -1 } },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', continuation: null },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', autoCreatedProject: 'yes' },
     // A caller-supplied source URL must never reach the permission prompt.
-    { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps', continuation: { sourceUrl: 'https://attacker.example/' } },
-    { type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION', sessionId: '' },
+    { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps', continuation: { sourceUrl: 'https://attacker.example/' } },
+    { type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION', sessionId: '' },
   ])('rejects malformed or resource-unbounded input %#', (message) => {
     expect(isBackgroundMessage(message)).toBe(false);
   });
@@ -323,9 +323,9 @@ describe('background sender authorization', () => {
 
   it('classifies lifecycle, toolbar controls, and recorder events separately', () => {
     const extensionOnly: BackgroundMessage[] = [
-      { type: 'START_RECORDING', sessionId: 'guide-1', mode: 'steps' },
+      { type: 'START_RECORDING', sessionId: 'project-1', mode: 'steps' },
       { type: 'STOP_RECORDING' },
-      { type: 'RESET_GUIDE', sessionId: 'guide-1' },
+      { type: 'RESET_PROJECT', sessionId: 'project-1' },
       { type: 'OPEN_EDITOR' },
       { type: 'OPEN_LIBRARY' },
       { type: 'REGISTER_EXTENSION_PAGE' },

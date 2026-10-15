@@ -3,16 +3,16 @@ import {
   type PendingUndoAction,
   type UndoAction,
 } from '@/lib/editor/editor-app-model';
-import { addGuideSectionAtomically, deleteGuideAnnotationAtomically, deleteGuideEntriesAtomically, deleteGuideSectionAtomically, getGuideStructureSnapshot, GuideContentConflictError, renameGuideSectionAtomically, reorderGuideAnnotationsAtomically, reorderGuideEntriesAtomically, restoreGuideAnnotationAtomically, restoreGuideEntriesAtomically, setGuideEntriesNumberedAtomically, type GuideStructureSnapshot } from '@/lib/storage/guide-structure';
-import { entryId, type Guide, type Step, type StepEntry } from '@/lib/storage/models';
+import { addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, ProjectContentConflictError, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically, type ProjectStructureSnapshot } from '@/lib/storage/project-structure';
+import { entryId, type Project, type Step, type StepEntry } from '@/lib/storage/models';
 import { t, type Messages } from '@/lib/shared/i18n';
 
 /** A structural edit with its own progress/failure copy in the i18n catalog. */
-type GuideMutationOperation = Exclude<keyof Messages['editor']['mutations'], 'conflict' | 'reloadFailed'>;
+type ProjectMutationOperation = Exclude<keyof Messages['editor']['mutations'], 'conflict' | 'reloadFailed'>;
 
-interface UseGuideMutationsOptions {
+interface UseProjectMutationsOptions {
   sessionId: string | null;
-  guide: Guide | null;
+  project: Project | null;
   /** The rendered (optimistic-first) entry list. */
   entries: StepEntry[];
   selectedEntryId: string | null;
@@ -20,15 +20,15 @@ interface UseGuideMutationsOptions {
   endDataOperation: () => void;
   setOptimisticEntries: (entries: StepEntry[] | null) => void;
   flushDescriptions: () => Promise<void>;
-  refreshEditorData: () => Promise<GuideStructureSnapshot | null>;
-  /** Publishes the fresh Guide a successful compare-and-swap returned. */
-  adoptGuide: (guide: Guide | null) => void;
+  refreshEditorData: () => Promise<ProjectStructureSnapshot | null>;
+  /** Publishes the fresh Project a successful compare-and-swap returned. */
+  adoptProject: (project: Project | null) => void;
   requireSelectedEntry: (expectedEntryId?: string) => StepEntry;
   setSelectedEntryId: (id: string | null) => void;
   setZoomOpen: (open: boolean) => void;
   setOperationError: (message: string | null) => void;
   undoAction: UndoAction | null;
-  offerUndo: (pending: PendingUndoAction, guideId: string) => void;
+  offerUndo: (pending: PendingUndoAction, projectId: string) => void;
   clearUndo: () => void;
 }
 
@@ -37,9 +37,9 @@ interface UseGuideMutationsOptions {
  * fresh snapshot, compare-and-swaps against its revision, reloads, then offers an undo — rolling back
  * any optimistic entry swap first if the round-trip fails.
  */
-export function useGuideMutations({
+export function useProjectMutations({
   sessionId,
-  guide,
+  project,
   entries,
   selectedEntryId,
   beginDataOperation,
@@ -47,7 +47,7 @@ export function useGuideMutations({
   setOptimisticEntries,
   flushDescriptions,
   refreshEditorData,
-  adoptGuide,
+  adoptProject,
   requireSelectedEntry,
   setSelectedEntryId,
   setZoomOpen,
@@ -55,11 +55,11 @@ export function useGuideMutations({
   undoAction,
   offerUndo,
   clearUndo,
-}: UseGuideMutationsOptions) {
-  function showStructureMutationError(operation: GuideMutationOperation, mutationError: unknown): void {
-    console.error(`[stepmark] guide mutation failed: ${operation}`, mutationError);
+}: UseProjectMutationsOptions) {
+  function showStructureMutationError(operation: ProjectMutationOperation, mutationError: unknown): void {
+    console.error(`[stepmark] project mutation failed: ${operation}`, mutationError);
     setOperationError(
-      mutationError instanceof GuideContentConflictError
+      mutationError instanceof ProjectContentConflictError
         ? t().editor.mutations.conflict
         : t().editor.mutations[operation].failed,
     );
@@ -70,17 +70,17 @@ export function useGuideMutations({
    * step) differs per operation. `optimistic` swaps the rendered entry list before the round-trip and
    * restores it on failure. `rethrow` is for callers whose child component renders its own inline failure state.
    */
-  async function runGuideMutation({
+  async function runProjectMutation({
     operation,
     optimistic,
     rethrow = false,
     mutate,
   }: {
     /** Names the operation's progress and failure copy in the i18n catalog. */
-    operation: GuideMutationOperation;
+    operation: ProjectMutationOperation;
     optimistic?: { next: StepEntry[]; previous: StepEntry[] };
     rethrow?: boolean;
-    mutate: (snapshot: GuideStructureSnapshot, guideId: string) => Promise<PendingUndoAction | void>;
+    mutate: (snapshot: ProjectStructureSnapshot, projectId: string) => Promise<PendingUndoAction | void>;
   }): Promise<void> {
     if (!sessionId || !beginDataOperation(t().editor.mutations[operation].pending)) return;
     clearUndo();
@@ -90,7 +90,7 @@ export function useGuideMutations({
       let undo: PendingUndoAction | void;
       try {
         await flushDescriptions();
-        const snapshot = await getGuideStructureSnapshot(sessionId);
+        const snapshot = await getProjectStructureSnapshot(sessionId);
         undo = await mutate(snapshot, sessionId);
       } catch (mutationError) {
         if (optimistic) setOptimisticEntries(optimistic.previous);
@@ -120,29 +120,29 @@ export function useGuideMutations({
   }
 
   async function handleReorderEntries(newEntries: StepEntry[]) {
-    if (!guide) return;
+    if (!project) return;
     const previousEntries = entries;
-    const expectedRevision = guide.contentRevision;
-    await runGuideMutation({
+    const expectedRevision = project.contentRevision;
+    await runProjectMutation({
       operation: 'reorderSteps',
       optimistic: { next: newEntries, previous: previousEntries },
-      mutate: async (snapshot, guideId) => {
+      mutate: async (snapshot, projectId) => {
         if (!equalIds(snapshot.entryIds, previousEntries.map(entryId))) {
-          throw new GuideContentConflictError(guideId, expectedRevision, snapshot.guide.contentRevision);
+          throw new ProjectContentConflictError(projectId, expectedRevision, snapshot.project.contentRevision);
         }
-        const result = await reorderGuideEntriesAtomically(
-          guideId,
+        const result = await reorderProjectEntriesAtomically(
+          projectId,
           newEntries.map(entryId),
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         return {
           message: t().editor.mutations.reorderSteps.done,
-          expectedRevision: result.guide.contentRevision,
-          restore: () => reorderGuideEntriesAtomically(
-            guideId,
+          expectedRevision: result.project.contentRevision,
+          restore: () => reorderProjectEntriesAtomically(
+            projectId,
             result.previousEntryIds,
-            result.guide.contentRevision,
+            result.project.contentRevision,
           ).then(() => undefined),
         };
       },
@@ -159,11 +159,11 @@ export function useGuideMutations({
     const nextEntries = previousEntries.map((entry) => (
       entry.kind === 'group' && entry.anchor.id === anchorId ? { ...entry, annotations: reordered } : entry
     ));
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'reorderAnnotations',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
+      mutate: async (snapshot, projectId) => {
         const freshGroup = snapshot.entries.find(
           (entry): entry is Extract<StepEntry, { kind: 'group' }> => entry.kind === 'group' && entry.anchor.id === anchorId,
         );
@@ -171,28 +171,28 @@ export function useGuideMutations({
           freshGroup.annotations.map((annotation) => annotation.id),
           previousGroup.annotations.map((annotation) => annotation.id),
         )) {
-          throw new GuideContentConflictError(
-            guideId,
-            guide?.contentRevision ?? snapshot.guide.contentRevision,
-            snapshot.guide.contentRevision,
+          throw new ProjectContentConflictError(
+            projectId,
+            project?.contentRevision ?? snapshot.project.contentRevision,
+            snapshot.project.contentRevision,
           );
         }
-        const result = await reorderGuideAnnotationsAtomically(
-          guideId,
+        const result = await reorderProjectAnnotationsAtomically(
+          projectId,
           anchorId,
           reordered.map((annotation) => annotation.id),
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         return {
           message: t().editor.mutations.reorderAnnotations.done,
-          expectedRevision: result.guide.contentRevision,
+          expectedRevision: result.project.contentRevision,
           restoreSelectionId: anchorId,
-          restore: () => reorderGuideAnnotationsAtomically(
-            guideId,
+          restore: () => reorderProjectAnnotationsAtomically(
+            projectId,
             anchorId,
             result.previousAnnotationIds,
-            result.guide.contentRevision,
+            result.project.contentRevision,
           ).then(() => undefined),
         };
       },
@@ -201,19 +201,19 @@ export function useGuideMutations({
 
   async function deleteEntry() {
     const currentEntryId = entryId(requireSelectedEntry());
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'deleteStep',
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
+      mutate: async (snapshot, projectId) => {
         const deletingEntry = snapshot.entries.find((entry) => entryId(entry) === currentEntryId);
         if (!deletingEntry) throw new Error(t().editor.mutations.deleteStep.changed);
         const deletingIndex = snapshot.entryIds.indexOf(currentEntryId);
-        const result = await deleteGuideEntriesAtomically(
-          guideId,
+        const result = await deleteProjectEntriesAtomically(
+          projectId,
           [currentEntryId],
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         const nextIndex = Math.min(Math.max(deletingIndex, 0), result.entryIds.length - 1);
         setSelectedEntryId(nextIndex >= 0 ? result.entryIds[nextIndex] : null);
         setZoomOpen(false);
@@ -222,14 +222,14 @@ export function useGuideMutations({
           : [deletingEntry.anchor, ...deletingEntry.annotations];
         return {
           message: t().editor.mutations.deleteStep.done(deletingIndex + 1),
-          expectedRevision: result.guide.contentRevision,
+          expectedRevision: result.project.contentRevision,
           restoreSelectionId: currentEntryId,
-          restore: () => restoreGuideEntriesAtomically(
-            guideId,
+          restore: () => restoreProjectEntriesAtomically(
+            projectId,
             deletedSteps,
             snapshot.entryIds,
-            snapshot.guide.sections,
-            result.guide.contentRevision,
+            snapshot.project.sections,
+            result.project.contentRevision,
           ).then(() => undefined),
         };
       },
@@ -251,18 +251,18 @@ export function useGuideMutations({
       if (entry.annotations.length === 1) return [];
       return [{ ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }];
     });
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'deleteAnnotation',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
-        const result = await deleteGuideAnnotationAtomically(
-          guideId,
+      mutate: async (snapshot, projectId) => {
+        const result = await deleteProjectAnnotationAtomically(
+          projectId,
           groupId,
           step.id,
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         if (result.removedEntry) {
           const previousIndex = result.previousEntryIds.indexOf(groupId);
           const nextIndex = Math.min(Math.max(previousIndex, 0), result.entryIds.length - 1);
@@ -274,22 +274,22 @@ export function useGuideMutations({
         const restoredIndex = result.previousAnnotationIds.indexOf(step.id);
         return {
           message: t().editor.mutations.deleteAnnotation.done((restoredIndex >= 0 ? restoredIndex : annotationIndex) + 1),
-          expectedRevision: result.guide.contentRevision,
+          expectedRevision: result.project.contentRevision,
           restoreSelectionId: groupId,
           restore: result.removedEntry
-            ? () => restoreGuideEntriesAtomically(
-                guideId,
+            ? () => restoreProjectEntriesAtomically(
+                projectId,
                 result.deletedSteps,
                 result.previousEntryIds,
                 result.previousSections,
-                result.guide.contentRevision,
+                result.project.contentRevision,
               ).then(() => undefined)
-            : () => restoreGuideAnnotationAtomically(
-                guideId,
+            : () => restoreProjectAnnotationAtomically(
+                projectId,
                 groupId,
                 deletedAnnotation,
                 result.previousAnnotationIds,
-                result.guide.contentRevision,
+                result.project.contentRevision,
               ).then(() => undefined),
         };
       },
@@ -298,10 +298,10 @@ export function useGuideMutations({
 
   async function setEntriesNumbered(entryIdsToUpdate: readonly string[], numbered: boolean) {
     if (entryIdsToUpdate.length === 0) return;
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'numbering',
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
+      mutate: async (snapshot, projectId) => {
         const selectedIds = new Set(entryIdsToUpdate);
         const previousValues = new Set(
           snapshot.entries
@@ -310,25 +310,25 @@ export function useGuideMutations({
             ))
             .map((entry) => entry.anchor.numbered ?? false),
         );
-        const result = await setGuideEntriesNumberedAtomically(
-          guideId,
+        const result = await setProjectEntriesNumberedAtomically(
+          projectId,
           entryIdsToUpdate,
           numbered,
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         // A mixed selection has no single value to restore, and a no-op change has nothing to undo.
         const previousValue = previousValues.size === 1 ? [...previousValues][0] : undefined;
         if (result.affectedEntryIds.length === 0 || previousValue === undefined || previousValue === numbered) return;
         return {
           message: t().editor.mutations.numbering.done(numbered),
-          expectedRevision: result.guide.contentRevision,
+          expectedRevision: result.project.contentRevision,
           restoreSelectionId: selectedEntryId ?? undefined,
-          restore: () => setGuideEntriesNumberedAtomically(
-            guideId,
+          restore: () => setProjectEntriesNumberedAtomically(
+            projectId,
             result.affectedEntryIds,
             previousValue,
-            result.guide.contentRevision,
+            result.project.contentRevision,
           ).then(() => undefined),
         };
       },
@@ -336,44 +336,44 @@ export function useGuideMutations({
   }
 
   async function renameSection(sectionId: string, title: string) {
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'renameSection',
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
-        const result = await renameGuideSectionAtomically(
-          guideId,
+      mutate: async (snapshot, projectId) => {
+        const result = await renameProjectSectionAtomically(
+          projectId,
           sectionId,
           title,
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
       },
     });
   }
 
   async function deleteSection(sectionId: string) {
-    await runGuideMutation({
+    await runProjectMutation({
       operation: 'deleteSection',
       rethrow: true,
-      mutate: async (snapshot, guideId) => {
-        const deletedSection = snapshot.guide.sections.find((section) => section.id === sectionId);
-        const result = await deleteGuideSectionAtomically(
-          guideId,
+      mutate: async (snapshot, projectId) => {
+        const deletedSection = snapshot.project.sections.find((section) => section.id === sectionId);
+        const result = await deleteProjectSectionAtomically(
+          projectId,
           sectionId,
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
-        adoptGuide(result.guide);
+        adoptProject(result.project);
         if (!deletedSection) return;
         // A section's display position derives from its start entry, so re-creating it with the
         // same start entry and title puts it back exactly where it was.
         return {
           message: t().editor.mutations.deleteSection.done(deletedSection.title),
-          expectedRevision: result.guide.contentRevision,
-          restore: () => addGuideSectionAtomically(
-            guideId,
+          expectedRevision: result.project.contentRevision,
+          restore: () => addProjectSectionAtomically(
+            projectId,
             deletedSection.startEntryId,
             deletedSection.title,
-            result.guide.contentRevision,
+            result.project.contentRevision,
           ).then(() => undefined),
         };
       },
@@ -384,12 +384,12 @@ export function useGuideMutations({
     if (!undoAction || !beginDataOperation(t().editor.undo.inProgress)) return;
     setOperationError(null);
     try {
-      const snapshot = await getGuideStructureSnapshot(undoAction.guideId);
-      if (snapshot.guide.contentRevision !== undoAction.expectedRevision) {
-        throw new GuideContentConflictError(
-          undoAction.guideId,
+      const snapshot = await getProjectStructureSnapshot(undoAction.projectId);
+      if (snapshot.project.contentRevision !== undoAction.expectedRevision) {
+        throw new ProjectContentConflictError(
+          undoAction.projectId,
           undoAction.expectedRevision,
-          snapshot.guide.contentRevision,
+          snapshot.project.contentRevision,
         );
       }
       await undoAction.restore();
@@ -402,7 +402,7 @@ export function useGuideMutations({
       console.error('[stepmark] failed to undo editor operation', undoError);
       clearUndo();
       setOperationError(
-        undoError instanceof GuideContentConflictError
+        undoError instanceof ProjectContentConflictError
           ? t().editor.undo.conflict
           : t().editor.undo.failed,
       );

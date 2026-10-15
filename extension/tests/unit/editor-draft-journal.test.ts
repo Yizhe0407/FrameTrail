@@ -10,7 +10,7 @@ import {
 
 const step = {
   id: 'step-1',
-  sessionId: 'guide-1',
+  sessionId: 'project-1',
   description: '已儲存',
 };
 
@@ -123,8 +123,8 @@ describe('editor description draft journal', () => {
   });
 
   it('prunes only old orphan chunks, preserving a fresh in-progress cross-tab write', () => {
-    const old = 'stepmark:editor-description-draft:v2:chunk:guide:step:writer:description:1000-rev:0';
-    const fresh = 'stepmark:editor-description-draft:v2:chunk:guide:step:writer:description:999999-rev:0';
+    const old = 'stepmark:editor-description-draft:v2:chunk:project:step:writer:description:1000-rev:0';
+    const fresh = 'stepmark:editor-description-draft:v2:chunk:project:step:writer:description:999999-rev:0';
     localStorage.setItem(old, 'old');
     localStorage.setItem(fresh, 'fresh');
 
@@ -134,7 +134,7 @@ describe('editor description draft journal', () => {
   });
 
   it('reclaims stale orphan chunks before allocating when they are blocking quota', () => {
-    const orphan = 'stepmark:editor-description-draft:v2:chunk:guide:step:writer:description:1000-rev:0';
+    const orphan = 'stepmark:editor-description-draft:v2:chunk:project:step:writer:description:1000-rev:0';
     localStorage.setItem(orphan, 'stale quota consumer');
     const storage: Storage = {
       get length() { return localStorage.length; },
@@ -182,7 +182,7 @@ describe('editor description draft journal', () => {
 
   it('evicts the oldest foreign records at the record cap instead of refusing the live write', () => {
     expect(writeDescriptionDraft(
-      { id: 'oldest-step', sessionId: 'guide', description: '' },
+      { id: 'oldest-step', sessionId: 'project', description: '' },
       'oldest draft',
       'oldest-writer',
       localStorage,
@@ -191,7 +191,7 @@ describe('editor description draft journal', () => {
     for (let index = 0; index < DESCRIPTION_DRAFT_JOURNAL_LIMITS.maxRecords - 1; index += 1) {
       expect(
         writeDescriptionDraft(
-          { id: `step-${index}`, sessionId: 'guide', description: '' },
+          { id: `step-${index}`, sessionId: 'project', description: '' },
           `draft-${index}`,
           `writer-${index}`,
           localStorage,
@@ -202,7 +202,7 @@ describe('editor description draft journal', () => {
 
     expect(
       writeDescriptionDraft(
-        { id: 'overflow', sessionId: 'guide', description: '' },
+        { id: 'overflow', sessionId: 'project', description: '' },
         'live typing must stay journaled',
         'overflow-writer',
         localStorage,
@@ -212,13 +212,13 @@ describe('editor description draft journal', () => {
 
     // The oldest foreign record was reclaimed; everything newer, including the live draft, survives.
     expect(
-      readDescriptionDrafts({ id: 'oldest-step', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001),
+      readDescriptionDrafts({ id: 'oldest-step', sessionId: 'project', description: '' }, 'observer', localStorage, 2_001),
     ).toEqual([]);
     expect(
-      readDescriptionDrafts({ id: 'step-0', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
+      readDescriptionDrafts({ id: 'step-0', sessionId: 'project', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
     ).toBe('draft-0');
     expect(
-      readDescriptionDrafts({ id: 'overflow', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
+      readDescriptionDrafts({ id: 'overflow', sessionId: 'project', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
     ).toBe('live typing must stay journaled');
   });
 
@@ -226,7 +226,7 @@ describe('editor description draft journal', () => {
     for (let index = 0; index < DESCRIPTION_DRAFT_JOURNAL_LIMITS.maxRecords; index += 1) {
       expect(
         writeDescriptionDraft(
-          { id: `step-${index}`, sessionId: 'guide', description: '' },
+          { id: `step-${index}`, sessionId: 'project', description: '' },
           `own-draft-${index}`,
           'busy-writer',
           localStorage,
@@ -238,7 +238,7 @@ describe('editor description draft journal', () => {
     // Every journaled record may be the only copy of text this same user just typed, so the overflowing write fails instead of sacrificing one.
     expect(
       writeDescriptionDraft(
-        { id: 'one-too-many', sessionId: 'guide', description: '' },
+        { id: 'one-too-many', sessionId: 'project', description: '' },
         'over the cap',
         'busy-writer',
         localStorage,
@@ -246,7 +246,7 @@ describe('editor description draft journal', () => {
       ),
     ).toBe(false);
     expect(
-      readDescriptionDrafts({ id: 'step-0', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
+      readDescriptionDrafts({ id: 'step-0', sessionId: 'project', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
     ).toBe('own-draft-0');
   });
 
@@ -256,7 +256,7 @@ describe('editor description draft journal', () => {
     for (let index = 0; index < capRecords; index += 1) {
       expect(
         writeDescriptionDraft(
-          { id: `bulk-${index}`, sessionId: 'guide', description: '' },
+          { id: `bulk-${index}`, sessionId: 'project', description: '' },
           large,
           `writer-${index}`,
           localStorage,
@@ -267,7 +267,7 @@ describe('editor description draft journal', () => {
 
     expect(
       writeDescriptionDraft(
-        { id: 'incoming', sessionId: 'guide', description: '' },
+        { id: 'incoming', sessionId: 'project', description: '' },
         large,
         'incoming-writer',
         localStorage,
@@ -275,10 +275,10 @@ describe('editor description draft journal', () => {
       ),
     ).toBe(true);
     expect(
-      readDescriptionDrafts({ id: 'bulk-0', sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001),
+      readDescriptionDrafts({ id: 'bulk-0', sessionId: 'project', description: '' }, 'observer', localStorage, 2_001),
     ).toEqual([]);
     expect(
-      readDescriptionDrafts({ id: `bulk-${capRecords - 1}`, sessionId: 'guide', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
+      readDescriptionDrafts({ id: `bulk-${capRecords - 1}`, sessionId: 'project', description: '' }, 'observer', localStorage, 2_001)[0]?.description,
     ).toBe(large);
   });
 

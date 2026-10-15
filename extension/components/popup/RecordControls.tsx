@@ -8,7 +8,7 @@ import RecordTargetPicker from '@/components/popup/RecordTargetPicker';
 import { reportError } from '@/components/shared/report-error';
 import { cn } from '@/lib/shared/utils';
 import type { RecordingMode, RecordingState } from '@/lib/storage/recording-state';
-import { startRecordingIntoGuide } from '@/lib/guide/guide-actions';
+import { startRecordingIntoProject } from '@/lib/project/project-actions';
 import {
   recordingItemCountLabel,
   recordingModeCopy,
@@ -111,8 +111,8 @@ export default function RecordControls({
   className,
 }: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
-  // null = brand-new guide. Never persisted: every popup open starts at 新專案.
-  const [targetGuideId, setTargetGuideId] = useState<string | null>(null);
+  // null = brand-new project. Never persisted: every popup open starts at 新專案.
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const { crossTab, setCrossTab, restrictedPage, setRestrictedPage, activeTabId } = useStartPreflight(setControlError);
@@ -123,7 +123,7 @@ export default function RecordControls({
    * once; a later grant clears it so a reconsidered user gets asked again.
    */
   async function requestCrossTabPermission(
-    resumeStart?: { mode: RecordingMode; tabId: number; guideId: string | null },
+    resumeStart?: { mode: RecordingMode; tabId: number; projectId: string | null },
   ): Promise<{ granted: boolean; parked: boolean }> {
     try {
       // Not awaited: Firefox needs permissions.request to run synchronously within the click.
@@ -158,7 +158,7 @@ export default function RecordControls({
       // continues single-tab. Must be the first await here — see requestCrossTabPermission.
       if (mode === 'steps' && crossTab !== 'granted' && crossTab !== 'declined') {
         const { granted, parked } = await requestCrossTabPermission(
-          activeTabId != null ? { mode, tabId: activeTabId, guideId: targetGuideId } : undefined,
+          activeTabId != null ? { mode, tabId: activeTabId, projectId: targetProjectId } : undefined,
         );
         if (granted && parked && !(await claimPendingStart())) {
           onStarted?.();
@@ -171,7 +171,7 @@ export default function RecordControls({
         setRestrictedPage(true);
         throw new Error(t().popup.restrictedPageError);
       }
-      await startRecordingIntoGuide(mode, targetGuideId);
+      await startRecordingIntoProject(mode, targetProjectId);
       onStarted?.();
     } catch (error) {
       setControlError(reportError('[stepmark] failed to start recording', error, t().popup.startFailed));
@@ -309,7 +309,7 @@ export default function RecordControls({
             );
           })}
         </div>
-        <RecordTargetPicker value={targetGuideId} onChange={setTargetGuideId} disabled={pending} />
+        <RecordTargetPicker value={targetProjectId} onChange={setTargetProjectId} disabled={pending} />
         {/* Passive affordance, never a nag: shown whenever the grant is absent
             (even after a remembered decline), and the request runs directly in
             the click handler so the browser accepts it as a user gesture. */}
@@ -355,7 +355,7 @@ export default function RecordControls({
         )}
         {pending
           ? activeMode.startingLabel
-          : targetGuideId === null
+          : targetProjectId === null
             ? t().common.startRecording
             : t().popup.continueRecording}
       </button>

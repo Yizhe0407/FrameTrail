@@ -10,8 +10,8 @@ vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>
@@ -32,7 +32,7 @@ function snapshotState(overrides: Partial<RecordingState> = {}): RecordingState 
     isRecording: true,
     phase: 'recording',
     mode: 'snapshot',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
     itemCount: 2,
@@ -49,7 +49,7 @@ function stepsState(overrides: Partial<RecordingState> = {}): RecordingState {
     isRecording: true,
     phase: 'recording',
     mode: 'steps',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
     itemCount: 1,
@@ -62,7 +62,7 @@ function capturingRecaptureState(): RecordingState {
     operation: 'recapture',
     recapture: {
       runId: 'recapture-1',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
       entryId: 'step-1',
       phase: 'capturing',
@@ -78,7 +78,7 @@ function capturingRecaptureState(): RecordingState {
 function step(overrides: Partial<Step> = {}): Step {
   return {
     id: 'step-1',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     runId: 'run-1',
     order: 0,
     screenshotBlob: new Blob(['image']),

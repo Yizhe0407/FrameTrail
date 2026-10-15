@@ -149,7 +149,7 @@ export async function openExtensionPage(kind: ExtensionPageKind, url: string): P
 }
 
 /** OPEN_LIBRARY handler. The library page shows the whole collection rather
- * than one Guide, so reuse needs no handshake — plain focus is correct. */
+ * than one Project, so reuse needs no handshake — plain focus is correct. */
 export async function openLibraryPage(): Promise<OpenLibraryResult> {
   await openExtensionPage('library', extensionPageUrl('library'));
   return { ok: true };

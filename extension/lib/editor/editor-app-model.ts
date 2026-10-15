@@ -6,23 +6,23 @@ export const EMPTY_STEP_ENTRIES: StepEntry[] = [];
 export interface UndoAction {
   id: number;
   message: string;
-  guideId: string;
+  projectId: string;
   expectedRevision: number;
   restoreSelectionId?: string;
   restore: () => Promise<void>;
 }
 
 /** What a mutation describes about its own undo. The editor controller owns the
- * sequence number and the guide it belongs to, so a mutation never supplies
+ * sequence number and the project it belongs to, so a mutation never supplies
  * either. */
-export type PendingUndoAction = Omit<UndoAction, 'id' | 'guideId'>;
+export type PendingUndoAction = Omit<UndoAction, 'id' | 'projectId'>;
 
 export type PreparedCaptureSource =
   /** `sourceUrl` is the background-resolved persisted URL. The elsewhere tab
    * picker only compares it against candidate tab URLs (to skip preselecting
    * the page the user just recorded); it is never sent anywhere. */
   | { kind: 'origin'; sourceOrigin: string; permissionPattern: string; sourceUrl: string }
-  /** The Guide has no recorded source page (no steps), so the confirmation
+  /** The Project has no recorded source page (no steps), so the confirmation
    * dialog can only offer the site-agnostic elsewhere continuation. Only a
    * continuation action may carry this: recapture always targets a stored
    * step and therefore always has an origin. */
@@ -40,7 +40,7 @@ export interface ContinuationTabOption {
 export type PreparedCapturePermission = {
   source: PreparedCaptureSource;
   /** The entry the grant is bound to, so changing the selection cancels it.
-   * Continuation records into the Guide as a whole and has no such anchor. */
+   * Continuation records into the Project as a whole and has no such anchor. */
   entryId: string | null;
   action:
     | { kind: 'recapture'; target: StepRecaptureTarget }

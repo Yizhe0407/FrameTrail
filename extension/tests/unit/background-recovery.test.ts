@@ -10,8 +10,8 @@ vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>
@@ -22,7 +22,7 @@ function recordingState(overrides: Partial<RecordingState> = {}): RecordingState
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
     ...overrides,
@@ -34,7 +34,7 @@ function awaitingTargetState(): RecordingState {
     operation: 'recapture',
     recapture: {
       runId: 'recapture-1',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
       entryId: 'step-1',
       phase: 'awaiting-target',
@@ -50,7 +50,7 @@ function awaitingTargetState(): RecordingState {
 function step(overrides: Partial<Step> = {}): Step {
   return {
     id: 'step-1',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     order: 0,
     screenshotBlob: new Blob(['image']),
     bounds: { x: 1, y: 2, width: 30, height: 40 },
@@ -204,8 +204,8 @@ describe('service-worker startup recovery for awaiting-target recaptures', () =>
 describe('recapture source tab leak cleanup', () => {
   const editorSender = {
     frameId: 0,
-    url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a',
-    tab: { id: 7, windowId: 3, url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a' },
+    url: 'chrome-extension://extension-id/editor.html?sessionId=project-a',
+    tab: { id: 7, windowId: 3, url: 'chrome-extension://extension-id/editor.html?sessionId=project-a' },
   };
 
   it('closes a created source tab when the exact-URL recheck fails after load', async () => {
@@ -225,7 +225,7 @@ describe('recapture source tab leak cleanup', () => {
     await importBackground();
     const result = await mocks.messageListener?.({
       type: 'START_STEP_RECAPTURE',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
     }, editorSender);
 
@@ -236,7 +236,7 @@ describe('recapture source tab leak cleanup', () => {
 });
 
 describe('undo window persistence across worker restarts', () => {
-  it('persists the removed step before deleting it from the guide', async () => {
+  it('persists the removed step before deleting it from the project', async () => {
     mocks.getRecordingState.mockResolvedValue(recordingState({ itemCount: 1 }));
     mocks.getSteps.mockResolvedValue([step({ runId: 'run-1' })]);
 

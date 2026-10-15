@@ -1,13 +1,13 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import {
   STEP_STORAGE_LIMITS,
-  isDefaultGuideTitle,
+  isDefaultProjectTitle,
   getEffectiveBounds,
   requireStorageIdentifier,
-  sanitizeGuide,
+  sanitizeProject,
   stepRole,
   storageError,
-  type Guide,
+  type Project,
   type Step,
 } from './models';
 
@@ -17,15 +17,15 @@ export interface StepmarkDB extends DBSchema {
     value: Step;
     indexes: { 'by-session': string };
   };
-  guides: {
+  projects: {
     key: string;
-    value: Guide;
+    value: Project;
     indexes: { 'by-updated-at': number };
   };
 }
 
-export type GuideStepsTransaction = IDBPTransaction<StepmarkDB, ['guides', 'steps'], 'readwrite'>;
-export type ReadonlyGuideStepsTransaction = IDBPTransaction<StepmarkDB, ['guides', 'steps'], 'readonly'>;
+export type ProjectStepsTransaction = IDBPTransaction<StepmarkDB, ['projects', 'steps'], 'readwrite'>;
+export type ReadonlyProjectStepsTransaction = IDBPTransaction<StepmarkDB, ['projects', 'steps'], 'readonly'>;
 
 interface GroupSummaryAccumulator {
   hasAnchorImage: boolean;
@@ -69,7 +69,7 @@ function addStepToSummary(summary: SummaryAccumulator, step: Step): void {
   if (step.screenshotBlob) group.fallbackImageCount += 1;
 }
 
-function finishSummary(summary: SummaryAccumulator): Pick<Guide, 'stepCount' | 'entryCount' | 'storageBytes'> {
+function finishSummary(summary: SummaryAccumulator): Pick<Project, 'stepCount' | 'entryCount' | 'storageBytes'> {
   let entryCount = summary.ordinaryEntryCount;
   for (const group of summary.groups.values()) {
     entryCount += group.hasAnchorImage
@@ -83,43 +83,43 @@ function finishSummary(summary: SummaryAccumulator): Pick<Guide, 'stepCount' | '
   };
 }
 
-export function summarizeSteps(steps: Iterable<Step>): Pick<Guide, 'stepCount' | 'entryCount' | 'storageBytes'> {
+export function summarizeSteps(steps: Iterable<Step>): Pick<Project, 'stepCount' | 'entryCount' | 'storageBytes'> {
   const summary = createSummaryAccumulator();
   for (const step of steps) addStepToSummary(summary, step);
   return finishSummary(summary);
 }
 
-export function assertGuideStorageLimits(
-  summary: Pick<Guide, 'stepCount' | 'storageBytes'>,
-  baseline?: Pick<Guide, 'stepCount' | 'storageBytes'>,
+export function assertProjectStorageLimits(
+  summary: Pick<Project, 'stepCount' | 'storageBytes'>,
+  baseline?: Pick<Project, 'stepCount' | 'storageBytes'>,
 ): void {
   if (
-    summary.stepCount > STEP_STORAGE_LIMITS.maxStepsPerGuide &&
+    summary.stepCount > STEP_STORAGE_LIMITS.maxStepsPerProject &&
     (!baseline || summary.stepCount > baseline.stepCount)
   ) {
-    storageError('Guide exceeds the maximum persisted step count.');
+    storageError('Project exceeds the maximum persisted step count.');
   }
   if (
     summary.storageBytes > STEP_STORAGE_LIMITS.maxTotalScreenshotBytes &&
     (!baseline || summary.storageBytes > baseline.storageBytes)
   ) {
-    storageError('Guide exceeds the total screenshot storage limit.');
+    storageError('Project exceeds the total screenshot storage limit.');
   }
 }
 
-export function newGuide(
+export function newProject(
   id: string,
   now: number,
-  initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>,
-  summary: Pick<Guide, 'stepCount' | 'entryCount' | 'storageBytes'> = {
+  initial?: Partial<Pick<Project, 'title' | 'description' | 'tags'>>,
+  summary: Pick<Project, 'stepCount' | 'entryCount' | 'storageBytes'> = {
     stepCount: 0,
     entryCount: 0,
     storageBytes: 0,
   },
   contentRevision = 0,
-): Guide {
-  return sanitizeGuide({
-    id: requireStorageIdentifier(id, 'Guide id'),
+): Project {
+  return sanitizeProject({
+    id: requireStorageIdentifier(id, 'Project id'),
     title: initial?.title ?? '',
     description: initial?.description ?? '',
     sections: [],
@@ -132,56 +132,56 @@ export function newGuide(
 }
 
 /**
- * True while a (sanitized) Guide is still exactly the empty shell newGuide
+ * True while a (sanitized) Project is still exactly the empty shell newProject
  * leaves behind with no initial metadata: nothing recorded, and no
- * user-entered title, description, tags, or sections. sanitizeGuide always
+ * user-entered title, description, tags, or sections. sanitizeProject always
  * substitutes the timestamped untitled placeholder for an empty title, so on
- * a sanitized guide "unnamed" is exactly a placeholder derived from createdAt
+ * a sanitized project "unnamed" is exactly a placeholder derived from createdAt
  * (in any locale) — any user-typed title differs from it. contentRevision is
  * deliberately not consulted: transient rows such as a snapshot run's deleted
  * empty anchor bump it without leaving any user content behind.
  */
-export function isPristineGuide(guide: Guide): boolean {
+export function isPristineProject(project: Project): boolean {
   return (
-    guide.stepCount === 0 &&
-    guide.entryCount === 0 &&
-    isDefaultGuideTitle(guide.title, guide.createdAt) &&
-    guide.description === '' &&
-    guide.tags.length === 0 &&
-    guide.sections.length === 0
+    project.stepCount === 0 &&
+    project.entryCount === 0 &&
+    isDefaultProjectTitle(project.title, project.createdAt) &&
+    project.description === '' &&
+    project.tags.length === 0 &&
+    project.sections.length === 0
   );
 }
 
-export async function requireWritableGuide(tx: GuideStepsTransaction, id: string): Promise<Guide> {
-  const guide = await tx.objectStore('guides').get(id);
-  if (!guide) throw new Error('Guide not found.');
-  return sanitizeGuide(guide);
+export async function requireWritableProject(tx: ProjectStepsTransaction, id: string): Promise<Project> {
+  const project = await tx.objectStore('projects').get(id);
+  if (!project) throw new Error('Project not found.');
+  return sanitizeProject(project);
 }
 
-export async function refreshGuideSummary(
-  tx: GuideStepsTransaction,
-  guide: Guide,
+export async function refreshProjectSummary(
+  tx: ProjectStepsTransaction,
+  project: Project,
   timestamp = Date.now(),
-): Promise<Guide> {
+): Promise<Project> {
   const summary = createSummaryAccumulator();
-  let cursor = await tx.objectStore('steps').index('by-session').openCursor(guide.id);
+  let cursor = await tx.objectStore('steps').index('by-session').openCursor(project.id);
   while (cursor) {
     addStepToSummary(summary, cursor.value);
     cursor = await cursor.continue();
   }
   const finishedSummary = finishSummary(summary);
-  assertGuideStorageLimits(finishedSummary, guide);
-  const updated = sanitizeGuide({
-    ...guide,
+  assertProjectStorageLimits(finishedSummary, project);
+  const updated = sanitizeProject({
+    ...project,
     ...finishedSummary,
-    updatedAt: Math.max(guide.updatedAt, timestamp, Date.now()),
-    contentRevision: guide.contentRevision + 1,
+    updatedAt: Math.max(project.updatedAt, timestamp, Date.now()),
+    contentRevision: project.contentRevision + 1,
   });
-  await tx.objectStore('guides').put(updated);
+  await tx.objectStore('projects').put(updated);
   return updated;
 }
 
-async function abortTransaction(tx: GuideStepsTransaction, error: unknown): Promise<never> {
+async function abortTransaction(tx: ProjectStepsTransaction, error: unknown): Promise<never> {
   try {
     tx.abort();
   } catch {
@@ -200,8 +200,8 @@ function getDatabase(): Promise<IDBPDatabase<StepmarkDB>> {
     upgrade(db) {
       const steps = db.createObjectStore('steps', { keyPath: 'id' });
       steps.createIndex('by-session', 'sessionId');
-      const guides = db.createObjectStore('guides', { keyPath: 'id' });
-      guides.createIndex('by-updated-at', 'updatedAt');
+      const projects = db.createObjectStore('projects', { keyPath: 'id' });
+      projects.createIndex('by-updated-at', 'updatedAt');
     },
     blocked(currentVersion, blockedVersion) {
       console.warn(`Stepmark database upgrade to ${blockedVersion ?? 'unknown'} is blocked by version ${currentVersion}.`);
@@ -253,14 +253,14 @@ export async function runWithDatabase<T>(
   }
 }
 
-/** Standard guides+steps readwrite transaction: closed-connection retry, one
+/** Standard projects+steps readwrite transaction: closed-connection retry, one
  * commit, and rollback through abortTransaction so a failing body can never
  * leak an unhandled tx.done rejection. */
-export async function runGuideStepsWrite<T>(
-  operation: (tx: GuideStepsTransaction) => Promise<T>,
+export async function runProjectStepsWrite<T>(
+  operation: (tx: ProjectStepsTransaction) => Promise<T>,
 ): Promise<T> {
   return runWithDatabase(async (db) => {
-    const tx = db.transaction(['guides', 'steps'], 'readwrite');
+    const tx = db.transaction(['projects', 'steps'], 'readwrite');
     try {
       const result = await operation(tx);
       await tx.done;
@@ -299,7 +299,7 @@ function sortSessionSteps(sessionSteps: Step[], orderedIds: string[]): Step[] {
   return reordered;
 }
 
-export async function writeDenseOrder(tx: GuideStepsTransaction, steps: Step[], orderedIds: string[]): Promise<void> {
+export async function writeDenseOrder(tx: ProjectStepsTransaction, steps: Step[], orderedIds: string[]): Promise<void> {
   const reordered = sortSessionSteps(steps, orderedIds);
   for (let order = 0; order < reordered.length; order += 1) {
     const step = reordered[order];

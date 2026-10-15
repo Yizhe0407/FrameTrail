@@ -2,14 +2,14 @@ import { browser } from 'wxt/browser';
 import { validatePreparedPermissionSource } from './continuation-tabs';
 import { t } from '@/lib/shared/i18n';
 import {
-  isPreflightGuideContinuationSourcePermissionResult,
+  isPreflightProjectContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
   isStartRecordingResult,
   isStartStepRecaptureResult,
   requireRuntimeMessageResult,
 } from '../runtime/runtime-message-result';
 import type {
-  PreflightGuideContinuationSourcePermissionResult,
+  PreflightProjectContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   StartRecordingMessage,
   StartRecordingResult,
@@ -70,15 +70,15 @@ export async function requestRecapturePreflight(
 export async function requestContinuationPreflight(
   sessionId: string,
 ): Promise<PreparedCapturePermission> {
-  const result = requireRuntimeMessageResult<PreflightGuideContinuationSourcePermissionResult>(
+  const result = requireRuntimeMessageResult<PreflightProjectContinuationSourcePermissionResult>(
     await browser.runtime.sendMessage({
-      type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
+      type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
       sessionId,
     }),
-    isPreflightGuideContinuationSourcePermissionResult,
+    isPreflightProjectContinuationSourcePermissionResult,
   );
   if (!result.ok) {
-    // A Guide without steps has no source page to lock onto. That is not a
+    // A Project without steps has no source page to lock onto. That is not a
     // terminal error: the dialog still opens and offers the site-agnostic
     // 「改在其他頁面接續」 path, which needs no stored source.
     if (result.code !== 'SOURCE_NOT_FOUND') throw new Error(result.message);

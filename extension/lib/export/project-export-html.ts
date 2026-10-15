@@ -1,18 +1,18 @@
 import { throwIfAborted } from '../shared/abort';
-import type { GuideSection } from '../guide/guide-sections';
+import type { ProjectSection } from '../project/project-sections';
 import { type StepEntry } from '../storage/models';
 import {
   DEFAULT_TITLE,
-  GUIDE_EXPORT_THEME,
-  escapeGuideHtml,
-  formatGuideCreatedAt,
+  PROJECT_EXPORT_THEME,
+  escapeProjectHtml,
+  formatProjectCreatedAt,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportMetadata,
-  type GuideExportOptions,
-} from './guide-export-contract';
-import { renderEntries, type RenderedEntry } from './guide-export-render';
+  type ProjectExportMetadata,
+  type ProjectExportOptions,
+} from './project-export-contract';
+import { renderEntries, type RenderedEntry } from './project-export-render';
 import { documentLang, t } from '@/lib/shared/i18n';
 
 /**
@@ -20,17 +20,17 @@ import { documentLang, t } from '@/lib/shared/i18n';
  * markup and data-URI images; all metadata and descriptions pass through
  * text escaping before interpolation.
  */
-export async function generateGuideHtml(
+export async function generateProjectHtml(
   entries: readonly StepEntry[],
-  metadata: GuideExportMetadata = {},
-  options: GuideExportOptions = {},
+  metadata: ProjectExportMetadata = {},
+  options: ProjectExportOptions = {},
 ): Promise<string> {
-  return generateGuideHtmlDocument(entries, metadata, options.signal);
+  return generateProjectHtmlDocument(entries, metadata, options.signal);
 }
 
-async function generateGuideHtmlDocument(
+async function generateProjectHtmlDocument(
   entries: readonly StepEntry[],
-  metadata: GuideExportMetadata,
+  metadata: ProjectExportMetadata,
   signal?: AbortSignal,
 ): Promise<string> {
   const renderedEntries = await renderEntries(entries, signal);
@@ -39,13 +39,13 @@ async function generateGuideHtmlDocument(
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const description = textValue(metadata.description);
   const metaParts = [t().export.stepCount(renderedEntries.length)];
-  const createdAt = formatGuideCreatedAt(metadata.createdAt);
+  const createdAt = formatProjectCreatedAt(metadata.createdAt);
   if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   const header = [
-    `<p class="guide-overline">Stepmark</p>`,
-    `<h1>${escapeGuideHtml(title)}</h1>`,
-    description ? `<p class="guide-description">${htmlText(description)}</p>` : '',
-    `<p class="guide-meta">${metaParts.map((part) => `<span>${escapeGuideHtml(part)}</span>`).join('\n')}</p>`,
+    `<p class="project-overline">Stepmark</p>`,
+    `<h1>${escapeProjectHtml(title)}</h1>`,
+    description ? `<p class="project-description">${htmlText(description)}</p>` : '',
+    `<p class="project-meta">${metaParts.map((part) => `<span>${escapeProjectHtml(part)}</span>`).join('\n')}</p>`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -68,17 +68,17 @@ async function generateGuideHtmlDocument(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
-<title>${escapeGuideHtml(title)}</title>
+<title>${escapeProjectHtml(title)}</title>
 <style>
 ${BASE_STYLE}
 </style>
 </head>
-<body class="guide-document">
-<main class="guide">
-<header class="guide-header">
+<body class="project-document">
+<main class="project">
+<header class="project-header">
 ${header}
 </header>
-<div class="guide-content">
+<div class="project-content">
 ${steps}
 </div>
 </main>
@@ -87,20 +87,20 @@ ${steps}
 `;
 }
 
-function renderHtmlSectionHeading(section: GuideSection): string {
-  return `<section class="guide-section-heading">
-<p class="guide-section-label">${escapeGuideHtml(t().export.section)}</p>
+function renderHtmlSectionHeading(section: ProjectSection): string {
+  return `<section class="project-section-heading">
+<p class="project-section-label">${escapeProjectHtml(t().export.section)}</p>
 <h2>${htmlText(section.title)}</h2>
 </section>`;
 }
 
 function renderHtmlEntry(entry: RenderedEntry): string {
   const heading = htmlText(textOrDefault(entry.description, t().export.missingDescription));
-  const alt = escapeGuideHtml(textOrDefault(entry.description, t().export.imageAlt));
+  const alt = escapeProjectHtml(textOrDefault(entry.description, t().export.imageAlt));
   const annotations = entry.annotations.length > 0 ? renderHtmlAnnotations(entry) : '';
 
   return [
-    `<section class="guide-step">`,
+    `<section class="project-step">`,
     `<div class="step-heading">`,
     `<span class="step-number" aria-hidden="true">${entry.ordinal}</span>`,
     `<h3 class="step-title">${heading}</h3>`,
@@ -127,11 +127,11 @@ ${items}
 }
 
 function htmlText(value: string): string {
-  return escapeGuideHtml(value).replace(/\r\n?|\n/g, '<br>');
+  return escapeProjectHtml(value).replace(/\r\n?|\n/g, '<br>');
 }
 
 /**
- * Ink-friendly print palette. Deliberately separate from GUIDE_EXPORT_THEME:
+ * Ink-friendly print palette. Deliberately separate from PROJECT_EXPORT_THEME:
  * near-black text and a darker accent keep contrast on paper, and hairlines
  * darken so they survive low-resolution printing.
  */
@@ -143,7 +143,7 @@ const PRINT_LINE_SOFT = '#dcdcdc';
 const PRINT_ACCENT = '#2f4d9e';
 
 /**
- * Document stylesheet for step guides: system font stack with CJK coverage,
+ * Document stylesheet for step projects: system font stack with CJK coverage,
  * >=1.7 body leading, a comfortable centered reading column, numbered step
  * cards, light/dark schemes, and an ink-friendly A4 print layout.
  */
@@ -153,13 +153,13 @@ const BASE_STYLE = `
   --canvas: #f5f6f8;
   --surface: #ffffff;
   --surface-muted: #f2f4f7;
-  --text: ${GUIDE_EXPORT_THEME.text};
-  --text-secondary: ${GUIDE_EXPORT_THEME.secondaryText};
-  --text-muted: ${GUIDE_EXPORT_THEME.mutedText};
-  --line: ${GUIDE_EXPORT_THEME.rule};
+  --text: ${PROJECT_EXPORT_THEME.text};
+  --text-secondary: ${PROJECT_EXPORT_THEME.secondaryText};
+  --text-muted: ${PROJECT_EXPORT_THEME.mutedText};
+  --line: ${PROJECT_EXPORT_THEME.rule};
   --line-soft: #eceef2;
-  --image-border: ${GUIDE_EXPORT_THEME.imageBorder};
-  --accent: ${GUIDE_EXPORT_THEME.accent};
+  --image-border: ${PROJECT_EXPORT_THEME.imageBorder};
+  --accent: ${PROJECT_EXPORT_THEME.accent};
   --accent-contrast: #ffffff;
   --card-shadow: 0 1px 2px rgb(23 26 31 / 0.04), 0 8px 24px rgb(23 26 31 / 0.05);
 }
@@ -186,14 +186,14 @@ body {
   margin: 0;
   background: var(--canvas);
   color: var(--text);
-  font-family: ${GUIDE_EXPORT_THEME.fontFamily};
+  font-family: ${PROJECT_EXPORT_THEME.fontFamily};
   font-size: 16px;
   line-height: 1.75;
   -webkit-font-smoothing: antialiased;
 }
 p { margin: 0; }
-.guide { width: min(100% - 40px, 760px); margin: 0 auto; padding: 48px 0 72px; }
-.guide-header {
+.project { width: min(100% - 40px, 760px); margin: 0 auto; padding: 48px 0 72px; }
+.project-header {
   margin-bottom: 32px;
   padding: 36px 40px 30px;
   background: var(--surface);
@@ -202,7 +202,7 @@ p { margin: 0; }
   border-radius: 12px;
   box-shadow: var(--card-shadow);
 }
-.guide-overline {
+.project-overline {
   margin-bottom: 14px;
   color: var(--accent);
   font-size: .75rem;
@@ -218,13 +218,13 @@ h1 {
   letter-spacing: -.015em;
   text-wrap: balance;
 }
-.guide-description {
+.project-description {
   max-width: 70ch;
   margin-top: 14px;
   color: var(--text-secondary);
   font-size: 1.0625rem;
 }
-.guide-meta {
+.project-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 0;
@@ -234,11 +234,11 @@ h1 {
   color: var(--text-muted);
   font-size: .875rem;
 }
-.guide-meta span + span::before { content: "·"; margin: 0 10px; }
-.guide-content { display: flow-root; }
-.guide-section-heading { margin: 48px 0 20px; padding-bottom: 10px; border-bottom: 2px solid var(--line); }
-.guide-section-heading:first-child { margin-top: 8px; }
-.guide-section-label {
+.project-meta span + span::before { content: "·"; margin: 0 10px; }
+.project-content { display: flow-root; }
+.project-section-heading { margin: 48px 0 20px; padding-bottom: 10px; border-bottom: 2px solid var(--line); }
+.project-section-heading:first-child { margin-top: 8px; }
+.project-section-label {
   margin-bottom: 4px;
   color: var(--accent);
   font-size: .72rem;
@@ -246,8 +246,8 @@ h1 {
   letter-spacing: .14em;
   text-transform: uppercase;
 }
-.guide-section-heading h2 { margin: 0; color: var(--text); font-size: 1.5rem; line-height: 1.4; }
-.guide-step {
+.project-section-heading h2 { margin: 0; color: var(--text); font-size: 1.5rem; line-height: 1.4; }
+.project-step {
   margin: 0 0 24px;
   padding: 24px 28px 28px;
   background: var(--surface);
@@ -301,9 +301,9 @@ img {
 .annotation-list li { max-width: 66ch; padding-left: .35rem; }
 .annotation-list li + li { margin-top: 8px; }
 @media (max-width: 640px) {
-  .guide { width: min(100% - 24px, 760px); padding: 20px 0 48px; }
-  .guide-header { padding: 24px 20px; }
-  .guide-step { padding: 18px 16px 20px; }
+  .project { width: min(100% - 24px, 760px); padding: 20px 0 48px; }
+  .project-header { padding: 24px 20px; }
+  .project-step { padding: 18px 16px 20px; }
   .step-heading { gap: 10px; }
 }
 @page { size: A4; margin: 16mm; }
@@ -325,16 +325,16 @@ img {
   }
   html, body { background: #ffffff; }
   body { font-size: 11pt; line-height: 1.7; }
-  .guide { width: 100%; padding: 0; }
-  .guide-header {
+  .project { width: 100%; padding: 0; }
+  .project-header {
     margin-bottom: 18pt;
     padding: 0 0 12pt;
     border: 0;
     border-bottom: 2pt solid ${PRINT_TEXT};
     border-radius: 0;
   }
-  .guide-section-heading { break-after: avoid; page-break-after: avoid; }
-  .guide-step {
+  .project-section-heading { break-after: avoid; page-break-after: avoid; }
+  .project-step {
     break-inside: avoid;
     page-break-inside: avoid;
     margin-bottom: 14pt;

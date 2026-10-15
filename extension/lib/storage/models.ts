@@ -1,13 +1,13 @@
 import {
-  GUIDE_SECTION_LIMITS,
-  sanitizeGuideSectionTitle,
-  type GuideSection,
-} from './guide-section-model';
-import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from './guide-tag-model';
+  PROJECT_SECTION_LIMITS,
+  sanitizeProjectSectionTitle,
+  type ProjectSection,
+} from './project-section-model';
+import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from './project-tag-model';
 import { isRecord } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
 import { getLocale, messagesFor, SUPPORTED_LOCALES, type Locale } from '../shared/i18n';
-export type { GuideSection } from './guide-section-model';
+export type { ProjectSection } from './project-section-model';
 
 export interface Bounds {
   x: number;
@@ -82,18 +82,18 @@ export interface Step {
   numbered?: boolean;
 }
 
-/** A locally persisted, editable guide. `id` intentionally remains identical
+/** A locally persisted, editable project. `id` intentionally remains identical
  * to Step.sessionId so capture transaction guards share one stable identity. */
-export interface Guide {
+export interface Project {
   id: string;
   title: string;
   description: string;
-  sections: GuideSection[];
+  sections: ProjectSection[];
   /** Free-form labels for search/filter in the Library. Order is insertion order. */
   tags: string[];
   createdAt: number;
   updatedAt: number;
-  /** Monotonic guide-content generation. Metadata-only edits do not change it. */
+  /** Monotonic project-content generation. Metadata-only edits do not change it. */
   contentRevision: number;
   /** Denormalized summary fields kept transactionally in sync with `steps`. */
   stepCount: number;
@@ -101,17 +101,17 @@ export interface Guide {
   storageBytes: number;
 }
 
-export type GuideSummary = Guide;
+export type ProjectSummary = Project;
 
-export const GUIDE_TITLE_MAX_LENGTH = 120;
-export const GUIDE_DESCRIPTION_MAX_LENGTH = 2_000;
+export const PROJECT_TITLE_MAX_LENGTH = 120;
+export const PROJECT_DESCRIPTION_MAX_LENGTH = 2_000;
 
 /** Runtime persistence limits mirror the portable project format so data that
  * can be recorded locally can always be backed up without unbounded memory or
  * IndexedDB growth. */
 export const STEP_STORAGE_LIMITS = Object.freeze({
   ...PERSISTED_STEP_LIMITS,
-  maxMutationItems: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxMutationItems: PERSISTED_STEP_LIMITS.maxStepsPerProject,
 });
 
 export class StepStorageValidationError extends Error {
@@ -188,53 +188,53 @@ export function assertMutationItems(
   }
 }
 
-function sanitizeGuideText(value: unknown, maximum: number): string {
+function sanitizeProjectText(value: unknown, maximum: number): string {
   return typeof value === 'string'
     ? value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, maximum)
     : '';
 }
 
-function untitledGuideTitle(createdAt: number, locale: Locale): string {
+function untitledProjectTitle(createdAt: number, locale: Locale): string {
   const copy = messagesFor(locale).common;
   const date = new Date(createdAt);
   return Number.isFinite(date.getTime())
-    ? copy.untitledGuideWithStamp(
+    ? copy.untitledProjectWithStamp(
       new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date),
     )
-    : copy.untitledGuide;
+    : copy.untitledProject;
 }
 
-/** The timestamped placeholder an untitled guide is stored with, written in
- * the locale active when the guide was created. */
-export function defaultGuideTitle(createdAt: number): string {
-  return untitledGuideTitle(createdAt, getLocale());
+/** The timestamped placeholder an untitled project is stored with, written in
+ * the locale active when the project was created. */
+export function defaultProjectTitle(createdAt: number): string {
+  return untitledProjectTitle(createdAt, getLocale());
 }
 
-/** Whether `title` is the untitled placeholder for a guide created at
- * `createdAt`, in any shipped locale: a guide created under one UI language
+/** Whether `title` is the untitled placeholder for a project created at
+ * `createdAt`, in any shipped locale: a project created under one UI language
  * stays recognizably untitled after the user switches to another. */
-export function isDefaultGuideTitle(title: string, createdAt: number): boolean {
-  return SUPPORTED_LOCALES.some((locale) => title === untitledGuideTitle(createdAt, locale));
+export function isDefaultProjectTitle(title: string, createdAt: number): boolean {
+  return SUPPORTED_LOCALES.some((locale) => title === untitledProjectTitle(createdAt, locale));
 }
 
 function nonNegativeInteger(value: unknown): number {
   return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : 0;
 }
 
-function sanitizeGuideSectionsShape(value: unknown): GuideSection[] {
+function sanitizeProjectSectionsShape(value: unknown): ProjectSection[] {
   if (!Array.isArray(value)) return [];
-  const sections: GuideSection[] = [];
+  const sections: ProjectSection[] = [];
   const seenIds = new Set<string>();
   const seenStarts = new Set<string>();
-  for (const raw of value.slice(0, GUIDE_SECTION_LIMITS.maxSections)) {
+  for (const raw of value.slice(0, PROJECT_SECTION_LIMITS.maxSections)) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const candidate = raw as Partial<GuideSection>;
+    const candidate = raw as Partial<ProjectSection>;
     const id = typeof candidate.id === 'string' ? candidate.id : '';
     const startEntryId = typeof candidate.startEntryId === 'string' ? candidate.startEntryId : '';
-    const title = sanitizeGuideSectionTitle(candidate.title);
+    const title = sanitizeProjectSectionTitle(candidate.title);
     const validId = (identifier: string) => (
       identifier.length > 0
-      && identifier.length <= GUIDE_SECTION_LIMITS.maxIdLength
+      && identifier.length <= PROJECT_SECTION_LIMITS.maxIdLength
       && identifier.trim() === identifier
       && !/[\u0000-\u001f\u007f-\u009f]/u.test(identifier)
     );
@@ -246,13 +246,13 @@ function sanitizeGuideSectionsShape(value: unknown): GuideSection[] {
   return sections;
 }
 
-function sanitizeGuideTagsShape(value: unknown): string[] {
+function sanitizeProjectTagsShape(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const tags: string[] = [];
   const seen = new Set<string>();
   for (const raw of value) {
-    if (tags.length >= GUIDE_TAG_LIMITS.maxTags) break;
-    const tag = sanitizeGuideTag(raw);
+    if (tags.length >= PROJECT_TAG_LIMITS.maxTags) break;
+    const tag = sanitizeProjectTag(raw);
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     tags.push(tag);
@@ -260,22 +260,22 @@ function sanitizeGuideTagsShape(value: unknown): string[] {
   return tags;
 }
 
-export function sanitizeGuide(guide: Guide): Guide {
-  const createdAt = Number.isFinite(guide.createdAt) ? guide.createdAt : Date.now();
-  const updatedAt = Number.isFinite(guide.updatedAt) ? Math.max(guide.updatedAt, createdAt) : createdAt;
-  const title = sanitizeGuideText(guide.title, GUIDE_TITLE_MAX_LENGTH) || defaultGuideTitle(createdAt);
+export function sanitizeProject(project: Project): Project {
+  const createdAt = Number.isFinite(project.createdAt) ? project.createdAt : Date.now();
+  const updatedAt = Number.isFinite(project.updatedAt) ? Math.max(project.updatedAt, createdAt) : createdAt;
+  const title = sanitizeProjectText(project.title, PROJECT_TITLE_MAX_LENGTH) || defaultProjectTitle(createdAt);
   return {
-    id: guide.id,
+    id: project.id,
     title,
-    description: sanitizeGuideText(guide.description, GUIDE_DESCRIPTION_MAX_LENGTH),
-    sections: sanitizeGuideSectionsShape((guide as Guide & { sections?: unknown }).sections),
-    tags: sanitizeGuideTagsShape((guide as Guide & { tags?: unknown }).tags),
+    description: sanitizeProjectText(project.description, PROJECT_DESCRIPTION_MAX_LENGTH),
+    sections: sanitizeProjectSectionsShape((project as Project & { sections?: unknown }).sections),
+    tags: sanitizeProjectTagsShape((project as Project & { tags?: unknown }).tags),
     createdAt,
     updatedAt,
-    contentRevision: nonNegativeInteger(guide.contentRevision),
-    stepCount: nonNegativeInteger(guide.stepCount),
-    entryCount: nonNegativeInteger(guide.entryCount),
-    storageBytes: nonNegativeInteger(guide.storageBytes),
+    contentRevision: nonNegativeInteger(project.contentRevision),
+    stepCount: nonNegativeInteger(project.stepCount),
+    entryCount: nonNegativeInteger(project.entryCount),
+    storageBytes: nonNegativeInteger(project.storageBytes),
   };
 }
 
@@ -481,10 +481,10 @@ export function flattenEntries(entries: StepEntry[]): string[] {
 }
 
 
-export class GuideStructureIntegrityError extends Error {
-  constructor(message = 'Guide timeline contains incomplete or split entries.') {
+export class ProjectStructureIntegrityError extends Error {
+  constructor(message = 'Project timeline contains incomplete or split entries.') {
     super(message);
-    this.name = 'GuideStructureIntegrityError';
+    this.name = 'ProjectStructureIntegrityError';
   }
 }
 
@@ -507,14 +507,14 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
 
   for (let index = 0; index < sorted.length;) {
     const step = sorted[index];
-    if (seenIds.has(step.id)) throw new GuideStructureIntegrityError('Guide contains duplicate step ids.');
+    if (seenIds.has(step.id)) throw new ProjectStructureIntegrityError('Project contains duplicate step ids.');
     seenIds.add(step.id);
     if (expectedSessionId && step.sessionId !== expectedSessionId) {
-      throw new GuideStructureIntegrityError('Guide contains a row from another session.');
+      throw new ProjectStructureIntegrityError('Project contains a row from another session.');
     }
     if (!step.groupId) {
       if (!(step.screenshotBlob instanceof Blob)) {
-        throw new GuideStructureIntegrityError('An ordinary entry is missing its screenshot.');
+        throw new ProjectStructureIntegrityError('An ordinary entry is missing its screenshot.');
       }
       entries.push({ kind: 'single', step: step as ScreenshotStep });
       index += 1;
@@ -523,7 +523,7 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
 
     const groupId = step.groupId;
     if (seenGroups.has(groupId) || stepRole(step) !== 'anchor' || !(step.screenshotBlob instanceof Blob)) {
-      throw new GuideStructureIntegrityError('A snapshot group is missing its leading image anchor.');
+      throw new ProjectStructureIntegrityError('A snapshot group is missing its leading image anchor.');
     }
     seenGroups.add(groupId);
     const anchor = step as ScreenshotStep;
@@ -532,23 +532,23 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
     while (index < sorted.length && sorted[index].groupId === groupId) {
       const annotation = sorted[index];
       if (seenIds.has(annotation.id) || stepRole(annotation) !== 'annotation' || !getEffectiveBounds(annotation)) {
-        throw new GuideStructureIntegrityError('A snapshot group contains an invalid annotation.');
+        throw new ProjectStructureIntegrityError('A snapshot group contains an invalid annotation.');
       }
       if (expectedSessionId && annotation.sessionId !== expectedSessionId) {
-        throw new GuideStructureIntegrityError('A snapshot group crosses Guide boundaries.');
+        throw new ProjectStructureIntegrityError('A snapshot group crosses Project boundaries.');
       }
       if (Boolean(annotation.numbered) !== Boolean(anchor.numbered)) {
-        throw new GuideStructureIntegrityError('A snapshot group has inconsistent numbering metadata.');
+        throw new ProjectStructureIntegrityError('A snapshot group has inconsistent numbering metadata.');
       }
       seenIds.add(annotation.id);
       annotations.push(annotation);
       index += 1;
     }
     if (annotations.length === 0) {
-      throw new GuideStructureIntegrityError('A snapshot group has no complete annotation.');
+      throw new ProjectStructureIntegrityError('A snapshot group has no complete annotation.');
     }
     if ((lastGroupIndex.get(groupId) ?? -1) >= index) {
-      throw new GuideStructureIntegrityError('A snapshot group is split across the timeline.');
+      throw new ProjectStructureIntegrityError('A snapshot group is split across the timeline.');
     }
     entries.push({ kind: 'group', anchor, annotations });
   }
@@ -565,11 +565,11 @@ export function flattenEntrySteps(entries: readonly StepEntry[]): Step[] {
 
 export function assertExactEntryIds(actualEntries: readonly StepEntry[], requestedIds: readonly string[]): void {
   if (requestedIds.length !== actualEntries.length || new Set(requestedIds).size !== requestedIds.length) {
-    throw new GuideStructureIntegrityError('Entry order must contain every entry exactly once.');
+    throw new ProjectStructureIntegrityError('Entry order must contain every entry exactly once.');
   }
   const actual = new Set(actualEntries.map(entryId));
   if (requestedIds.some((id) => !actual.has(id))) {
-    throw new GuideStructureIntegrityError('Entry order contains an unknown or annotation id.');
+    throw new ProjectStructureIntegrityError('Entry order contains an unknown or annotation id.');
   }
 }
 

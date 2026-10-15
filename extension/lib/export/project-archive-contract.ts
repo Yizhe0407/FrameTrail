@@ -1,8 +1,8 @@
 import { BASE64_ALPHABET } from './base64';
 import type { Bounds, Redaction, Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
-import { GUIDE_SECTION_LIMITS, type GuideSection } from '../storage/guide-section-model';
-import { GUIDE_TAG_LIMITS } from '../storage/guide-tag-model';
+import { PROJECT_SECTION_LIMITS, type ProjectSection } from '../storage/project-section-model';
+import { PROJECT_TAG_LIMITS } from '../storage/project-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'stepmark-project';
 export const PROJECT_ARCHIVE_VERSION = 2;
@@ -13,17 +13,17 @@ export const PROJECT_ARCHIVE_LIMITS = Object.freeze({
   maxArchiveBytes: 128 * 1024 * 1024,
   maxTotalScreenshotBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes,
   maxScreenshotBytes: PERSISTED_STEP_LIMITS.maxScreenshotBytes,
-  maxSteps: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
-  maxScreenshots: PERSISTED_STEP_LIMITS.maxStepsPerGuide,
+  maxSteps: PERSISTED_STEP_LIMITS.maxStepsPerProject,
+  maxScreenshots: PERSISTED_STEP_LIMITS.maxStepsPerProject,
   maxRedactionsPerStep: PERSISTED_STEP_LIMITS.maxRedactionsPerStep,
   maxIdLength: PERSISTED_STEP_LIMITS.maxIdLength,
   maxTitleLength: 120,
   maxDescriptionLength: PERSISTED_STEP_LIMITS.maxDescriptionLength,
-  maxGuideDescriptionLength: 2_000,
-  maxSections: GUIDE_SECTION_LIMITS.maxSections,
-  maxSectionTitleLength: GUIDE_SECTION_LIMITS.maxTitleLength,
-  maxTags: GUIDE_TAG_LIMITS.maxTags,
-  maxTagLength: GUIDE_TAG_LIMITS.maxTagLength,
+  maxProjectDescriptionLength: 2_000,
+  maxSections: PROJECT_SECTION_LIMITS.maxSections,
+  maxSectionTitleLength: PROJECT_SECTION_LIMITS.maxTitleLength,
+  maxTags: PROJECT_TAG_LIMITS.maxTags,
+  maxTagLength: PROJECT_TAG_LIMITS.maxTagLength,
   maxUrlLength: PERSISTED_STEP_LIMITS.maxUrlLength,
   maxCoordinateMagnitude: PERSISTED_STEP_LIMITS.maxCoordinateMagnitude,
   maxBoundsDimension: PERSISTED_STEP_LIMITS.maxBoundsDimension,
@@ -54,7 +54,7 @@ export class ProjectArchiveError extends Error {
 
 export interface ProjectArchiveOptions {
   signal?: AbortSignal;
-  /** Safe guide metadata included in newly-created v2 archives. */
+  /** Safe project metadata included in newly-created v2 archives. */
   metadata?: ProjectArchiveMetadataInput;
 }
 
@@ -65,14 +65,14 @@ export interface ProjectArchiveImportOptions {
 export interface ProjectArchiveMetadataInput {
   title?: string;
   description?: string;
-  sections?: readonly GuideSection[];
+  sections?: readonly ProjectSection[];
   tags?: readonly string[];
 }
 
 export interface ProjectArchiveMetadata {
   title: string;
   description: string;
-  sections: GuideSection[];
+  sections: ProjectSection[];
   tags: string[];
 }
 
@@ -131,7 +131,7 @@ export interface ArchiveManifest {
 export interface ArchiveMetadata {
   title: string;
   description: string;
-  sections: GuideSection[];
+  sections: ProjectSection[];
   tags: string[];
 }
 

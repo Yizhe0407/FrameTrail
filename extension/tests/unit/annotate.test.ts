@@ -695,7 +695,7 @@ describe('compositeMultiHighlight', () => {
     }
   });
 
-  it('omits badges when the guide is not numbered', async () => {
+  it('omits badges when the project is not numbered', async () => {
     const { calls, FakeOffscreenCanvas } = fakeCanvas();
     stubBitmap(400, 200, FakeOffscreenCanvas);
 

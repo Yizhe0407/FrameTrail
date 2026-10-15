@@ -21,10 +21,10 @@ beforeEach(() => {
 });
 
 describe('getEditorSessionIdFromUrl', () => {
-  it('reads the explicit Guide session from an editor URL', () => {
+  it('reads the explicit Project session from an editor URL', () => {
     expect(
-      getEditorSessionIdFromUrl('chrome-extension://extension-id/editor.html?entryId=step&sessionId=guide-a'),
-    ).toBe('guide-a');
+      getEditorSessionIdFromUrl('chrome-extension://extension-id/editor.html?entryId=step&sessionId=project-a'),
+    ).toBe('project-a');
   });
 
   it('returns null for absent, empty, or malformed session URLs', () => {

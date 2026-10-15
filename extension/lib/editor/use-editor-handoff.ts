@@ -6,7 +6,7 @@ import { isRecord } from '../shared/validation';
 import type { EditorHandoffMessage, EditorHandoffResult } from '../runtime/messages';
 
 export interface EditorHandoffOptions {
-  /** The Guide this page is showing, or null while it has none. */
+  /** The Project this page is showing, or null while it has none. */
   viewedSessionId: string | null;
   flushDescriptions: () => Promise<void>;
   selectEntry: (entryId: string) => Promise<void>;
@@ -23,9 +23,9 @@ function isEditorHandoffMessage(value: unknown): value is EditorHandoffMessage {
 }
 
 /**
- * Answers whether this page can take over the Guide the background was asked
+ * Answers whether this page can take over the Project the background was asked
  * to open. The page decides because it is the only component that knows which
- * Guide it renders and whether a description is still unsaved; the background
+ * Project it renders and whether a description is still unsaved; the background
  * keeps sole ownership of actually moving the tab.
  */
 async function answerHandoff(
@@ -46,7 +46,7 @@ async function answerHandoff(
     return { ok: true, ready: true };
   }
   try {
-    // Leaving this Guide would discard whatever is still unsaved, so consent to
+    // Leaving this Project would discard whatever is still unsaved, so consent to
     // being navigated is conditional on the flush succeeding.
     await flushDescriptions();
   } catch (error) {

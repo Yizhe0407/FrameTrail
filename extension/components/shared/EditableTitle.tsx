@@ -37,7 +37,7 @@ export default function EditableTitle({
   // this ref is what tells the blur commit that Escape already cancelled it.
   const cancelled = useRef(false);
 
-  // An external rename (undo, another tab, a failed write reloading the guide)
+  // An external rename (undo, another tab, a failed write reloading the project)
   // wins whenever the user is not mid-edit.
   useEffect(() => {
     if (!editing) setDraft(committed);

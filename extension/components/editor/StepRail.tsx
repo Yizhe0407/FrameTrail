@@ -7,7 +7,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { entryId, type StepEntry } from '@/lib/storage/models';
-import type { GuideSection } from '@/lib/guide/guide-sections';
+import type { ProjectSection } from '@/lib/project/project-sections';
 import {
   restrictToHorizontalAxis,
   restrictToVerticalAxis,
@@ -18,7 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/shared/utils';
 import EntryThumbnail from './EntryThumbnail';
 import SortableItem from './SortableItem';
-import GuideSectionHeading from './GuideSectionHeading';
+import ProjectSectionHeading from './ProjectSectionHeading';
 
 
 function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactNode }) {
@@ -59,7 +59,7 @@ function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactN
 interface Props {
   entries: StepEntry[];
   selectedEntryId: string | null;
-  sections?: readonly GuideSection[];
+  sections?: readonly ProjectSection[];
   onSelect: (id: string) => void;
   onRenameSection?: (sectionId: string, title: string) => Promise<void>;
   onDeleteSection?: (sectionId: string) => Promise<void>;
@@ -86,7 +86,7 @@ export default function StepRail({
     {
       disabled: reorderDisabled,
       itemNoun: t().sortable.stepNoun,
-      logLabel: '[stepmark] failed to reorder guide entries',
+      logLabel: '[stepmark] failed to reorder project entries',
     },
   );
   const selectedItem = useRef<HTMLButtonElement | null>(null);
@@ -186,7 +186,7 @@ export default function StepRail({
                   {(handle, { isDragging }) => (
                     <div className="flex min-w-0 flex-col gap-1">
                       {section && onRenameSection && onDeleteSection && (
-                        <GuideSectionHeading
+                        <ProjectSectionHeading
                           section={section}
                           disabled={reorderDisabled}
                           onRename={onRenameSection}

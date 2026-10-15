@@ -19,8 +19,8 @@ import { t } from '@/lib/shared/i18n';
 interface Props {
   entry: StepEntry;
   index: number;
-  guideTitle?: string;
-  guideTags?: readonly string[];
+  projectTitle?: string;
+  projectTags?: readonly string[];
   onTitleChange?: (title: string) => Promise<void>;
   onTagsChange?: (tags: string[]) => Promise<void>;
   onChange: () => void | Promise<void>;
@@ -36,8 +36,8 @@ interface Props {
 export default function StepStage({
   entry,
   index,
-  guideTitle,
-  guideTags = [],
+  projectTitle,
+  projectTags = [],
   onTitleChange,
   onTagsChange,
   onChange,
@@ -54,7 +54,7 @@ export default function StepStage({
   const [stageError, setStageError] = useState<string | null>(null);
   const privacy = getEntryPrivacyState(entry);
 
-  const displayTags = guideTags;
+  const displayTags = projectTags;
 
   // Rethrows so each surface owns its own reporting: the tag dialog shows the failure inline
   // while open (a stage banner would sit behind the modal), and the chip row uses `stageError`.
@@ -68,7 +68,7 @@ export default function StepStage({
     try {
       await commitTags(tags);
     } catch (tagError) {
-      setStageError(reportError('[stepmark] failed to update guide tags', tagError, t().editor.stage.tagSaveFailed));
+      setStageError(reportError('[stepmark] failed to update project tags', tagError, t().editor.stage.tagSaveFailed));
     }
   }
 
@@ -77,13 +77,13 @@ export default function StepStage({
       <div className="mb-4 flex shrink-0 flex-col gap-3 border-b-2 border-border-soft pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 w-full items-center gap-1.5 sm:max-w-[45%]">
           <EditableTitle
-            value={guideTitle ?? ''}
-            fallback={t().common.untitledGuide}
+            value={projectTitle ?? ''}
+            fallback={t().common.untitledProject}
             label={t().editor.stage.titleLabel}
             disabled={editingDisabled || !onTitleChange}
             onCommit={(title) => onTitleChange?.(title)}
             onCommitError={(titleError) => {
-              setStageError(reportError('[stepmark] failed to rename guide', titleError, t().editor.stage.titleSaveFailed));
+              setStageError(reportError('[stepmark] failed to rename project', titleError, t().editor.stage.titleSaveFailed));
             }}
             className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-2 border-transparent px-2 py-1 text-[22px] leading-tight font-bold text-foreground transition-colors focus-ring hover:border-border-soft focus:border-border focus:bg-card [field-sizing:content]"
           />
@@ -95,7 +95,7 @@ export default function StepStage({
               <span className="min-w-0 truncate">{tag}</span>
               <button
                 type="button"
-                onClick={() => void commitTagsInline(guideTags.filter((t) => t !== tag))}
+                onClick={() => void commitTagsInline(projectTags.filter((t) => t !== tag))}
                 aria-label={t().editor.stage.removeTag(tag)}
                 disabled={editingDisabled}
                 className="flex size-5 shrink-0 items-center justify-center rounded-full text-on-accent outline-none transition-colors focus-ring hover:bg-on-accent hover:text-card disabled:cursor-not-allowed disabled:opacity-50"
@@ -124,7 +124,7 @@ export default function StepStage({
 
       <TagSelectDialog
         open={tagDialogOpen}
-        selectedTags={guideTags}
+        selectedTags={projectTags}
         onOpenChange={setTagDialogOpen}
         onSave={commitTags}
       />

@@ -10,8 +10,8 @@ vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal));
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
 vi.mock('@/lib/recording/background/pending-undo-store', async () =>
@@ -51,7 +51,7 @@ beforeEach(async () => {
   mocks.sessionSet.mockResolvedValue(undefined);
   mocks.sessionRemove.mockResolvedValue(undefined);
   mocks.tabsSendMessage.mockResolvedValue(undefined);
-  mocks.getGuide.mockResolvedValue({ id: 'guide-a', title: 'Guide A' });
+  mocks.getProject.mockResolvedValue({ id: 'project-a', title: 'Project A' });
   mocks.getSteps.mockResolvedValue([]);
   mocks.tabsCreate.mockResolvedValue({ id: 77, windowId: 1 });
   mocks.tabsUpdate.mockResolvedValue(undefined);
@@ -67,24 +67,24 @@ beforeEach(async () => {
 
 describe('the single editor opener', () => {
   it('creates the one editor tab when no page has registered', async () => {
-    await expect(openEditor({ sessionId: 'guide-a' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-a' })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
     expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-a`,
       active: true,
     });
   });
 
-  it('focuses, and never navigates, an editor already showing this Guide', async () => {
+  it('focuses, and never navigates, an editor already showing this Project', async () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: true, ready: true });
 
-    await expect(openEditor({ sessionId: 'guide-a', entryId: 'step-3' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-a', entryId: 'step-3' })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsSendMessage).toHaveBeenCalledExactlyOnceWith(12, {
       type: 'EDITOR_HANDOFF',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       entryId: 'step-3',
     });
     // The page selected the entry itself, so activation is the whole job.
@@ -93,14 +93,14 @@ describe('the single editor opener', () => {
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
   });
 
-  it('navigates the same tab to a different Guide once the page consents', async () => {
+  it('navigates the same tab to a different Project once the page consents', async () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: true, ready: false });
 
-    await expect(openEditor({ sessionId: 'guide-b' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-b' })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-b`,
       active: true,
     });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe('the single editor opener', () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: false, error: '需要先確認要保留哪一份草稿。' });
 
-    await expect(openEditor({ sessionId: 'guide-b' })).resolves.toEqual({
+    await expect(openEditor({ sessionId: 'project-b' })).resolves.toEqual({
       ok: false,
       error: '需要先確認要保留哪一份草稿。',
     });
@@ -124,10 +124,10 @@ describe('the single editor opener', () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: true });
 
-    await expect(openEditor({ sessionId: 'guide-b' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-b' })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-b`,
       active: true,
     });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -138,11 +138,11 @@ describe('the single editor opener', () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockRejectedValue(new Error('Could not establish connection.'));
 
-    await expect(openEditor({ sessionId: 'guide-b' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-b' })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsGet).toHaveBeenCalledWith(12);
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-b`,
       active: true,
     });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -153,21 +153,21 @@ describe('the single editor opener', () => {
     mocks.tabsSendMessage.mockRejectedValue(new Error('Could not establish connection.'));
     mocks.tabsGet.mockRejectedValue(new Error('No tab with id: 12.'));
 
-    await expect(openEditor({ sessionId: 'guide-b' })).resolves.toEqual({ ok: true });
+    await expect(openEditor({ sessionId: 'project-b' })).resolves.toEqual({ ok: true });
 
     expect(mocks.sessionRemove).toHaveBeenCalledWith(EDITOR_KEY);
     expect(mocks.tabsUpdate).not.toHaveBeenCalled();
     expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-b`,
       active: true,
     });
   });
 
-  it('reports a missing Guide without touching any tab', async () => {
+  it('reports a missing Project without touching any tab', async () => {
     withRegisteredEditor();
-    mocks.getGuide.mockResolvedValue(undefined);
+    mocks.getProject.mockResolvedValue(undefined);
 
-    await expect(openEditor({ sessionId: 'guide-gone' })).resolves.toEqual({
+    await expect(openEditor({ sessionId: 'project-gone' })).resolves.toEqual({
       ok: false,
       error: '找不到這個專案。',
     });
@@ -176,12 +176,12 @@ describe('the single editor opener', () => {
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
   });
 
-  it('focuses whatever the open editor shows when recovery can name no Guide', async () => {
+  it('focuses whatever the open editor shows when recovery can name no Project', async () => {
     withRegisteredEditor();
 
     await expect(openEditor()).resolves.toEqual({ ok: true });
 
-    // No Guide to hand over means no handshake to negotiate.
+    // No Project to hand over means no handshake to negotiate.
     expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, { active: true });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -189,10 +189,10 @@ describe('the single editor opener', () => {
 
   it('marks editor recovery when opening throws, and reports the retry message', async () => {
     silenceIntentionalErrorLogs();
-    storedState = makeRecordingState({ sessionId: 'guide-a' });
+    storedState = makeRecordingState({ sessionId: 'project-a' });
     mocks.sessionGet.mockRejectedValue(new Error('session storage is unavailable'));
 
-    await expect(openEditor({ sessionId: 'guide-a' })).resolves.toEqual({
+    await expect(openEditor({ sessionId: 'project-a' })).resolves.toEqual({
       ok: false,
       error: '無法開啟編輯器，請再試一次。',
     });
@@ -207,7 +207,7 @@ describe('finishing a recording twice', () => {
       operation: 'recording',
       isRecording: true,
       phase: 'recording',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       tabId: 4,
       runId: 'run-1',
     });
@@ -224,7 +224,7 @@ describe('finishing a recording twice', () => {
     // The created tab announces itself, exactly as the editor page does on mount.
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: true, ready: true });
-    await openEditor({ sessionId: 'guide-a' });
+    await openEditor({ sessionId: 'project-a' });
 
     expect(mocks.tabsCreate).toHaveBeenCalledTimes(1);
   });
@@ -244,10 +244,10 @@ describe('opening the editor from another extension page', () => {
   }
 
   it('turns the requesting page into the editor when none is open', async () => {
-    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-a', inPlace: true })).resolves.toEqual({ ok: true });
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'project-a', inPlace: true })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(30, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-a`,
       active: true,
     });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -257,10 +257,10 @@ describe('opening the editor from another extension page', () => {
     withRegisteredEditor();
     mocks.tabsSendMessage.mockResolvedValue({ ok: true, ready: false });
 
-    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-b', inPlace: true })).resolves.toEqual({ ok: true });
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'project-b', inPlace: true })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-b`,
       active: true,
     });
     expect(mocks.tabsUpdate).not.toHaveBeenCalledWith(30, expect.anything());
@@ -272,10 +272,10 @@ describe('opening the editor from another extension page', () => {
     mocks.tabsSendMessage.mockRejectedValue(new Error('Could not establish connection.'));
     mocks.tabsGet.mockRejectedValue(new Error('No tab with id: 12'));
 
-    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-a', inPlace: true })).resolves.toEqual({ ok: true });
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'project-a', inPlace: true })).resolves.toEqual({ ok: true });
 
     expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(30, {
-      url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`,
+      url: `${EDITOR_URL_PREFIX}?sessionId=project-a`,
       active: true,
     });
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
@@ -284,20 +284,20 @@ describe('opening the editor from another extension page', () => {
   it.each([
     ['the popup, which has no tab of its own', EXTENSION_PAGE_SENDER],
     ['the editor itself', {
-      url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a',
+      url: 'chrome-extension://extension-id/editor.html?sessionId=project-a',
       frameId: 0,
-      tab: { id: 12, url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a' },
+      tab: { id: 12, url: 'chrome-extension://extension-id/editor.html?sessionId=project-a' },
     }],
   ])('opens a tab of its own when the request comes from %s', async (_label, sender) => {
-    await openFrom(sender, { sessionId: 'guide-a', inPlace: true });
+    await openFrom(sender, { sessionId: 'project-a', inPlace: true });
 
-    expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({ url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`, active: true });
+    expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({ url: `${EDITOR_URL_PREFIX}?sessionId=project-a`, active: true });
     expect(mocks.tabsUpdate).not.toHaveBeenCalled();
   });
 
   it('never lets a web page have its own tab turned into the editor', async () => {
     const url = 'https://evil.example/library.html';
-    await openFrom({ url, frameId: 0, tab: { id: 31, url } }, { sessionId: 'guide-a', inPlace: true });
+    await openFrom({ url, frameId: 0, tab: { id: 31, url } }, { sessionId: 'project-a', inPlace: true });
 
     expect(mocks.tabsUpdate).not.toHaveBeenCalledWith(31, expect.anything());
   });

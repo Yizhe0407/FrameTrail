@@ -38,7 +38,7 @@ interface Props {
   onSelectContinuationTab?: (tabId: number) => void;
   /** Confirms the picked tab and starts recording there. */
   onConfirmContinueElsewhere?: () => void;
-  /** When set, the Guide has no stored source page: the source-locked confirm
+  /** When set, the Project has no stored source page: the source-locked confirm
    * is hidden and only the elsewhere path remains, with this reason shown. */
   sourceUnavailableReason?: string | null;
   continuationMode?: RecordingMode;

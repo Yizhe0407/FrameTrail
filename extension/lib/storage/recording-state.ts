@@ -96,10 +96,10 @@ export interface RecordingState {
   /** Changes on every START and is cleared by STOP, invalidating messages and
    * async work left behind by an older content-script instance. */
   runId: string | null;
-  /** Set when this run's Guide was auto-created just for it (popup start).
+  /** Set when this run's Project was auto-created just for it (popup start).
    * Read by the stop/discard paths to reclaim a still-untouched empty shell;
-   * null for library-created guides and editor continuations. */
-  autoCreatedGuideId: string | null;
+   * null for library-created projects and editor continuations. */
+  autoCreatedProjectId: string | null;
   /** Viewport used by the current snapshot anchor. Later annotations must
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: Viewport | null;
@@ -124,7 +124,7 @@ const DEFAULT_STATE: RecordingState = {
   numbered: true,
   groupAnchorId: null,
   runId: null,
-  autoCreatedGuideId: null,
+  autoCreatedProjectId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,

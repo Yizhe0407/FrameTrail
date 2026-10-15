@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RecordingState } from '@/lib/storage/recording-state';
-import { ACTIVE_GUIDE_ID_KEY } from '@/lib/storage/storage';
+import { ACTIVE_PROJECT_ID_KEY } from '@/lib/storage/storage';
 import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
 
@@ -9,7 +9,7 @@ const PENDING_START_KEY = 'stepmark:pending-start:v1';
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 const extra = vi.hoisted(() => ({
   permissionsAddedListener: null as null | ((permissions: { origins?: string[] }) => void),
-  createGuide: vi.fn(),
+  createProject: vi.fn(),
   local: new Map<string, unknown>(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock('wxt/browser', async () =>
     onPermissionsAdded: (listener) => {
       extra.permissionsAddedListener = listener;
     },
-    // In-memory storage.local: the pending start and the Guide selection both live there.
+    // In-memory storage.local: the pending start and the Project selection both live there.
     localGet: vi.fn(async (key: string) => (extra.local.has(key) ? { [key]: extra.local.get(key) } : {})),
     localSet: vi.fn(async (items: Record<string, unknown>) => {
       for (const [key, value] of Object.entries(items)) extra.local.set(key, value);
@@ -27,10 +27,10 @@ vi.mock('wxt/browser', async () =>
   }));
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal, {
-    createGuide: extra.createGuide,
-    discardPristineGuide: mocks.discardPristineGuide,
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal, {
+    createProject: extra.createProject,
+    discardPristineProject: mocks.discardPristineProject,
   }));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
@@ -39,12 +39,12 @@ vi.mock('@/lib/recording/background/pending-undo-store', async () =>
 
 const ALL_URLS_GRANT = { origins: ['<all_urls>'] };
 const PENDING_TAB = { id: 7, windowId: 1, active: true, url: 'https://example.com/start' };
-const GUIDE_ROW = (id: string) => ({ id, title: id, entryCount: 0, stepCount: 0 });
+const PROJECT_ROW = (id: string) => ({ id, title: id, entryCount: 0, stepCount: 0 });
 
 let storedState: RecordingState;
 
-function parkPending(guideId: string | null, mode: 'steps' | 'snapshot' = 'steps'): void {
-  extra.local.set(PENDING_START_KEY, { mode, tabId: 7, guideId, createdAt: Date.now() });
+function parkPending(projectId: string | null, mode: 'steps' | 'snapshot' = 'steps'): void {
+  extra.local.set(PENDING_START_KEY, { mode, tabId: 7, projectId, createdAt: Date.now() });
 }
 
 /** Fires the grant the way the browser does once the user accepts the dialog. */
@@ -53,7 +53,7 @@ async function grantAllUrls(permissions: { origins?: string[] } = ALL_URLS_GRANT
   await flushAsyncWork(200);
 }
 
-/** The first state the resumed start persisted for a run, i.e. which Guide it claimed. */
+/** The first state the resumed start persisted for a run, i.e. which Project it claimed. */
 function startedRunState(): RecordingState | undefined {
   return mocks.setRecordingState.mock.calls
     .map(([state]) => state as RecordingState)
@@ -71,9 +71,9 @@ beforeEach(() => {
   });
   mocks.permissionsContains.mockResolvedValue(true);
   mocks.getSteps.mockResolvedValue([]);
-  mocks.getGuide.mockImplementation(async (id: string) => GUIDE_ROW(id));
-  mocks.discardPristineGuide.mockResolvedValue(true);
-  extra.createGuide.mockResolvedValue(GUIDE_ROW('guide-new'));
+  mocks.getProject.mockImplementation(async (id: string) => PROJECT_ROW(id));
+  mocks.discardPristineProject.mockResolvedValue(true);
+  extra.createProject.mockResolvedValue(PROJECT_ROW('project-new'));
   mocks.tabsGet.mockResolvedValue(PENDING_TAB);
   mocks.tabsQuery.mockResolvedValue([PENDING_TAB]);
   mocks.tabsUpdate.mockResolvedValue(PENDING_TAB);
@@ -82,7 +82,7 @@ beforeEach(() => {
   mocks.executeScript.mockResolvedValue([]);
   mocks.readPendingUndoRecord.mockResolvedValue(null);
   mocks.clearPendingUndoRecord.mockResolvedValue(undefined);
-  extra.local.set(ACTIVE_GUIDE_ID_KEY, 'guide-previous');
+  extra.local.set(ACTIVE_PROJECT_ID_KEY, 'project-previous');
 });
 
 afterEach(() => {
@@ -91,33 +91,33 @@ afterEach(() => {
 });
 
 describe('start resumed after the cross-tab permission grant', () => {
-  it('appends to the guide parked with the start instead of creating one', async () => {
-    parkPending('guide-old');
+  it('appends to the project parked with the start instead of creating one', async () => {
+    parkPending('project-old');
     await importBackground();
 
     await grantAllUrls();
 
-    expect(extra.createGuide).not.toHaveBeenCalled();
-    expect(startedRunState()).toMatchObject({ sessionId: 'guide-old', tabId: 7, mode: 'steps' });
-    // An existing guide must never be flagged reclaimable by the run's end.
-    expect(startedRunState()?.autoCreatedGuideId).toBeNull();
-    expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-old');
+    expect(extra.createProject).not.toHaveBeenCalled();
+    expect(startedRunState()).toMatchObject({ sessionId: 'project-old', tabId: 7, mode: 'steps' });
+    // An existing project must never be flagged reclaimable by the run's end.
+    expect(startedRunState()?.autoCreatedProjectId).toBeNull();
+    expect(extra.local.get(ACTIVE_PROJECT_ID_KEY)).toBe('project-old');
     expect(extra.local.has(PENDING_START_KEY)).toBe(false);
   });
 
-  it('records into a fresh reclaimable guide when none was chosen', async () => {
+  it('records into a fresh reclaimable project when none was chosen', async () => {
     parkPending(null, 'snapshot');
     await importBackground();
 
     await grantAllUrls();
 
-    expect(extra.createGuide).toHaveBeenCalledOnce();
-    expect(startedRunState()).toMatchObject({ sessionId: 'guide-new', mode: 'snapshot', autoCreatedGuideId: 'guide-new' });
-    expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-new');
+    expect(extra.createProject).toHaveBeenCalledOnce();
+    expect(startedRunState()).toMatchObject({ sessionId: 'project-new', mode: 'snapshot', autoCreatedProjectId: 'project-new' });
+    expect(extra.local.get(ACTIVE_PROJECT_ID_KEY)).toBe('project-new');
   });
 
-  it('restores the previous selection and keeps the guide when the resumed start fails', async () => {
-    parkPending('guide-old');
+  it('restores the previous selection and keeps the project when the resumed start fails', async () => {
+    parkPending('project-old');
     mocks.tabsGet.mockResolvedValue({ ...PENDING_TAB, url: 'chrome://extensions' });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     await importBackground();
@@ -125,11 +125,11 @@ describe('start resumed after the cross-tab permission grant', () => {
     await grantAllUrls();
 
     expect(startedRunState()).toBeUndefined();
-    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
-    expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-previous');
+    expect(mocks.discardPristineProject).not.toHaveBeenCalled();
+    expect(extra.local.get(ACTIVE_PROJECT_ID_KEY)).toBe('project-previous');
   });
 
-  it('reclaims the fresh guide when a start without a chosen guide fails', async () => {
+  it('reclaims the fresh project when a start without a chosen project fails', async () => {
     parkPending(null);
     mocks.tabsGet.mockResolvedValue({ ...PENDING_TAB, url: 'chrome://extensions' });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -137,21 +137,21 @@ describe('start resumed after the cross-tab permission grant', () => {
 
     await grantAllUrls();
 
-    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-new');
-    expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-previous');
+    expect(mocks.discardPristineProject).toHaveBeenCalledExactlyOnceWith('project-new');
+    expect(extra.local.get(ACTIVE_PROJECT_ID_KEY)).toBe('project-previous');
   });
 
-  it('does not start when the parked guide was deleted meanwhile', async () => {
-    parkPending('guide-gone');
-    mocks.getGuide.mockResolvedValue(undefined);
+  it('does not start when the parked project was deleted meanwhile', async () => {
+    parkPending('project-gone');
+    mocks.getProject.mockResolvedValue(undefined);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await importBackground();
 
     await grantAllUrls();
 
     expect(startedRunState()).toBeUndefined();
-    expect(extra.createGuide).not.toHaveBeenCalled();
-    expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-previous');
+    expect(extra.createProject).not.toHaveBeenCalled();
+    expect(extra.local.get(ACTIVE_PROJECT_ID_KEY)).toBe('project-previous');
     expect(error).toHaveBeenCalledWith(
       '[stepmark] failed to resume the start after the permission grant',
       expect.any(Error),
@@ -164,11 +164,11 @@ describe('start resumed after the cross-tab permission grant', () => {
     await grantAllUrls();
 
     expect(startedRunState()).toBeUndefined();
-    expect(extra.createGuide).not.toHaveBeenCalled();
+    expect(extra.createProject).not.toHaveBeenCalled();
   });
 
   it('ignores grants that are not the cross-tab permission', async () => {
-    parkPending('guide-old');
+    parkPending('project-old');
     await importBackground();
 
     await grantAllUrls({ origins: ['https://example.com/*'] });

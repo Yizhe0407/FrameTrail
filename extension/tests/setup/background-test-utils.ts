@@ -19,14 +19,14 @@ export function makeBackgroundMocks() {
       | null
       | ((tabId: number, changeInfo: { status?: string; url?: string }, tab: { id?: number; url?: string }) => void),
     windowFocusListener: null as null | ((windowId: number) => void),
-    getGuide: vi.fn(),
+    getProject: vi.fn(),
     getStep: vi.fn(),
     getSteps: vi.fn(),
     replaceStepCaptureAtomically: vi.fn(),
     addStep: vi.fn(),
     deleteStep: vi.fn(),
     deleteStepsForRun: vi.fn(),
-    discardPristineGuide: vi.fn(),
+    discardPristineProject: vi.fn(),
     getRecordingState: vi.fn(),
     setRecordingState: vi.fn(),
     permissionsContains: vi.fn(),
@@ -126,12 +126,12 @@ export async function mockStepRepositoryModule(
   };
 }
 
-export async function mockGuideRepositoryModule(
+export async function mockProjectRepositoryModule(
   mocks: BackgroundMocks,
-  importOriginal: () => Promise<typeof import('@/lib/storage/guide-repository')>,
-  overrides: Partial<Record<keyof typeof import('@/lib/storage/guide-repository'), unknown>> = {},
+  importOriginal: () => Promise<typeof import('@/lib/storage/project-repository')>,
+  overrides: Partial<Record<keyof typeof import('@/lib/storage/project-repository'), unknown>> = {},
 ) {
-  return { ...(await importOriginal()), getGuide: mocks.getGuide, ...overrides };
+  return { ...(await importOriginal()), getProject: mocks.getProject, ...overrides };
 }
 
 /** Factory body for vi.mock('@/lib/storage/storage'): recording state only. */

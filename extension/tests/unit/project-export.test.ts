@@ -19,11 +19,11 @@ vi.mock('pdf-lib', () => ({
   PDFDocument: { create: mocks.pdfCreate },
 }));
 
-import { GUIDE_EXPORT_LIMITS, GuideExportLimitError, guideExportFilename, type GuideExportMetadata } from '@/lib/export/guide-export-contract';
-import { generateGuideHtml } from '@/lib/export/guide-export-html';
-import { generateGuideMarkdownArchive } from '@/lib/export/guide-export-markdown';
-import { generateGuidePdf } from '@/lib/export/guide-export-pdf';
-import { renderEntryImages } from '@/lib/export/guide-export-render';
+import { PROJECT_EXPORT_LIMITS, ProjectExportLimitError, projectExportFilename, type ProjectExportMetadata } from '@/lib/export/project-export-contract';
+import { generateProjectHtml } from '@/lib/export/project-export-html';
+import { generateProjectMarkdownArchive } from '@/lib/export/project-export-markdown';
+import { generateProjectPdf } from '@/lib/export/project-export-pdf';
+import { renderEntryImages } from '@/lib/export/project-export-render';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
 
@@ -87,9 +87,9 @@ function groupEntry(): StepEntry {
   } as StepEntry;
 }
 
-/** Renders the guide's Markdown archive and returns its Markdown document. */
-async function archiveMarkdown(entries: StepEntry[], metadata: GuideExportMetadata = {}): Promise<string> {
-  const archive = await generateGuideMarkdownArchive(entries, metadata);
+/** Renders the project's Markdown archive and returns its Markdown document. */
+async function archiveMarkdown(entries: StepEntry[], metadata: ProjectExportMetadata = {}): Promise<string> {
+  const archive = await generateProjectMarkdownArchive(entries, metadata);
   const files = unzipSync(new Uint8Array(await archive.blob.arrayBuffer()));
   return strFromU8(files[archive.markdownFilename]);
 }
@@ -111,46 +111,46 @@ beforeEach(() => {
   });
 });
 
-describe('guide export', () => {
+describe('project export', () => {
   it('keeps the persisted-limit-derived export budgets at their established values', () => {
-    expect(GUIDE_EXPORT_LIMITS).toEqual({
+    expect(PROJECT_EXPORT_LIMITS).toEqual({
       maxEntries: 2_000,
       maxImageBytes: 16 * 1024 * 1024,
       // Same ×2 re-encode headroom as the image-ZIP export: both feed the
-      // renderEntryImages pipeline, so a guide that ZIP-exports must not fail
+      // renderEntryImages pipeline, so a project that ZIP-exports must not fail
       // its HTML/PDF export on the identical payload.
       maxTotalImageBytes: 128 * 1024 * 1024,
       maxPdfPages: 4_000,
       maxPdfBytes: 128 * 1024 * 1024,
     });
-    expect(PERSISTED_STEP_LIMITS.maxStepsPerGuide).toBe(2_000);
+    expect(PERSISTED_STEP_LIMITS.maxStepsPerProject).toBe(2_000);
     expect(PERSISTED_STEP_LIMITS.maxScreenshotBytes).toBe(16 * 1024 * 1024);
     expect(PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes).toBe(64 * 1024 * 1024);
   });
 
   it('uses deterministic, traversal-safe filenames', () => {
-    expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown')).toBe('my-guide.md');
-    expect(guideExportFilename({ title: '  My / Guide  ' }, 'markdown-archive')).toBe('my-guide.zip');
-    expect(guideExportFilename({ filename: '../../Report 2026' }, 'html')).toBe('report-2026.html');
-    expect(guideExportFilename({ filename: '../../Report 2026' }, 'pdf')).toBe('report-2026.pdf');
+    expect(projectExportFilename({ title: '  My / Project  ' }, 'markdown')).toBe('my-project.md');
+    expect(projectExportFilename({ title: '  My / Project  ' }, 'markdown-archive')).toBe('my-project.zip');
+    expect(projectExportFilename({ filename: '../../Report 2026' }, 'html')).toBe('report-2026.html');
+    expect(projectExportFilename({ filename: '../../Report 2026' }, 'pdf')).toBe('report-2026.pdf');
   });
 
   it('keeps CJK titles as readable filename stems', () => {
-    expect(guideExportFilename({ title: '登入與初始設定' }, 'pdf')).toBe('登入與初始設定.pdf');
-    expect(guideExportFilename({ title: 'Chrome 擴充功能：匯出教學' }, 'html')).toBe('chrome-擴充功能-匯出教學.html');
-    expect(guideExportFilename({ title: '設定/教學\\範例' }, 'markdown')).toBe('設定-教學-範例.md');
+    expect(projectExportFilename({ title: '登入與初始設定' }, 'pdf')).toBe('登入與初始設定.pdf');
+    expect(projectExportFilename({ title: 'Chrome 擴充功能：匯出教學' }, 'html')).toBe('chrome-擴充功能-匯出教學.html');
+    expect(projectExportFilename({ title: '設定/教學\\範例' }, 'markdown')).toBe('設定-教學-範例.md');
   });
 
   it('strips filesystem-unsafe characters and falls back for symbol-only titles', () => {
-    expect(guideExportFilename({ title: 'a\\b:c*d?e"f<g>h|i' }, 'markdown')).toBe('a-b-c-d-e-f-g-h-i.md');
-    expect(guideExportFilename({ title: '  ！？＊  ' }, 'markdown')).toBe('stepmark-guide.md');
-    expect(guideExportFilename({}, 'pdf')).toBe('stepmark-guide.pdf');
+    expect(projectExportFilename({ title: 'a\\b:c*d?e"f<g>h|i' }, 'markdown')).toBe('a-b-c-d-e-f-g-h-i.md');
+    expect(projectExportFilename({ title: '  ！？＊  ' }, 'markdown')).toBe('stepmark-project.md');
+    expect(projectExportFilename({}, 'pdf')).toBe('stepmark-project.pdf');
   });
 
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
     const { fillText, bitmapClose } = stubPdfCanvas();
 
-    const pdf = await generateGuidePdf([groupEntry()], { title: 'PDF guide' });
+    const pdf = await generateProjectPdf([groupEntry()], { title: 'PDF project' });
     const drawnText = fillText.mock.calls.map(([text]) => String(text));
 
     expect(pdf.type).toBe('application/pdf');
@@ -167,7 +167,7 @@ describe('guide export', () => {
     expect(screenshotPlacement.y).toBeGreaterThan(0);
     expect(screenshotPlacement.width).toBeLessThan(595.28);
     expect(screenshotPlacement.height).toBeLessThan(841.89);
-    expect(drawnText).toContain('PDF guide');
+    expect(drawnText).toContain('PDF project');
     expect(drawnText).toContain('Shared page');
     expect(drawnText).toContain('1. ');
     expect(drawnText).toContain('First annotation');
@@ -184,7 +184,7 @@ describe('guide export', () => {
     const { fillText } = stubPdfCanvas();
     const description = Array.from({ length: 20 }, () => 'documentation').join(' ');
 
-    await generateGuidePdf([entry({ description })], { title: 'T' });
+    await generateProjectPdf([entry({ description })], { title: 'T' });
 
     const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('documentation'));
     expect(lines.length).toBeGreaterThan(1);
@@ -200,7 +200,7 @@ describe('guide export', () => {
     const cluster = '👩‍👩‍👧‍👦';
     const description = cluster.repeat(30);
 
-    await generateGuidePdf([entry({ description })], { title: 'T' });
+    await generateProjectPdf([entry({ description })], { title: 'T' });
 
     const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('👩'));
     expect(lines.length).toBeGreaterThan(1);
@@ -214,7 +214,7 @@ describe('guide export', () => {
     const { fillText } = stubPdfCanvas();
     const description = '點擊瀏覽器工具列上的擴充功能圖示開啟設定頁面'.repeat(8);
 
-    await generateGuidePdf([entry({ description })], { title: 'T' });
+    await generateProjectPdf([entry({ description })], { title: 'T' });
 
     const lines = fillText.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('點擊'));
     expect(lines.length).toBeGreaterThan(1);
@@ -229,18 +229,18 @@ describe('guide export', () => {
       .mockResolvedValueOnce(new Blob(['first-image'], { type: 'image/jpeg' }))
       .mockResolvedValueOnce(new Blob(['second-image'], { type: 'image/jpeg' }));
 
-    const archive = await generateGuideMarkdownArchive(
+    const archive = await generateProjectMarkdownArchive(
       [entry(), groupEntry()],
-      { title: 'Bundle guide', filename: '../../Bundle Guide' },
+      { title: 'Bundle project', filename: '../../Bundle Project' },
     );
     const files = unzipSync(new Uint8Array(await archive.blob.arrayBuffer()));
-    const markdown = strFromU8(files['bundle-guide.md']);
+    const markdown = strFromU8(files['bundle-project.md']);
 
     expect(archive.blob.type).toBe('application/zip');
-    expect(archive.markdownFilename).toBe('bundle-guide.md');
+    expect(archive.markdownFilename).toBe('bundle-project.md');
     expect(archive.imageCount).toBe(2);
     expect(Object.keys(files).sort()).toEqual([
-      'bundle-guide.md',
+      'bundle-project.md',
       'images/01.jpg',
       'images/02.jpg',
     ]);
@@ -273,12 +273,12 @@ describe('guide export', () => {
     expect(markdown).not.toContain('Source:');
     expect(markdown).not.toContain('https://example.com/settings');
 
-    const credentialHtml = await generateGuideHtml([entry({ url: 'https://user:secret@example.com/private' })]);
+    const credentialHtml = await generateProjectHtml([entry({ url: 'https://user:secret@example.com/private' })]);
     expect(credentialHtml).not.toContain('secret');
   });
 
   it('escapes user HTML and unsafe URLs in self-contained HTML', async () => {
-    const html = await generateGuideHtml(
+    const html = await generateProjectHtml(
       [entry({ description: '<img src=x onerror=alert(1)>' })],
       {
         title: '<svg onload=alert(1)>',
@@ -292,7 +292,7 @@ describe('guide export', () => {
     expect(html).toContain('src="data:image/jpeg;base64,YW5ub3RhdGVk"');
     expect(html).toContain('http-equiv="Content-Security-Policy"');
     expect(html).toContain("default-src 'none'; img-src data:");
-    expect(html.match(/<header class="guide-header">/g)).toHaveLength(1);
+    expect(html.match(/<header class="project-header">/g)).toHaveLength(1);
     expect(html.match(/<\/header>/g)).toHaveLength(1);
     expect(html).not.toContain('<svg onload=alert(1)>');
     expect(html).not.toContain('<img src=x onerror=alert(1)>');
@@ -315,7 +315,7 @@ describe('guide export', () => {
     const markdown = await archiveMarkdown(
       [entry({ id: 'first', order: 1 }), groupEntry()],
       {
-        title: 'Sectioned guide',
+        title: 'Sectioned project',
         sections: [
           { id: 'later', title: 'Later <chapter>', startEntryId: 'anchor' },
           { id: 'first-section', title: '# First [chapter]', startEntryId: 'first' },
@@ -344,7 +344,7 @@ describe('guide export', () => {
         { id: 'broken', title: '<script>broken</script>', startEntryId: 'missing' },
       ],
     };
-    const html = await generateGuideHtml([entry()], metadata);
+    const html = await generateProjectHtml([entry()], metadata);
     const heading = html.indexOf('&lt;img src=x onerror=alert(1)&gt;');
     const image = html.indexOf('<figure>');
 
@@ -355,7 +355,7 @@ describe('guide export', () => {
   });
 
   it('keeps the image above ordered group annotations in HTML', async () => {
-    const html = await generateGuideHtml([groupEntry()], { title: 'Guide' });
+    const html = await generateProjectHtml([groupEntry()], { title: 'Project' });
 
     const image = html.indexOf('<figure>');
     const annotations = html.indexOf('<div class="annotation-list">');
@@ -372,7 +372,7 @@ describe('guide export', () => {
   });
 
   it('renders a numbered badge and description heading above each HTML screenshot', async () => {
-    const html = await generateGuideHtml([entry(), groupEntry()], { title: 'Guide' });
+    const html = await generateProjectHtml([entry(), groupEntry()], { title: 'Project' });
 
     const firstBadge = html.indexOf('<span class="step-number" aria-hidden="true">1</span>');
     const firstTitle = html.indexOf('<h3 class="step-title">Open settings</h3>');
@@ -385,11 +385,11 @@ describe('guide export', () => {
   });
 
   it('renders a title-block metadata line with the step count and optional creation date', async () => {
-    const html = await generateGuideHtml([entry()], { title: 'Guide', createdAt: Date.UTC(2026, 6, 26, 12) });
+    const html = await generateProjectHtml([entry()], { title: 'Project', createdAt: Date.UTC(2026, 6, 26, 12) });
     expect(html).toContain('共 1 個步驟');
     expect(html).toContain('建立於');
 
-    const withoutDate = await generateGuideHtml([entry()], { title: 'Guide' });
+    const withoutDate = await generateProjectHtml([entry()], { title: 'Project' });
     expect(withoutDate).toContain('共 1 個步驟');
     expect(withoutDate).not.toContain('建立於');
   });
@@ -398,7 +398,7 @@ describe('guide export', () => {
     const privacyError = new Error('Sensitive-information masks must be reviewed before export.');
     mocks.composite.mockRejectedValueOnce(privacyError);
 
-    await expect(generateGuideMarkdownArchive([entry()])).rejects.toBe(privacyError);
+    await expect(generateProjectMarkdownArchive([entry()])).rejects.toBe(privacyError);
     expect(mocks.composite).toHaveBeenCalledTimes(1);
   });
 
@@ -410,7 +410,7 @@ describe('guide export', () => {
     });
 
     await expect(
-      generateGuideHtml([entry(), entry({ id: 'step-2', order: 2 })], {}, { signal: controller.signal }),
+      generateProjectHtml([entry(), entry({ id: 'step-2', order: 2 })], {}, { signal: controller.signal }),
     ).rejects.toMatchObject({
       name: 'AbortError',
     });
@@ -419,36 +419,36 @@ describe('guide export', () => {
 
   it('rejects an excessive entry count before compositing any image', async () => {
     const entries = Array.from(
-      { length: GUIDE_EXPORT_LIMITS.maxEntries + 1 },
+      { length: PROJECT_EXPORT_LIMITS.maxEntries + 1 },
       (_, index) => entry({ id: `step-${index}`, order: index }),
     );
 
-    await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
+    await expect(generateProjectHtml(entries)).rejects.toBeInstanceOf(ProjectExportLimitError);
     expect(mocks.composite).not.toHaveBeenCalled();
   });
 
   it('rejects an oversized composited image before allocating its ArrayBuffer', async () => {
     const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
     mocks.composite.mockResolvedValueOnce({
-      size: GUIDE_EXPORT_LIMITS.maxImageBytes + 1,
+      size: PROJECT_EXPORT_LIMITS.maxImageBytes + 1,
       arrayBuffer,
     } as unknown as Blob);
 
-    await expect(generateGuideMarkdownArchive([entry()])).rejects.toBeInstanceOf(GuideExportLimitError);
+    await expect(generateProjectMarkdownArchive([entry()])).rejects.toBeInstanceOf(ProjectExportLimitError);
     expect(arrayBuffer).not.toHaveBeenCalled();
   });
 
   it('enforces the cumulative image budget before converting the overflowing image', async () => {
     const arrayBuffer = vi.fn(async () => new ArrayBuffer(1));
     mocks.composite.mockResolvedValue({
-      size: GUIDE_EXPORT_LIMITS.maxImageBytes,
+      size: PROJECT_EXPORT_LIMITS.maxImageBytes,
       arrayBuffer,
     } as unknown as Blob);
     // Eight max-size images fill the ×2 headroom budget exactly; the ninth
     // must be rejected before its bytes are converted.
     const entries = Array.from({ length: 9 }, (_, index) => entry({ id: `step-${index}`, order: index }));
 
-    await expect(generateGuideHtml(entries)).rejects.toBeInstanceOf(GuideExportLimitError);
+    await expect(generateProjectHtml(entries)).rejects.toBeInstanceOf(ProjectExportLimitError);
     expect(mocks.composite).toHaveBeenCalledTimes(9);
     expect(arrayBuffer).toHaveBeenCalledTimes(8);
   });

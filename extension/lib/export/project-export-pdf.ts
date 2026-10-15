@@ -2,18 +2,18 @@ import { throwIfAborted } from '../shared/abort';
 import { type StepEntry } from '../storage/models';
 import {
   DEFAULT_TITLE,
-  GUIDE_EXPORT_LIMITS,
-  GUIDE_EXPORT_THEME,
-  GuideExportLimitError,
+  PROJECT_EXPORT_LIMITS,
+  PROJECT_EXPORT_THEME,
+  ProjectExportLimitError,
   IMAGE_MIME_TYPE,
-  formatGuideCreatedAt,
+  formatProjectCreatedAt,
   sectionsByStartEntry,
   textOrDefault,
   textValue,
-  type GuideExportMetadata,
-  type GuideExportOptions,
-} from './guide-export-contract';
-import { renderEntryImages } from './guide-export-render';
+  type ProjectExportMetadata,
+  type ProjectExportOptions,
+} from './project-export-contract';
+import { renderEntryImages } from './project-export-render';
 import { pdfLineMiddleOffset, truncatePdfText, wrapPdfText } from './pdf-text-layout';
 import { t } from '@/lib/shared/i18n';
 
@@ -27,13 +27,13 @@ import { t } from '@/lib/shared/i18n';
  *
  * Layout: a title block (accent kicker, title, description, metadata line)
  * merged with the first step page, one step per page with a numbered badge
- * heading above a bordered screenshot, and a running footer with the guide
+ * heading above a bordered screenshot, and a running footer with the project
  * title and page number.
  */
-export async function generateGuidePdf(
+export async function generateProjectPdf(
   entries: readonly StepEntry[],
-  metadata: GuideExportMetadata = {},
-  options: GuideExportOptions = {},
+  metadata: ProjectExportMetadata = {},
+  options: ProjectExportOptions = {},
 ): Promise<Blob> {
   const { signal } = options;
   throwIfAborted(signal);
@@ -42,7 +42,7 @@ export async function generateGuidePdf(
   const document = await PDFDocument.create();
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   // 分頁器會先驗證頁數與位元組預算，再呼叫此純嵌入 callback。
-  const paginator = new GuidePdfPaginator(async (jpegBytes, screenshots) => {
+  const paginator = new ProjectPdfPaginator(async (jpegBytes, screenshots) => {
     throwIfAborted(signal);
     const embedded = await document.embedJpg(jpegBytes);
     const page = document.addPage([PDF_PAGE_WIDTH_POINTS, PDF_PAGE_HEIGHT_POINTS]);
@@ -66,10 +66,10 @@ export async function generateGuidePdf(
 
   await paginator.addRule(0, PDF_KICKER_GAP_AFTER, PDF_KICKER_THICKNESS, PDF_COLOR_ACCENT, PDF_KICKER_WIDTH);
   await paginator.addParagraph(title, PDF_TITLE_TEXT);
-  const guideDescription = textValue(metadata.description);
-  if (guideDescription) await paginator.addParagraph(guideDescription, PDF_GUIDE_DESCRIPTION_TEXT);
+  const projectDescription = textValue(metadata.description);
+  if (projectDescription) await paginator.addParagraph(projectDescription, PDF_PROJECT_DESCRIPTION_TEXT);
   const metaParts = [t().export.stepCount(entries.length)];
-  const createdAt = formatGuideCreatedAt(metadata.createdAt);
+  const createdAt = formatProjectCreatedAt(metadata.createdAt);
   if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   await paginator.addParagraph(metaParts.join(' · '), PDF_META_TEXT);
   await paginator.addRule(0, PDF_HEADER_RULE_GAP_AFTER, PDF_HEADER_RULE_THICKNESS, PDF_COLOR_RULE);
@@ -96,8 +96,8 @@ export async function generateGuidePdf(
 
   const saved = await document.save();
   throwIfAborted(signal);
-  if (saved.byteLength > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
-    throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
+  if (saved.byteLength > PROJECT_EXPORT_LIMITS.maxPdfBytes) {
+    throw new ProjectExportLimitError('Project PDF exceeds the output size limit.');
   }
   const owned = new Uint8Array(saved.byteLength);
   owned.set(saved);
@@ -147,14 +147,14 @@ const PDF_IMAGE_BORDER_WIDTH = 2;
 const PDF_FOOTER_FONT_SIZE = 22;
 const PDF_FOOTER_RULE_THICKNESS = 2;
 const PDF_FOOTER_TITLE_GAP = 40;
-const PDF_FONT_FAMILY = GUIDE_EXPORT_THEME.fontFamily;
+const PDF_FONT_FAMILY = PROJECT_EXPORT_THEME.fontFamily;
 
-const PDF_COLOR_TEXT = GUIDE_EXPORT_THEME.text;
-const PDF_COLOR_SECONDARY = GUIDE_EXPORT_THEME.secondaryText;
-const PDF_COLOR_MUTED = GUIDE_EXPORT_THEME.mutedText;
-const PDF_COLOR_ACCENT = GUIDE_EXPORT_THEME.accent;
-const PDF_COLOR_RULE = GUIDE_EXPORT_THEME.rule;
-const PDF_COLOR_IMAGE_BORDER = GUIDE_EXPORT_THEME.imageBorder;
+const PDF_COLOR_TEXT = PROJECT_EXPORT_THEME.text;
+const PDF_COLOR_SECONDARY = PROJECT_EXPORT_THEME.secondaryText;
+const PDF_COLOR_MUTED = PROJECT_EXPORT_THEME.mutedText;
+const PDF_COLOR_ACCENT = PROJECT_EXPORT_THEME.accent;
+const PDF_COLOR_RULE = PROJECT_EXPORT_THEME.rule;
+const PDF_COLOR_IMAGE_BORDER = PROJECT_EXPORT_THEME.imageBorder;
 
 type PdfTextStyle = {
   fontSize: number;
@@ -173,7 +173,7 @@ const PDF_TITLE_TEXT: PdfTextStyle = {
   gapBefore: 0,
   gapAfter: 18,
 };
-const PDF_GUIDE_DESCRIPTION_TEXT: PdfTextStyle = {
+const PDF_PROJECT_DESCRIPTION_TEXT: PdfTextStyle = {
   fontSize: 28,
   lineHeight: 48,
   color: PDF_COLOR_SECONDARY,
@@ -227,7 +227,7 @@ type PdfPageScreenshot = {
   height: number;
 };
 
-class GuidePdfPaginator {
+class ProjectPdfPaginator {
   private canvas!: OffscreenCanvas;
   private context!: PdfCanvasContext;
   private cursorY = PDF_MARGIN;
@@ -431,12 +431,12 @@ class GuidePdfPaginator {
   /**
    * Bytes one screenshot may add while leaving at least half of the unspent
    * maxPdfBytes budget for page rasters and later screenshots, so a single
-   * large capture cannot starve the rest of the guide.
+   * large capture cannot starve the rest of the project.
    */
   private screenshotByteBudget(): number {
     let pending = 0;
     for (const screenshot of this.pageScreenshots) pending += screenshot.bytes.byteLength;
-    return Math.max(0, Math.floor((GUIDE_EXPORT_LIMITS.maxPdfBytes - this.committedBytes - pending) / 2));
+    return Math.max(0, Math.floor((PROJECT_EXPORT_LIMITS.maxPdfBytes - this.committedBytes - pending) / 2));
   }
 
   async finish(): Promise<void> {
@@ -474,7 +474,7 @@ class GuidePdfPaginator {
     context.textBaseline = 'top';
   }
 
-  /** Running footer: hairline, guide title on the left, page number right. */
+  /** Running footer: hairline, project title on the left, page number right. */
   private drawFooter(): void {
     const context = this.context;
     context.fillStyle = PDF_COLOR_RULE;
@@ -511,11 +511,11 @@ class GuidePdfPaginator {
    * raster and screenshot bytes are committed before this check, so no code
    * path can hand bytes to the document without passing it. */
   private assertWithinBudget(): void {
-    if (this.pageNumber > GUIDE_EXPORT_LIMITS.maxPdfPages) {
-      throw new GuideExportLimitError('Guide PDF exceeds the page limit.');
+    if (this.pageNumber > PROJECT_EXPORT_LIMITS.maxPdfPages) {
+      throw new ProjectExportLimitError('Project PDF exceeds the page limit.');
     }
-    if (this.committedBytes > GUIDE_EXPORT_LIMITS.maxPdfBytes) {
-      throw new GuideExportLimitError('Guide PDF exceeds the output size limit.');
+    if (this.committedBytes > PROJECT_EXPORT_LIMITS.maxPdfBytes) {
+      throw new ProjectExportLimitError('Project PDF exceeds the output size limit.');
     }
   }
 

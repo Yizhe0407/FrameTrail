@@ -3,26 +3,26 @@ import type {
   CancelStepRecaptureResult,
   FocusStepRecaptureSourceResult,
   OpenLibraryResult,
-  ResetGuideResult,
+  ResetProjectResult,
 } from './messages';
 import {
   isCancelStepRecaptureResult,
   isFocusStepRecaptureSourceResult,
   isOpenLibraryResult,
-  isResetGuideResult,
+  isResetProjectResult,
   requireRuntimeMessageResult,
 } from './runtime-message-result';
 import { t } from '@/lib/shared/i18n';
 
-/** Requests an atomic, Guide-targeted reset from the background lifecycle. */
+/** Requests an atomic, Project-targeted reset from the background lifecycle. */
 export async function resetSession(sessionId: string): Promise<void> {
   if (!sessionId) throw new Error(t().runtime.resetTargetMissing);
-  const result = requireRuntimeMessageResult<ResetGuideResult>(
+  const result = requireRuntimeMessageResult<ResetProjectResult>(
     await browser.runtime.sendMessage({
-      type: 'RESET_GUIDE',
+      type: 'RESET_PROJECT',
       sessionId,
     }),
-    isResetGuideResult,
+    isResetProjectResult,
   );
   if (!result.ok) throw new Error(result.error);
 }

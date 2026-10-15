@@ -57,15 +57,15 @@ vi.mock('@/lib/storage/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/storage/models')>()),
   entryId: database.entryId,
 }));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/guide-repository')>()),
-  getGuide: database.getGuide,
-  updateGuide: database.updateGuide,
+vi.mock('@/lib/storage/project-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/project-repository')>()),
+  getProject: database.getProject,
+  updateProject: database.updateProject,
 }));
-vi.mock('@/lib/storage/guide-structure', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/guide-structure')>()),
-  getGuideStructureSnapshot: database.getGuideStructureSnapshot,
-  setGuideEntriesNumberedAtomically: database.setGuideEntriesNumberedAtomically,
+vi.mock('@/lib/storage/project-structure', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/project-structure')>()),
+  getProjectStructureSnapshot: database.getProjectStructureSnapshot,
+  setProjectEntriesNumberedAtomically: database.setProjectEntriesNumberedAtomically,
 }));
 vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
@@ -123,7 +123,7 @@ vi.mock('@/components/editor/StepStage', () => ({
 vi.mock('@/components/shared/EmptyState', () => ({ default: () => <div>EmptyState</div> }));
 vi.mock('@/components/editor/Lightbox', () => ({ default: () => null }));
 vi.mock('@/components/editor/UndoSnackbar', () => ({ default: () => null }));
-vi.mock('@/components/editor/PublishGuideDialog', () => ({ default: () => null }));
+vi.mock('@/components/editor/PublishProjectDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
 // Resolves to the mocked module above, so `instanceof` in the handoff matches.
@@ -134,7 +134,7 @@ const entries = [
     kind: 'group',
     anchor: {
       id: 'entry-1',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       order: 0,
       bounds: null,
       devicePixelRatio: 1,
@@ -151,7 +151,7 @@ const entries = [
     kind: 'single',
     step: {
       id: 'entry-2',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       order: 1,
       bounds: { x: 1, y: 2, width: 3, height: 4 },
       devicePixelRatio: 1,
@@ -165,7 +165,7 @@ const entries = [
     kind: 'single',
     step: {
       id: 'entry-3',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       order: 2,
       bounds: { x: 5, y: 6, width: 7, height: 8 },
       devicePixelRatio: 1,
@@ -177,8 +177,8 @@ const entries = [
   },
 ] as any[];
 
-const guide = {
-  id: 'guide-1',
+const project = {
+  id: 'project-1',
   title: '結構測試教學',
   description: '',
   sections: [
@@ -203,7 +203,7 @@ const idleRecording = {
 
 function editorSessionResult() {
   return {
-    sessionId: 'guide-1',
+    sessionId: 'project-1',
     tabId: 17,
     steps: entries,
     error: null,
@@ -219,12 +219,12 @@ beforeEach(() => {
   editorSave.flushAll.mockResolvedValue(undefined);
   recordingSession.refresh.mockResolvedValue(undefined);
   recordingSession.useRecordingSession.mockImplementation((explicitSessionId?: string | null) => {
-    if (explicitSessionId === 'guide-1') return editorSessionResult();
+    if (explicitSessionId === 'project-1') return editorSessionResult();
     if (explicitSessionId === undefined) {
       return {
         ...editorSessionResult(),
-        sessionId: 'global-guide',
-        recording: { ...idleRecording, sessionId: 'global-guide' },
+        sessionId: 'global-project',
+        recording: { ...idleRecording, sessionId: 'global-project' },
       };
     }
     return {
@@ -233,12 +233,12 @@ beforeEach(() => {
       steps: emptyEntries,
       error: null,
       refresh: recordingSession.refresh,
-      recording: { ...idleRecording, sessionId: 'global-guide' },
+      recording: { ...idleRecording, sessionId: 'global-project' },
     };
   });
-  database.getGuide.mockResolvedValue(guide);
-  database.getGuideStructureSnapshot.mockResolvedValue({
-    guide,
+  database.getProject.mockResolvedValue(project);
+  database.getProjectStructureSnapshot.mockResolvedValue({
+    project,
     entries,
     entryIds: entries.map(database.entryId),
   });
@@ -246,11 +246,11 @@ beforeEach(() => {
   browserApi.sendMessage.mockReset();
   browserApi.requestPermission.mockReset();
   browserApi.requestPermission.mockResolvedValue(true);
-  database.setGuideEntriesNumberedAtomically.mockResolvedValue({
-    guide: { ...guide, contentRevision: 8 },
+  database.setProjectEntriesNumberedAtomically.mockResolvedValue({
+    project: { ...project, contentRevision: 8 },
     affectedEntryIds: ['entry-1'],
   });
-  window.history.replaceState({}, '', '/editor.html?sessionId=guide-1');
+  window.history.replaceState({}, '', '/editor.html?sessionId=project-1');
 });
 
 afterEach(() => {
@@ -259,12 +259,12 @@ afterEach(() => {
 });
 
 describe('Editor App structure wiring', () => {
-  it('passes the active entry and Guide sections to StepRail, and switches one entry at a time', async () => {
+  it('passes the active entry and Project sections to StepRail, and switches one entry at a time', async () => {
     render(<EditorApp />);
 
     await waitFor(() => expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1'));
     expect(screen.getByTestId('rail-sections').textContent).toBe('準備:entry-1|完成:entry-3');
-    expect(rendered.stepRailProps.sections).toEqual(guide.sections);
+    expect(rendered.stepRailProps.sections).toEqual(project.sections);
 
     fireEvent.click(screen.getByRole('button', { name: '開啟 entry-2' }));
 
@@ -273,17 +273,17 @@ describe('Editor App structure wiring', () => {
   });
 
   it('uses a fresh structure snapshot revision for StepStage onSetNumbered atomic writes', async () => {
-    const freshGuide = { ...guide, contentRevision: 41 };
-    database.getGuideStructureSnapshot.mockResolvedValue({
-      guide: freshGuide,
+    const freshProject = { ...project, contentRevision: 41 };
+    database.getProjectStructureSnapshot.mockResolvedValue({
+      project: freshProject,
       entries,
       entryIds: entries.map(database.entryId),
     });
     browserApi.sendMessage.mockReset();
   browserApi.requestPermission.mockReset();
   browserApi.requestPermission.mockResolvedValue(true);
-  database.setGuideEntriesNumberedAtomically.mockResolvedValue({
-      guide: { ...guide, contentRevision: 42 },
+  database.setProjectEntriesNumberedAtomically.mockResolvedValue({
+      project: { ...project, contentRevision: 42 },
       affectedEntryIds: ['entry-1'],
     });
     render(<EditorApp />);
@@ -291,16 +291,16 @@ describe('Editor App structure wiring', () => {
     await screen.findByRole('button', { name: '關閉目前快照編號' });
     fireEvent.click(screen.getByRole('button', { name: '關閉目前快照編號' }));
 
-    await waitFor(() => expect(database.setGuideEntriesNumberedAtomically).toHaveBeenCalledOnce());
-    expect(database.getGuideStructureSnapshot).toHaveBeenCalledWith('guide-1');
-    expect(database.setGuideEntriesNumberedAtomically).toHaveBeenCalledWith(
-      'guide-1',
+    await waitFor(() => expect(database.setProjectEntriesNumberedAtomically).toHaveBeenCalledOnce());
+    expect(database.getProjectStructureSnapshot).toHaveBeenCalledWith('project-1');
+    expect(database.setProjectEntriesNumberedAtomically).toHaveBeenCalledWith(
+      'project-1',
       ['entry-1'],
       false,
       41,
     );
-    expect(database.getGuideStructureSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
-      database.setGuideEntriesNumberedAtomically.mock.invocationCallOrder[0],
+    expect(database.getProjectStructureSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
+      database.setProjectEntriesNumberedAtomically.mock.invocationCallOrder[0],
     );
   });
 
@@ -336,14 +336,14 @@ describe('Editor App structure wiring', () => {
     expect(browserApi.requestPermission).not.toHaveBeenCalled();
     expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       target: { kind: 'single', stepId: 'entry-2' },
     });
 
     fireEvent.click(screen.getByRole('button', { name: '允許並開始' }));
     await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'START_STEP_RECAPTURE',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       target: { kind: 'single', stepId: 'entry-2' },
     }));
     expect(browserApi.requestPermission).toHaveBeenCalledWith({ origins: ['https://fresh.example/*'] });
@@ -376,7 +376,7 @@ describe('Editor App structure wiring', () => {
     expect(dialog.textContent).not.toContain('新步驟會接在最後。');
   });
 
-  it('shows the safe missing-id error and never falls back to a global Guide without a sessionId URL', async () => {
+  it('shows the safe missing-id error and never falls back to a global Project without a sessionId URL', async () => {
     window.history.replaceState({}, '', '/editor.html');
     render(<EditorApp />);
 
@@ -384,7 +384,7 @@ describe('Editor App structure wiring', () => {
     expect(screen.getByText(/編輯器網址缺少專案識別碼/)).toBeTruthy();
     expect(recordingSession.useRecordingSession).toHaveBeenCalledWith(null);
     expect(recordingSession.useRecordingSession).not.toHaveBeenCalledWith(undefined);
-    expect(database.getGuide).not.toHaveBeenCalled();
+    expect(database.getProject).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('StepRail test double')).toBeNull();
   });
 });
@@ -392,7 +392,7 @@ describe('Editor App structure wiring', () => {
 describe('Editor continuation on another page (改在其他頁面接續)', () => {
   function mockContinuationPreflight(): void {
     browserApi.sendMessage.mockImplementation(async (message: any) => {
-      if (message.type === 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION') {
+      if (message.type === 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION') {
         return {
           ok: true,
           sourceUrl: 'https://example.test/three',
@@ -401,7 +401,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
         };
       }
       if (message.type === 'START_RECORDING') {
-        return { ok: true, sessionId: 'guide-1', runId: 'run-elsewhere' };
+        return { ok: true, sessionId: 'project-1', runId: 'run-elsewhere' };
       }
       return { ok: true };
     });
@@ -429,7 +429,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     browserApi.tabsQuery.mockResolvedValue([
       { id: 21, windowId: 3, url: 'chrome://settings/', lastAccessed: 990 },
       { id: 22, windowId: 3, url: 'chrome-extension://stepmark/editor.html', lastAccessed: 995 },
-      // Most recently used recordable tab, but it shows the guide's last-step
+      // Most recently used recordable tab, but it shows the project's last-step
       // URL — the page the user just recorded — so it must not be preselected.
       { id: 26, windowId: 3, url: 'https://example.test/three', title: '來源頁面', lastAccessed: 900 },
       { id: 24, windowId: 4, url: 'https://recent.example/app', title: '最近的分頁', lastAccessed: 800 },
@@ -482,7 +482,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
 
     await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'START_RECORDING',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       mode: 'steps',
     }));
     const startCall = browserApi.sendMessage.mock.calls
@@ -518,13 +518,13 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
       .not.toContain('START_RECORDING');
   });
 
-  it('opens the dialog in elsewhere-only mode when the Guide has no continuation source', async () => {
+  it('opens the dialog in elsewhere-only mode when the Project has no continuation source', async () => {
     browserApi.sendMessage.mockImplementation(async (message: any) => {
-      if (message.type === 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION') {
+      if (message.type === 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION') {
         return { ok: false, code: 'SOURCE_NOT_FOUND', message: '這個專案還沒有可接續的來源頁面。' };
       }
       if (message.type === 'START_RECORDING') {
-        return { ok: true, sessionId: 'guide-1', runId: 'run-elsewhere' };
+        return { ok: true, sessionId: 'project-1', runId: 'run-elsewhere' };
       }
       return { ok: true };
     });
@@ -541,7 +541,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     });
     const dialog = await openContinuationDialog();
 
-    // Not a terminal error: the zero-step Guide keeps the elsewhere path.
+    // Not a terminal error: the zero-step Project keeps the elsewhere path.
     expect(dialog.textContent).toContain('這個專案還沒有可接續的來源頁面。');
     expect(within(dialog).queryByRole('button', { name: '允許並開始' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
@@ -555,7 +555,7 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
 
     await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith({
       type: 'START_RECORDING',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       mode: 'steps',
     }));
     expect(browserApi.requestPermission).not.toHaveBeenCalled();
@@ -580,29 +580,29 @@ describe('editor handoff answers (單一編輯器分頁)', () => {
     return browserApi.messageListener?.(message, sender) as Promise<unknown> | undefined;
   }
 
-  it('reports ready and switches entry itself when it already shows the target Guide', async () => {
+  it('reports ready and switches entry itself when it already shows the target Project', async () => {
     await mountEditor();
 
     const reply = await act(async () =>
-      handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-1', entryId: 'entry-3' }));
+      handoff({ type: 'EDITOR_HANDOFF', sessionId: 'project-1', entryId: 'entry-3' }));
 
     expect(reply).toEqual({ ok: true, ready: true });
     expect(editorSave.flushAll).toHaveBeenCalled();
     expect(screen.getByTestId('rail-selected').textContent).toBe('entry-3');
   });
 
-  it('consents to being navigated to another Guide once its descriptions are saved', async () => {
+  it('consents to being navigated to another Project once its descriptions are saved', async () => {
     await mountEditor();
 
-    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'project-2' }));
 
     expect(reply).toEqual({ ok: true, ready: false });
     expect(editorSave.flushAll).toHaveBeenCalled();
-    // Navigation belongs to the background alone; the page still shows guide-1.
+    // Navigation belongs to the background alone; the page still shows project-1.
     expect(screen.getByTestId('rail-selected').textContent).toBe('entry-1');
   });
 
-  it('refuses to leave another Guide while a draft awaits confirmation', async () => {
+  it('refuses to leave another Project while a draft awaits confirmation', async () => {
     silenceIntentionalErrorLogs();
     await mountEditor();
     // The confirmation error carries its own zh-Hant explanation of what to
@@ -611,7 +611,7 @@ describe('editor handoff answers (單一編輯器分頁)', () => {
     draftConfirmation.message = '覆寫已儲存的說明前，需要先確認要保留哪一份草稿。';
     editorSave.flushAll.mockRejectedValue(draftConfirmation);
 
-    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'project-2' }));
 
     expect(reply).toEqual({ ok: false, error: draftConfirmation.message });
   });
@@ -621,25 +621,25 @@ describe('editor handoff answers (單一編輯器分頁)', () => {
     await mountEditor();
     editorSave.flushAll.mockRejectedValue(new Error('IndexedDB is unavailable'));
 
-    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'project-2' }));
 
     expect(reply).toEqual({ ok: false, error: t().editor.descriptionSaveRetry });
   });
 
-  it('still reports ready for its own Guide when the save is blocked, because nothing will navigate', async () => {
+  it('still reports ready for its own Project when the save is blocked, because nothing will navigate', async () => {
     silenceIntentionalErrorLogs();
     await mountEditor();
     editorSave.flushAll.mockRejectedValue(new Error('IndexedDB is unavailable'));
 
-    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-1' }));
+    const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'project-1' }));
 
     expect(reply).toEqual({ ok: true, ready: true });
   });
 
   it.each<[string, unknown, unknown]>([
     ['another message type', { type: 'STEPMARK_STOP' }, {}],
-    ['a handoff without a Guide', { type: 'EDITOR_HANDOFF' }, {}],
-    ['a handoff relayed from a tab rather than the background', { type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }, { tab: { id: 9 } }],
+    ['a handoff without a Project', { type: 'EDITOR_HANDOFF' }, {}],
+    ['a handoff relayed from a tab rather than the background', { type: 'EDITOR_HANDOFF', sessionId: 'project-2' }, { tab: { id: 9 } }],
   ])('leaves %s untouched instead of answering it', async (_label, message, sender) => {
     await mountEditor();
 

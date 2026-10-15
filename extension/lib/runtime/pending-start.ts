@@ -6,9 +6,9 @@ import type { RecordingMode } from '../storage/recording-state';
 export interface PendingStart {
   mode: RecordingMode;
   tabId: number;
-  /** The Guide the resumed run appends to; null means a fresh Guide, so a
+  /** The Project the resumed run appends to; null means a fresh Project, so a
    * target picked before the permission dialog survives the popup closing. */
-  guideId: string | null;
+  projectId: string | null;
   createdAt: number;
 }
 
@@ -17,17 +17,17 @@ export const PENDING_START_TTL_MS = 2 * 60 * 1000;
 
 function normalize(value: unknown, now: number): PendingStart | null {
   if (!isRecord(value)) return null;
-  const { mode, tabId, guideId, createdAt } = value;
+  const { mode, tabId, projectId, createdAt } = value;
   if (mode !== 'steps' && mode !== 'snapshot') return null;
   if (typeof tabId !== 'number' || !Number.isInteger(tabId)) return null;
-  if (guideId !== null && (typeof guideId !== 'string' || guideId.length === 0)) return null;
+  if (projectId !== null && (typeof projectId !== 'string' || projectId.length === 0)) return null;
   if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) return null;
   if (now - createdAt > PENDING_START_TTL_MS || createdAt - now > PENDING_START_TTL_MS) return null;
-  return { mode, tabId, guideId, createdAt };
+  return { mode, tabId, projectId, createdAt };
 }
 
 export async function parkPendingStart(
-  start: Pick<PendingStart, 'mode' | 'tabId' | 'guideId'>,
+  start: Pick<PendingStart, 'mode' | 'tabId' | 'projectId'>,
   now = Date.now(),
 ): Promise<void> {
   await browser.storage.local.set({ [STORAGE_KEY]: { ...start, createdAt: now } satisfies PendingStart });

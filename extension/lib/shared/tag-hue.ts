@@ -1,5 +1,5 @@
 /**
- * Stable pastel fill for a guide tag. The hue is derived from the tag text, so
+ * Stable pastel fill for a project tag. The hue is derived from the tag text, so
  * the same tag wears the same colour in the library, the editor and the tag
  * dialog without storing anything.
  */

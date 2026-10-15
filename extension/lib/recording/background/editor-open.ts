@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { getGuide } from '../../storage/guide-repository';
+import { getProject } from '../../storage/project-repository';
 import { getSteps } from '../../storage/step-repository';
 import { getRecordingState } from '../../storage/storage';
 import { describeBrowserError } from '../../runtime/browser-errors';
@@ -24,7 +24,7 @@ import type { RecordingState } from '../../storage/recording-state';
 
 /** What an editor tab should end up showing. */
 export interface EditorTarget {
-  /** Omitted only by recovery that has no Guide left to name. */
+  /** Omitted only by recovery that has no Project left to name. */
   sessionId?: string;
   entryId?: string | null;
 }
@@ -69,7 +69,7 @@ async function editorTabStillExists(tabId: number): Promise<boolean> {
 }
 
 /**
- * Asks the open editor to take over the target Guide. The page decides, because
+ * Asks the open editor to take over the target Project. The page decides, because
  * it is the only component that knows what it is displaying and whether it has
  * unsaved work — which is also why the discovery record never has to store a
  * session id.
@@ -113,7 +113,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
       return { ok: true };
     }
     if (!target.sessionId) {
-      // Recovery with no Guide to name: whatever the open editor shows beats a
+      // Recovery with no Project to name: whatever the open editor shows beats a
       // second, contentless tab, so focus it without negotiating anything.
       await showExtensionPage('editor', existing, { url, navigate: false });
       return { ok: true };
@@ -135,7 +135,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
     return reuse.action === 'blocked' ? { ok: false, error: reuse.error } : { ok: true };
   }
 
-  /** The newest capture in a Guide: where an interrupted run resumes. */
+  /** The newest capture in a Project: where an interrupted run resumes. */
   async function latestEntryId(sessionId: string): Promise<string | null> {
     const steps = await getSteps(sessionId);
     const lastItem = steps.filter((step) => step.bounds !== null).at(-1) ?? null;
@@ -153,11 +153,11 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
       state = await getRecordingState();
       targetSessionId ??= state.sessionId ?? undefined;
       if (!targetSessionId) return await openEditor({}, placement);
-      const guide = await getGuide(targetSessionId);
-      if (!guide) return { ok: false, error: t().runtime.guideNotFound };
+      const project = await getProject(targetSessionId);
+      if (!project) return { ok: false, error: t().runtime.projectNotFound };
       // Only a hand-off continues where the capture stopped: finishing a run, or
       // recovering one whose recorded tab went away. Ordinary navigation opens the
-      // guide at its first entry — deriving the target from the newest capture
+      // project at its first entry — deriving the target from the newest capture
       // made every "open editor" land on the last step.
       const resumesInterruptedRun =
         state.sessionId === targetSessionId && needsEditorRecovery(state.recoverableError);

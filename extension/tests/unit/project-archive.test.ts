@@ -175,7 +175,7 @@ describe('project archive', () => {
     });
     const last = makeStep({ id: 'last', order: 3 });
     const archive = await archiveObject([last, annotation, anchor, first], {
-      title: 'Safe guide',
+      title: 'Safe project',
       description: 'Local backup',
       sections: [
         { id: 'last-section', title: 'Last', startEntryId: 'last' },
@@ -198,7 +198,7 @@ describe('project archive', () => {
     const imported = await importProjectArchive(JSON.stringify(archive));
     const [remappedFirst, remappedAnchor, remappedAnnotation, remappedLast] = imported.steps;
     expect(imported.version).toBe(PROJECT_ARCHIVE_VERSION);
-    expect(imported.metadata.title).toBe('Safe guide');
+    expect(imported.metadata.title).toBe('Safe project');
     expect(imported.metadata.description).toBe('Local backup');
     expect(imported.metadata.sections).toEqual([
       { id: 'first-section', title: 'Firstchapter', startEntryId: remappedFirst.id },

@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   sendMessage: vi.fn(),
-  createGuide: vi.fn(),
-  getGuide: vi.fn(),
-  discardPristineGuide: vi.fn(),
-  getGuideSummaries: vi.fn(),
+  createProject: vi.fn(),
+  getProject: vi.fn(),
+  discardPristineProject: vi.fn(),
+  getProjectSummaries: vi.fn(),
   permissionsContains: vi.fn(),
   permissionsRequest: vi.fn(),
   storageGet: vi.fn(),
@@ -30,12 +30,12 @@ vi.mock('wxt/browser', async () => {
     }),
   };
 });
-// Only the storage primitives are mocked; the real guide-actions flow runs.
-vi.mock('@/lib/storage/guide-repository', () => ({
-  createGuide: mocks.createGuide,
-  getGuide: mocks.getGuide,
-  discardPristineGuide: mocks.discardPristineGuide,
-  getGuideSummaries: mocks.getGuideSummaries,
+// Only the storage primitives are mocked; the real project-actions flow runs.
+vi.mock('@/lib/storage/project-repository', () => ({
+  createProject: mocks.createProject,
+  getProject: mocks.getProject,
+  discardPristineProject: mocks.discardPristineProject,
+  getProjectSummaries: mocks.getProjectSummaries,
 }));
 
 import RecordControls from '@/components/popup/RecordControls';
@@ -68,12 +68,12 @@ async function clickStartAndWaitForSend(times: number) {
 }
 
 beforeEach(() => {
-  mocks.getGuideSummaries.mockResolvedValue([]);
+  mocks.getProjectSummaries.mockResolvedValue([]);
   mocks.query.mockResolvedValue([{ id: 7, url: 'https://example.com' }]);
-  mocks.createGuide.mockResolvedValue({ id: 'guide-a' });
-  mocks.getGuide.mockResolvedValue(undefined);
-  mocks.discardPristineGuide.mockResolvedValue(true);
-  mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'guide-a', runId: 'run-1' });
+  mocks.createProject.mockResolvedValue({ id: 'project-a' });
+  mocks.getProject.mockResolvedValue(undefined);
+  mocks.discardPristineProject.mockResolvedValue(true);
+  mocks.sendMessage.mockResolvedValue({ ok: true, sessionId: 'project-a', runId: 'run-1' });
   mocks.permissionsContains.mockResolvedValue(false);
   mocks.permissionsRequest.mockResolvedValue(true);
   const stored: Record<string, unknown> = {};
@@ -111,7 +111,7 @@ describe('cross-tab permission ask at recording start', () => {
     await clickStartAndWaitForSend(1);
 
     expect(mocks.permissionsRequest).toHaveBeenCalledTimes(1);
-    // The selection write for the fresh guide also goes through storage.set,
+    // The selection write for the fresh project also goes through storage.set,
     // so assert the decline record specifically rather than an only-call.
     expect(mocks.storageSet).toHaveBeenCalledWith({
       [CROSS_TAB_DECLINE_STORAGE_KEY]: {
@@ -183,11 +183,11 @@ describe('cross-tab permission ask at recording start', () => {
     expect(mocks.permissionsRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('parks the chosen guide so the permission-resumed start appends to it', async () => {
-    mocks.getGuideSummaries.mockResolvedValue([
-      { id: 'guide-old', title: '既有教學', entryCount: 3, stepCount: 3, updatedAt: 1 },
+  it('parks the chosen project so the permission-resumed start appends to it', async () => {
+    mocks.getProjectSummaries.mockResolvedValue([
+      { id: 'project-old', title: '既有教學', entryCount: 3, stepCount: 3, updatedAt: 1 },
     ]);
-    mocks.getGuide.mockResolvedValue({ id: 'guide-old', title: '既有教學' });
+    mocks.getProject.mockResolvedValue({ id: 'project-old', title: '既有教學' });
     Element.prototype.hasPointerCapture ??= () => false;
     Element.prototype.releasePointerCapture ??= () => {};
     Element.prototype.scrollIntoView ??= () => {};
@@ -201,7 +201,7 @@ describe('cross-tab permission ask at recording start', () => {
     await waitFor(() => expect(mocks.permissionsRequest).toHaveBeenCalled());
 
     expect(mocks.storageSet).toHaveBeenCalledWith({
-      'stepmark:pending-start:v1': expect.objectContaining({ mode: 'steps', tabId: 7, guideId: 'guide-old' }),
+      'stepmark:pending-start:v1': expect.objectContaining({ mode: 'steps', tabId: 7, projectId: 'project-old' }),
     });
   });
 });

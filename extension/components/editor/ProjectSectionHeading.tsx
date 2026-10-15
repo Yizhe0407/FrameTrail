@@ -7,14 +7,14 @@ import { t } from '@/lib/shared/i18n';
 /** A parent-owned action that may complete synchronously or asynchronously. */
 type MaybePromise = void | Promise<void>;
 
-interface GuideSectionHeadingSection {
+interface ProjectSectionHeadingSection {
   id: string;
   title: string;
   startEntryId: string;
 }
 
-export interface GuideSectionHeadingProps {
-  section: GuideSectionHeadingSection;
+export interface ProjectSectionHeadingProps {
+  section: ProjectSectionHeadingSection;
   /** Disables controls when the parent cannot accept a section action. */
   disabled?: boolean;
   onRename: (sectionId: string, title: string) => MaybePromise;
@@ -28,12 +28,12 @@ function normalizeTitle(value: string): string {
 }
 
 /** A callback-only section heading; the owner controls persistence, error reporting, and any confirmation UI. */
-function GuideSectionHeading({
+function ProjectSectionHeading({
   section,
   disabled = false,
   onRename,
   onDelete,
-}: GuideSectionHeadingProps) {
+}: ProjectSectionHeadingProps) {
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(section.title);
   const [submitting, setSubmitting] = useState(false);
@@ -198,4 +198,4 @@ function GuideSectionHeading({
   );
 }
 
-export default GuideSectionHeading;
+export default ProjectSectionHeading;

@@ -1,15 +1,15 @@
 import { stepRole, type StepEntry } from '../storage/models';
 import { isRecord } from '../shared/validation';
 import {
-  GUIDE_SECTION_LIMITS,
-  sanitizeGuideSectionTitle,
-  type GuideSection,
-} from '../storage/guide-section-model';
+  PROJECT_SECTION_LIMITS,
+  sanitizeProjectSectionTitle,
+  type ProjectSection,
+} from '../storage/project-section-model';
 export {
-  GUIDE_SECTION_LIMITS,
-  sanitizeGuideSectionTitle,
-  type GuideSection,
-} from '../storage/guide-section-model';
+  PROJECT_SECTION_LIMITS,
+  sanitizeProjectSectionTitle,
+  type ProjectSection,
+} from '../storage/project-section-model';
 
 const IDENTIFIER_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
 
@@ -22,10 +22,10 @@ const IDENTIFIER_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
  * are deliberately not added to the boundary map, so a section can never begin
  * in the middle of a shared-image annotation group.
  */
-export function repairGuideSections(
+export function repairProjectSections(
   value: unknown,
   entries: readonly StepEntry[],
-): GuideSection[] {
+): ProjectSection[] {
   if (!Array.isArray(value) || value.length === 0 || entries.length === 0) return [];
 
   const boundaryOrder = collectEntryBoundaries(entries);
@@ -33,8 +33,8 @@ export function repairGuideSections(
 
   const seenIds = new Set<string>();
   const seenStarts = new Set<string>();
-  const repaired: Array<GuideSection & { timelineIndex: number; inputIndex: number }> = [];
-  const count = Math.min(value.length, GUIDE_SECTION_LIMITS.maxSections);
+  const repaired: Array<ProjectSection & { timelineIndex: number; inputIndex: number }> = [];
+  const count = Math.min(value.length, PROJECT_SECTION_LIMITS.maxSections);
 
   for (let inputIndex = 0; inputIndex < count; inputIndex += 1) {
     const raw = value[inputIndex];
@@ -42,7 +42,7 @@ export function repairGuideSections(
 
     const id = validIdentifier(raw.id);
     const startEntryId = validIdentifier(raw.startEntryId);
-    const title = sanitizeGuideSectionTitle(raw.title);
+    const title = sanitizeProjectSectionTitle(raw.title);
     if (!id || !startEntryId || !title) continue;
 
     const timelineIndex = boundaryOrder.get(startEntryId);
@@ -61,7 +61,7 @@ function validIdentifier(value: unknown): string | null {
   if (
     typeof value !== 'string' ||
     value.length === 0 ||
-    value.length > GUIDE_SECTION_LIMITS.maxIdLength ||
+    value.length > PROJECT_SECTION_LIMITS.maxIdLength ||
     value.trim() !== value ||
     IDENTIFIER_CONTROL_CHARACTERS.test(value)
   ) {

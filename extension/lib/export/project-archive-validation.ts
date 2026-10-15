@@ -3,11 +3,11 @@ import { isRecord } from '../shared/validation';
 import { buildStepEntries, stepRole, type Bounds, type Redaction, type Step } from '../storage/models';
 import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
 import {
-  repairGuideSections,
-  sanitizeGuideSectionTitle,
-  type GuideSection,
-} from '../guide/guide-sections';
-import { sanitizeGuideTag } from '../storage/guide-tag-model';
+  repairProjectSections,
+  sanitizeProjectSectionTitle,
+  type ProjectSection,
+} from '../project/project-sections';
+import { sanitizeProjectTag } from '../storage/project-tag-model';
 import {
   BASE64_VALUES,
   BOUNDS_KEYS,
@@ -245,13 +245,13 @@ function parseMetadataText(value: unknown, path: string, maximumLength: number):
   return expectText(value, path, maximumLength).trim();
 }
 
-function parseSectionRecords(value: unknown, path: string, steps: readonly Step[]): GuideSection[] {
+function parseSectionRecords(value: unknown, path: string, steps: readonly Step[]): ProjectSection[] {
   const records = expectArray(value, path);
   if (records.length > PROJECT_ARCHIVE_LIMITS.maxSections) {
     fail('LIMIT_EXCEEDED', `An archive may contain at most ${PROJECT_ARCHIVE_LIMITS.maxSections} sections.`);
   }
 
-  const sections: GuideSection[] = records.map((section, index) => {
+  const sections: ProjectSection[] = records.map((section, index) => {
     const sectionPath = `${path}[${index}]`;
     const record = expectRecord(section, sectionPath);
     assertExactKeys(record, SECTION_KEYS, sectionPath);
@@ -266,10 +266,10 @@ function parseSectionRecords(value: unknown, path: string, steps: readonly Step[
       `${sectionPath}.startEntryId`,
       PROJECT_ARCHIVE_LIMITS.maxIdLength,
     );
-    return { id, title: sanitizeGuideSectionTitle(title), startEntryId };
+    return { id, title: sanitizeProjectSectionTitle(title), startEntryId };
   });
 
-  return repairGuideSections(sections, buildStepEntries([...steps]));
+  return repairProjectSections(sections, buildStepEntries([...steps]));
 }
 
 function parseTagRecords(value: unknown, path: string): string[] {
@@ -281,7 +281,7 @@ function parseTagRecords(value: unknown, path: string): string[] {
   const seen = new Set<string>();
   records.forEach((tag, index) => {
     const raw = expectString(tag, `${path}[${index}]`, PROJECT_ARCHIVE_LIMITS.maxTagLength);
-    const sanitized = sanitizeGuideTag(raw);
+    const sanitized = sanitizeProjectTag(raw);
     if (sanitized && !seen.has(sanitized)) {
       seen.add(sanitized);
       tags.push(sanitized);
@@ -298,7 +298,7 @@ export function parseArchiveMetadata(value: unknown, steps: readonly Step[], pat
     description: parseMetadataText(
       record.description,
       `${path}.description`,
-      PROJECT_ARCHIVE_LIMITS.maxGuideDescriptionLength,
+      PROJECT_ARCHIVE_LIMITS.maxProjectDescriptionLength,
     ),
     sections: parseSectionRecords(record.sections, `${path}.sections`, steps),
     // Archives written before tags existed omit this key entirely; treat
@@ -317,7 +317,7 @@ export function archiveMetadataFromInput(value: ProjectArchiveMetadataInput | un
     ? parseMetadataText(
         record.description,
         'metadata.description',
-        PROJECT_ARCHIVE_LIMITS.maxGuideDescriptionLength,
+        PROJECT_ARCHIVE_LIMITS.maxProjectDescriptionLength,
       )
     : '';
   const sections = hasOwn(record, 'sections')
@@ -364,7 +364,7 @@ export function remapImportedProject(
     metadata: {
       title: metadata.title,
       description: metadata.description,
-      sections: repairGuideSections(remappedSections, buildStepEntries(remappedSteps)),
+      sections: repairProjectSections(remappedSections, buildStepEntries(remappedSteps)),
       tags: metadata.tags,
     },
   };

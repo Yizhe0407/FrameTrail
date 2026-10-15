@@ -100,7 +100,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return (
         isString(value.sessionId) &&
         (value.mode === 'steps' || value.mode === 'snapshot') &&
-        (value.autoCreatedGuide === undefined || typeof value.autoCreatedGuide === 'boolean') &&
+        (value.autoCreatedProject === undefined || typeof value.autoCreatedProject === 'boolean') &&
         isContinuation(value.continuation)
       );
     case 'STOP_RECORDING':
@@ -117,7 +117,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       // Which page registered is derived from the authenticated sender, so the
       // payload carries nothing that could be forged.
       return true;
-    case 'RESET_GUIDE':
+    case 'RESET_PROJECT':
       return isString(value.sessionId);
     case 'SNAPSHOT_INVALIDATED':
       return isString(value.runId) && isViewport(value.viewport) && isDevicePixelRatio(value.devicePixelRatio);
@@ -173,7 +173,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return isString(value.runId) && isString(value.captureId);
     case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
       return isString(value.sessionId) && isTarget(value.target);
-    case 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION':
+    case 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION':
       return isString(value.sessionId);
     case 'START_STEP_RECAPTURE':
       return isString(value.sessionId) && isTarget(value.target) &&
@@ -262,7 +262,7 @@ export function isTrustedKeepAliveSender(
 export function isExtensionPageOnlyMessage(message: BackgroundMessage): boolean {
   return message.type === 'START_RECORDING' ||
     message.type === 'STOP_RECORDING' ||
-    message.type === 'RESET_GUIDE' ||
+    message.type === 'RESET_PROJECT' ||
     message.type === 'OPEN_EDITOR' ||
     message.type === 'OPEN_LIBRARY' ||
     message.type === 'REGISTER_EXTENSION_PAGE';

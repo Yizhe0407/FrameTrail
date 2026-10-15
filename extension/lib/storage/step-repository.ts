@@ -8,9 +8,9 @@ import {
 } from './models';
 import type { StepRecaptureTarget } from './recording-state';
 import {
-  refreshGuideSummary,
-  requireWritableGuide,
-  runGuideStepsWrite,
+  refreshProjectSummary,
+  requireWritableProject,
+  runProjectStepsWrite,
   runWithDatabase,
   writeDenseOrder,
 } from './database';
@@ -19,22 +19,22 @@ export async function addStep(step: Step): Promise<void> {
   await addSteps([step]);
 }
 
-/** Persists freshly captured same-guide rows in one transaction with a single
- * summary refresh — the batched pattern guide cloning already uses. Callers
- * with steps from several guides must split per guide themselves. */
+/** Persists freshly captured same-project rows in one transaction with a single
+ * summary refresh — the batched pattern project cloning already uses. Callers
+ * with steps from several projects must split per project themselves. */
 export async function addSteps(steps: readonly Step[]): Promise<void> {
   if (steps.length === 0) return;
   assertMutationItems(steps, 'Added steps');
   const sessionId = steps[0].sessionId;
   let latestTimestamp = steps[0].timestamp;
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     for (const step of steps) {
-      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another guide.`);
+      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another project.`);
       latestTimestamp = Math.max(latestTimestamp, step.timestamp);
       await tx.objectStore('steps').add(sanitizeStepForStorage(step));
     }
-    await refreshGuideSummary(tx, guide, latestTimestamp);
+    await refreshProjectSummary(tx, project, latestTimestamp);
   });
 }
 
@@ -129,8 +129,8 @@ function applyStepChanges(existing: Step, changes: Partial<Step>): Step {
 export async function updateStepsAtomically(sessionId: string, updates: StepUpdate[]): Promise<void> {
   assertMutationItems(updates, 'Step updates');
   if (updates.length === 0) return;
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     for (const update of updates) {
       const existing = await tx.objectStore('steps').get(update.id);
       if (!existing || existing.sessionId !== sessionId) {
@@ -148,7 +148,7 @@ export async function updateStepsAtomically(sessionId: string, updates: StepUpda
       }
       await tx.objectStore('steps').put(applyStepChanges(existing, update.changes));
     }
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
@@ -159,8 +159,8 @@ export async function replaceStepCaptureAtomically(
   capture: CaptureReplacement,
   recaptureRunId: string,
 ): Promise<{ entryId: string; captureRevision: number }> {
-  return runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  return runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     if (target.kind === 'single') {
       const step = await tx.objectStore('steps').get(target.stepId);
       if (!step || step.sessionId !== sessionId) {
@@ -179,7 +179,7 @@ export async function replaceStepCaptureAtomically(
         captureRevision,
         lastCaptureRunId: recaptureRunId,
       }));
-      await refreshGuideSummary(tx, guide, capture.timestamp);
+      await refreshProjectSummary(tx, project, capture.timestamp);
       return { entryId: step.id, captureRevision };
     }
 
@@ -228,7 +228,7 @@ export async function replaceStepCaptureAtomically(
       url: capture.url,
       timestamp: capture.timestamp,
     }));
-    await refreshGuideSummary(tx, guide, capture.timestamp);
+    await refreshProjectSummary(tx, project, capture.timestamp);
     return { entryId: anchor.id, captureRevision };
   });
 }
@@ -238,17 +238,17 @@ export async function replaceStepCaptureAtomically(
  * update as durably committed and drop their local draft journal, so a
  * swallowed not-found would destroy the user's only remaining copy. */
 export async function updateStep(id: string, changes: Partial<Step>): Promise<void> {
-  await runGuideStepsWrite(async (tx) => {
+  await runProjectStepsWrite(async (tx) => {
     const existing = await tx.objectStore('steps').get(id);
     if (!existing) throw new StepNotFoundError(id);
-    const guide = await requireWritableGuide(tx, existing.sessionId);
+    const project = await requireWritableProject(tx, existing.sessionId);
     await tx.objectStore('steps').put(applyStepChanges(existing, changes));
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
 /** Compare-and-set description save for the editor autosave path. Structure
- * mutations CAS on the guide's contentRevision, but that revision moves on
+ * mutations CAS on the project's contentRevision, but that revision moves on
  * every unrelated edit; a description save only conflicts when the same row's
  * description itself diverged from what this editor last observed, so the CAS
  * guards exactly that value. Conflicts surface as StepDescriptionConflictError
@@ -258,15 +258,15 @@ export async function saveStepDescription(
   description: string,
   expectedDescription: string,
 ): Promise<void> {
-  await runGuideStepsWrite(async (tx) => {
+  await runProjectStepsWrite(async (tx) => {
     const existing = await tx.objectStore('steps').get(id);
     if (!existing) throw new StepNotFoundError(id);
     if (existing.description !== expectedDescription) {
       throw new StepDescriptionConflictError(id, expectedDescription, existing.description);
     }
-    const guide = await requireWritableGuide(tx, existing.sessionId);
+    const project = await requireWritableProject(tx, existing.sessionId);
     await tx.objectStore('steps').put(applyStepChanges(existing, { description }));
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
@@ -274,39 +274,39 @@ export async function saveStepDescription(
 /** Deletes one row if present. Unlike updateStep, a missing row is success:
  * deletion is idempotent and re-running it cannot lose user content. */
 export async function deleteStep(id: string): Promise<void> {
-  await runGuideStepsWrite(async (tx) => {
+  await runProjectStepsWrite(async (tx) => {
     const existing = await tx.objectStore('steps').get(id);
     if (!existing) return;
-    const guide = await requireWritableGuide(tx, existing.sessionId);
+    const project = await requireWritableProject(tx, existing.sessionId);
     await tx.objectStore('steps').delete(id);
     const remaining = await tx.objectStore('steps').index('by-session').getAll(existing.sessionId);
     await writeDenseOrder(tx, remaining, []);
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
 /** Deletes only one recording run and closes order gaps without disturbing
  * content from earlier runs that share the same editor session. */
 export async function deleteStepsForRun(sessionId: string, runId: string): Promise<void> {
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     const sessionSteps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
     const removedIds = new Set(sessionSteps.filter((step) => step.runId === runId).map((step) => step.id));
     for (const id of removedIds) await tx.objectStore('steps').delete(id);
     const remaining = sessionSteps.filter((step) => !removedIds.has(step.id));
     await writeDenseOrder(tx, remaining, []);
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
 /** Persists a dense new step order, appending rows omitted by a stale editor. */
 export async function reorderSteps(sessionId: string, orderedIds: string[]): Promise<void> {
   assertMutationItems(orderedIds, 'Step reorder', true);
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     const sessionSteps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
     await writeDenseOrder(tx, sessionSteps, orderedIds);
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
@@ -318,16 +318,16 @@ export async function deleteStepsAndReorder(
 ): Promise<void> {
   assertMutationItems(deletedIds, 'Deleted step ids', true);
   assertMutationItems(orderedIds, 'Step reorder', true);
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     for (const id of new Set(deletedIds)) {
       const step = await tx.objectStore('steps').get(id);
-      if (step && step.sessionId !== sessionId) throw new Error(`Step ${id} belongs to another guide.`);
+      if (step && step.sessionId !== sessionId) throw new Error(`Step ${id} belongs to another project.`);
       if (step) await tx.objectStore('steps').delete(id);
     }
     const remaining = await tx.objectStore('steps').index('by-session').getAll(sessionId);
     await writeDenseOrder(tx, remaining, orderedIds);
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }
 
@@ -339,14 +339,14 @@ export async function restoreStepsAndReorder(
 ): Promise<void> {
   assertMutationItems(restoredSteps, 'Restored steps');
   assertMutationItems(orderedIds, 'Step reorder', true);
-  await runGuideStepsWrite(async (tx) => {
-    const guide = await requireWritableGuide(tx, sessionId);
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
     for (const step of restoredSteps) {
-      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another guide.`);
+      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another project.`);
       await tx.objectStore('steps').add(sanitizeStepForStorage(step));
     }
     const sessionSteps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
     await writeDenseOrder(tx, sessionSteps, orderedIds);
-    await refreshGuideSummary(tx, guide);
+    await refreshProjectSummary(tx, project);
   });
 }

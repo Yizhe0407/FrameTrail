@@ -3,48 +3,48 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  getGuideStructureSnapshot: vi.fn(),
-  reorderGuideEntriesAtomically: vi.fn(),
+  getProjectStructureSnapshot: vi.fn(),
+  reorderProjectEntriesAtomically: vi.fn(),
 }));
 
-vi.mock('@/lib/storage/guide-structure', () => {
-  class GuideContentConflictError extends Error {
+vi.mock('@/lib/storage/project-structure', () => {
+  class ProjectContentConflictError extends Error {
     constructor(
-      public readonly guideId: string,
+      public readonly projectId: string,
       public readonly expectedRevision: number,
       public readonly actualRevision: number,
     ) {
-      super('Guide content changed before the operation was committed.');
-      this.name = 'GuideContentConflictError';
+      super('Project content changed before the operation was committed.');
+      this.name = 'ProjectContentConflictError';
     }
   }
   return {
-    GuideContentConflictError,
-    getGuideStructureSnapshot: mocks.getGuideStructureSnapshot,
-    reorderGuideEntriesAtomically: mocks.reorderGuideEntriesAtomically,
-    addGuideSectionAtomically: vi.fn(),
-    deleteGuideAnnotationAtomically: vi.fn(),
-    deleteGuideEntriesAtomically: vi.fn(),
-    deleteGuideSectionAtomically: vi.fn(),
-    renameGuideSectionAtomically: vi.fn(),
-    reorderGuideAnnotationsAtomically: vi.fn(),
-    restoreGuideAnnotationAtomically: vi.fn(),
-    restoreGuideEntriesAtomically: vi.fn(),
-    setGuideEntriesNumberedAtomically: vi.fn(),
+    ProjectContentConflictError,
+    getProjectStructureSnapshot: mocks.getProjectStructureSnapshot,
+    reorderProjectEntriesAtomically: mocks.reorderProjectEntriesAtomically,
+    addProjectSectionAtomically: vi.fn(),
+    deleteProjectAnnotationAtomically: vi.fn(),
+    deleteProjectEntriesAtomically: vi.fn(),
+    deleteProjectSectionAtomically: vi.fn(),
+    renameProjectSectionAtomically: vi.fn(),
+    reorderProjectAnnotationsAtomically: vi.fn(),
+    restoreProjectAnnotationAtomically: vi.fn(),
+    restoreProjectEntriesAtomically: vi.fn(),
+    setProjectEntriesNumberedAtomically: vi.fn(),
   };
 });
 
-import { useGuideMutations } from '@/components/editor/use-guide-mutations';
+import { useProjectMutations } from '@/components/editor/use-project-mutations';
 
 const singleEntry = (id: string) => ({ kind: 'single', step: { id } }) as never;
 const entries = [singleEntry('s1'), singleEntry('s2')];
 const reordered = [entries[1], entries[0]];
-const guide = { id: 'g1', contentRevision: 1, sections: [] } as never;
+const project = { id: 'g1', contentRevision: 1, sections: [] } as never;
 
 function renderMutations(overrides: Record<string, unknown> = {}) {
   const options = {
     sessionId: 'g1',
-    guide,
+    project,
     entries,
     selectedEntryId: null,
     beginDataOperation: vi.fn(() => true),
@@ -52,7 +52,7 @@ function renderMutations(overrides: Record<string, unknown> = {}) {
     setOptimisticEntries: vi.fn(),
     flushDescriptions: vi.fn().mockResolvedValue(undefined),
     refreshEditorData: vi.fn().mockResolvedValue(null),
-    adoptGuide: vi.fn(),
+    adoptProject: vi.fn(),
     requireSelectedEntry: vi.fn(),
     setSelectedEntryId: vi.fn(),
     setZoomOpen: vi.fn(),
@@ -62,20 +62,20 @@ function renderMutations(overrides: Record<string, unknown> = {}) {
     clearUndo: vi.fn(),
     ...overrides,
   };
-  const { result } = renderHook(() => useGuideMutations(options as never));
+  const { result } = renderHook(() => useProjectMutations(options as never));
   return { result, options };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
-  mocks.getGuideStructureSnapshot.mockResolvedValue({
-    guide: { contentRevision: 1, sections: [] },
+  mocks.getProjectStructureSnapshot.mockResolvedValue({
+    project: { contentRevision: 1, sections: [] },
     entryIds: ['s1', 's2'],
     entries,
   });
-  mocks.reorderGuideEntriesAtomically.mockResolvedValue({
-    guide: { contentRevision: 2 },
+  mocks.reorderProjectEntriesAtomically.mockResolvedValue({
+    project: { contentRevision: 2 },
     previousEntryIds: ['s1', 's2'],
   });
 });
@@ -84,7 +84,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('runGuideMutation (via handleReorderEntries)', () => {
+describe('runProjectMutation (via handleReorderEntries)', () => {
   it('commits, reloads, and offers undo on the happy path', async () => {
     const { result, options } = renderMutations();
 
@@ -118,7 +118,7 @@ describe('runGuideMutation (via handleReorderEntries)', () => {
   });
 
   it('still rolls back optimistic entries and reloads when the mutation itself failed', async () => {
-    mocks.reorderGuideEntriesAtomically.mockRejectedValue(new Error('cas boom'));
+    mocks.reorderProjectEntriesAtomically.mockRejectedValue(new Error('cas boom'));
     const { result, options } = renderMutations();
 
     await act(() => result.current.handleReorderEntries(reordered));

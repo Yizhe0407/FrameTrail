@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  GuideStructureIntegrityError,
+  ProjectStructureIntegrityError,
   buildCompleteStepEntries,
   getEntryPrivacyState,
   type Redaction,
@@ -12,7 +12,7 @@ import {
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {
     id: crypto.randomUUID(),
-    sessionId: 'guide',
+    sessionId: 'project',
     order: 0,
     screenshotBlob: new Blob(['pixels'], { type: 'image/png' }),
     bounds: { x: 1, y: 2, width: 30, height: 40 },
@@ -37,7 +37,7 @@ describe('buildCompleteStepEntries', () => {
   it('builds a complete contiguous snapshot group', () => {
     const [anchor, first, second] = makeGroup();
 
-    const entries = buildCompleteStepEntries([second, anchor, first], 'guide');
+    const entries = buildCompleteStepEntries([second, anchor, first], 'project');
 
     expect(entries).toEqual([{ kind: 'group', anchor, annotations: [first, second] }]);
   });
@@ -49,8 +49,8 @@ describe('buildCompleteStepEntries', () => {
       : makeGroup(2)[0];
     second.order = 3;
 
-    expect(() => buildCompleteStepEntries([anchor, first, middle, second], 'guide'))
-      .toThrow(GuideStructureIntegrityError);
+    expect(() => buildCompleteStepEntries([anchor, first, middle, second], 'project'))
+      .toThrow(ProjectStructureIntegrityError);
   });
 });
 

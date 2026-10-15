@@ -12,34 +12,34 @@ import { vi } from 'vitest';
  * The tables are supersets; suites use the slice they care about.
  */
 export function makeEditorDatabaseMocks() {
-  class GuideContentConflictError extends Error {}
+  class ProjectContentConflictError extends Error {}
 
   const entryId = (entry: any) => (entry.kind === 'single' ? entry.step.id : entry.anchor.id);
 
   return {
-    GuideContentConflictError,
-    addGuideSectionAtomically: vi.fn(),
+    ProjectContentConflictError,
+    addProjectSectionAtomically: vi.fn(),
     buildStepEntries: vi.fn((steps: any[]) => steps),
-    deleteGuideAnnotationAtomically: vi.fn(),
-    deleteGuideEntriesAtomically: vi.fn(),
-    deleteGuideSectionAtomically: vi.fn(),
+    deleteProjectAnnotationAtomically: vi.fn(),
+    deleteProjectEntriesAtomically: vi.fn(),
+    deleteProjectSectionAtomically: vi.fn(),
     deleteStepsAndReorder: vi.fn(),
     entryId,
     flattenEntries: vi.fn((entries: any[]) => entries.flatMap((entry) => (
       entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations]
     ))),
-    getGuide: vi.fn(),
-    getGuideStructureSnapshot: vi.fn(),
+    getProject: vi.fn(),
+    getProjectStructureSnapshot: vi.fn(),
     getSteps: vi.fn(),
-    renameGuideSectionAtomically: vi.fn(),
-    reorderGuideAnnotationsAtomically: vi.fn(),
-    reorderGuideEntriesAtomically: vi.fn(),
+    renameProjectSectionAtomically: vi.fn(),
+    reorderProjectAnnotationsAtomically: vi.fn(),
+    reorderProjectEntriesAtomically: vi.fn(),
     reorderSteps: vi.fn(),
-    restoreGuideAnnotationAtomically: vi.fn(),
-    restoreGuideEntriesAtomically: vi.fn(),
+    restoreProjectAnnotationAtomically: vi.fn(),
+    restoreProjectEntriesAtomically: vi.fn(),
     restoreStepsAndReorder: vi.fn(),
-    setGuideEntriesNumberedAtomically: vi.fn(),
-    updateGuide: vi.fn(),
+    setProjectEntriesNumberedAtomically: vi.fn(),
+    updateProject: vi.fn(),
     updateStepsAtomically: vi.fn(),
   };
 }

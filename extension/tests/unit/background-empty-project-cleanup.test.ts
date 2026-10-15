@@ -7,14 +7,14 @@ const mocks = await vi.hoisted(async () => (await import('../setup/background-te
 
 vi.mock('wxt/browser', async () =>
   (await import('../setup/background-test-utils')).mockWxtBrowserModule(mocks));
-// The reclaim guard itself is covered by tests/integration/db-pristine-guide.test.ts; here only the routing (which run endings hand the guide to it) matters.
+// The reclaim guard itself is covered by tests/integration/db-pristine-project.test.ts; here only the routing (which run endings hand the project to it) matters.
 vi.mock('@/lib/storage/step-repository', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStepRepositoryModule(mocks, importOriginal, {
     deleteStepsForRun: mocks.deleteStepsForRun,
   }));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) =>
-  (await import('../setup/background-test-utils')).mockGuideRepositoryModule(mocks, importOriginal, {
-    discardPristineGuide: mocks.discardPristineGuide,
+vi.mock('@/lib/storage/project-repository', async (importOriginal) =>
+  (await import('../setup/background-test-utils')).mockProjectRepositoryModule(mocks, importOriginal, {
+    discardPristineProject: mocks.discardPristineProject,
   }));
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
   (await import('../setup/background-test-utils')).mockStorageModule(mocks, importOriginal));
@@ -26,7 +26,7 @@ function recordingState(overrides: Partial<RecordingState> = {}): RecordingState
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
     ...overrides,
@@ -55,7 +55,7 @@ beforeEach(() => {
   mocks.permissionsContains.mockResolvedValue(true);
   mocks.getSteps.mockResolvedValue([]);
   mocks.deleteStepsForRun.mockResolvedValue(undefined);
-  mocks.discardPristineGuide.mockResolvedValue(true);
+  mocks.discardPristineProject.mockResolvedValue(true);
   mocks.tabsGet.mockResolvedValue(RECORDED_TAB);
   mocks.tabsQuery.mockResolvedValue([]);
   mocks.tabsCreate.mockResolvedValue({ id: 77, windowId: 1 });
@@ -69,63 +69,63 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('empty auto-created guide reclamation at run end', () => {
-  it('reclaims the popup-created guide when STOP ends the run', async () => {
-    storedState = recordingState({ autoCreatedGuideId: 'guide-a' });
+describe('empty auto-created project reclamation at run end', () => {
+  it('reclaims the popup-created project when STOP ends the run', async () => {
+    storedState = recordingState({ autoCreatedProjectId: 'project-a' });
     await importBackground();
     await flushAsyncWork();
 
     await dispatch({ type: 'STOP_RECORDING' });
 
-    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
+    expect(mocks.discardPristineProject).toHaveBeenCalledExactlyOnceWith('project-a');
     expect(storedState.isRecording).toBe(false);
-    expect(storedState.autoCreatedGuideId).toBeNull();
+    expect(storedState.autoCreatedProjectId).toBeNull();
   });
 
-  it('never reclaims on STOP for a run into a user-chosen guide (no flag)', async () => {
+  it('never reclaims on STOP for a run into a user-chosen project (no flag)', async () => {
     await importBackground();
     await flushAsyncWork();
 
     await dispatch({ type: 'STOP_RECORDING' });
 
     expect(storedState.isRecording).toBe(false);
-    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineProject).not.toHaveBeenCalled();
   });
 
-  it('ignores a flag that does not match the run\'s own guide', async () => {
-    storedState = recordingState({ autoCreatedGuideId: 'guide-other' });
+  it('ignores a flag that does not match the run\'s own project', async () => {
+    storedState = recordingState({ autoCreatedProjectId: 'project-other' });
     await importBackground();
     await flushAsyncWork();
 
     await dispatch({ type: 'STOP_RECORDING' });
 
-    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineProject).not.toHaveBeenCalled();
   });
 
   it('reclaims after 放棄 (DISCARD) removed the run\'s steps', async () => {
-    storedState = recordingState({ autoCreatedGuideId: 'guide-a' });
+    storedState = recordingState({ autoCreatedProjectId: 'project-a' });
     await importBackground();
     await flushAsyncWork();
 
     const result = await dispatch({ type: 'DISCARD_CURRENT_RECORDING', runId: 'run-1' });
 
     expect(result).toEqual({ ok: true });
-    expect(mocks.deleteStepsForRun).toHaveBeenCalledWith('guide-a', 'run-1');
-    expect(mocks.discardPristineGuide).toHaveBeenCalledExactlyOnceWith('guide-a');
+    expect(mocks.deleteStepsForRun).toHaveBeenCalledWith('project-a', 'run-1');
+    expect(mocks.discardPristineProject).toHaveBeenCalledExactlyOnceWith('project-a');
   });
 
-  it('keeps the guide on FINISH even at zero items: the editor is about to open it', async () => {
-    storedState = recordingState({ autoCreatedGuideId: 'guide-a' });
+  it('keeps the project on FINISH even at zero items: the editor is about to open it', async () => {
+    storedState = recordingState({ autoCreatedProjectId: 'project-a' });
     await importBackground();
     await flushAsyncWork();
 
     const result = await dispatch({ type: 'FINISH_RECORDING', runId: 'run-1' });
 
-    expect(result).toMatchObject({ ok: true, finish: { sessionId: 'guide-a', itemCount: 0 } });
-    // The finish must still navigate to the (kept) guide.
+    expect(result).toMatchObject({ ok: true, finish: { sessionId: 'project-a', itemCount: 0 } });
+    // The finish must still navigate to the (kept) project.
     expect(mocks.tabsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ url: expect.stringContaining('sessionId=guide-a') }),
+      expect.objectContaining({ url: expect.stringContaining('sessionId=project-a') }),
     );
-    expect(mocks.discardPristineGuide).not.toHaveBeenCalled();
+    expect(mocks.discardPristineProject).not.toHaveBeenCalled();
   });
 });

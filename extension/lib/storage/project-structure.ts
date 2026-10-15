@@ -1,95 +1,95 @@
 import {
-  GUIDE_SECTION_LIMITS,
-  repairGuideSections,
-  sanitizeGuideSectionTitle,
-  type GuideSection,
-} from '../guide/guide-sections';
+  PROJECT_SECTION_LIMITS,
+  repairProjectSections,
+  sanitizeProjectSectionTitle,
+  type ProjectSection,
+} from '../project/project-sections';
 import {
   assertExactEntryIds,
   buildCompleteStepEntries,
   entryId,
-  GuideStructureIntegrityError,
+  ProjectStructureIntegrityError,
   flattenEntrySteps,
   orderedSessionSteps,
-  sanitizeGuide,
+  sanitizeProject,
   sanitizeStepForStorage,
-  type Guide,
+  type Project,
   type Step,
   type StepEntry,
 } from './models';
 import {
-  requireWritableGuide,
-  runGuideStepsWrite,
+  requireWritableProject,
+  runProjectStepsWrite,
   runWithDatabase,
   summarizeSteps,
-  type GuideStepsTransaction,
-  type ReadonlyGuideStepsTransaction,
+  type ProjectStepsTransaction,
+  type ReadonlyProjectStepsTransaction,
 } from './database';
 
-export class GuideContentConflictError extends Error {
+export class ProjectContentConflictError extends Error {
   constructor(
-    public readonly guideId: string,
+    public readonly projectId: string,
     public readonly expectedRevision: number,
     public readonly actualRevision: number,
   ) {
-    super('Guide content changed before the operation was committed.');
-    this.name = 'GuideContentConflictError';
+    super('Project content changed before the operation was committed.');
+    this.name = 'ProjectContentConflictError';
   }
 }
 
-export interface GuideStructureSnapshot {
-  guide: Guide;
+export interface ProjectStructureSnapshot {
+  project: Project;
   entries: StepEntry[];
   entryIds: string[];
 }
 
-export interface GuideStructureMutationResult {
-  guide: Guide;
+export interface ProjectStructureMutationResult {
+  project: Project;
   entryIds: string[];
   affectedEntryIds: string[];
 }
 
-export interface ReorderGuideEntriesResult extends GuideStructureMutationResult {
+export interface ReorderProjectEntriesResult extends ProjectStructureMutationResult {
   /** Fresh transaction-local order, suitable for an undo CAS. */
   previousEntryIds: string[];
   /** Fresh transaction-local section metadata, before reorder repair/sorting. */
-  previousSections: GuideSection[];
+  previousSections: ProjectSection[];
 }
 
-export interface DeleteGuideAnnotationResult extends GuideStructureMutationResult {
+export interface DeleteProjectAnnotationResult extends ProjectStructureMutationResult {
   /** Canonical snapshot read in the same transaction before any rows changed. */
-  beforeSnapshot: GuideStructureSnapshot;
+  beforeSnapshot: ProjectStructureSnapshot;
   /** Annotation order read from the persisted group, never from editor state. */
   previousAnnotationIds: string[];
   previousEntryIds: string[];
-  previousSections: GuideSection[];
+  previousSections: ProjectSection[];
   /** One annotation normally; anchor + annotation when the group became empty. */
   deletedSteps: Step[];
   removedEntry: boolean;
 }
 
-export interface ReorderGuideAnnotationsResult extends GuideStructureMutationResult {
+export interface ReorderProjectAnnotationsResult extends ProjectStructureMutationResult {
   previousAnnotationIds: string[];
 }
 
-interface WritableGuideStructure extends GuideStructureSnapshot {
+interface WritableProjectStructure extends ProjectStructureSnapshot {
   steps: Step[];
 }
 
-function structureSnapshot(guide: Guide, steps: readonly Step[]): GuideStructureSnapshot {
-  const entries = buildCompleteStepEntries(steps, guide.id);
-  const repairedGuide = sanitizeGuide({
-    ...guide,
-    sections: repairGuideSections(guide.sections, entries),
+function structureSnapshot(project: Project, steps: readonly Step[]): ProjectStructureSnapshot {
+  const entries = buildCompleteStepEntries(steps, project.id);
+  const repairedProject = sanitizeProject({
+    ...project,
+    sections: repairProjectSections(project.sections, entries),
   });
-  return { guide: repairedGuide, entries, entryIds: entries.map(entryId) };
+  return { project: repairedProject, entries, entryIds: entries.map(entryId) };
 }
 
-function copyStructureSnapshot(structure: GuideStructureSnapshot): GuideStructureSnapshot {
+function copyStructureSnapshot(structure: ProjectStructureSnapshot): ProjectStructureSnapshot {
   return {
-    guide: {
-      ...structure.guide,
-      sections: structure.guide.sections.map((section) => ({ ...section })),
+    project: {
+      ...structure.project,
+      sections: structure.project.sections.map((section) => ({ ...section })),
     },
     entries: structure.entries.map((entry): StepEntry => (
       entry.kind === 'single'
@@ -107,7 +107,7 @@ function copyStructureSnapshot(structure: GuideStructureSnapshot): GuideStructur
 function requireSnapshotGroup(entries: readonly StepEntry[], anchorId: string): Extract<StepEntry, { kind: 'group' }> {
   const entry = entries.find((candidate) => entryId(candidate) === anchorId);
   if (!entry || entry.kind !== 'group' || entry.anchor.id !== anchorId) {
-    throw new GuideStructureIntegrityError('Snapshot anchor was not found or no longer owns a complete group.');
+    throw new ProjectStructureIntegrityError('Snapshot anchor was not found or no longer owns a complete group.');
   }
   return entry;
 }
@@ -121,11 +121,11 @@ function assertExactAnnotationIds(
     orderedAnnotationIds.length !== actualIds.length
     || new Set(orderedAnnotationIds).size !== orderedAnnotationIds.length
   ) {
-    throw new GuideStructureIntegrityError('Annotation order must contain every group annotation exactly once.');
+    throw new ProjectStructureIntegrityError('Annotation order must contain every group annotation exactly once.');
   }
   const actual = new Set(actualIds);
   if (orderedAnnotationIds.some((id) => !actual.has(id))) {
-    throw new GuideStructureIntegrityError('Annotation order contains an anchor or an annotation from another group.');
+    throw new ProjectStructureIntegrityError('Annotation order contains an anchor or an annotation from another group.');
   }
 }
 
@@ -144,39 +144,39 @@ function assertExactRestoredAnnotationIds(
     || expectedIds.size !== group.annotations.length + 1
     || previousAnnotationIds.some((id) => !expectedIds.has(id))
   ) {
-    throw new GuideStructureIntegrityError(
+    throw new ProjectStructureIntegrityError(
       'Previous annotation order must contain the current group plus the restored annotation exactly once.',
     );
   }
 }
 
-async function requireWritableGuideStructure(
-  tx: GuideStepsTransaction,
+async function requireWritableProjectStructure(
+  tx: ProjectStepsTransaction,
   sessionId: string,
   expectedContentRevision: number,
-): Promise<WritableGuideStructure> {
+): Promise<WritableProjectStructure> {
   if (!Number.isSafeInteger(expectedContentRevision) || expectedContentRevision < 0) {
     throw new TypeError('Expected content revision must be a non-negative integer.');
   }
-  const guide = await requireWritableGuide(tx, sessionId);
-  if (guide.contentRevision !== expectedContentRevision) {
-    throw new GuideContentConflictError(sessionId, expectedContentRevision, guide.contentRevision);
+  const project = await requireWritableProject(tx, sessionId);
+  if (project.contentRevision !== expectedContentRevision) {
+    throw new ProjectContentConflictError(sessionId, expectedContentRevision, project.contentRevision);
   }
   const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-  return { ...structureSnapshot(guide, steps), steps: orderedSessionSteps(steps) };
+  return { ...structureSnapshot(project, steps), steps: orderedSessionSteps(steps) };
 }
 
-async function commitGuideStructure(
-  tx: GuideStepsTransaction,
-  structure: WritableGuideStructure,
+async function commitProjectStructure(
+  tx: ProjectStepsTransaction,
+  structure: WritableProjectStructure,
   nextEntries: readonly StepEntry[],
-  nextSections: readonly GuideSection[],
+  nextSections: readonly ProjectSection[],
   affectedEntryIds: readonly string[],
-): Promise<GuideStructureMutationResult> {
+): Promise<ProjectStructureMutationResult> {
   const denseSteps = flattenEntrySteps(nextEntries).map((step, order) => (
     step.order === order ? step : { ...step, order }
   ));
-  const completeEntries = buildCompleteStepEntries(denseSteps, structure.guide.id);
+  const completeEntries = buildCompleteStepEntries(denseSteps, structure.project.id);
   const previousById = new Map(structure.steps.map((step) => [step.id, step]));
   const nextIds = new Set(denseSteps.map((step) => step.id));
 
@@ -189,28 +189,28 @@ async function commitGuideStructure(
   }
 
   const now = Date.now();
-  const guide = sanitizeGuide({
-    ...structure.guide,
+  const project = sanitizeProject({
+    ...structure.project,
     ...summarizeSteps(denseSteps),
-    sections: repairGuideSections(nextSections, completeEntries),
-    updatedAt: Math.max(structure.guide.updatedAt, now),
-    contentRevision: structure.guide.contentRevision + 1,
+    sections: repairProjectSections(nextSections, completeEntries),
+    updatedAt: Math.max(structure.project.updatedAt, now),
+    contentRevision: structure.project.contentRevision + 1,
   });
-  await tx.objectStore('guides').put(guide);
+  await tx.objectStore('projects').put(project);
   return {
-    guide,
+    project,
     entryIds: completeEntries.map(entryId),
     affectedEntryIds: [...new Set(affectedEntryIds)],
   };
 }
 
-async function runGuideStructureMutation<T extends GuideStructureMutationResult>(
+async function runProjectStructureMutation<T extends ProjectStructureMutationResult>(
   sessionId: string,
   expectedContentRevision: number,
-  mutate: (tx: GuideStepsTransaction, structure: WritableGuideStructure) => Promise<T>,
+  mutate: (tx: ProjectStepsTransaction, structure: WritableProjectStructure) => Promise<T>,
 ): Promise<T> {
-  return runGuideStepsWrite(async (tx) => {
-    const structure = await requireWritableGuideStructure(tx, sessionId, expectedContentRevision);
+  return runProjectStepsWrite(async (tx) => {
+    const structure = await requireWritableProjectStructure(tx, sessionId, expectedContentRevision);
     return mutate(tx, structure);
   });
 }
@@ -222,26 +222,26 @@ function requireEntrySelection(
 ): { selectedIds: Set<string>; byId: Map<string, StepEntry> } {
   const selectedIds = new Set(requestedIds);
   if ((!allowEmpty && selectedIds.size === 0) || selectedIds.size !== requestedIds.length) {
-    throw new GuideStructureIntegrityError('Entry selection must contain unique entry ids.');
+    throw new ProjectStructureIntegrityError('Entry selection must contain unique entry ids.');
   }
   const byId = new Map(entries.map((entry) => [entryId(entry), entry]));
   if ([...selectedIds].some((id) => !byId.has(id))) {
-    throw new GuideStructureIntegrityError('Entry selection contains an unknown or annotation id.');
+    throw new ProjectStructureIntegrityError('Entry selection contains an unknown or annotation id.');
   }
   return { selectedIds, byId };
 }
 
 function rebaseSectionsAfterDelete(
-  sections: readonly GuideSection[],
+  sections: readonly ProjectSection[],
   previousEntryIds: readonly string[],
   survivingEntryIds: ReadonlySet<string>,
-): GuideSection[] {
+): ProjectSection[] {
   const starts = new Map(previousEntryIds.map((id, index) => [id, index]));
   const orderedSections = [...sections]
     .map((section) => ({ section, index: starts.get(section.startEntryId) }))
-    .filter((item): item is { section: GuideSection; index: number } => item.index !== undefined)
+    .filter((item): item is { section: ProjectSection; index: number } => item.index !== undefined)
     .sort((left, right) => left.index - right.index);
-  const rebased: GuideSection[] = [];
+  const rebased: ProjectSection[] = [];
   for (let index = 0; index < orderedSections.length; index += 1) {
     const current = orderedSections[index];
     const end = orderedSections[index + 1]?.index ?? previousEntryIds.length;
@@ -251,70 +251,70 @@ function rebaseSectionsAfterDelete(
   return rebased;
 }
 
-export async function getGuideStructureSnapshot(sessionId: string): Promise<GuideStructureSnapshot> {
+export async function getProjectStructureSnapshot(sessionId: string): Promise<ProjectStructureSnapshot> {
   return runWithDatabase(async (db) => {
-    const tx: ReadonlyGuideStepsTransaction = db.transaction(['guides', 'steps'], 'readonly');
-    const rawGuide = await tx.objectStore('guides').get(sessionId);
-    if (!rawGuide) {
+    const tx: ReadonlyProjectStepsTransaction = db.transaction(['projects', 'steps'], 'readonly');
+    const rawProject = await tx.objectStore('projects').get(sessionId);
+    if (!rawProject) {
       await tx.done;
-      throw new Error('Guide not found.');
+      throw new Error('Project not found.');
     }
-    const guide = sanitizeGuide(rawGuide);
+    const project = sanitizeProject(rawProject);
     const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-    const snapshot = structureSnapshot(guide, steps);
+    const snapshot = structureSnapshot(project, steps);
     await tx.done;
     return snapshot;
   });
 }
 
-export async function reorderGuideEntriesAtomically(
+export async function reorderProjectEntriesAtomically(
   sessionId: string,
   orderedEntryIds: readonly string[],
   expectedContentRevision: number,
-): Promise<ReorderGuideEntriesResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ReorderProjectEntriesResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     assertExactEntryIds(structure.entries, orderedEntryIds);
     const byId = new Map(structure.entries.map((entry) => [entryId(entry), entry]));
     const previousEntryIds = [...structure.entryIds];
-    const previousSections = structure.guide.sections.map((section) => ({ ...section }));
-    const result = await commitGuideStructure(
+    const previousSections = structure.project.sections.map((section) => ({ ...section }));
+    const result = await commitProjectStructure(
       tx,
       structure,
       orderedEntryIds.map((id) => byId.get(id)!),
-      structure.guide.sections,
+      structure.project.sections,
       orderedEntryIds,
     );
     return { ...result, previousEntryIds, previousSections };
   });
 }
 
-export async function deleteGuideAnnotationAtomically(
+export async function deleteProjectAnnotationAtomically(
   sessionId: string,
   anchorId: string,
   annotationId: string,
   expectedContentRevision: number,
-): Promise<DeleteGuideAnnotationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<DeleteProjectAnnotationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const group = requireSnapshotGroup(structure.entries, anchorId);
     const annotationIndex = group.annotations.findIndex((annotation) => annotation.id === annotationId);
     if (annotationIndex < 0) {
-      throw new GuideStructureIntegrityError('Annotation does not belong to the requested snapshot group.');
+      throw new ProjectStructureIntegrityError('Annotation does not belong to the requested snapshot group.');
     }
 
     const beforeSnapshot = copyStructureSnapshot(structure);
     const previousAnnotationIds = group.annotations.map((annotation) => annotation.id);
     const previousEntryIds = [...structure.entryIds];
-    const previousSections = structure.guide.sections.map((section) => ({ ...section }));
+    const previousSections = structure.project.sections.map((section) => ({ ...section }));
     const removedEntry = group.annotations.length === 1;
     let nextEntries: StepEntry[];
-    let nextSections: GuideSection[] = structure.guide.sections;
+    let nextSections: ProjectSection[] = structure.project.sections;
     let deletedSteps: Step[];
 
     if (removedEntry) {
       nextEntries = structure.entries.filter((entry) => entryId(entry) !== anchorId);
       const survivingIds = new Set(nextEntries.map(entryId));
       nextSections = rebaseSectionsAfterDelete(
-        structure.guide.sections,
+        structure.project.sections,
         structure.entryIds,
         survivingIds,
       );
@@ -327,7 +327,7 @@ export async function deleteGuideAnnotationAtomically(
       deletedSteps = [group.annotations[annotationIndex]];
     }
 
-    const result = await commitGuideStructure(
+    const result = await commitProjectStructure(
       tx,
       structure,
       nextEntries,
@@ -346,13 +346,13 @@ export async function deleteGuideAnnotationAtomically(
   });
 }
 
-export async function reorderGuideAnnotationsAtomically(
+export async function reorderProjectAnnotationsAtomically(
   sessionId: string,
   anchorId: string,
   orderedAnnotationIds: readonly string[],
   expectedContentRevision: number,
-): Promise<ReorderGuideAnnotationsResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ReorderProjectAnnotationsResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const group = requireSnapshotGroup(structure.entries, anchorId);
     assertExactAnnotationIds(group, orderedAnnotationIds);
     const previousAnnotationIds = group.annotations.map((annotation) => annotation.id);
@@ -365,11 +365,11 @@ export async function reorderGuideAnnotationsAtomically(
     const nextEntries = structure.entries.map((entry) => (
       entryId(entry) === anchorId ? reorderedGroup : entry
     ));
-    const result = await commitGuideStructure(
+    const result = await commitProjectStructure(
       tx,
       structure,
       nextEntries,
-      structure.guide.sections,
+      structure.project.sections,
       [anchorId],
     );
     return { ...result, previousAnnotationIds };
@@ -379,14 +379,14 @@ export async function reorderGuideAnnotationsAtomically(
 /** Strict inverse of a non-terminal annotation delete. The restored row's old
  * numeric order is deliberately ignored: the transaction reconstructs the
  * complete group from previousAnnotationIds and then commits dense orders. */
-export async function restoreGuideAnnotationAtomically(
+export async function restoreProjectAnnotationAtomically(
   sessionId: string,
   anchorId: string,
   restoredAnnotation: Step,
   previousAnnotationIds: readonly string[],
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const group = requireSnapshotGroup(structure.entries, anchorId);
     if (
       typeof restoredAnnotation.id !== 'string'
@@ -395,12 +395,12 @@ export async function restoreGuideAnnotationAtomically(
       || restoredAnnotation.sessionId !== sessionId
       || restoredAnnotation.groupId !== anchorId
     ) {
-      throw new GuideStructureIntegrityError(
+      throw new ProjectStructureIntegrityError(
         'Restored annotation must be a distinct member of the requested snapshot group.',
       );
     }
     if (await tx.objectStore('steps').get(restoredAnnotation.id)) {
-      throw new GuideStructureIntegrityError('Restored annotation id already exists.');
+      throw new ProjectStructureIntegrityError('Restored annotation id already exists.');
     }
     assertExactRestoredAnnotationIds(group, restoredAnnotation.id, previousAnnotationIds);
 
@@ -415,81 +415,81 @@ export async function restoreGuideAnnotationAtomically(
     const nextEntries = structure.entries.map((entry) => (
       entryId(entry) === anchorId ? restoredGroup : entry
     ));
-    return commitGuideStructure(
+    return commitProjectStructure(
       tx,
       structure,
       nextEntries,
-      structure.guide.sections,
+      structure.project.sections,
       [anchorId],
     );
   });
 }
 
-export async function deleteGuideEntriesAtomically(
+export async function deleteProjectEntriesAtomically(
   sessionId: string,
   entryIdsToDelete: readonly string[],
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const { selectedIds } = requireEntrySelection(structure.entries, entryIdsToDelete);
     const nextEntries = structure.entries.filter((entry) => !selectedIds.has(entryId(entry)));
     const survivingIds = new Set(nextEntries.map(entryId));
-    const sections = rebaseSectionsAfterDelete(structure.guide.sections, structure.entryIds, survivingIds);
-    return commitGuideStructure(tx, structure, nextEntries, sections, entryIdsToDelete);
+    const sections = rebaseSectionsAfterDelete(structure.project.sections, structure.entryIds, survivingIds);
+    return commitProjectStructure(tx, structure, nextEntries, sections, entryIdsToDelete);
   });
 }
 
-export async function restoreGuideEntriesAtomically(
+export async function restoreProjectEntriesAtomically(
   sessionId: string,
   restoredSteps: readonly Step[],
   previousEntryIds: readonly string[],
-  previousSections: readonly GuideSection[],
+  previousSections: readonly ProjectSection[],
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
-    if (restoredSteps.length === 0) throw new GuideStructureIntegrityError('No entries were provided for restore.');
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+    if (restoredSteps.length === 0) throw new ProjectStructureIntegrityError('No entries were provided for restore.');
     const currentStepIds = new Set(structure.steps.map((step) => step.id));
     if (restoredSteps.some((step) => step.sessionId !== sessionId || currentStepIds.has(step.id))) {
-      throw new GuideStructureIntegrityError('Restored rows conflict with the current Guide.');
+      throw new ProjectStructureIntegrityError('Restored rows conflict with the current Project.');
     }
     const restoredEntries = buildCompleteStepEntries(restoredSteps, sessionId);
     const allEntries = [...structure.entries, ...restoredEntries];
     assertExactEntryIds(allEntries, previousEntryIds);
     const byId = new Map(allEntries.map((entry) => [entryId(entry), entry]));
     const nextEntries = previousEntryIds.map((id) => byId.get(id)!);
-    return commitGuideStructure(
+    return commitProjectStructure(
       tx,
       structure,
       nextEntries,
-      repairGuideSections(previousSections, nextEntries),
+      repairProjectSections(previousSections, nextEntries),
       restoredEntries.map(entryId),
     );
   });
 }
 
-export async function moveGuideEntriesAtomically(
+export async function moveProjectEntriesAtomically(
   sessionId: string,
   entryIdsToMove: readonly string[],
   destination: 'start' | 'end',
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
+): Promise<ProjectStructureMutationResult> {
   if (destination !== 'start' && destination !== 'end') throw new TypeError('Invalid move destination.');
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const { selectedIds } = requireEntrySelection(structure.entries, entryIdsToMove);
     const selected = structure.entries.filter((entry) => selectedIds.has(entryId(entry)));
     const unselected = structure.entries.filter((entry) => !selectedIds.has(entryId(entry)));
     const nextEntries = destination === 'start' ? [...selected, ...unselected] : [...unselected, ...selected];
-    return commitGuideStructure(tx, structure, nextEntries, structure.guide.sections, entryIdsToMove);
+    return commitProjectStructure(tx, structure, nextEntries, structure.project.sections, entryIdsToMove);
   });
 }
 
-export async function setGuideEntriesNumberedAtomically(
+export async function setProjectEntriesNumberedAtomically(
   sessionId: string,
   entryIdsToUpdate: readonly string[],
   numbered: boolean,
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     const { selectedIds } = requireEntrySelection(structure.entries, entryIdsToUpdate);
     const affected: string[] = [];
     const nextEntries = structure.entries.map((entry): StepEntry => {
@@ -503,70 +503,70 @@ export async function setGuideEntriesNumberedAtomically(
       };
     });
     if (affected.length === 0) {
-      return { guide: structure.guide, entryIds: structure.entryIds, affectedEntryIds: [] };
+      return { project: structure.project, entryIds: structure.entryIds, affectedEntryIds: [] };
     }
-    return commitGuideStructure(tx, structure, nextEntries, structure.guide.sections, affected);
+    return commitProjectStructure(tx, structure, nextEntries, structure.project.sections, affected);
   });
 }
 
 
-export async function addGuideSectionAtomically(
+export async function addProjectSectionAtomically(
   sessionId: string,
   startEntryId: string,
   title: string,
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
     requireEntrySelection(structure.entries, [startEntryId]);
-    const sanitizedTitle = sanitizeGuideSectionTitle(title);
+    const sanitizedTitle = sanitizeProjectSectionTitle(title);
     if (!sanitizedTitle) throw new TypeError('Section title cannot be empty.');
-    if (structure.guide.sections.some((section) => section.startEntryId === startEntryId)) {
-      throw new GuideStructureIntegrityError('An entry can begin only one section.');
+    if (structure.project.sections.some((section) => section.startEntryId === startEntryId)) {
+      throw new ProjectStructureIntegrityError('An entry can begin only one section.');
     }
-    if (structure.guide.sections.length >= GUIDE_SECTION_LIMITS.maxSections) {
-      throw new GuideStructureIntegrityError(
-        `Guide cannot contain more than ${GUIDE_SECTION_LIMITS.maxSections} sections.`,
+    if (structure.project.sections.length >= PROJECT_SECTION_LIMITS.maxSections) {
+      throw new ProjectStructureIntegrityError(
+        `Project cannot contain more than ${PROJECT_SECTION_LIMITS.maxSections} sections.`,
       );
     }
-    const sections = [...structure.guide.sections, {
+    const sections = [...structure.project.sections, {
       id: crypto.randomUUID(),
       title: sanitizedTitle,
       startEntryId,
     }];
-    return commitGuideStructure(tx, structure, structure.entries, sections, [startEntryId]);
+    return commitProjectStructure(tx, structure, structure.entries, sections, [startEntryId]);
   });
 }
 
-export async function renameGuideSectionAtomically(
+export async function renameProjectSectionAtomically(
   sessionId: string,
   sectionId: string,
   title: string,
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
-    const sanitizedTitle = sanitizeGuideSectionTitle(title);
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+    const sanitizedTitle = sanitizeProjectSectionTitle(title);
     if (!sanitizedTitle) throw new TypeError('Section title cannot be empty.');
     let found = false;
-    const sections = structure.guide.sections.map((section) => {
+    const sections = structure.project.sections.map((section) => {
       if (section.id !== sectionId) return section;
       found = true;
       return { ...section, title: sanitizedTitle };
     });
-    if (!found) throw new GuideStructureIntegrityError('Section not found.');
-    return commitGuideStructure(tx, structure, structure.entries, sections, []);
+    if (!found) throw new ProjectStructureIntegrityError('Section not found.');
+    return commitProjectStructure(tx, structure, structure.entries, sections, []);
   });
 }
 
-export async function deleteGuideSectionAtomically(
+export async function deleteProjectSectionAtomically(
   sessionId: string,
   sectionId: string,
   expectedContentRevision: number,
-): Promise<GuideStructureMutationResult> {
-  return runGuideStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
-    const sections = structure.guide.sections.filter((section) => section.id !== sectionId);
-    if (sections.length === structure.guide.sections.length) {
-      throw new GuideStructureIntegrityError('Section not found.');
+): Promise<ProjectStructureMutationResult> {
+  return runProjectStructureMutation(sessionId, expectedContentRevision, async (tx, structure) => {
+    const sections = structure.project.sections.filter((section) => section.id !== sectionId);
+    if (sections.length === structure.project.sections.length) {
+      throw new ProjectStructureIntegrityError('Section not found.');
     }
-    return commitGuideStructure(tx, structure, structure.entries, sections, []);
+    return commitProjectStructure(tx, structure, structure.entries, sections, []);
   });
 }

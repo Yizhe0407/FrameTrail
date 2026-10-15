@@ -13,11 +13,11 @@ interface Props {
   operation?: ActiveOperation;
   steps: Step[];
   sessionId: string | null;
-  /** The open guide's title, shown as the current crumb; null before it loads. */
-  guideTitle?: string | null;
-  /** False when there is no guide to act on (a missing guide): only the way
+  /** The open project's title, shown as the current crumb; null before it loads. */
+  projectTitle?: string | null;
+  /** False when there is no project to act on (a missing project): only the way
    * back to the library stays, instead of a row of permanently disabled buttons. */
-  guideActionsAvailable?: boolean;
+  projectActionsAvailable?: boolean;
   onOpenPublish?: () => void;
   onReset?: () => void | Promise<void>;
   /** Saves pending descriptions before the tab leaves; false keeps the editor. */
@@ -30,8 +30,8 @@ export default function EditorHeader({
   operation,
   steps,
   sessionId,
-  guideTitle = null,
-  guideActionsAvailable = true,
+  projectTitle = null,
+  projectActionsAvailable = true,
   onOpenPublish,
   onReset,
   beforeNavigate,
@@ -40,7 +40,7 @@ export default function EditorHeader({
 
   return (
     <AppHeader
-      current={guideTitle == null ? t().common.editor : guideTitle.trim() || t().common.untitledGuide}
+      current={projectTitle == null ? t().common.editor : projectTitle.trim() || t().common.untitledProject}
       currentHeading={{ id: 'stepmark-editor-title' }}
       beforeNavigate={beforeNavigate}
       status={operationActive && (
@@ -49,7 +49,7 @@ export default function EditorHeader({
           <span className="truncate">{operation === 'recapture' ? t().common.recapturing : t().common.recording}</span>
         </Badge>
       )}
-      actions={guideActionsAvailable && (
+      actions={projectActionsAvailable && (
         <>
           <ResetButton
             hasSteps={steps.length > 0}

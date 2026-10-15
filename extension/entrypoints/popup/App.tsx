@@ -12,8 +12,8 @@ import { cn } from '@/lib/shared/utils';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import type { OpenEditorResult } from '@/lib/runtime/messages';
 import { openLibrary, openSettings } from '@/lib/runtime/actions';
-import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
-import { getGuide } from '@/lib/storage/guide-repository';
+import { ensureSelectedProject } from '@/lib/project/project-actions';
+import { getProject } from '@/lib/storage/project-repository';
 import { reportError } from '@/components/shared/report-error';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t } from '@/lib/shared/i18n';
@@ -27,25 +27,25 @@ function App() {
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
   // Whether the reset target holds any content. `recording.itemCount` cannot answer
-  // this since it's per-run and zeroed on finish; the guide row's counts are metadata-only.
-  const [hasGuideContent, setHasGuideContent] = useState(false);
+  // this since it's per-run and zeroed on finish; the project row's counts are metadata-only.
+  const [hasProjectContent, setHasProjectContent] = useState(false);
   const editorRecovery = needsEditorRecovery(recoverableError);
 
   useEffect(() => {
     if (!sessionId) {
-      setHasGuideContent(false);
+      setHasProjectContent(false);
       return;
     }
     let active = true;
-    void getGuide(sessionId)
-      .then((guide) => {
-        if (active) setHasGuideContent(Boolean(guide) && (guide!.entryCount > 0 || guide!.stepCount > 0));
+    void getProject(sessionId)
+      .then((project) => {
+        if (active) setHasProjectContent(Boolean(project) && (project!.entryCount > 0 || project!.stepCount > 0));
       })
       .catch((readError) => {
         // Fail open: the confirm dialog and background guard still protect the
         // action, while failing closed would strand a real reset need.
-        console.error('[stepmark] failed to read guide summary', readError);
-        if (active) setHasGuideContent(true);
+        console.error('[stepmark] failed to read project summary', readError);
+        if (active) setHasProjectContent(true);
       });
     return () => {
       active = false;
@@ -81,10 +81,10 @@ function App() {
     setEditorOpenError(null);
     try {
       // Recovery must return to the operation owner; normal navigation resolves the
-      // current UI selection afresh so an idle popup never opens a guide-less editor.
+      // current UI selection afresh so an idle popup never opens a project-less editor.
       const targetSessionId = editorRecovery
         ? sessionId
-        : (await ensureSelectedGuide()).id;
+        : (await ensureSelectedProject()).id;
       const result = requireRuntimeMessageResult<OpenEditorResult>(
         await browser.runtime.sendMessage({
           type: 'OPEN_EDITOR',
@@ -163,7 +163,7 @@ function App() {
             <Button variant="outline" size="sm" onClick={() => void openLibraryView()} className="w-full">
               <Library />{t().common.library}
             </Button>
-            <ResetButton hasSteps={hasGuideContent} sessionId={sessionId} variant="outline" className="h-8 w-full px-3 text-[13px]" />
+            <ResetButton hasSteps={hasProjectContent} sessionId={sessionId} variant="outline" className="h-8 w-full px-3 text-[13px]" />
           </div>
         </div>
       )}

@@ -41,8 +41,8 @@ vi.mock('@/components/editor/AnnotationList', () => ({
 }));
 vi.mock('@/components/editor/StepActions', () => ({ default: () => null }));
 
-const database = vi.hoisted(() => ({ getGuideSummaries: vi.fn() }));
-vi.mock('@/lib/storage/guide-repository', () => ({ getGuideSummaries: database.getGuideSummaries }));
+const database = vi.hoisted(() => ({ getProjectSummaries: vi.fn() }));
+vi.mock('@/lib/storage/project-repository', () => ({ getProjectSummaries: database.getProjectSummaries }));
 
 import StepStage from '@/components/editor/StepStage';
 
@@ -51,7 +51,7 @@ interface StageOptions {
   editingDisabled?: boolean;
   onSetNumbered?: (entryId: string, next: boolean) => Promise<void>;
   onZoom?: () => void;
-  guideTags?: readonly string[];
+  projectTags?: readonly string[];
   onTagsChange?: (tags: string[]) => Promise<void>;
 }
 
@@ -109,14 +109,14 @@ function stage({
   editingDisabled = false,
   onSetNumbered = vi.fn().mockResolvedValue(undefined),
   onZoom = vi.fn(),
-  guideTags,
+  projectTags,
   onTagsChange,
 }: StageOptions = {}) {
   return (
     <StepStage
       entry={entry}
       index={0}
-      guideTags={guideTags}
+      projectTags={projectTags}
       onTagsChange={onTagsChange}
       onChange={vi.fn()}
       onDelete={vi.fn().mockResolvedValue(undefined)}
@@ -135,7 +135,7 @@ function renderStage(options: StageOptions = {}) {
 }
 
 beforeEach(() => {
-  database.getGuideSummaries.mockResolvedValue([]);
+  database.getProjectSummaries.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -147,7 +147,7 @@ describe('StepStage tags', () => {
   // Adding happens via the ＋標籤 dialog; removing happens on the inline chips only.
   it('keeps the inline chip as the only way to remove a tag', async () => {
     const onTagsChange = vi.fn().mockResolvedValue(undefined);
-    renderStage({ guideTags: ['驗收', '交付'], onTagsChange });
+    renderStage({ projectTags: ['驗收', '交付'], onTagsChange });
 
     fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
 
@@ -162,7 +162,7 @@ describe('StepStage tags', () => {
   it('reports a refused tag write on the stage rather than losing it', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const onTagsChange = vi.fn().mockRejectedValue(new Error('目前有其他操作進行中，請稍後再修改。'));
-    renderStage({ guideTags: ['驗收'], onTagsChange });
+    renderStage({ projectTags: ['驗收'], onTagsChange });
 
     fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
 

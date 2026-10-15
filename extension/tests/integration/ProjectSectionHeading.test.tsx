@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import GuideSectionHeading, {
-  type GuideSectionHeadingProps,
-} from '@/components/editor/GuideSectionHeading';
+import ProjectSectionHeading, {
+  type ProjectSectionHeadingProps,
+} from '@/components/editor/ProjectSectionHeading';
 
-function createProps(overrides: Partial<GuideSectionHeadingProps> = {}): GuideSectionHeadingProps {
+function createProps(overrides: Partial<ProjectSectionHeadingProps> = {}): ProjectSectionHeadingProps {
   return {
     section: {
       id: 'section-1',
@@ -26,9 +26,9 @@ afterEach(() => {
   cleanup();
 });
 
-describe('GuideSectionHeading', () => {
+describe('ProjectSectionHeading', () => {
   it('以繁體中文顯示可存取的二級章節標題與操作', () => {
-    render(<GuideSectionHeading {...createProps()} />);
+    render(<ProjectSectionHeading {...createProps()} />);
 
     const section = screen.getByRole('region', { name: '章節：開始使用' });
     expect(section).toBeTruthy();
@@ -39,7 +39,7 @@ describe('GuideSectionHeading', () => {
 
   it('以 Enter 儲存去除空白後、最多 200 字的章節名稱', async () => {
     const onRename = vi.fn();
-    render(<GuideSectionHeading {...createProps({ onRename })} />);
+    render(<ProjectSectionHeading {...createProps({ onRename })} />);
 
     fireEvent.click(button('重新命名'));
     const input = screen.getByRole('textbox', { name: '章節名稱' });
@@ -54,7 +54,7 @@ describe('GuideSectionHeading', () => {
 
   it('以 Escape 取消重新命名且不呼叫 callback', () => {
     const onRename = vi.fn();
-    render(<GuideSectionHeading {...createProps({ onRename })} />);
+    render(<ProjectSectionHeading {...createProps({ onRename })} />);
 
     fireEvent.click(button('重新命名'));
     const input = screen.getByRole('textbox', { name: '章節名稱' });
@@ -67,7 +67,7 @@ describe('GuideSectionHeading', () => {
 
   it('不會在空白名稱 blur 時意外提交', () => {
     const onRename = vi.fn();
-    render(<GuideSectionHeading {...createProps({ onRename })} />);
+    render(<ProjectSectionHeading {...createProps({ onRename })} />);
 
     fireEvent.click(button('重新命名'));
     const input = screen.getByRole('textbox', { name: '章節名稱' });
@@ -81,7 +81,7 @@ describe('GuideSectionHeading', () => {
 
   it('直接將刪除交給 callback，不使用元件內確認流程', async () => {
     const onDelete = vi.fn();
-    render(<GuideSectionHeading {...createProps({ onDelete })} />);
+    render(<ProjectSectionHeading {...createProps({ onDelete })} />);
 
     fireEvent.click(button('刪除'));
 
@@ -94,7 +94,7 @@ describe('GuideSectionHeading', () => {
       resolveDelete = resolve;
     });
     const onDelete = vi.fn(() => deletePending);
-    const { rerender } = render(<GuideSectionHeading {...createProps({ onDelete })} />);
+    const { rerender } = render(<ProjectSectionHeading {...createProps({ onDelete })} />);
 
     const deleteButton = button('刪除');
     fireEvent.click(deleteButton);
@@ -106,7 +106,7 @@ describe('GuideSectionHeading', () => {
     resolveDelete?.();
     await waitFor(() => expect(deleteButton.disabled).toBe(false));
 
-    rerender(<GuideSectionHeading {...createProps({ disabled: true })} />);
+    rerender(<ProjectSectionHeading {...createProps({ disabled: true })} />);
     expect(button('重新命名').disabled).toBe(true);
     expect(button('刪除').disabled).toBe(true);
   });

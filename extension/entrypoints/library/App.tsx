@@ -11,10 +11,10 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { createGuideFromSteps, deleteGuidePermanently, duplicateGuide, getGuideSummaries, updateGuide } from '@/lib/storage/guide-repository';
+import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, getProjectSummaries, updateProject } from '@/lib/storage/project-repository';
 import { getSteps } from '@/lib/storage/step-repository';
-import { type GuideSummary } from '@/lib/storage/models';
-import { clearSelectedGuide, createAndSelectGuide, openSelectedGuideInEditor } from '@/lib/guide/guide-actions';
+import { type ProjectSummary } from '@/lib/storage/models';
+import { clearSelectedProject, createAndSelectProject, openSelectedProjectInEditor } from '@/lib/project/project-actions';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
@@ -34,27 +34,27 @@ import { intlLocale, t } from '@/lib/shared/i18n';
 import { exportProjectArchive } from '@/lib/export/project-archive-serialize';
 import { importProjectArchive } from '@/lib/export/project-archive-import';
 import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
-import { guideExportFilename } from '@/lib/export/guide-export-contract';
+import { projectExportFilename } from '@/lib/export/project-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 
 /** Derives the .stepmark archive name from the same stem the publication
  * exporters use; strips the extension the (unexported) stem helper's facade appends. */
 function exportFilename(title: string): string {
-  const stem = guideExportFilename({ title }, 'html').replace(/\.html$/, '');
+  const stem = projectExportFilename({ title }, 'html').replace(/\.html$/, '');
   return `${stem}.stepmark`;
 }
 
 export default function App() {
-  const [guides, setGuides] = useState<GuideSummary[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const { pendingKey: pendingId, runExclusive } = usePendingAction<string>();
-  const [deleteTarget, setDeleteTarget] = useState<GuideSummary | null>(null);
-  const [exportTarget, setExportTarget] = useState<GuideSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [exportTarget, setExportTarget] = useState<ProjectSummary | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [operationLocked, setOperationLocked] = useState(false);
@@ -63,11 +63,11 @@ export default function App() {
     const showLoading = options.showLoading ?? true;
     if (showLoading) setLoading(true);
     try {
-      const [nextGuides, state] = await Promise.all([getGuideSummaries(), getRecordingState()]);
-      setGuides(nextGuides);
+      const [nextProjects, state] = await Promise.all([getProjectSummaries(), getRecordingState()]);
+      setProjects(nextProjects);
       setOperationLocked(state.operation !== null || state.isRecording);
     } catch (refreshError) {
-      console.error('[stepmark] failed to load guide library', refreshError);
+      console.error('[stepmark] failed to load project library', refreshError);
       setError(t().library.loadFailed);
     } finally {
       if (showLoading) setLoading(false);
@@ -79,8 +79,8 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    // Guides change from other surfaces (editor edits, popup resets, another library
-    // tab); storage has no guides-changed signal, so returning to this tab is the trigger.
+    // Projects change from other surfaces (editor edits, popup resets, another library
+    // tab); storage has no projects-changed signal, so returning to this tab is the trigger.
     const refreshIfVisible = () => {
       if (document.visibilityState === 'visible') void refresh({ showLoading: false });
     };
@@ -97,17 +97,17 @@ export default function App() {
   }, []);
 
   const allTags = useMemo(
-    () => [...new Set(guides.flatMap((guide) => guide.tags))].sort((a, b) => a.localeCompare(b, intlLocale())),
-    [guides],
+    () => [...new Set(projects.flatMap((project) => project.tags))].sort((a, b) => a.localeCompare(b, intlLocale())),
+    [projects],
   );
 
-  const visibleGuides = useMemo(() => {
+  const visibleProjects = useMemo(() => {
     const normalized = deferredQuery.trim().toLocaleLowerCase(intlLocale());
-    return guides.filter((guide) => {
-      if (filterTags.length > 0 && !filterTags.every((tag) => guide.tags.includes(tag))) return false;
-      return !normalized || `${guide.title}\n${guide.description}`.toLocaleLowerCase(intlLocale()).includes(normalized);
+    return projects.filter((project) => {
+      if (filterTags.length > 0 && !filterTags.every((tag) => project.tags.includes(tag))) return false;
+      return !normalized || `${project.title}\n${project.description}`.toLocaleLowerCase(intlLocale()).includes(normalized);
     });
-  }, [deferredQuery, filterTags, guides]);
+  }, [deferredQuery, filterTags, projects]);
 
   async function run(id: string, action: () => Promise<void>, options: { refreshAfter?: boolean } = {}) {
     if (loading || operationLocked) return false;
@@ -127,46 +127,46 @@ export default function App() {
     return outcome ?? false;
   }
 
-  async function createNewGuide() {
+  async function createNewProject() {
     await run('new', async () => {
-      const guide = await createAndSelectGuide();
-      await openSelectedGuideInEditor(guide.id, { inPlace: true });
+      const project = await createAndSelectProject();
+      await openSelectedProjectInEditor(project.id, { inPlace: true });
     });
   }
 
-  async function exportGuide(guide: GuideSummary) {
-    await run(guide.id, async () => {
-      const blob = await exportProjectArchive(await getSteps(guide.id), {
+  async function exportProject(project: ProjectSummary) {
+    await run(project.id, async () => {
+      const blob = await exportProjectArchive(await getSteps(project.id), {
         metadata: {
-          title: guide.title,
-          description: guide.description,
-          sections: guide.sections,
-          tags: guide.tags,
+          title: project.title,
+          description: project.description,
+          sections: project.sections,
+          tags: project.tags,
         },
       });
       // Keeps the object URL alive until the download settles; a download that
       // never starts rejects into the page-level alert below.
-      await downloadBlobViaBrowser(blob, exportFilename(guide.title));
-      toast.success(t().library.exportStarted(guide.title));
+      await downloadBlobViaBrowser(blob, exportFilename(project.title));
+      toast.success(t().library.exportStarted(project.title));
     }, { refreshAfter: false });
     // A failed export reports through the page-level live alert. Close the
     // modal so it does not aria-hide that alert from assistive technology.
     setExportTarget(null);
   }
 
-  async function deleteGuide(target: GuideSummary) {
+  async function deleteProject(target: ProjectSummary) {
     await run(target.id, async () => {
       // Only clear the UI selection after the durable delete succeeds, and
       // compare-and-clear so a newer selection isn't erased by this older action.
-      await deleteGuidePermanently(target.id);
-      await clearSelectedGuide(target.id);
+      await deleteProjectPermanently(target.id);
+      await clearSelectedProject(target.id);
     });
     // Mirrors the export flow: a failed delete reports through the page-level live
     // alert, so close the modal rather than leave the message aria-hidden behind it.
     setDeleteTarget(null);
   }
 
-  async function importGuideFile(file: File) {
+  async function importProjectFile(file: File) {
     if (file.size > PROJECT_ARCHIVE_LIMITS.maxArchiveBytes) {
       setError(t().library.importTooLarge);
       return;
@@ -174,7 +174,7 @@ export default function App() {
     await run('import', async () => {
       const imported = await importProjectArchive(file);
       const fallbackTitle = file.name.replace(/\.stepmark$/i, '').slice(0, 120) || t().library.importedFallbackTitle;
-      const guide = await createGuideFromSteps(
+      const project = await createProjectFromSteps(
         imported.steps,
         {
           title: imported.metadata.title || fallbackTitle,
@@ -183,7 +183,7 @@ export default function App() {
         },
         { sections: imported.metadata.sections },
       );
-      await openSelectedGuideInEditor(guide.id, { inPlace: true });
+      await openSelectedProjectInEditor(project.id, { inPlace: true });
     });
   }
 
@@ -201,7 +201,7 @@ export default function App() {
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.currentTarget.value = '';
-                if (file) void importGuideFile(file);
+                if (file) void importProjectFile(file);
               }}
             />
             {/* Icon always shows; label appears from `sm` up, like the editor's actions. */}
@@ -219,7 +219,7 @@ export default function App() {
               variant="default"
               aria-label={t().library.create}
               className="px-2.5 sm:px-3.5"
-              onClick={() => void createNewGuide()}
+              onClick={() => void createNewProject()}
               disabled={loading || operationLocked || pendingId !== null}
             >
               {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}
@@ -230,7 +230,7 @@ export default function App() {
       />
 
       {/* Full-width like every page under the shared header, so the content
-          shares its gutter; the guide grid fills columns by a minimum card
+          shares its gutter; the project grid fills columns by a minimum card
           width instead of breakpoints. */}
       <main className="flex flex-col px-4 pt-6 pb-10 sm:px-8">
         <h1 className="mb-5 text-2xl leading-tight font-bold text-foreground">{t().library.title}</h1>
@@ -273,11 +273,11 @@ export default function App() {
             </PopoverTrigger>
             <PopoverContent
               align="end"
-              aria-labelledby="guide-tag-filter-label"
+              aria-labelledby="project-tag-filter-label"
               className="app-scrollbar max-h-[min(360px,calc(100vh-140px))] w-[min(280px,calc(100vw-32px))] overflow-y-auto"
             >
               <div className="mb-2.5 flex items-center justify-between gap-3">
-                <span id="guide-tag-filter-label" className="text-xs font-bold text-muted-foreground">
+                <span id="project-tag-filter-label" className="text-xs font-bold text-muted-foreground">
                   {t().library.filterByTag}
                 </span>
                 {filterTags.length > 0 && (
@@ -329,7 +329,7 @@ export default function App() {
           <div role="status" className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 size-5 animate-spin" />{t().library.loading}
           </div>
-        ) : visibleGuides.length === 0 ? (
+        ) : visibleProjects.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-card px-6 py-10 text-center">
             <Mascot className="mb-2 size-16" />
             <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? t().library.noMatches : t().library.empty}</h2>
@@ -339,23 +339,23 @@ export default function App() {
                 : t().library.emptyHint}
             </p>
             {!query && filterTags.length === 0 && (
-              <Button className="mt-3" onClick={() => void createNewGuide()}><Plus />{t().library.create}</Button>
+              <Button className="mt-3" onClick={() => void createNewProject()}><Plus />{t().library.create}</Button>
             )}
           </div>
         ) : (
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
-            {visibleGuides.map((guide) => {
-              const pending = pendingId === guide.id;
+            {visibleProjects.map((project) => {
+              const pending = pendingId === project.id;
               // While any operation is in flight, `run` rejects further actions;
               // disabling the other cards makes that lock visible instead of a silent no-op.
               const actionsLocked = operationLocked || pendingId !== null;
               const otherActionPending = pendingId !== null && !pending;
               const lockedTitle = (title: string) => (otherActionPending ? t().library.otherActionPending : title);
-              const visibleTags = guide.tags.slice(0, 3);
-              const hiddenTagCount = guide.tags.length - visibleTags.length;
+              const visibleTags = project.tags.slice(0, 3);
+              const hiddenTagCount = project.tags.length - visibleTags.length;
               return (
                 <li
-                  key={guide.id}
+                  key={project.id}
                   className="group flex flex-col overflow-hidden rounded-md border-2 border-border bg-card transition-transform duration-200 hover:-translate-y-0.5"
                 >
                   <div className="flex flex-1 flex-col gap-2.5 p-4">
@@ -370,27 +370,27 @@ export default function App() {
                       </div>
                     )}
                     <EditableTitle
-                      value={guide.title}
-                      fallback={t().common.untitledGuide}
+                      value={project.title}
+                      fallback={t().common.untitledProject}
                       label={t().library.titleLabel}
                       disabled={actionsLocked}
                       // `run` reports the reason via the page-level alert and returns
                       // false on failure; rejecting here rolls the field back to the stored title.
                       onCommit={async (title) => {
-                        const saved = await run(guide.id, async () => { await updateGuide(guide.id, { title }); });
-                        if (!saved) throw new Error('Guide rename was not applied.');
+                        const saved = await run(project.id, async () => { await updateProject(project.id, { title }); });
+                        if (!saved) throw new Error('Project rename was not applied.');
                       }}
                       className="-ml-1.5 w-full rounded-md border-2 border-transparent px-1 py-0.5 text-base leading-snug font-bold text-foreground focus-ring hover:border-border-soft focus:border-border focus:bg-background disabled:opacity-70"
                     />
-                    {guide.description && (
+                    {project.description && (
                       <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
-                        {guide.description}
+                        {project.description}
                       </p>
                     )}
                     <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
-                      <span>{t().library.screenCount(guide.entryCount)}</span>
+                      <span>{t().library.screenCount(project.entryCount)}</span>
                       <span className="size-1 rounded-full bg-current opacity-50" />
-                      <span>{t().library.annotationCount(guide.stepCount)}</span>
+                      <span>{t().library.annotationCount(project.stepCount)}</span>
                     </div>
                     <div className="flex-1" />
                     <div className="mt-1 flex items-center gap-1 border-t-2 border-border-soft pt-3">
@@ -399,7 +399,7 @@ export default function App() {
                           <Button
                             size="sm"
                             className="min-w-0 flex-1"
-                            onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id, { inPlace: true }))}
+                            onClick={() => void run(project.id, () => openSelectedProjectInEditor(project.id, { inPlace: true }))}
                             disabled={actionsLocked}
                           >
                             {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}{t().common.open}
@@ -414,7 +414,7 @@ export default function App() {
                             variant="ghost"
                             className="size-8 shrink-0"
                             aria-label={t().common.duplicate}
-                            onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
+                            onClick={() => void run(project.id, async () => { await duplicateProject(project.id); })}
                             disabled={actionsLocked}
                           >
                             <Copy />
@@ -428,8 +428,8 @@ export default function App() {
                             size="icon"
                             variant="ghost"
                             className="size-8 shrink-0"
-                            aria-label={t().library.exportGuideLabel(guide.title)}
-                            onClick={() => setExportTarget(guide)}
+                            aria-label={t().library.exportProjectLabel(project.title)}
+                            onClick={() => setExportTarget(project)}
                             disabled={actionsLocked}
                           >
                             <Download />
@@ -444,7 +444,7 @@ export default function App() {
                             variant="ghost"
                             className="size-8 shrink-0 hover:bg-danger-soft hover:text-danger"
                             aria-label={t().common.delete}
-                            onClick={() => setDeleteTarget(guide)}
+                            onClick={() => setDeleteTarget(project)}
                             disabled={actionsLocked}
                           >
                             <Trash2 />
@@ -472,7 +472,7 @@ export default function App() {
         pendingLabel={t().library.exportDialogPending}
         pending={exportTarget ? pendingId === exportTarget.id : false}
         onOpenChange={(open) => { if (!open) setExportTarget(null); }}
-        onConfirm={() => { if (exportTarget) void exportGuide(exportTarget); }}
+        onConfirm={() => { if (exportTarget) void exportProject(exportTarget); }}
       />
 
       <ConfirmationDialog
@@ -482,7 +482,7 @@ export default function App() {
         confirmLabel={t().library.deleteDialogConfirm}
         pending={deleteTarget ? pendingId === deleteTarget.id : false}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
-        onConfirm={() => { if (deleteTarget) void deleteGuide(deleteTarget); }}
+        onConfirm={() => { if (deleteTarget) void deleteProject(deleteTarget); }}
       />
     </div>
   );

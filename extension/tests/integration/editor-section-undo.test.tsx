@@ -30,16 +30,16 @@ vi.mock('@/lib/storage/models', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/storage/models')>()),
   entryId: database.entryId,
 }));
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/guide-repository')>()),
-  getGuide: database.getGuide,
-  updateGuide: database.updateGuide,
+vi.mock('@/lib/storage/project-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/project-repository')>()),
+  getProject: database.getProject,
+  updateProject: database.updateProject,
 }));
-vi.mock('@/lib/storage/guide-structure', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/guide-structure')>()),
-  getGuideStructureSnapshot: database.getGuideStructureSnapshot,
-  deleteGuideSectionAtomically: database.deleteGuideSectionAtomically,
-  addGuideSectionAtomically: database.addGuideSectionAtomically,
+vi.mock('@/lib/storage/project-structure', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/project-structure')>()),
+  getProjectStructureSnapshot: database.getProjectStructureSnapshot,
+  deleteProjectSectionAtomically: database.deleteProjectSectionAtomically,
+  addProjectSectionAtomically: database.addProjectSectionAtomically,
 }));
 vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: recordingSession.useRecordingSession,
@@ -64,7 +64,7 @@ vi.mock('@/components/editor/StepRail', () => ({
 vi.mock('@/components/editor/StepStage', () => ({ default: () => null }));
 vi.mock('@/components/shared/EmptyState', () => ({ default: () => <div>EmptyState</div> }));
 vi.mock('@/components/editor/Lightbox', () => ({ default: () => null }));
-vi.mock('@/components/editor/PublishGuideDialog', () => ({ default: () => null }));
+vi.mock('@/components/editor/PublishProjectDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
 
@@ -73,7 +73,7 @@ const entries = [
     kind: 'single',
     step: {
       id: 'entry-1',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       order: 0,
       bounds: null,
       devicePixelRatio: 1,
@@ -87,7 +87,7 @@ const entries = [
     kind: 'single',
     step: {
       id: 'entry-2',
-      sessionId: 'guide-1',
+      sessionId: 'project-1',
       order: 1,
       bounds: null,
       devicePixelRatio: 1,
@@ -101,9 +101,9 @@ const entries = [
 
 const section = { id: 'section-1', title: '準備', startEntryId: 'entry-1' };
 
-function makeGuide(contentRevision: number, sections: any[]) {
+function makeProject(contentRevision: number, sections: any[]) {
   return {
-    id: 'guide-1',
+    id: 'project-1',
     title: '章節還原測試',
     description: '',
     sections,
@@ -126,7 +126,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   recordingSession.refresh.mockResolvedValue(undefined);
   recordingSession.useRecordingSession.mockReturnValue({
-    sessionId: 'guide-1',
+    sessionId: 'project-1',
     tabId: 17,
     steps: entries,
     error: null,
@@ -134,7 +134,7 @@ beforeEach(() => {
     refresh: recordingSession.refresh,
     recording: idleRecording,
   });
-  window.history.replaceState({}, '', '/editor.html?sessionId=guide-1');
+  window.history.replaceState({}, '', '/editor.html?sessionId=project-1');
 });
 
 afterEach(() => {
@@ -146,28 +146,28 @@ describe('section delete undo', () => {
   it('offers an undo that re-creates the deleted section at its original position', async () => {
     let snapshotSections: any[] = [section];
     let snapshotRevision = 7;
-    database.getGuideStructureSnapshot.mockImplementation(async () => ({
-      guide: makeGuide(snapshotRevision, snapshotSections),
+    database.getProjectStructureSnapshot.mockImplementation(async () => ({
+      project: makeProject(snapshotRevision, snapshotSections),
       entries,
       entryIds: entries.map(database.entryId),
     }));
-    database.deleteGuideSectionAtomically.mockImplementation(async () => {
+    database.deleteProjectSectionAtomically.mockImplementation(async () => {
       snapshotSections = [];
       snapshotRevision = 8;
-      return { guide: makeGuide(8, []), entryIds: entries.map(database.entryId) };
+      return { project: makeProject(8, []), entryIds: entries.map(database.entryId) };
     });
-    database.addGuideSectionAtomically.mockImplementation(async () => {
+    database.addProjectSectionAtomically.mockImplementation(async () => {
       snapshotSections = [{ ...section, id: 'section-restored' }];
       snapshotRevision = 9;
-      return { guide: makeGuide(9, snapshotSections), entryIds: entries.map(database.entryId) };
+      return { project: makeProject(9, snapshotSections), entryIds: entries.map(database.entryId) };
     });
 
     render(<EditorApp />);
 
     fireEvent.click(await screen.findByRole('button', { name: '刪除第一個章節' }));
 
-    await waitFor(() => expect(database.deleteGuideSectionAtomically).toHaveBeenCalledOnce());
-    expect(database.deleteGuideSectionAtomically).toHaveBeenCalledWith('guide-1', 'section-1', 7);
+    await waitFor(() => expect(database.deleteProjectSectionAtomically).toHaveBeenCalledOnce());
+    expect(database.deleteProjectSectionAtomically).toHaveBeenCalledWith('project-1', 'section-1', 7);
 
     // The destructive edit must offer the same undo affordance as every other
     // structural mutation.
@@ -175,10 +175,10 @@ describe('section delete undo', () => {
 
     fireEvent.click(screen.getByRole('button', {  name: '還原'  }));
 
-    await waitFor(() => expect(database.addGuideSectionAtomically).toHaveBeenCalledOnce());
+    await waitFor(() => expect(database.addProjectSectionAtomically).toHaveBeenCalledOnce());
     // Restore re-creates the section against the post-delete revision, bound
     // to the same start entry and title — i.e. the same display position.
-    expect(database.addGuideSectionAtomically).toHaveBeenCalledWith('guide-1', 'entry-1', '準備', 8);
+    expect(database.addProjectSectionAtomically).toHaveBeenCalledWith('project-1', 'entry-1', '準備', 8);
 
     await waitFor(() => expect(screen.queryByText('已刪除章節「準備」')).toBeNull());
   });
@@ -187,15 +187,15 @@ describe('section delete undo', () => {
     silenceIntentionalErrorLogs();
     let snapshotSections: any[] = [section];
     let snapshotRevision = 7;
-    database.getGuideStructureSnapshot.mockImplementation(async () => ({
-      guide: makeGuide(snapshotRevision, snapshotSections),
+    database.getProjectStructureSnapshot.mockImplementation(async () => ({
+      project: makeProject(snapshotRevision, snapshotSections),
       entries,
       entryIds: entries.map(database.entryId),
     }));
-    database.deleteGuideSectionAtomically.mockImplementation(async () => {
+    database.deleteProjectSectionAtomically.mockImplementation(async () => {
       snapshotSections = [];
       snapshotRevision = 8;
-      return { guide: makeGuide(8, []), entryIds: entries.map(database.entryId) };
+      return { project: makeProject(8, []), entryIds: entries.map(database.entryId) };
     });
 
     render(<EditorApp />);
@@ -203,12 +203,12 @@ describe('section delete undo', () => {
     fireEvent.click(await screen.findByRole('button', { name: '刪除第一個章節' }));
     expect(await screen.findByText('已刪除章節「準備」')).toBeTruthy();
 
-    // Another writer moves the Guide forward before the user clicks 還原.
+    // Another writer moves the Project forward before the user clicks 還原.
     snapshotRevision = 12;
     fireEvent.click(screen.getByRole('button', {  name: '還原'  }));
 
     await waitFor(() => expect(screen.queryByText('已刪除章節「準備」')).toBeNull());
-    expect(database.addGuideSectionAtomically).not.toHaveBeenCalled();
+    expect(database.addProjectSectionAtomically).not.toHaveBeenCalled();
     expect(await screen.findByText('專案已在其他操作中變更，因此無法安全還原舊版本。')).toBeTruthy();
   });
 });

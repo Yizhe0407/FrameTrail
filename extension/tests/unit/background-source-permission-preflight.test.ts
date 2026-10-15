@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   BackgroundMessage,
-  PreflightGuideContinuationSourcePermissionResult,
+  PreflightProjectContinuationSourcePermissionResult,
   PreflightStepRecaptureSourcePermissionResult,
   StartRecordingResult,
 } from '@/lib/runtime/messages';
@@ -23,9 +23,9 @@ vi.mock('@/lib/storage/step-repository', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/storage/guide-repository', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/guide-repository')>()),
-  getGuide: mocks.getGuide,
+vi.mock('@/lib/storage/project-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage/project-repository')>()),
+  getProject: mocks.getProject,
 }));
 
 vi.mock('@/lib/storage/storage', async (importOriginal) =>
@@ -50,7 +50,7 @@ function editorSender(frameSession: string, tabSession = frameSession) {
 function ordinaryStep(overrides: Partial<Step> = {}): Step {
   return {
     id: 'step-1',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     order: 0,
     screenshotBlob: new Blob(['image']),
     bounds: { x: 1, y: 2, width: 30, height: 40 },
@@ -63,7 +63,7 @@ function ordinaryStep(overrides: Partial<Step> = {}): Step {
   };
 }
 
-async function send<T>(message: BackgroundMessage, sender: unknown = editorSender('guide-a')): Promise<T> {
+async function send<T>(message: BackgroundMessage, sender: unknown = editorSender('project-a')): Promise<T> {
   if (!mocks.messageListener) throw new Error('Background message listener was not registered.');
   return await mocks.messageListener(message, sender) as T;
 }
@@ -86,7 +86,7 @@ function activeRecordingState(): RecordingState {
     operation: 'recording',
     isRecording: true,
     phase: 'recording',
-    sessionId: 'guide-a',
+    sessionId: 'project-a',
     tabId: 4,
     runId: 'run-1',
   });
@@ -105,7 +105,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRecordingState.mockResolvedValue(idleState);
-  mocks.getGuide.mockResolvedValue({ id: 'guide-a', title: 'Guide A' });
+  mocks.getProject.mockResolvedValue({ id: 'project-a', title: 'Project A' });
   mocks.getStep.mockResolvedValue(ordinaryStep());
   mocks.getSteps.mockResolvedValue([ordinaryStep()]);
 });
@@ -119,7 +119,7 @@ describe('background runtime boundary', () => {
     { type: 'START_RECORDING', sessionId: '', mode: 'steps' },
     { type: 'STEPMARK_CLICK', runId: 'run-1' },
   ])('ignores malformed messages before any privileged work %#', async (message) => {
-    const result = await mocks.messageListener?.(message, editorSender('guide-a'));
+    const result = await mocks.messageListener?.(message, editorSender('project-a'));
 
     expect(result).toBeUndefined();
     expectNoPermissionOrOperationSideEffects();
@@ -146,7 +146,7 @@ describe('background runtime boundary', () => {
   ])('rejects START_RECORDING from an untrusted $name', async ({ sender }) => {
     const result = await mocks.messageListener?.({
       type: 'START_RECORDING',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       mode: 'steps',
     }, sender);
 
@@ -191,13 +191,13 @@ describe('background runtime boundary', () => {
 });
 
 describe('continuation recording start', () => {
-  it('refuses a continuation whose editor does not own the named Guide', async () => {
+  it('refuses a continuation whose editor does not own the named Project', async () => {
     const result = await send<StartRecordingResult>({
       type: 'START_RECORDING',
-      sessionId: 'guide-b',
+      sessionId: 'project-b',
       mode: 'steps',
       continuation: {},
-    }, editorSender('guide-a'));
+    }, editorSender('project-a'));
 
     expect(result).toMatchObject({ ok: false });
     expect(mocks.permissionsContains).not.toHaveBeenCalled();
@@ -210,7 +210,7 @@ describe('continuation recording start', () => {
 
     const result = await send<StartRecordingResult>({
       type: 'START_RECORDING',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       mode: 'steps',
       continuation: {},
     });
@@ -222,7 +222,7 @@ describe('continuation recording start', () => {
     expect(mocks.setRecordingState).not.toHaveBeenCalled();
   });
 
-  it('records into the Guide\'s own source page rather than the active tab', async () => {
+  it('records into the Project\'s own source page rather than the active tab', async () => {
     const sourceTab = {
       id: 11,
       windowId: 5,
@@ -237,7 +237,7 @@ describe('continuation recording start', () => {
 
     await send<StartRecordingResult>({
       type: 'START_RECORDING',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       mode: 'steps',
       continuation: {},
     });
@@ -248,7 +248,7 @@ describe('continuation recording start', () => {
     expect(mocks.tabsCreate).not.toHaveBeenCalled();
     expect(mocks.tabsUpdate).toHaveBeenCalledWith(11, { active: true });
     expect(mocks.setRecordingState).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: 'recording', sessionId: 'guide-a', tabId: 11 }),
+      expect.objectContaining({ operation: 'recording', sessionId: 'project-a', tabId: 11 }),
     );
   });
 });
@@ -257,9 +257,9 @@ describe('background source-permission preflight', () => {
   it('rejects a forged editor/session before reading a recapture target', async () => {
     const result = await send<PreflightStepRecaptureSourcePermissionResult>({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-b',
+      sessionId: 'project-b',
       target: { kind: 'single', stepId: 'step-1' },
-    }, editorSender('guide-a'));
+    }, editorSender('project-a'));
 
     expect(result).toMatchObject({ ok: false, code: 'INVALID_EDITOR' });
     expect(mocks.getStep).not.toHaveBeenCalled();
@@ -270,14 +270,14 @@ describe('background source-permission preflight', () => {
     mocks.getStep.mockResolvedValueOnce(undefined);
     const missing = await send<PreflightStepRecaptureSourcePermissionResult>({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
     });
 
     mocks.getStep.mockResolvedValueOnce(ordinaryStep({ screenshotBlob: undefined }));
     const changed = await send<PreflightStepRecaptureSourcePermissionResult>({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
     });
 
@@ -290,7 +290,7 @@ describe('background source-permission preflight', () => {
     mocks.getStep.mockResolvedValue(ordinaryStep({ url: 'https://chromewebstore.google.com/detail/test' }));
     const result = await send<PreflightStepRecaptureSourcePermissionResult>({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
     });
 
@@ -298,15 +298,15 @@ describe('background source-permission preflight', () => {
     expectNoPermissionOrOperationSideEffects();
   });
 
-  it('resolves continuation authority from the Guide\'s last persisted step', async () => {
+  it('resolves continuation authority from the Project\'s last persisted step', async () => {
     mocks.getSteps.mockResolvedValue([
       ordinaryStep({ id: 'step-1', order: 0, url: 'https://first.example/start' }),
       ordinaryStep({ id: 'step-2', order: 1, url: 'https://persisted.example/path?fresh=1#target' }),
     ]);
 
-    const result = await send<PreflightGuideContinuationSourcePermissionResult>({
-      type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+    const result = await send<PreflightProjectContinuationSourcePermissionResult>({
+      type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
+      sessionId: 'project-a',
       sourceUrl: 'https://stale-ui.example/wrong',
     } as BackgroundMessage);
 
@@ -319,22 +319,22 @@ describe('background source-permission preflight', () => {
     expectNoPermissionOrOperationSideEffects();
   });
 
-  it('rejects continuation for a forged editor, an empty Guide, or a restricted source', async () => {
-    const forged = await send<PreflightGuideContinuationSourcePermissionResult>({
-      type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
-      sessionId: 'guide-b',
-    }, editorSender('guide-a'));
+  it('rejects continuation for a forged editor, an empty Project, or a restricted source', async () => {
+    const forged = await send<PreflightProjectContinuationSourcePermissionResult>({
+      type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
+      sessionId: 'project-b',
+    }, editorSender('project-a'));
 
     mocks.getSteps.mockResolvedValueOnce([]);
-    const empty = await send<PreflightGuideContinuationSourcePermissionResult>({
-      type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+    const empty = await send<PreflightProjectContinuationSourcePermissionResult>({
+      type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
+      sessionId: 'project-a',
     });
 
     mocks.getSteps.mockResolvedValueOnce([ordinaryStep({ url: 'chrome://settings' })]);
-    const restricted = await send<PreflightGuideContinuationSourcePermissionResult>({
-      type: 'PREFLIGHT_GUIDE_CONTINUATION_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+    const restricted = await send<PreflightProjectContinuationSourcePermissionResult>({
+      type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
+      sessionId: 'project-a',
     });
 
     expect(forged).toMatchObject({ ok: false, code: 'INVALID_EDITOR' });
@@ -346,7 +346,7 @@ describe('background source-permission preflight', () => {
   it('uses only persisted recapture authority and ignores a UI-provided URL', async () => {
     const result = await send<PreflightStepRecaptureSourcePermissionResult>({
       type: 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION',
-      sessionId: 'guide-a',
+      sessionId: 'project-a',
       target: { kind: 'single', stepId: 'step-1' },
       sourceUrl: 'https://stale-ui.example/wrong',
     } as BackgroundMessage);

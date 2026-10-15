@@ -6,10 +6,10 @@ import {
   isFocusStepRecaptureSourceResult,
   isOpenEditorResult,
   isOpenLibraryResult,
-  isPreflightGuideContinuationSourcePermissionResult,
+  isPreflightProjectContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
   isRecordingControlResult,
-  isResetGuideResult,
+  isResetProjectResult,
   isRuntimeBoolean,
   isStartRecordingResult,
   isStartStepRecaptureResult,
@@ -47,8 +47,8 @@ describe('requireRuntimeMessageResult', () => {
 
 describe('runtime response contracts', () => {
   it.each([
-    ['start recording', isStartRecordingResult, { ok: true, sessionId: 'guide-1', runId: 'run-1' }],
-    ['reset Guide', isResetGuideResult, { ok: true, contentRevision: 3 }],
+    ['start recording', isStartRecordingResult, { ok: true, sessionId: 'project-1', runId: 'run-1' }],
+    ['reset Project', isResetProjectResult, { ok: true, contentRevision: 3 }],
     ['open editor', isOpenEditorResult, { ok: false, error: 'cannot open' }],
     ['open library', isOpenLibraryResult, { ok: true }],
     ['editor handoff consenting to navigation', isEditorHandoffResult, { ok: true, ready: false }],
@@ -61,7 +61,7 @@ describe('runtime response contracts', () => {
         ok: true,
         undoToken: 'undo-1',
         removedItemNumber: 2,
-        finish: { sessionId: 'guide-1', entryId: 'step-1', itemCount: 2 },
+        finish: { sessionId: 'project-1', entryId: 'step-1', itemCount: 2 },
       },
     ],
     [
@@ -71,7 +71,7 @@ describe('runtime response contracts', () => {
     ],
     [
       'continuation preflight',
-      isPreflightGuideContinuationSourcePermissionResult,
+      isPreflightProjectContinuationSourcePermissionResult,
       {
         ok: true,
         sourceUrl: 'https://example.com/page',
@@ -94,8 +94,8 @@ describe('runtime response contracts', () => {
   });
 
   it.each([
-    ['start recording without a run id', isStartRecordingResult, { ok: true, sessionId: 'guide-1' }],
-    ['reset with a fractional revision', isResetGuideResult, { ok: true, contentRevision: 1.5 }],
+    ['start recording without a run id', isStartRecordingResult, { ok: true, sessionId: 'project-1' }],
+    ['reset with a fractional revision', isResetProjectResult, { ok: true, contentRevision: 1.5 }],
     ['open editor with undeclared payload', isOpenEditorResult, { ok: true, error: 'hidden' }],
     // The background must be able to tell "not our editor page" from consent.
     ['editor handoff omitting readiness', isEditorHandoffResult, { ok: true }],
@@ -103,21 +103,21 @@ describe('runtime response contracts', () => {
     [
       'recording control with a malformed finish payload',
       isRecordingControlResult,
-      { ok: true, finish: { sessionId: 'guide-1', entryId: null, itemCount: -1 } },
+      { ok: true, finish: { sessionId: 'project-1', entryId: null, itemCount: -1 } },
     ],
     [
       'recording control whose finish payload carries a retired field',
       isRecordingControlResult,
-      { ok: true, finish: { sessionId: 'guide-1', entryId: null, groupId: null, itemCount: 1 } },
+      { ok: true, finish: { sessionId: 'project-1', entryId: null, groupId: null, itemCount: 1 } },
     ],
     [
       'recapture preflight with unsupported error code',
       isPreflightStepRecaptureSourcePermissionResult,
-      { ok: false, code: 'GUIDE_ARCHIVED', message: 'nope' },
+      { ok: false, code: 'PROJECT_ARCHIVED', message: 'nope' },
     ],
     [
       'continuation preflight borrowing a recapture-only error code',
-      isPreflightGuideContinuationSourcePermissionResult,
+      isPreflightProjectContinuationSourcePermissionResult,
       { ok: false, code: 'TARGET_CHANGED', message: 'nope' },
     ],
     [

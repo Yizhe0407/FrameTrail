@@ -10,12 +10,12 @@ function render(ui: Parameters<typeof rtlRender>[0]) {
 
 vi.mock('wxt/browser', () => ({ browser: { runtime: { sendMessage: vi.fn() } } }));
 vi.mock('@/lib/runtime/actions', () => ({ openLibrary: vi.fn(), resetSession: vi.fn() }));
-vi.mock('@/lib/guide/guide-actions', () => ({ ensureSelectedGuide: vi.fn() }));
-vi.mock('@/lib/storage/guide-repository', () => ({ getGuide: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@/lib/project/project-actions', () => ({ ensureSelectedProject: vi.fn() }));
+vi.mock('@/lib/storage/project-repository', () => ({ getProject: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: () => ({
     recording: { phase: 'idle', mode: 'steps', itemCount: 0 },
-    sessionId: 'guide-current',
+    sessionId: 'project-current',
     isRecording: false,
     steps: [],
     error: null,
@@ -48,7 +48,7 @@ describe('English UI', () => {
         operationActive
         operation="recording"
         steps={[]}
-        sessionId="guide"
+        sessionId="project"
         onOpenPublish={() => {}}
       />,
     );

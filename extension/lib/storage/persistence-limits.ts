@@ -2,7 +2,7 @@
  * Keeping one source of truth guarantees every locally accepted step remains
  * representable by the backup/import format. */
 export const PERSISTED_STEP_LIMITS = Object.freeze({
-  maxStepsPerGuide: 2_000,
+  maxStepsPerProject: 2_000,
   maxTotalScreenshotBytes: 64 * 1024 * 1024,
   maxScreenshotBytes: 16 * 1024 * 1024,
   maxDescriptionLength: 100_000,

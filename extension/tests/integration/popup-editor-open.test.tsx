@@ -18,16 +18,16 @@ vi.mock('wxt/browser', () => ({
   },
 }));
 
-vi.mock('@/lib/guide/guide-actions', () => ({
-  ensureSelectedGuide: vi.fn().mockResolvedValue({ id: 'guide-selected' }),
+vi.mock('@/lib/project/project-actions', () => ({
+  ensureSelectedProject: vi.fn().mockResolvedValue({ id: 'project-selected' }),
 }));
-vi.mock('@/lib/storage/guide-repository', () => ({
-  getGuide: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/lib/storage/project-repository', () => ({
+  getProject: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/lib/recording/use-recording-session', () => ({
   useRecordingSession: () => ({
     recording: { phase: 'idle' },
-    sessionId: 'guide-current',
+    sessionId: 'project-current',
     isRecording: false,
     steps: [],
     error: null,
@@ -54,14 +54,14 @@ beforeEach(() => {
 });
 
 describe('popup editor open', () => {
-  it('resolves and sends the selected Guide id when opening the editor', async () => {
+  it('resolves and sends the selected Project id when opening the editor', async () => {
     render(<PopupApp />);
 
     fireEvent.click(screen.getByRole('button', { name: '編輯器' }));
 
     await waitFor(() => expect(runtime.sendMessage).toHaveBeenCalledWith({
       type: 'OPEN_EDITOR',
-      sessionId: 'guide-selected',
+      sessionId: 'project-selected',
     }));
   });
 
