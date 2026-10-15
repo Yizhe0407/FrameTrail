@@ -20,7 +20,8 @@ interface Props {
   guideActionsAvailable?: boolean;
   onOpenPublish?: () => void;
   onReset?: () => void | Promise<void>;
-  onNavigationError: (message: string) => void;
+  /** Saves pending descriptions before the tab leaves; false keeps the editor. */
+  beforeNavigate?: () => Promise<boolean>;
 }
 
 export default function EditorHeader({
@@ -33,7 +34,7 @@ export default function EditorHeader({
   guideActionsAvailable = true,
   onOpenPublish,
   onReset,
-  onNavigationError,
+  beforeNavigate,
 }: Props) {
   const unavailable = operationActive || editingDisabled;
 
@@ -41,7 +42,7 @@ export default function EditorHeader({
     <AppHeader
       current={guideTitle == null ? t().common.editor : guideTitle.trim() || t().common.untitledGuide}
       currentHeading={{ id: 'frametrail-editor-title' }}
-      onNavigationError={onNavigationError}
+      beforeNavigate={beforeNavigate}
       status={operationActive && (
         <Badge variant="status" className="min-w-0">
           <span className="size-1.5 rounded-full bg-recording animate-pulse" />

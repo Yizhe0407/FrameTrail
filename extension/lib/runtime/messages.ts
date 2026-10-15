@@ -59,6 +59,12 @@ export interface OpenEditorMessage {
   /** Explicit Guide target for normal navigation. Omitted only for recovery. */
   sessionId?: string;
   entryId?: string;
+  /**
+   * Sent by an extension page asking to become the editor itself. Honoured
+   * only when no editor tab exists elsewhere: the single editor tab still
+   * wins, so the request then switches to it as usual.
+   */
+  inPlace?: boolean;
 }
 
 export interface OpenLibraryMessage {

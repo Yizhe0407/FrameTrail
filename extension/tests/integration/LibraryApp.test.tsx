@@ -148,7 +148,7 @@ describe('作品庫', () => {
     fireEvent.click(createButtons[0]);
 
     await waitFor(() => expect(guideActions.createAndSelectGuide).toHaveBeenCalledOnce());
-    expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('new-guide');
+    expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('new-guide', { inPlace: true });
   });
 
   it('作品庫只顯示必要的作品資訊', async () => {
@@ -374,7 +374,7 @@ describe('作品庫', () => {
       { title: '匯入標題', description: '匯入說明', tags: ['匯入'] },
       { sections: imported.metadata.sections },
     );
-    expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('imported-guide');
+    expect(guideActions.openSelectedGuideInEditor).toHaveBeenCalledWith('imported-guide', { inPlace: true });
   });
 
 });

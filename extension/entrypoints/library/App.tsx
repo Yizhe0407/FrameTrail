@@ -130,7 +130,7 @@ export default function App() {
   async function createNewGuide() {
     await run('new', async () => {
       const guide = await createAndSelectGuide();
-      await openSelectedGuideInEditor(guide.id);
+      await openSelectedGuideInEditor(guide.id, { inPlace: true });
     });
   }
 
@@ -183,7 +183,7 @@ export default function App() {
         },
         { sections: imported.metadata.sections },
       );
-      await openSelectedGuideInEditor(guide.id);
+      await openSelectedGuideInEditor(guide.id, { inPlace: true });
     });
   }
 
@@ -191,7 +191,6 @@ export default function App() {
     <div className="min-h-screen bg-background text-foreground">
       <AppToaster />
       <AppHeader
-        onNavigationError={setError}
         actions={
           <>
             <input
@@ -400,7 +399,7 @@ export default function App() {
                           <Button
                             size="sm"
                             className="min-w-0 flex-1"
-                            onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
+                            onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id, { inPlace: true }))}
                             disabled={actionsLocked}
                           >
                             {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}{t().common.open}

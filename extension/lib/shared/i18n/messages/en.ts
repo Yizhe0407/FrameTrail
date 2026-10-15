@@ -48,7 +48,6 @@ export const en: Messages = {
     welcomeTitle: 'Welcome page',
     welcomeDescription: 'See again how to pin FrameTrail to the toolbar and how the two recording modes differ.',
     openWelcome: 'Open welcome page',
-    welcomeOpenFailed: 'Couldn’t open the welcome page. Please try again.',
   },
 
   nav: {

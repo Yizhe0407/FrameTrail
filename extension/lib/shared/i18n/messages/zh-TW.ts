@@ -51,7 +51,6 @@ export const zhTW = {
     welcomeTitle: '歡迎頁',
     welcomeDescription: '重新看一次怎麼把 FrameTrail 釘到工具列，以及兩種錄法的差別。',
     openWelcome: '打開歡迎頁',
-    welcomeOpenFailed: '無法開啟歡迎頁，請再試一次。',
   },
 
   // The header every full-page surface shares (components/shared/AppHeader).

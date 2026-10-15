@@ -144,10 +144,19 @@ export function ensureSelectedGuide(): Promise<Guide> {
   });
 }
 
-export async function openSelectedGuideInEditor(guideId: string): Promise<void> {
+/**
+ * Selects a Guide and opens it in the single editor tab. With `inPlace`, an
+ * extension page asks to become the editor itself when no editor is open
+ * elsewhere; an existing editor tab always takes precedence.
+ */
+export async function openSelectedGuideInEditor(guideId: string, options: { inPlace?: boolean } = {}): Promise<void> {
   const guide = await selectGuide(guideId);
   const result = requireRuntimeMessageResult<OpenEditorResult>(
-    await browser.runtime.sendMessage({ type: 'OPEN_EDITOR', sessionId: guide.id }),
+    await browser.runtime.sendMessage({
+      type: 'OPEN_EDITOR',
+      sessionId: guide.id,
+      ...(options.inPlace ? { inPlace: true } : {}),
+    }),
     isOpenEditorResult,
     t().popup.editorServiceUnavailable,
   );

@@ -1,11 +1,10 @@
-import { useState, type ReactNode } from 'react';
-import { AlertCircle, ArrowRight, Camera, Layers, ListOrdered, Pin, Puzzle, ShieldCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ArrowRight, Camera, Layers, ListOrdered, Pin, Puzzle, ShieldCheck } from 'lucide-react';
 import AppHeader from '@/components/shared/AppHeader';
 import Mascot from '@/components/shared/Mascot';
-import { reportError } from '@/components/shared/report-error';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { openLibrary } from '@/lib/runtime/actions';
+import { navigateInPlace } from '@/lib/runtime/page-navigation';
+import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 import { t } from '@/lib/shared/i18n';
 import { recordingModeCopy } from '@/lib/recording/recording-mode-copy';
 
@@ -65,28 +64,15 @@ function StepCard({ number, title, children }: { number: number; title: string; 
  * which mode to pick, and the limits worth knowing up front.
  */
 export default function App() {
-  const [error, setError] = useState<string | null>(null);
-
-  async function goToLibrary() {
-    try {
-      await openLibrary();
-    } catch (libraryError) {
-      setError(reportError('[frametrail] failed to open the library', libraryError, t().nav.libraryOpenFailed));
-    }
-  }
+  // Claims this tab as the welcome page, so the background stops treating it
+  // as whatever page it showed before.
+  useExtensionPageRegistration();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <AppHeader current={t().welcome.crumb} onNavigationError={setError} />
+      <AppHeader current={t().welcome.crumb} />
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:px-10">
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
         <div className="flex items-center gap-4">
           <Mascot className="size-16 sm:size-20" />
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -131,7 +117,7 @@ export default function App() {
 
         <div className="flex flex-col-reverse items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">{t().welcome.revisitHint}</p>
-          <Button onClick={() => void goToLibrary()}>
+          <Button onClick={() => navigateInPlace('library')}>
             {t().welcome.goToLibrary}<ArrowRight />
           </Button>
         </div>

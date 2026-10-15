@@ -2,14 +2,17 @@ import { useEffect } from 'react';
 import { browser } from 'wxt/browser';
 
 /**
- * Announces this extension page's tab to the background, so every later "open
- * the editor / open the library" request reuses it instead of spawning another
+ * Announces which extension page this tab shows, so every later "open the
+ * editor / open the library" request reuses it instead of spawning another
  * tab. lib/recording/background/extension-page-tabs.ts explains why the
- * background cannot discover its own pages without this.
+ * background cannot discover its own pages without this. Every page
+ * registers: pages navigate their tab between one another, and each
+ * registration replaces whatever the tab was remembered as before.
  *
- * Re-announced whenever the window regains focus: if several copies of a page
- * are somehow open, the one the user last looked at is the one that gets
- * reused.
+ * Re-announced whenever the window regains focus — if several copies of a
+ * page are open, the one the user last looked at is the one that gets
+ * reused — and when the page is restored from the back/forward cache, which
+ * re-shows it without mounting it again.
  */
 export function useExtensionPageRegistration(): void {
   useEffect(() => {
@@ -23,8 +26,15 @@ export function useExtensionPageRegistration(): void {
         }
       })();
     };
+    const registerIfRestored = (event: PageTransitionEvent) => {
+      if (event.persisted) register();
+    };
     register();
     window.addEventListener('focus', register);
-    return () => window.removeEventListener('focus', register);
+    window.addEventListener('pageshow', registerIfRestored);
+    return () => {
+      window.removeEventListener('focus', register);
+      window.removeEventListener('pageshow', registerIfRestored);
+    };
   }, []);
 }

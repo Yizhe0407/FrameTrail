@@ -1,11 +1,9 @@
-import { useState } from 'react';
-import { AlertCircle, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import AppHeader from '@/components/shared/AppHeader';
 import LanguageSwitcher from '@/components/shared/LanguageSwitcher';
-import { reportError } from '@/components/shared/report-error';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { openWelcomePage } from '@/lib/runtime/welcome';
+import { navigateInPlace } from '@/lib/runtime/page-navigation';
+import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 import { t } from '@/lib/shared/i18n';
 
 const sectionClass =
@@ -18,28 +16,15 @@ const sectionClass =
  * menu, and the extension's details page.
  */
 export default function App() {
-  const [error, setError] = useState<string | null>(null);
-
-  async function showWelcome() {
-    try {
-      await openWelcomePage();
-    } catch (welcomeError) {
-      setError(reportError('[frametrail] failed to open the welcome page', welcomeError, t().settings.welcomeOpenFailed));
-    }
-  }
+  // Claims this tab as the settings page, so the background stops treating it
+  // as whatever page it showed before.
+  useExtensionPageRegistration();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <AppHeader current={t().settings.title} currentHeading={{}} isSettingsPage onNavigationError={setError} />
+      <AppHeader current={t().settings.title} currentHeading={{}} isSettingsPage />
 
       <main className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-8 sm:px-10">
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
         <section aria-labelledby="settings-language" className={sectionClass}>
           <div className="flex min-w-0 flex-col gap-1">
             <h2 id="settings-language" className="text-base font-bold">{t().language.label}</h2>
@@ -53,7 +38,7 @@ export default function App() {
             <h2 id="settings-welcome" className="text-base font-bold">{t().settings.welcomeTitle}</h2>
             <p className="text-sm leading-relaxed text-muted-foreground">{t().settings.welcomeDescription}</p>
           </div>
-          <Button variant="outline" className="w-full shrink-0 sm:w-56" onClick={() => void showWelcome()}>
+          <Button variant="outline" className="w-full shrink-0 sm:w-56" onClick={() => navigateInPlace('welcome')}>
             <Sparkles />{t().settings.openWelcome}
           </Button>
         </section>

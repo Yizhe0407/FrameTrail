@@ -49,6 +49,13 @@ export const test = base.extend<Fixtures & Options>({
       ignoreDefaultArgs: nativeScrollbars ? ['--hide-scrollbars'] : undefined,
       viewport: null,
       acceptDownloads: true,
+      // The specs read the zh-TW interface, and the extension follows the
+      // browser's UI language (chrome.i18n.getUILanguage). On Linux that comes
+      // from the environment, not --lang; `locale` alone only emulates it in
+      // pages Playwright opens, so tabs the extension opens itself would still
+      // come up in the host's language.
+      env: { ...process.env, LANGUAGE: 'zh_TW', LANG: 'zh_TW.UTF-8' },
+      locale: 'zh-TW',
       args: [
         `--disable-extensions-except=${preparedExtensionPath}`,
         `--load-extension=${preparedExtensionPath}`,

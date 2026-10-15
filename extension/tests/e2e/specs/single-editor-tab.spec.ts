@@ -63,10 +63,44 @@ test.describe('single editor tab', () => {
     await expect(firstEditor.getByText('步驟 · 1', { exact: true })).toBeVisible();
     expect(extensionPages(extensionContext, 'editor')).toHaveLength(1);
 
-    // The library page is discovered by the same registry, so returning to it from the editor must not open a second one either.
+    // Page-to-page navigation stays in the tab: going back to the library from
+    // the editor turns that very tab into the library, adding no tab.
     await firstEditor.bringToFront();
+    const pagesBefore = extensionContext.pages().length;
     await firstEditor.getByRole('button', { name: 'FrameTrail 作品庫' }).click();
-    await expect.poll(() => extensionPages(extensionContext, 'library').length).toBe(1);
+    await firstEditor.waitForURL(/\/library\.html$/);
+    expect(extensionPages(extensionContext, 'editor')).toHaveLength(0);
+    expect(extensionContext.pages()).toHaveLength(pagesBefore);
+  });
+
+  test('turns the library into the editor when no editor is open', async ({
+    popupPage,
+    extensionContext,
+    extensionId,
+    browserErrors: _browserErrors,
+  }) => {
+    const library = await extensionContext.newPage();
+    await library.goto(`chrome-extension://${extensionId}/library.html`);
+    const pagesBefore = extensionContext.pages().length;
+
+    await library.getByRole('button', { name: '新增', exact: true }).first().click();
+
+    await library.waitForURL(/\/editor\.html\?sessionId=/);
+    await expect(library.getByText('尚未建立內容', { exact: true })).toBeVisible();
+    expect(extensionContext.pages()).toHaveLength(pagesBefore);
+
+    // The tab is now remembered as the editor, not the library: the popup's
+    // 作品庫 has to open a library tab of its own rather than focus this one.
+    await popupPage.goto(`chrome-extension://${extensionId}/popup.html`);
+    // The real popup closes itself after opening a page; keep this tab-hosted one.
+    await popupPage.evaluate(() => {
+      window.close = () => {};
+    });
+    const libraryOpened = extensionContext.waitForEvent('page');
+    await popupPage.getByRole('button', { name: '作品庫', exact: true }).click();
+    const reopened = await libraryOpened;
+    await reopened.waitForURL(/\/library\.html$/);
+    expect(new URL(library.url()).pathname).toBe('/editor.html');
   });
 
   test('finishing two recordings in a row leaves one editor tab', async ({

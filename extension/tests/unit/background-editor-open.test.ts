@@ -229,3 +229,112 @@ describe('finishing a recording twice', () => {
     expect(mocks.tabsCreate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('opening the editor from another extension page', () => {
+  const LIBRARY_SENDER = {
+    url: 'chrome-extension://extension-id/library.html',
+    frameId: 0,
+    tab: { id: 30, windowId: 2, url: 'chrome-extension://extension-id/library.html' },
+  };
+
+  async function openFrom(sender: unknown, message: Record<string, unknown>): Promise<unknown> {
+    const result = await mocks.messageListener?.({ type: 'OPEN_EDITOR', ...message }, sender);
+    await flushAsyncWork();
+    return result;
+  }
+
+  it('turns the requesting page into the editor when none is open', async () => {
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-a', inPlace: true })).resolves.toEqual({ ok: true });
+
+    expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(30, {
+      url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`,
+      active: true,
+    });
+    expect(mocks.tabsCreate).not.toHaveBeenCalled();
+  });
+
+  it('switches to the editor already open elsewhere instead of making a second one', async () => {
+    withRegisteredEditor();
+    mocks.tabsSendMessage.mockResolvedValue({ ok: true, ready: false });
+
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-b', inPlace: true })).resolves.toEqual({ ok: true });
+
+    expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(12, {
+      url: `${EDITOR_URL_PREFIX}?sessionId=guide-b`,
+      active: true,
+    });
+    expect(mocks.tabsUpdate).not.toHaveBeenCalledWith(30, expect.anything());
+    expect(mocks.tabsCreate).not.toHaveBeenCalled();
+  });
+
+  it('takes the requesting tab when the remembered editor turns out to be gone', async () => {
+    withRegisteredEditor();
+    mocks.tabsSendMessage.mockRejectedValue(new Error('Could not establish connection.'));
+    mocks.tabsGet.mockRejectedValue(new Error('No tab with id: 12'));
+
+    await expect(openFrom(LIBRARY_SENDER, { sessionId: 'guide-a', inPlace: true })).resolves.toEqual({ ok: true });
+
+    expect(mocks.tabsUpdate).toHaveBeenCalledExactlyOnceWith(30, {
+      url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`,
+      active: true,
+    });
+    expect(mocks.tabsCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the popup, which has no tab of its own', EXTENSION_PAGE_SENDER],
+    ['the editor itself', {
+      url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a',
+      frameId: 0,
+      tab: { id: 12, url: 'chrome-extension://extension-id/editor.html?sessionId=guide-a' },
+    }],
+  ])('opens a tab of its own when the request comes from %s', async (_label, sender) => {
+    await openFrom(sender, { sessionId: 'guide-a', inPlace: true });
+
+    expect(mocks.tabsCreate).toHaveBeenCalledExactlyOnceWith({ url: `${EDITOR_URL_PREFIX}?sessionId=guide-a`, active: true });
+    expect(mocks.tabsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('never lets a web page have its own tab turned into the editor', async () => {
+    const url = 'https://evil.example/library.html';
+    await openFrom({ url, frameId: 0, tab: { id: 31, url } }, { sessionId: 'guide-a', inPlace: true });
+
+    expect(mocks.tabsUpdate).not.toHaveBeenCalledWith(31, expect.anything());
+  });
+});
+
+describe('extension page registry', () => {
+  const LIBRARY_KEY = 'frametrail:extensionPageTab:library';
+  const OPTIONS_KEY = 'frametrail:extensionPageTab:options';
+
+  async function register(page: string, tabId: number): Promise<unknown> {
+    const url = `chrome-extension://extension-id/${page}`;
+    const result = await mocks.messageListener?.({ type: 'REGISTER_EXTENSION_PAGE' }, { url, frameId: 0, tab: { id: tabId, windowId: 2, url } });
+    await flushAsyncWork();
+    return result;
+  }
+
+  it('remembers a tab as only the page it shows now', async () => {
+    // Tab 30 was the library and has just navigated to settings.
+    mocks.sessionGet.mockImplementation(async (keys?: string | string[]) =>
+      (Array.isArray(keys) && keys.includes(LIBRARY_KEY) ? { [LIBRARY_KEY]: { tabId: 30, windowId: 2 } } : {}));
+
+    await expect(register('options.html', 30)).resolves.toBe(true);
+
+    expect(mocks.sessionRemove).toHaveBeenCalledWith([LIBRARY_KEY]);
+    expect(mocks.sessionSet).toHaveBeenCalledWith({ [OPTIONS_KEY]: { tabId: 30, windowId: 2 } });
+  });
+
+  it('leaves other tabs’ records alone', async () => {
+    mocks.sessionGet.mockImplementation(async (keys?: string | string[]) =>
+      (Array.isArray(keys) && keys.includes(LIBRARY_KEY) ? { [LIBRARY_KEY]: { tabId: 31, windowId: 2 } } : {}));
+
+    await register('options.html', 30);
+
+    expect(mocks.sessionRemove).not.toHaveBeenCalled();
+  });
+
+  it.each(['welcome.html', 'options.html', 'library.html'])('accepts %s as a registering page', async (page) => {
+    await expect(register(page, 40)).resolves.toBe(true);
+  });
+});

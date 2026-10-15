@@ -182,6 +182,17 @@ function EditorApp() {
     }
   }
 
+  /** Leaving the tab for another page is safe only once every description is
+   * saved; a failure is already in the banner, so the editor just stays. */
+  async function leaveEditor(): Promise<boolean> {
+    try {
+      await flushDescriptions();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function beginDataOperation(label: string): boolean {
     if (dataOperationLock.current || isPermissionFlowLocked() || operationActive) return false;
     dataOperationLock.current = true;
@@ -329,7 +340,7 @@ function EditorApp() {
         sessionId={sessionId}
         guideTitle={guide?.title ?? null}
         guideActionsAvailable={guideLoadState !== 'missing'}
-        onNavigationError={setOperationError}
+        beforeNavigate={leaveEditor}
         onOpenPublish={() => { if (!isPermissionFlowLocked()) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
       />

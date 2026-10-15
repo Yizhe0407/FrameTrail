@@ -68,6 +68,7 @@ import {
 import { createKeepAlivePortHandler } from '@/lib/runtime/keep-alive';
 import { createEditorOpen } from '@/lib/recording/background/editor-open';
 import {
+  editorPlacementFor,
   forgetClosedExtensionPage,
   openLibraryPage,
   registerExtensionPage,
@@ -1896,7 +1897,7 @@ export default defineBackground(() => {
         );
       case 'OPEN_EDITOR':
         return withMessageFailureFallback(
-          editorOpen.openEditorForStoredSession(message),
+          editorOpen.openEditorForStoredSession(message, editorPlacementFor(message, sender)),
           'open editor request failed',
           { ok: false, error: t().runtime.editorOpenFailed } satisfies OpenEditorResult,
         );

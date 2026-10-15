@@ -7,6 +7,7 @@ import { isEditorHandoffResult } from '../../runtime/runtime-message-result';
 import { t } from '@/lib/shared/i18n';
 import {
   createExtensionPage,
+  type EditorPlacement,
   extensionPageUrl,
   findExtensionPage,
   forgetExtensionPage,
@@ -26,6 +27,16 @@ export interface EditorTarget {
   /** Omitted only by recovery that has no Guide left to name. */
   sessionId?: string;
   entryId?: string | null;
+}
+
+const NEW_TAB: EditorPlacement = { kind: 'new-tab' };
+
+async function placeEditor(url: string, placement: EditorPlacement): Promise<void> {
+  if (placement.kind === 'replace') {
+    await browser.tabs.update(placement.tabId, { url, active: true });
+    return;
+  }
+  await createExtensionPage(url);
 }
 
 /** How a remembered editor tab can be reused for a target. */
@@ -94,11 +105,11 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
    * message, and returning from a recapture all come through here, so the
    * product keeps exactly one editor tab.
    */
-  async function openEditor(target: EditorTarget = {}): Promise<OpenEditorResult> {
+  async function openEditor(target: EditorTarget = {}, placement: EditorPlacement = NEW_TAB): Promise<OpenEditorResult> {
     const url = editorUrl(target);
     const existing = await findExtensionPage('editor');
     if (!existing) {
-      await createExtensionPage(url);
+      await placeEditor(url, placement);
       return { ok: true };
     }
     if (!target.sessionId) {
@@ -115,7 +126,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
     });
     if (reuse.action === 'discard') {
       await forgetExtensionPage('editor');
-      await createExtensionPage(url);
+      await placeEditor(url, placement);
       return { ok: true };
     }
     await showExtensionPage('editor', existing, { url, navigate: reuse.action === 'navigate' });
@@ -131,14 +142,17 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
     return lastItem?.groupId ?? lastItem?.id ?? null;
   }
 
-  async function openEditorForStoredSession(message: OpenEditorMessage): Promise<OpenEditorResult> {
+  async function openEditorForStoredSession(
+    message: OpenEditorMessage,
+    placement: EditorPlacement = NEW_TAB,
+  ): Promise<OpenEditorResult> {
     const expectedControlVersion = control.controlVersion;
     let state: RecordingState | null = null;
     let targetSessionId = message.sessionId;
     try {
       state = await getRecordingState();
       targetSessionId ??= state.sessionId ?? undefined;
-      if (!targetSessionId) return await openEditor();
+      if (!targetSessionId) return await openEditor({}, placement);
       const guide = await getGuide(targetSessionId);
       if (!guide) return { ok: false, error: t().runtime.guideNotFound };
       // Only a hand-off continues where the capture stopped: finishing a run, or
@@ -149,7 +163,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
         state.sessionId === targetSessionId && needsEditorRecovery(state.recoverableError);
       const entryId =
         message.entryId ?? (resumesInterruptedRun ? await latestEntryId(targetSessionId) : null);
-      const result = await openEditor({ sessionId: targetSessionId, entryId });
+      const result = await openEditor({ sessionId: targetSessionId, entryId }, placement);
       if (state.sessionId === targetSessionId) {
         await control.writeStateForControl(expectedControlVersion, (current) => {
           if (current.sessionId !== targetSessionId) return current;

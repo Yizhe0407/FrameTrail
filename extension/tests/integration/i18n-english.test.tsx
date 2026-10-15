@@ -50,7 +50,6 @@ describe('English UI', () => {
         steps={[]}
         sessionId="guide"
         onOpenPublish={() => {}}
-        onNavigationError={() => {}}
       />,
     );
     expect(screen.getByRole('navigation', { name: 'Location' })).toBeTruthy();

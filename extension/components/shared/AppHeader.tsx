@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import Mascot from './Mascot';
-import { reportError } from './report-error';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { openLibrary, openSettings } from '@/lib/runtime/actions';
+import { navigateInPlace, type InPlacePage } from '@/lib/runtime/page-navigation';
 import { t } from '@/lib/shared/i18n';
 import { cn } from '@/lib/shared/utils';
 
@@ -25,8 +24,11 @@ interface Props {
   actions?: ReactNode;
   /** On the settings page the gear marks the location instead of navigating. */
   isSettingsPage?: boolean;
-  /** Navigation failures surface in the page's own alert, like every other error. */
-  onNavigationError: (message: string) => void;
+  /**
+   * Asked before the tab leaves this page; resolving false keeps the page
+   * (the editor uses it to save descriptions, and shows why it stayed).
+   */
+  beforeNavigate?: () => Promise<boolean>;
 }
 
 const crumbClass = 'flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-base font-bold';
@@ -34,17 +36,15 @@ const crumbClass = 'flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-
 /**
  * The one header every full-page surface shares. It answers "where am I" with
  * a breadcrumb rooted at the library (FrameTrail › page) and keeps settings in
- * the same corner everywhere, so any page reaches any other in one step.
+ * the same corner everywhere, so any page reaches any other in one step —
+ * within the same tab.
  */
-export default function AppHeader({ current, currentHeading, status, actions, isSettingsPage = false, onNavigationError }: Props) {
+export default function AppHeader({ current, currentHeading, status, actions, isSettingsPage = false, beforeNavigate }: Props) {
   const isHome = current === undefined;
 
-  async function navigate(open: () => Promise<void>, failure: string): Promise<void> {
-    try {
-      await open();
-    } catch (error) {
-      onNavigationError(reportError('[frametrail] failed to navigate', error, failure));
-    }
+  async function navigate(page: InPlacePage): Promise<void> {
+    if (beforeNavigate && !(await beforeNavigate())) return;
+    navigateInPlace(page);
   }
 
   const brand = (
@@ -69,7 +69,7 @@ export default function AppHeader({ current, currentHeading, status, actions, is
                   <button
                     type="button"
                     aria-label={t().nav.homeLabel}
-                    onClick={() => void navigate(openLibrary, t().nav.libraryOpenFailed)}
+                    onClick={() => void navigate('library')}
                     className={cn(crumbClass, 'text-foreground outline-none transition-colors focus-ring hover:bg-secondary')}
                   >
                     {brand}
@@ -108,7 +108,7 @@ export default function AppHeader({ current, currentHeading, status, actions, is
               size="icon"
               aria-label={t().settings.open}
               aria-current={isSettingsPage ? 'page' : undefined}
-              onClick={isSettingsPage ? undefined : () => void navigate(openSettings, t().nav.settingsOpenFailed)}
+              onClick={isSettingsPage ? undefined : () => void navigate('options')}
               className={cn(isSettingsPage && 'border-border bg-selected text-on-accent hover:bg-selected hover:text-on-accent')}
             >
               <Settings />

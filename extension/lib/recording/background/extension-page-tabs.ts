@@ -2,24 +2,22 @@ import { browser } from 'wxt/browser';
 import { isTrustedEditorSender, type RecaptureMessageSender } from '../../capture/recapture-guards';
 import { isRecord, isSafeId } from '../../shared/validation';
 import type { OpenLibraryResult } from '../../runtime/messages';
+import { EXTENSION_PAGE_KINDS, EXTENSION_PAGE_PATHS, type ExtensionPageKind } from '../../runtime/extension-pages';
 
 /**
- * Single-tab discovery for the extension's own pages (editor/library):
- * browser.tabs.query({ url }) can't find them without the `tabs` permission,
- * which this minimal-permission manifest avoids — so pages self-register
- * instead (REGISTER_EXTENSION_PAGE) and the background remembers where they
- * are. The record lives in browser.storage.session because tab ids are only
- * ever valid within one browsing session.
+ * Single-tab discovery for the extension's own pages: browser.tabs.query({ url })
+ * can't find them without the `tabs` permission, which this minimal-permission
+ * manifest avoids — so pages self-register instead (REGISTER_EXTENSION_PAGE)
+ * and the background remembers where they are. The record lives in
+ * browser.storage.session because tab ids are only ever valid within one
+ * browsing session.
+ *
+ * Pages navigate their own tab between one another, so a tab changes kind
+ * over its life. Every page registers, and a registration claims the tab
+ * for exactly one kind: whatever a tab shows now is the only thing it is
+ * remembered as.
  */
-export const EXTENSION_PAGE_KINDS = ['editor', 'library'] as const;
-
-export type ExtensionPageKind = (typeof EXTENSION_PAGE_KINDS)[number];
-
-// `as const` keeps the literal paths, which is what WXT's typed getURL accepts.
-const EXTENSION_PAGE_PATHS = {
-  editor: '/editor.html',
-  library: '/library.html',
-} as const satisfies Record<ExtensionPageKind, string>;
+export { EXTENSION_PAGE_KINDS, type ExtensionPageKind };
 
 export interface ExtensionPageTab {
   tabId: number;
@@ -68,14 +66,42 @@ export async function forgetClosedExtensionPage(tabId: number): Promise<void> {
  * used one wins when several are open.
  */
 export async function registerExtensionPage(sender: RecaptureMessageSender): Promise<boolean> {
-  const kind = EXTENSION_PAGE_KINDS.find((candidate) =>
-    isTrustedEditorSender(sender, extensionPageUrl(candidate)));
+  const kind = extensionPageKindOf(sender);
   const tabId = sender.tab?.id;
   if (!kind || tabId == null) return false;
+  // The tab stopped being whatever it showed before; drop those records first
+  // so no other kind keeps pointing at a tab that now shows this page.
+  const otherKeys = EXTENSION_PAGE_KINDS.filter((other) => other !== kind).map(pageTabKey);
+  const stored = await browser.storage.session.get(otherKeys);
+  const superseded = otherKeys.filter((key) => normalizeExtensionPageTab(stored[key])?.tabId === tabId);
+  if (superseded.length > 0) await browser.storage.session.remove(superseded);
   await browser.storage.session.set({
     [pageTabKey(kind)]: { tabId, windowId: sender.tab?.windowId ?? null } satisfies ExtensionPageTab,
   });
   return true;
+}
+
+/**
+ * Where a new editor goes when none is open: a fresh tab, or the requesting
+ * extension page's own tab (page-to-page navigation stays in one tab).
+ */
+export type EditorPlacement = { kind: 'new-tab' } | { kind: 'replace'; tabId: number };
+
+/**
+ * Where OPEN_EDITOR should put a new editor. Only a non-editor extension page
+ * asking to be replaced gets its own tab; everything else (the popup, the
+ * recording toolbar, recovery) opens a tab of its own.
+ */
+export function editorPlacementFor(message: { inPlace?: boolean }, sender: RecaptureMessageSender): EditorPlacement {
+  const kind = extensionPageKindOf(sender);
+  const tabId = sender.tab?.id;
+  if (!message.inPlace || !kind || kind === 'editor' || tabId == null) return { kind: 'new-tab' };
+  return { kind: 'replace', tabId };
+}
+
+/** Which extension page sent a message, from the authenticated sender URL. */
+export function extensionPageKindOf(sender: RecaptureMessageSender): ExtensionPageKind | null {
+  return EXTENSION_PAGE_KINDS.find((candidate) => isTrustedEditorSender(sender, extensionPageUrl(candidate))) ?? null;
 }
 
 export function createExtensionPage(url: string): Promise<unknown> {
@@ -84,8 +110,8 @@ export function createExtensionPage(url: string): Promise<unknown> {
 
 /**
  * Brings the remembered tab forward, re-pointing it at `url` first when
- * `navigate` is set. The background owns navigation for every extension page;
- * the pages themselves never move their own tab.
+ * `navigate` is set. The background owns every cross-tab move; a page only
+ * ever navigates its own tab, and only away from itself.
  */
 export async function showExtensionPage(
   kind: ExtensionPageKind,

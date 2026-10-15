@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
-import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Step } from '@/lib/storage/models';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -11,13 +10,10 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
   return rtlRender(ui, { wrapper: TooltipProvider, ...options });
 }
 
-const mocks = vi.hoisted(() => ({ openLibrary: vi.fn(), openSettings: vi.fn(), resetSession: vi.fn() }));
+const mocks = vi.hoisted(() => ({ navigateInPlace: vi.fn(), resetSession: vi.fn() }));
 
-vi.mock('@/lib/runtime/actions', () => ({
-  openLibrary: mocks.openLibrary,
-  openSettings: mocks.openSettings,
-  resetSession: mocks.resetSession,
-}));
+vi.mock('@/lib/runtime/actions', () => ({ resetSession: mocks.resetSession }));
+vi.mock('@/lib/runtime/page-navigation', () => ({ navigateInPlace: mocks.navigateInPlace }));
 
 import EditorHeader from '@/components/editor/EditorHeader';
 
@@ -31,7 +27,6 @@ function renderHeader(overrides: Partial<React.ComponentProps<typeof EditorHeade
       sessionId="guide-1"
       guideTitle="新增成員"
       onOpenPublish={vi.fn()}
-      onNavigationError={vi.fn()}
       {...overrides}
     />,
   );
@@ -39,8 +34,6 @@ function renderHeader(overrides: Partial<React.ComponentProps<typeof EditorHeade
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.openLibrary.mockResolvedValue(undefined);
-  mocks.openSettings.mockResolvedValue(undefined);
   mocks.resetSession.mockResolvedValue(undefined);
 });
 
@@ -85,34 +78,36 @@ describe('EditorHeader', () => {
     expect(screen.getByRole('heading', { level: 1, name: '未命名作品' })).toBeTruthy();
   });
 
-  it('returns to the library from the FrameTrail crumb', () => {
+  it('returns to the library in the same tab from the FrameTrail crumb', async () => {
     renderHeader();
 
     fireEvent.focus(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
     expect(screen.getByRole('tooltip').textContent).toBe('回到作品庫');
     fireEvent.click(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
 
-    expect(mocks.openLibrary).toHaveBeenCalledOnce();
+    await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('library'));
   });
 
-  it('opens settings from the gear', () => {
+  it('opens settings in the same tab from the gear', async () => {
     renderHeader();
 
     fireEvent.click(screen.getByRole('button', { name: '設定' }));
 
-    expect(mocks.openSettings).toHaveBeenCalledOnce();
+    await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('options'));
   });
 
-  it('reports a failed navigation through the page instead of dropping it', async () => {
-    silenceIntentionalErrorLogs();
-    // A non-Error rejection has no message of its own, so the page gets the fallback copy.
-    mocks.openLibrary.mockRejectedValue('worker asleep');
-    const onNavigationError = vi.fn();
-    renderHeader({ onNavigationError });
+  it('saves descriptions before leaving, and stays when they cannot be saved', async () => {
+    const beforeNavigate = vi.fn().mockResolvedValue(false);
+    renderHeader({ beforeNavigate });
 
     fireEvent.click(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
 
-    await waitFor(() => expect(onNavigationError).toHaveBeenCalledWith('無法開啟作品庫，請再試一次。'));
+    await waitFor(() => expect(beforeNavigate).toHaveBeenCalledOnce());
+    expect(mocks.navigateInPlace).not.toHaveBeenCalled();
+
+    beforeNavigate.mockResolvedValue(true);
+    fireEvent.click(screen.getByRole('button', { name: '設定' }));
+    await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('options'));
   });
 
   it.each<[string, Partial<React.ComponentProps<typeof EditorHeader>>]>([

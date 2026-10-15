@@ -106,7 +106,11 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
     case 'STOP_RECORDING':
       return true;
     case 'OPEN_EDITOR':
-      return isOptionalString(value.sessionId) && isOptionalString(value.entryId);
+      return (
+        isOptionalString(value.sessionId) &&
+        isOptionalString(value.entryId) &&
+        (value.inPlace === undefined || typeof value.inPlace === 'boolean')
+      );
     case 'OPEN_LIBRARY':
       return true;
     case 'REGISTER_EXTENSION_PAGE':
