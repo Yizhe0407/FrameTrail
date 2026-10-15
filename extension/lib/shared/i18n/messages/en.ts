@@ -145,7 +145,7 @@ export const en: Messages = {
     screenCount: (count: number) => plural(count, 'screen', 'screens'),
     annotationCount: (count: number) => plural(count, 'marker', 'markers'),
     exportGuideLabel: (title: string) => `Export ${title}`,
-    exportArchiveTooltip: 'Export editable .frametrail file',
+    exportArchiveTooltip: 'Export',
     exportDialogTitle: 'Export editable file?',
     exportDialogDescription: (filename: string) =>
       `This downloads ${filename}. It contains the original screenshots, markers, masks, descriptions and sections, and can be imported back into FrameTrail. Because it includes the unmasked originals, don’t share it publicly.`,

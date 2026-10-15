@@ -149,7 +149,7 @@ export const zhTW = {
     screenCount: (count: number) => `${count} 個畫面`,
     annotationCount: (count: number) => `${count} 標註`,
     exportGuideLabel: (title: string) => `匯出 ${title}`,
-    exportArchiveTooltip: '匯出可編輯 .frametrail 檔案',
+    exportArchiveTooltip: '匯出',
     exportDialogTitle: '匯出可編輯檔案？',
     exportDialogDescription: (filename: string) =>
       `將下載 ${filename}。檔案包含原始截圖、標註、遮罩、說明與章節，可再次匯入 FrameTrail 編輯；因含未套用遮罩的原始截圖，請勿直接公開分享。`,
