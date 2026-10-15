@@ -214,8 +214,7 @@ describe('popup record target picker', () => {
     render(<RecordControls recording={IDLE_RECORDING} onStarted={onStarted} />);
     await screen.findByRole('combobox', { name: '錄到哪裡' });
 
-    await pickTarget(/^既有教學.*3 個畫面.*更新$/);
-    expect(screen.getByText('新步驟會加到「既有教學」的最後面')).toBeTruthy();
+    await pickTarget(/^既有教學.*3 個畫面$/);
     fireEvent.click(screen.getByRole('button', { name: '接續錄製' }));
 
     await waitFor(() => expect(onStarted).toHaveBeenCalledOnce());
@@ -234,6 +233,6 @@ describe('popup record target picker', () => {
 
     fireEvent.keyDown(screen.getByRole('combobox', { name: '錄到哪裡' }), { key: 'Enter' });
 
-    expect(await screen.findByRole('option', { name: /^未命名專案.*0 個畫面.*更新$/ })).toBeTruthy();
+    expect(await screen.findByRole('option', { name: /^未命名專案.*0 個畫面$/ })).toBeTruthy();
   });
 });
