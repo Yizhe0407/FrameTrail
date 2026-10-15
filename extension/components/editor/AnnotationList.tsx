@@ -142,7 +142,7 @@ export default function AnnotationList({
   );
 
   if (annotations.length === 0) {
-    return <p className="rounded-md border-2 border-dashed border-border-soft p-4 text-sm text-muted-foreground">{t().editor.annotations.empty}</p>;
+    return <p className="rounded-md dashed-outline p-4 text-sm text-muted-foreground">{t().editor.annotations.empty}</p>;
   }
 
   return (

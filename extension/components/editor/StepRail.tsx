@@ -264,7 +264,7 @@ export default function StepRail({
               type="button"
               onClick={onContinueRecording}
               disabled={reorderDisabled}
-              className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-dashed border-border bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:border-solid hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
+              className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-transparent dashed-outline bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:bg-none hover:bg-secondary hover:border-2 hover:border-border hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
             >
               <Video className="size-3.5" />{t().editor.rail.continueRecording}
             </button>

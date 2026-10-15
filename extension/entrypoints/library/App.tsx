@@ -330,7 +330,7 @@ export default function App() {
             <Loader2 className="mr-2 size-5 animate-spin" />{t().library.loading}
           </div>
         ) : visibleProjects.length === 0 ? (
-          <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-card px-6 py-10 text-center">
+          <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md dashed-outline bg-card px-6 py-10 text-center">
             <Mascot className="mb-2 size-16" />
             <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? t().library.noMatches : t().library.empty}</h2>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">

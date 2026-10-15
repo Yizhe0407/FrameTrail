@@ -190,6 +190,28 @@
     sans-serif;
 }
 
+/* Dashed outline with airy dashes. CSS `border-style: dashed` can't tune dash
+ * length or gap (a 2px border renders ~6px dashes with ~6px gaps, which reads
+ * as busy), so draw it as an SVG background. Colour follows the theme; pair
+ * with `rounded-md` and no `border-*` utility. The stroke is centred on the
+ * edge and half-clipped, so 4 here shows as the app's 2px line. */
+@utility dashed-outline {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='none' rx='8' ry='8' stroke='%231f1b16' stroke-width='4' stroke-dasharray='10 10' stroke-linecap='butt'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  @media (prefers-color-scheme: dark) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='none' rx='8' ry='8' stroke='%23d9cdb8' stroke-width='4' stroke-dasharray='10 10' stroke-linecap='butt'/%3E%3C/svg%3E");
+  }
+}
+
+/* Same, for fully rounded (pill) controls. */
+@utility dashed-outline-pill {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='none' rx='999' ry='999' stroke='%231f1b16' stroke-width='4' stroke-dasharray='10 10' stroke-linecap='butt'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  @media (prefers-color-scheme: dark) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='none' rx='999' ry='999' stroke='%23d9cdb8' stroke-width='4' stroke-dasharray='10 10' stroke-linecap='butt'/%3E%3C/svg%3E");
+  }
+}
+
 /* The one focus treatment. Specificity (class + pseudo-class) beats a plain
  * `outline-none`, so a control may suppress the UA ring and still show this. */
 @utility focus-ring {
