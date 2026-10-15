@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { RestoredDescriptionDraft } from '@/lib/editor/editor-draft-journal';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/shared/utils';
+import { intlLocale, t } from '@/lib/shared/i18n';
 
 interface Props {
   recoveries: RestoredDescriptionDraft[];
@@ -15,7 +16,7 @@ interface Props {
 
 function excerpt(description: string): string {
   const compact = description.replace(/\s+/gu, ' ').trim();
-  return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact || '（空白草稿）';
+  return compact.length > 120 ? `${compact.slice(0, 120)}…` : compact || t().editor.drafts.empty;
 }
 
 export default function DescriptionDraftRecoveries({
@@ -57,12 +58,12 @@ export default function DescriptionDraftRecoveries({
 
   return (
     <section
-      aria-label="其他分頁的說明草稿"
+      aria-label={t().editor.drafts.label}
       className={`rounded-md border-2 border-border bg-warning-soft p-3 text-xs text-foreground ${className}`}
     >
-      <p className="font-bold">找到 {recoveries.length} 份其他分頁或先前版本的草稿</p>
+      <p className="font-bold">{t().editor.drafts.found(recoveries.length)}</p>
       <p className="mt-1 text-muted-foreground">
-        草稿不會自動覆寫目前內容。請先載入並確認，或只捨棄不需要的版本。
+        {t().editor.drafts.intro}
       </p>
       <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
         {recoveries.map((recovery, index) => {
@@ -75,11 +76,11 @@ export default function DescriptionDraftRecoveries({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <time dateTime={date.toISOString()} className="font-bold text-muted-foreground">
-                  {date.toLocaleString('zh-TW')}
+                  {date.toLocaleString(intlLocale())}
                 </time>
                 {recovery.conflictsWithPersistedValue && (
                   <span className="rounded-full border-2 border-recording bg-danger-soft px-2 py-0.5 font-bold text-danger">
-                    與已儲存內容衝突
+                    {t().editor.drafts.conflict}
                   </span>
                 )}
               </div>
@@ -88,38 +89,38 @@ export default function DescriptionDraftRecoveries({
                 <button
                   type="button"
                   disabled={disabled}
-                  aria-label={`載入草稿 ${itemNumber}`}
+                  aria-label={t().editor.drafts.loadLabel(itemNumber)}
                   onClick={() => restoreDraft(recovery.writerId)}
                   className={cn(buttonVariants({ size: 'sm' }), 'h-7 px-2.5 text-xs')}
                 >
-                  載入草稿
+                  {t().editor.drafts.load}
                 </button>
                 <button
                   type="button"
                   disabled={disabled}
-                  aria-label={`捨棄草稿 ${itemNumber}`}
+                  aria-label={t().editor.drafts.discardLabel(itemNumber)}
                   onClick={() => onDiscard(recovery.writerId)}
                   className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-7 px-2.5 text-xs text-danger hover:bg-danger-soft hover:text-danger')}
                 >
-                  捨棄
+                  {t().editor.drafts.discard}
                 </button>
               </div>
               {restoreFailedWriterId === recovery.writerId && (
                 <p role="alert" className="mt-1 font-bold text-danger">
-                  無法載入這份草稿，目前內容未變更。請再試一次，或先捨棄其他草稿。
+                  {t().editor.drafts.loadFailed}
                 </p>
               )}
               {confirmingWriterId === recovery.writerId && onConfirmOverwrite && (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t-2 border-border-soft pt-2">
-                  <span className="text-muted-foreground">已載入草稿，確認後才會覆寫目前內容。</span>
+                  <span className="text-muted-foreground">{t().editor.drafts.loaded}</span>
                   <button
                     type="button"
                     disabled={disabled || confirming}
-                    aria-label={`確認覆寫草稿 ${itemNumber}`}
+                    aria-label={t().editor.drafts.confirmLabel(itemNumber)}
                     onClick={() => void confirmOverwrite()}
                     className={cn(buttonVariants({ size: 'sm' }), 'h-7 px-2.5 text-xs')}
                   >
-                    確認覆寫
+                    {t().editor.drafts.confirm}
                   </button>
                 </div>
               )}

@@ -16,6 +16,7 @@ import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from '@/lib/storage/guide-tag-mode
 import { getGuideSummaries } from '@/lib/storage/guide-repository';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
+import { intlLocale, t } from '@/lib/shared/i18n';
 
 interface Props {
   open: boolean;
@@ -47,7 +48,7 @@ export default function TagSelectDialog({
       .then((summaries) => {
         if (stale) return;
         setUsedTags([...new Set(summaries.flatMap((summary) => summary.tags))]
-          .sort((first, second) => first.localeCompare(second, 'zh-TW')));
+          .sort((first, second) => first.localeCompare(second, intlLocale())));
       })
       .catch((loadFailure) => {
         // Suggestions are a shortcut, not the feature, so a failed read isn't a save failure.
@@ -64,7 +65,7 @@ export default function TagSelectDialog({
     try {
       await onSave([...selectedTags, tag]);
     } catch (saveFailure) {
-      setSaveError(reportError('更新標籤失敗', saveFailure, '標籤儲存失敗，請再試一次。'));
+      setSaveError(reportError('[frametrail] failed to update guide tags', saveFailure, t().editor.tags.saveFailed));
     }
   }
 
@@ -85,17 +86,17 @@ export default function TagSelectDialog({
       <DialogContent showClose={false} className="app-scrollbar max-h-[calc(100vh-32px)] w-[min(360px,calc(100vw-32px))] overflow-y-auto p-5">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
-            <DialogTitle>新增標籤</DialogTitle>
+            <DialogTitle>{t().editor.tags.dialogTitle}</DialogTitle>
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              aria-label="關閉標籤設定"
+              aria-label={t().editor.tags.close}
               className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground"
             >
               <X className="size-4" />
             </button>
           </div>
-          <DialogDescription className="sr-only">新增顯示於作品庫的標籤；要移除標籤，請關閉這個視窗並使用標題列上標籤的移除按鈕。</DialogDescription>
+          <DialogDescription className="sr-only">{t().editor.tags.dialogDescription}</DialogDescription>
 
           {saveError && <InlineAlert>{saveError}</InlineAlert>}
 
@@ -111,15 +112,15 @@ export default function TagSelectDialog({
                   handleAddCustom();
                 }
               }}
-              placeholder="輸入後按 Enter"
-              aria-label="新增標籤名稱"
+              placeholder={t().editor.tags.inputPlaceholder}
+              aria-label={t().editor.tags.inputLabel}
               className="min-w-0 flex-1"
             />
             <button
               type="button"
               onClick={handleAddCustom}
               disabled={!canAddCustom}
-              aria-label="新增標籤"
+              aria-label={t().editor.tags.add}
               className={cn(buttonVariants({ size: 'icon' }), 'size-10')}
             >
               <Plus className="size-4 stroke-[2.5]" />
@@ -128,13 +129,13 @@ export default function TagSelectDialog({
 
           {limitReached && (
             <p className="text-xs text-muted-foreground">
-              已達 {GUIDE_TAG_LIMITS.maxTags} 個標籤上限，請先移除再新增。
+              {t().editor.tags.limitReached(GUIDE_TAG_LIMITS.maxTags)}
             </p>
           )}
 
           {selectedTags.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold text-muted-foreground">目前標籤</span>
+              <span className="text-xs font-bold text-muted-foreground">{t().editor.tags.current}</span>
               {/* Shown, not editable: otherwise a user could type an already-applied tag and see nothing happen. */}
               <div className="flex flex-wrap gap-2">
                 {selectedTags.map((tag) => (
@@ -148,7 +149,7 @@ export default function TagSelectDialog({
 
           {suggestions.length > 0 && !limitReached && (
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold text-muted-foreground">曾經使用過</span>
+              <span className="text-xs font-bold text-muted-foreground">{t().editor.tags.used}</span>
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((tag) => (
                   <Tooltip key={tag}>
@@ -157,7 +158,7 @@ export default function TagSelectDialog({
                         <button
                           type="button"
                           onClick={() => void addTag(tag)}
-                          aria-label={`新增 ${tag} 標籤`}
+                          aria-label={t().editor.tags.addTag(tag)}
                           className="min-w-0 truncate"
                         >
                           {tag}

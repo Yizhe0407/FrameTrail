@@ -13,7 +13,7 @@ import { guideExportFilename, type GuideExportMetadata } from '@/lib/export/guid
 import { type StepEntry } from '@/lib/storage/models';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import InlineAlert from '@/components/shared/InlineAlert';
-import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
+import { t } from '@/lib/shared/i18n';
 import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
 
 type GuideEntriesSnapshot = {
@@ -40,18 +40,11 @@ type PublishGuideDialogProps = {
 type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html' | 'pdf'>;
 type PublicationAction = 'markdown' | 'html' | 'pdf' | 'images';
 
-const ACTION_ERROR_MESSAGES: Readonly<Record<PublicationAction, string>> = {
-  markdown: '無法下載 Markdown。請確認所有敏感資訊遮罩與內容後再試一次。',
-  html: '無法下載 HTML 網頁。請確認所有敏感資訊遮罩與內容後再試一次。',
-  pdf: '無法下載 PDF。請確認所有敏感資訊遮罩與內容後再試一次。',
-  images: '無法下載圖片。請確認所有敏感資訊遮罩後再試一次。',
-};
-
-const DOWNLOAD_SUCCESS_MESSAGES: Readonly<Record<DownloadPublicationAction, string>> = {
-  markdown: 'Markdown ZIP 已開始下載。',
-  html: 'HTML 網頁已開始下載。',
-  pdf: 'PDF 已開始下載。',
-};
+/** Each format's title, label, description and outcome copy, read at render
+ * time so it follows the active locale. */
+function publicationCopy(action: PublicationAction) {
+  return t().editor.publish[action];
+}
 
 type PublicationOption = {
   action: PublicationAction;
@@ -141,7 +134,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
   async function runAction(
     action: PublicationAction,
     task: (signal: AbortSignal) => Promise<void>,
-    successMessage: string,
   ) {
     if (activeController.current) return;
 
@@ -154,13 +146,13 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
     try {
       await task(controller.signal);
       throwIfAborted(controller.signal);
-      setNotice(successMessage);
+      setNotice(publicationCopy(action).started);
     } catch (actionError) {
       if (isAbortError(actionError) || controller.signal.aborted) {
-        setNotice('已取消匯出操作。');
+        setNotice(t().editor.publish.cancelled);
       } else {
-        console.error(`內容匯出失敗：${action}`, actionError);
-        setError(ACTION_ERROR_MESSAGES[action]);
+        console.error(`[frametrail] guide export failed: ${action}`, actionError);
+        setError(publicationCopy(action).failed);
       }
     } finally {
       if (activeController.current === controller) activeController.current = null;
@@ -206,7 +198,6 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
           }
         }
       },
-      DOWNLOAD_SUCCESS_MESSAGES[action],
     );
   }
 
@@ -217,44 +208,43 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       async (signal) => {
         await onExportImages(signal);
       },
-      '圖片 ZIP 已開始下載。',
     );
   }
 
-  const titleText = metadata.title?.trim() || UNTITLED_GUIDE_TITLE;
+  const titleText = metadata.title?.trim() || t().common.untitledGuide;
   const publicationOptions: readonly PublicationOption[] = [
     {
       action: 'markdown',
-      title: 'Markdown',
-      ariaLabel: '下載 Markdown',
-      description: '純文字步驟與說明，適合貼進文件',
+      title: publicationCopy('markdown').title,
+      ariaLabel: publicationCopy('markdown').label,
+      description: publicationCopy('markdown').description,
       icon: <MonoGlyph className="text-sm">M↓</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('markdown'),
     },
     {
       action: 'pdf',
-      title: 'PDF',
-      ariaLabel: '下載 PDF',
-      description: '排版好的操作文件，可直接列印分享',
+      title: publicationCopy('pdf').title,
+      ariaLabel: publicationCopy('pdf').label,
+      description: publicationCopy('pdf').description,
       icon: <MonoGlyph className="text-sm">PDF</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('pdf'),
     },
     {
       action: 'images',
-      title: '圖片',
-      ariaLabel: '下載圖片',
-      description: '每個步驟的截圖，打包成 ZIP 下載',
+      title: publicationCopy('images').title,
+      ariaLabel: publicationCopy('images').label,
+      description: publicationCopy('images').description,
       icon: <ImageIcon className="size-5 text-foreground" />,
       disabled: busy || !onExportImages,
       onSelect: exportImages,
     },
     {
       action: 'html',
-      title: 'HTML 網頁',
-      ariaLabel: '下載 HTML 網頁',
-      description: '單一檔案內含所有截圖，最適合直接分享',
+      title: publicationCopy('html').title,
+      ariaLabel: publicationCopy('html').label,
+      description: publicationCopy('html').description,
       icon: <MonoGlyph className="text-sm">&lt;/&gt;</MonoGlyph>,
       disabled: busy,
       onSelect: () => downloadGuide('html'),
@@ -269,15 +259,15 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       >
         <div className="flex items-start gap-3 pb-2">
           <div className="min-w-0 flex-1">
-            <DialogTitle className="text-xl font-bold text-foreground">匯出</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-foreground">{t().editor.publish.title}</DialogTitle>
             <DialogDescription className="mt-1 break-words">
-              「{titleText}」
+              {t().common.quoted(titleText)}
             </DialogDescription>
           </div>
           <button
             type="button"
             onClick={() => requestOpenChange(false)}
-            aria-label="關閉"
+            aria-label={t().common.close}
             className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground"
           >
             <X className="size-4" />

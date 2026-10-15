@@ -18,6 +18,7 @@ import { focusTab } from '@/lib/runtime/navigation';
 import { reportError } from '@/components/shared/report-error';
 import { entryId, type StepEntry } from '@/lib/storage/models';
 import type { RecordingMode } from '@/lib/storage/recording-state';
+import { t } from '@/lib/shared/i18n';
 
 interface UsePermissionFlowOptions {
   sessionId: string | null;
@@ -187,7 +188,7 @@ export function usePermissionFlow({
       // Must remain the first async browser API call in this click handler so Chromium preserves transient user activation.
       const granted = await browser.permissions.request({ origins: [prepared.source.permissionPattern] });
       if (!flow.isCurrent()) return;
-      if (!granted) throw new Error('需要允許存取來源網站，才能回到該頁面錄製。');
+      if (!granted) throw new Error(t().editor.permission.accessRequired);
 
       if (!(await flushOrBail(flow))) return;
       if (prepared.action.kind === 'continuation') {
@@ -201,7 +202,7 @@ export function usePermissionFlow({
       }
       await startStepRecaptureOrThrow(sessionId, prepared.action.target);
     } catch (permissionError) {
-      failFlow(flow, '授權並啟動來源錄製失敗', permissionError, '無法啟動來源錄製；現有內容未變更，請再試一次。');
+      failFlow(flow, '[frametrail] failed to authorize and start source recording', permissionError, t().editor.permission.sourceStartFailed);
     } finally {
       if (flow.isCurrent()) clearPreparedPermission();
     }
@@ -225,16 +226,16 @@ export function usePermissionFlow({
       if (tabs.length === 0) {
         setContinuationTabs(null);
         setSelectedContinuationTabId(null);
-        setContinueElsewhereError('找不到可錄製的一般網頁分頁，請先開啟要接續錄製的網站。');
+        setContinueElsewhereError(t().editor.permission.noRecordableTabs);
         return;
       }
       const lastStepUrl = prepared.source.kind === 'origin' ? prepared.source.sourceUrl : null;
       setContinuationTabs(tabs);
       setSelectedContinuationTabId(defaultContinuationTab(tabs, lastStepUrl)?.id ?? null);
     } catch (listError) {
-      console.error('列出可接續錄製的分頁失敗', listError);
+      console.error('[frametrail] failed to list continuation tabs', listError);
       if (flow.isCurrent()) {
-        setContinueElsewhereError('無法讀取目前開啟的分頁，請再試一次。');
+        setContinueElsewhereError(t().editor.permission.tabsUnreadable);
       }
     } finally {
       if (flow.isCurrent()) setContinueElsewherePending(false);
@@ -268,7 +269,7 @@ export function usePermissionFlow({
         confirmed = await browser.tabs.get(target.id);
       } catch (switchError) {
         // The picked tab closed while the dialog was open; refresh the list instead of using a stale choice.
-        console.warn('切換到選取的接續分頁失敗', switchError);
+        console.warn('[frametrail] failed to switch to the chosen continuation tab', switchError);
         if (flow.isCurrent()) {
           keepDialogOpen = true;
           setContinueElsewherePending(false);
@@ -278,7 +279,7 @@ export function usePermissionFlow({
       }
       if (!flow.isCurrent()) return;
       if (!confirmed.active || !isRecordableTab(confirmed)) {
-        throw new Error('無法切換到要錄製的分頁，請再試一次。');
+        throw new Error(t().editor.permission.switchTabFailed);
       }
 
       await startRecordingOrThrow({
@@ -287,7 +288,7 @@ export function usePermissionFlow({
         mode: continuationMode,
       });
     } catch (continueError) {
-      failFlow(flow, '改在其他頁面接續錄製失敗', continueError, '無法在其他頁面接續錄製；現有內容未變更，請再試一次。');
+      failFlow(flow, '[frametrail] failed to continue recording on another page', continueError, t().editor.permission.continueElsewhereFailed);
     } finally {
       if (flow.isCurrent() && !keepDialogOpen) clearPreparedPermission();
     }
@@ -304,7 +305,7 @@ export function usePermissionFlow({
     try {
       prepared = await requestRecapturePreflight(sessionId!, target, targetEntryId);
     } catch (recaptureError) {
-      failFlow(flow, '檢查補拍來源失敗', recaptureError, '無法安全確認補拍來源；原本內容未變更。');
+      failFlow(flow, '[frametrail] failed to verify recapture source', recaptureError, t().editor.permission.recaptureSourceUnverified);
     } finally {
       finishPermissionPreflight(flow, prepared);
     }
@@ -321,7 +322,7 @@ export function usePermissionFlow({
     try {
       prepared = await requestContinuationPreflight(sessionId!);
     } catch (continuationError) {
-      failFlow(flow, '檢查接續錄製來源失敗', continuationError, '無法安全確認接續錄製的來源；現有內容未變更。');
+      failFlow(flow, '[frametrail] failed to verify continuation source', continuationError, t().editor.permission.continuationSourceUnverified);
     } finally {
       finishPermissionPreflight(flow, prepared);
     }

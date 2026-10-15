@@ -18,6 +18,7 @@ import {
   writeDescriptionDraft,
   type RestoredDescriptionDraft,
 } from './editor-draft-journal';
+import { t } from '@/lib/shared/i18n';
 
 type SaveCallback = () => Promise<void>;
 
@@ -49,7 +50,7 @@ export function EditorSaveProvider({ children }: { children: ReactNode }) {
     const flushBeforeLeaving = () => {
       void flushAll().catch((error) => {
         if (!(error instanceof DraftConfirmationRequiredError)) {
-          console.error('離開編輯器前儲存說明失敗', error);
+          console.error('[frametrail] failed to save descriptions before leaving the editor', error);
         }
       });
     };
@@ -79,10 +80,10 @@ export interface DescriptionAutosaveResult {
 }
 
 /** Thrown by flush() while an explicit user confirmation is outstanding. The
- * message is user-facing zh-Hant because it can surface in UI error paths. */
+ * message is localized because it can surface in UI error paths. */
 export class DraftConfirmationRequiredError extends Error {
   constructor() {
-    super('覆寫已儲存的說明前，需要先確認要保留哪一份草稿。');
+    super(t().editor.draftConfirmationRequired);
     this.name = 'DraftConfirmationRequiredError';
   }
 }
@@ -217,7 +218,7 @@ export function useStepDescriptionAutosave(
         } catch (refreshError) {
           // The IndexedDB commit is authoritative. A failed UI refresh must not
           // misreport a successfully persisted draft as data loss.
-          console.warn('說明已儲存，但重新整理編輯器資料失敗', refreshError);
+          console.warn('[frametrail] description saved, but refreshing editor data failed', refreshError);
         }
       }
     })();
@@ -255,7 +256,7 @@ export function useStepDescriptionAutosave(
       // timer on journal success — otherwise typed text would only persist on
       // blur or unmount.
       timer.current = setTimeout(() => {
-        void flush().catch(logAutosaveFailure('自動儲存說明失敗'));
+        void flush().catch(logAutosaveFailure('[frametrail] description autosave failed'));
       }, journaled ? delay : 0);
     },
     [clearTimer, delay, flush],
@@ -329,14 +330,14 @@ export function useStepDescriptionAutosave(
     mounted.current = true;
     if (draft.current !== persisted.current && !confirmationRequired.current) {
       timer.current = setTimeout(() => {
-        void flush().catch(logAutosaveFailure('恢復關閉前草稿後儲存失敗'));
+        void flush().catch(logAutosaveFailure('[frametrail] saving a recovered draft failed'));
       }, delay);
     }
     return () => {
       mounted.current = false;
       clearTimer();
       if (!confirmationRequired.current) {
-        void flush().catch(logAutosaveFailure('卸載說明欄位前儲存失敗'));
+        void flush().catch(logAutosaveFailure('[frametrail] saving before unmounting a description field failed'));
       }
     };
   }, [clearTimer, delay, flush]);

@@ -2,8 +2,6 @@ import { throwIfAborted } from '../shared/abort';
 import type { GuideSection } from '../guide/guide-sections';
 import { type StepEntry } from '../storage/models';
 import {
-  DEFAULT_DESCRIPTION,
-  DEFAULT_IMAGE_ALT,
   DEFAULT_TITLE,
   GUIDE_EXPORT_THEME,
   escapeGuideHtml,
@@ -15,6 +13,7 @@ import {
   type GuideExportOptions,
 } from './guide-export-contract';
 import { renderEntries, type RenderedEntry } from './guide-export-render';
+import { documentLang, t } from '@/lib/shared/i18n';
 
 /**
  * Generates a self-contained HTML publication. It uses only fixed template
@@ -39,9 +38,9 @@ async function generateGuideHtmlDocument(
 
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const description = textValue(metadata.description);
-  const metaParts = [`共 ${renderedEntries.length} 個步驟`];
+  const metaParts = [t().export.stepCount(renderedEntries.length)];
   const createdAt = formatGuideCreatedAt(metadata.createdAt);
-  if (createdAt) metaParts.push(`建立於 ${createdAt}`);
+  if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   const header = [
     `<p class="guide-overline">FrameTrail</p>`,
     `<h1>${escapeGuideHtml(title)}</h1>`,
@@ -64,7 +63,7 @@ async function generateGuideHtmlDocument(
   throwIfAborted(signal);
 
   return `<!doctype html>
-<html lang="zh-Hant">
+<html lang="${documentLang()}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -90,14 +89,14 @@ ${steps}
 
 function renderHtmlSectionHeading(section: GuideSection): string {
   return `<section class="guide-section-heading">
-<p class="guide-section-label">章節</p>
+<p class="guide-section-label">${escapeGuideHtml(t().export.section)}</p>
 <h2>${htmlText(section.title)}</h2>
 </section>`;
 }
 
 function renderHtmlEntry(entry: RenderedEntry): string {
-  const heading = htmlText(textOrDefault(entry.description, DEFAULT_DESCRIPTION));
-  const alt = escapeGuideHtml(textOrDefault(entry.description, DEFAULT_IMAGE_ALT));
+  const heading = htmlText(textOrDefault(entry.description, t().export.missingDescription));
+  const alt = escapeGuideHtml(textOrDefault(entry.description, t().export.imageAlt));
   const annotations = entry.annotations.length > 0 ? renderHtmlAnnotations(entry) : '';
 
   return [
@@ -118,7 +117,7 @@ function renderHtmlEntry(entry: RenderedEntry): string {
 
 function renderHtmlAnnotations(entry: RenderedEntry): string {
   const items = entry.annotations
-    .map((annotation) => `<li>${htmlText(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}</li>`)
+    .map((annotation) => `<li>${htmlText(textOrDefault(annotation.description, t().export.missingDescription))}</li>`)
     .join('\n');
   return `<div class="annotation-list">
 <ol>
@@ -144,7 +143,7 @@ const PRINT_LINE_SOFT = '#dcdcdc';
 const PRINT_ACCENT = '#2f4d9e';
 
 /**
- * Document stylesheet tuned for zh-Hant step guides: system CJK font stack,
+ * Document stylesheet for step guides: system font stack with CJK coverage,
  * >=1.7 body leading, a comfortable centered reading column, numbered step
  * cards, light/dark schemes, and an ink-friendly A4 print layout.
  */

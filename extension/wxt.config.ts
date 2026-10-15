@@ -13,9 +13,10 @@ export default defineConfig({
   manifest: {
     name: '__MSG_extName__',
     description: '__MSG_extDescription__',
-    // The product UI is Traditional Chinese; store metadata follows it, with
-    // an English fallback locale for non-Chinese browsers.
-    default_locale: 'zh_TW',
+    // Chrome picks the manifest locale from the browser UI language, the same
+    // source lib/shared/i18n reads for page copy: Chinese browsers get zh_TW,
+    // every other language falls back to English.
+    default_locale: 'en',
     // Floor derived from the APIs the extension actually ships (the background
     // message router deliberately uses the callback sendResponse contract, so
     // it imposes no floor — Chrome's promise-reply for runtime.onMessage

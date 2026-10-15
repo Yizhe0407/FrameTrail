@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import InlineAlert from '@/components/shared/InlineAlert';
 import type { RecapturePhase } from '@/lib/storage/recording-state';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   open: boolean;
@@ -43,12 +44,12 @@ export default function RecaptureProgressDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Loader2 className="size-5 animate-spin text-brand-text" aria-hidden="true" />
-            {capturing ? '正在擷取新的步驟圖片…' : '補拍進行中'}
+            {capturing ? t().editor.recapture.capturing : t().editor.recapture.inProgress}
           </DialogTitle>
           <DialogDescription className="leading-6">
             {capturing
-              ? '請稍候，擷取完成後會自動回到編輯器。'
-              : '請到來源網頁選取要補拍的目標。完成前編輯器會維持鎖定，避免內容被覆蓋。'}
+              ? t().editor.recapture.capturingBody
+              : t().editor.recapture.awaitingBody}
           </DialogDescription>
         </DialogHeader>
 
@@ -56,10 +57,10 @@ export default function RecaptureProgressDialog({
 
         <DialogFooter className="mt-6">
           <Button type="button" variant="ghost" onClick={onCancel}>
-            <X />取消補拍
+            <X />{t().editor.recapture.cancel}
           </Button>
           <Button type="button" variant="outline" onClick={onFocusSource}>
-            <ExternalLink />回到補拍分頁
+            <ExternalLink />{t().editor.recapture.returnToSource}
           </Button>
         </DialogFooter>
       </DialogContent>

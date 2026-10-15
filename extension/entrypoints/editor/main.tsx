@@ -4,10 +4,13 @@ import App from './App.tsx';
 import ErrorBoundary from '@/components/shared/ErrorBoundary';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import '@/assets/tailwind.css';
+import { localizeDocument, t } from '@/lib/shared/i18n';
+
+localizeDocument(t().page.editor);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ErrorBoundary label="編輯器">
+    <ErrorBoundary label={t().common.editor}>
       <TooltipProvider>
         <App />
       </TooltipProvider>

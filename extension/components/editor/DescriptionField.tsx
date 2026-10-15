@@ -3,6 +3,7 @@ import { type Step } from '@/lib/storage/models';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   step: Step;
@@ -25,7 +26,7 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
     <div className="mt-4 flex w-full flex-col gap-2">
       <div className="flex items-center justify-between">
         <label htmlFor={`description-${step.id}`} className="text-xs font-bold text-muted-foreground">
-          說明
+          {t().editor.description.label}
         </label>
       </div>
       <Textarea
@@ -35,7 +36,7 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
         onChange={(e) => setDescription(e.target.value)}
         onBlur={() => void flush().catch(() => undefined)}
         disabled={disabled}
-        placeholder="輸入步驟說明…"
+        placeholder={t().editor.description.placeholder}
         className="min-h-16 resize-none px-3.5 py-3 text-sm leading-relaxed"
       />
       <DescriptionDraftRecoveries

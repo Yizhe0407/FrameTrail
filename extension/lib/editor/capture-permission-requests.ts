@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { validatePreparedPermissionSource } from './continuation-tabs';
-import { MULTI_ANNOTATION_RECAPTURE_BLOCKED } from './editor-messages';
+import { t } from '@/lib/shared/i18n';
 import {
   isPreflightGuideContinuationSourcePermissionResult,
   isPreflightStepRecaptureSourcePermissionResult,
@@ -32,7 +32,7 @@ export function recaptureTargetForEntry(entry: StepEntry): StepRecaptureTarget {
   if (entry.kind === 'single') return { kind: 'single', stepId: entry.step.id };
   // Replacing the base image of a multi-annotation snapshot would invalidate
   // every other annotation on it, so that case is refused outright.
-  if (entry.annotations.length !== 1) throw new Error(MULTI_ANNOTATION_RECAPTURE_BLOCKED);
+  if (entry.annotations.length !== 1) throw new Error(t().editor.multiAnnotationRecaptureBlocked);
   return {
     kind: 'snapshot-singleton',
     anchorId: entry.anchor.id,

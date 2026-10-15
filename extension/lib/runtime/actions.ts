@@ -12,10 +12,11 @@ import {
   isResetGuideResult,
   requireRuntimeMessageResult,
 } from './runtime-message-result';
+import { t } from '@/lib/shared/i18n';
 
 /** Requests an atomic, Guide-targeted reset from the background lifecycle. */
 export async function resetSession(sessionId: string): Promise<void> {
-  if (!sessionId) throw new Error('找不到要重置的內容。');
+  if (!sessionId) throw new Error(t().runtime.resetTargetMissing);
   const result = requireRuntimeMessageResult<ResetGuideResult>(
     await browser.runtime.sendMessage({
       type: 'RESET_GUIDE',

@@ -1,6 +1,7 @@
 import { repairGuideSections, type GuideSection } from '../guide/guide-sections';
 import { type StepEntry } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
+import { intlLocale } from '@/lib/shared/i18n';
 
 export interface GuideExportMetadata {
   /** 未指定 filename 時亦作為檔名來源。 */
@@ -26,8 +27,6 @@ export interface GuideMarkdownArchive {
 }
 
 export const DEFAULT_TITLE = 'FrameTrail Guide';
-export const DEFAULT_DESCRIPTION = '（未填寫說明）';
-export const DEFAULT_IMAGE_ALT = '步驟截圖';
 const DEFAULT_FILENAME = 'frame-trail-guide';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
@@ -42,7 +41,7 @@ export const GUIDE_EXPORT_THEME = Object.freeze({
    * PDF's slightly darker #d6dae1 rather than `rule`: an image edge must read
    * against near-white screenshot content, where the hairline value washes out. */
   imageBorder: '#d6dae1',
-  /** zh-Hant-first system font stack shared by HTML text and PDF canvas rasterization. */
+  /** CJK-capable system font stack shared by HTML text and PDF canvas rasterization. */
   fontFamily:
     '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif',
 });
@@ -132,7 +131,7 @@ export function formatGuideCreatedAt(timestamp: unknown): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
   try {
-    return new Intl.DateTimeFormat('zh-Hant', { dateStyle: 'long' }).format(date);
+    return new Intl.DateTimeFormat(intlLocale(), { dateStyle: 'long' }).format(date);
   } catch {
     return date.toISOString().slice(0, 10);
   }

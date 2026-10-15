@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Loader2, RotateCcw, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   message: string;
@@ -45,13 +46,13 @@ export default function UndoSnackbar({
         className="inline-flex h-8 items-center gap-1.5 rounded-full border-2 border-border bg-selected px-3 font-bold text-on-accent outline-none transition-colors focus-ring hover:brightness-95 disabled:opacity-60"
       >
         {pending ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
-        {pending ? '還原中' : '還原'}
+        {pending ? t().common.restoring : t().common.restore}
       </button>
       <button
         type="button"
         onClick={onDismiss}
         disabled={pending}
-        aria-label="關閉還原提示"
+        aria-label={t().editor.undo.close}
         className="flex size-8 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:opacity-60"
       >
         <X className="size-4" />

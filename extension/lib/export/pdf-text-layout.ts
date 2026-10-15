@@ -27,10 +27,15 @@ export function segmentPdfText(text: string, granularity: 'word' | 'grapheme'): 
  * approximates the cap-height middle — baseline (≈0.8em below the top) minus
  * half a cap height (≈0.7em), i.e. 0.45em — which also suits CJK squares.
  */
+/** A full-height CJK square, measured in place of a whitespace-only line. It
+ * is a typographic probe, never shown, so it is not UI copy to translate. */
+// eslint-disable-next-line no-restricted-syntax -- measurement glyph, not copy
+const FULL_HEIGHT_PROBE_GLYPH = '中';
+
 export function pdfLineMiddleOffset(context: PdfTextMeasureContext, line: string, fontSize: number): number {
   // Whitespace-only lines have an empty bounding box; measure a representative
   // full-height glyph instead so the badge still lands on the text band.
-  const metrics = context.measureText(line.trim() || '中');
+  const metrics = context.measureText(line.trim() || FULL_HEIGHT_PROBE_GLYPH);
   // With textBaseline 'top' both values are measured from the line's top edge:
   // the glyph box spans [-ascent, +descent] below it.
   const { actualBoundingBoxAscent: ascent, actualBoundingBoxDescent: descent } = metrics;

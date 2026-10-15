@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { makeRecordingState } from '../setup/recording-state';
 import {
   clearEditorRecovery,
-  EDITOR_OPEN_FAILED_ERROR,
+  editorOpenFailedError,
   markEditorOpenFailed,
   needsEditorRecovery,
-  RECORDED_TAB_CLOSED_ERROR,
+  recordedTabClosedError,
 } from '@/lib/recording/recording-recovery';
 
 const idleState = makeRecordingState({ sessionId: 'session-1' });
 
 describe('recording recovery state', () => {
   it('recognizes only recovery states that should lead to the editor', () => {
-    expect(needsEditorRecovery(RECORDED_TAB_CLOSED_ERROR)).toBe(true);
-    expect(needsEditorRecovery(EDITOR_OPEN_FAILED_ERROR)).toBe(true);
+    expect(needsEditorRecovery(recordedTabClosedError())).toBe(true);
+    expect(needsEditorRecovery(editorOpenFailedError())).toBe(true);
     expect(needsEditorRecovery({ code: 'CAPTURE_FAILED', message: 'retry capture' })).toBe(false);
     expect(needsEditorRecovery(null)).toBe(false);
   });
@@ -22,7 +22,7 @@ describe('recording recovery state', () => {
     expect(markEditorOpenFailed(idleState)).toMatchObject({
       isRecording: false,
       phase: 'error',
-      recoverableError: EDITOR_OPEN_FAILED_ERROR,
+      recoverableError: editorOpenFailedError(),
     });
     expect(markEditorOpenFailed({ ...idleState, isRecording: true, phase: 'recording' })).toMatchObject({
       isRecording: true,
@@ -35,7 +35,7 @@ describe('recording recovery state', () => {
     expect(clearEditorRecovery({
       ...idleState,
       phase: 'error',
-      recoverableError: RECORDED_TAB_CLOSED_ERROR,
+      recoverableError: recordedTabClosedError(),
     })).toMatchObject({ phase: 'idle', error: null, recoverableError: null });
     const unrelated = { ...idleState, recoverableError: { code: 'CAPTURE_FAILED', message: 'retry capture' } };
     expect(clearEditorRecovery(unrelated)).toBe(unrelated);

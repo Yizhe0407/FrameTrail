@@ -4,7 +4,7 @@ import { getSteps } from '../../storage/step-repository';
 import { getRecordingState } from '../../storage/storage';
 import { describeBrowserError } from '../../runtime/browser-errors';
 import { isEditorHandoffResult } from '../../runtime/runtime-message-result';
-import { EDITOR_OPEN_FAILED_MESSAGE } from '../../runtime/user-messages';
+import { t } from '@/lib/shared/i18n';
 import {
   createExtensionPage,
   extensionPageUrl,
@@ -140,7 +140,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
       targetSessionId ??= state.sessionId ?? undefined;
       if (!targetSessionId) return await openEditor();
       const guide = await getGuide(targetSessionId);
-      if (!guide) return { ok: false, error: '找不到這份內容。' };
+      if (!guide) return { ok: false, error: t().runtime.guideNotFound };
       // Only a hand-off continues where the capture stopped: finishing a run, or
       // recovering one whose recorded tab went away. Ordinary navigation opens the
       // guide at its first entry — deriving the target from the newest capture
@@ -173,7 +173,7 @@ export function createEditorOpen(deps: { control: ControlPlane }) {
           );
         }
       }
-      return { ok: false, error: EDITOR_OPEN_FAILED_MESSAGE };
+      return { ok: false, error: t().runtime.editorOpenFailed };
     }
   }
 

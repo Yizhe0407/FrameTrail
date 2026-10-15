@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { t } from '@/lib/shared/i18n';
 
 /** A parent-owned action that may complete synchronously or asynchronously. */
 type MaybePromise = void | Promise<void>;
@@ -96,7 +97,7 @@ function GuideSectionHeading({
 
   return (
     <section
-      aria-label={`章節：${section.title}`}
+      aria-label={t().editor.sections.label(section.title)}
       className="flex flex-wrap items-center gap-2 rounded-md border-2 border-border bg-secondary px-2.5 py-2"
     >
       {editing ? (
@@ -107,7 +108,7 @@ function GuideSectionHeading({
             void saveRename();
           }}
         >
-          <label htmlFor={inputId} className="sr-only">章節名稱</label>
+          <label htmlFor={inputId} className="sr-only">{t().editor.sections.nameLabel}</label>
           <Input
             id={inputId}
             type="text"
@@ -142,12 +143,12 @@ function GuideSectionHeading({
           />
           {emptyTitle && (
             <p id={errorId} role="alert" className="w-full text-xs font-bold text-danger">
-              章節名稱不可為空白。
+              {t().editor.sections.emptyName}
             </p>
           )}
           {/* Suppress mousedown blur so the button the user pressed wins, not the blur handler. */}
           <Button type="submit" size="sm" disabled={controlsDisabled} onMouseDown={(event) => event.preventDefault()}>
-            儲存
+            {t().common.save}
           </Button>
           <Button
             type="button"
@@ -157,7 +158,7 @@ function GuideSectionHeading({
             onMouseDown={(event) => event.preventDefault()}
             onClick={cancelRename}
           >
-            取消
+            {t().common.cancel}
           </Button>
         </form>
       ) : (
@@ -165,7 +166,7 @@ function GuideSectionHeading({
           <h2 className="min-w-0 flex-1 break-words text-sm font-bold text-foreground">
             {section.title}
           </h2>
-          <div className="flex items-center gap-2" aria-label="章節操作">
+          <div className="flex items-center gap-2" aria-label={t().editor.sections.actionsLabel}>
             <Button
               type="button"
               size="sm"
@@ -178,7 +179,7 @@ function GuideSectionHeading({
               }}
             >
               <Pencil aria-hidden="true" />
-              重新命名
+              {t().common.rename}
             </Button>
             <Button
               type="button"
@@ -188,7 +189,7 @@ function GuideSectionHeading({
               onClick={handleDelete}
             >
               <Trash2 aria-hidden="true" />
-              刪除
+              {t().common.delete}
             </Button>
           </div>
         </>

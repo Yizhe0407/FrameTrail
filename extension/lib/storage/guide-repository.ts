@@ -22,6 +22,7 @@ import {
   type GuideStepsTransaction,
 } from './database';
 import { clearActiveGuideId } from './storage';
+import { t } from '../shared/i18n';
 
 export async function createGuide(initial?: Partial<Pick<Guide, 'title' | 'description' | 'tags'>>): Promise<Guide> {
   const guide = newGuide(crypto.randomUUID(), Date.now(), initial);
@@ -177,7 +178,7 @@ export async function duplicateGuide(sourceId: string, title?: string): Promise<
     const sourceSteps = await tx.objectStore('steps').index('by-session').getAll(sourceId);
     const sanitizedSource = sanitizeGuide(source);
     const prepared = prepareGuideClone(sourceSteps, {
-      title: title ?? `${sanitizedSource.title}（副本）`,
+      title: title ?? t().common.duplicateTitle(sanitizedSource.title),
       description: sanitizedSource.description,
       tags: sanitizedSource.tags,
     }, { sections: sanitizedSource.sections });

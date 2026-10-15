@@ -1,8 +1,9 @@
 import { browser } from 'wxt/browser';
-import { RECORDING_CHANNEL_LOST_MESSAGE, RECORDING_CONTROL_TIMEOUT_MS } from '../content-script-constants';
+import { RECORDING_CONTROL_TIMEOUT_MS } from '../content-script-constants';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '../../runtime/runtime-message-result';
 import type { RecordingControlMessage, RecordingControlResult } from '../../runtime/messages';
 import type { RecordingState } from '../../storage/recording-state';
+import { t } from '@/lib/shared/i18n';
 
 export type ToolbarChannel = ReturnType<typeof createToolbarChannel>;
 
@@ -32,7 +33,7 @@ export function createToolbarChannel(runId: string) {
           ...(undoToken ? { undoToken } : {}),
         } satisfies RecordingControlMessage),
         isRecordingControlResult,
-        RECORDING_CHANNEL_LOST_MESSAGE,
+        t().runtime.recordingChannelLost,
       ))();
     // A hung background must not wedge the in-page toolbar forever: surface
     // the channel-failure error after the shared control budget (the same
@@ -44,7 +45,7 @@ export function createToolbarChannel(runId: string) {
         command,
         new Promise<RecordingControlResult>((resolve) => {
           timeout = setTimeout(
-            () => resolve({ ok: false, error: RECORDING_CHANNEL_LOST_MESSAGE }),
+            () => resolve({ ok: false, error: t().runtime.recordingChannelLost }),
             RECORDING_CONTROL_TIMEOUT_MS,
           );
         }),

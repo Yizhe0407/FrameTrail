@@ -5,6 +5,10 @@ import {
 } from '@/lib/editor/editor-app-model';
 import { addGuideSectionAtomically, deleteGuideAnnotationAtomically, deleteGuideEntriesAtomically, deleteGuideSectionAtomically, getGuideStructureSnapshot, GuideContentConflictError, renameGuideSectionAtomically, reorderGuideAnnotationsAtomically, reorderGuideEntriesAtomically, restoreGuideAnnotationAtomically, restoreGuideEntriesAtomically, setGuideEntriesNumberedAtomically, type GuideStructureSnapshot } from '@/lib/storage/guide-structure';
 import { entryId, type Guide, type Step, type StepEntry } from '@/lib/storage/models';
+import { t, type Messages } from '@/lib/shared/i18n';
+
+/** A structural edit with its own progress/failure copy in the i18n catalog. */
+type GuideMutationOperation = Exclude<keyof Messages['editor']['mutations'], 'conflict' | 'reloadFailed'>;
 
 interface UseGuideMutationsOptions {
   sessionId: string | null;
@@ -52,12 +56,12 @@ export function useGuideMutations({
   offerUndo,
   clearUndo,
 }: UseGuideMutationsOptions) {
-  function showStructureMutationError(operation: string, mutationError: unknown): void {
-    console.error(`${operation}失敗`, mutationError);
+  function showStructureMutationError(operation: GuideMutationOperation, mutationError: unknown): void {
+    console.error(`[frametrail] guide mutation failed: ${operation}`, mutationError);
     setOperationError(
       mutationError instanceof GuideContentConflictError
-        ? '內容已在其他操作中變更。為避免覆蓋較新的資料，這次操作未套用，畫面已重新載入。'
-        : `${operation}失敗，已重新載入目前資料。`,
+        ? t().editor.mutations.conflict
+        : t().editor.mutations[operation].failed,
     );
   }
 
@@ -67,19 +71,18 @@ export function useGuideMutations({
    * restores it on failure. `rethrow` is for callers whose child component renders its own inline failure state.
    */
   async function runGuideMutation({
-    label,
-    errorLabel,
+    operation,
     optimistic,
     rethrow = false,
     mutate,
   }: {
-    label: string;
-    errorLabel: string;
+    /** Names the operation's progress and failure copy in the i18n catalog. */
+    operation: GuideMutationOperation;
     optimistic?: { next: StepEntry[]; previous: StepEntry[] };
     rethrow?: boolean;
     mutate: (snapshot: GuideStructureSnapshot, guideId: string) => Promise<PendingUndoAction | void>;
   }): Promise<void> {
-    if (!sessionId || !beginDataOperation(label)) return;
+    if (!sessionId || !beginDataOperation(t().editor.mutations[operation].pending)) return;
     clearUndo();
     setOperationError(null);
     if (optimistic) setOptimisticEntries(optimistic.next);
@@ -91,11 +94,11 @@ export function useGuideMutations({
         undo = await mutate(snapshot, sessionId);
       } catch (mutationError) {
         if (optimistic) setOptimisticEntries(optimistic.previous);
-        showStructureMutationError(errorLabel, mutationError);
+        showStructureMutationError(operation, mutationError);
         try {
           await refreshEditorData();
         } catch (refreshError) {
-          console.error(`${errorLabel}失敗後重新載入資料失敗`, refreshError);
+          console.error(`[frametrail] reload after failed ${operation} failed`, refreshError);
         } finally {
           if (!optimistic) setOptimisticEntries(null);
         }
@@ -107,8 +110,8 @@ export function useGuideMutations({
       try {
         await refreshEditorData();
       } catch (reloadError) {
-        console.error(`${errorLabel}成功後重新載入資料失敗`, reloadError);
-        setOperationError('已儲存，但重新載入畫面失敗，請重新整理。');
+        console.error(`[frametrail] reload after ${operation} failed`, reloadError);
+        setOperationError(t().editor.mutations.reloadFailed);
       }
       if (undo) offerUndo(undo, sessionId);
     } finally {
@@ -121,8 +124,7 @@ export function useGuideMutations({
     const previousEntries = entries;
     const expectedRevision = guide.contentRevision;
     await runGuideMutation({
-      label: '正在儲存步驟順序…',
-      errorLabel: '步驟排序',
+      operation: 'reorderSteps',
       optimistic: { next: newEntries, previous: previousEntries },
       mutate: async (snapshot, guideId) => {
         if (!equalIds(snapshot.entryIds, previousEntries.map(entryId))) {
@@ -135,7 +137,7 @@ export function useGuideMutations({
         );
         adoptGuide(result.guide);
         return {
-          message: '已更新步驟順序',
+          message: t().editor.mutations.reorderSteps.done,
           expectedRevision: result.guide.contentRevision,
           restore: () => reorderGuideEntriesAtomically(
             guideId,
@@ -153,13 +155,12 @@ export function useGuideMutations({
     const previousGroup = previousEntries.find(
       (entry): entry is Extract<StepEntry, { kind: 'group' }> => entry.kind === 'group' && entry.anchor.id === anchorId,
     );
-    if (!previousGroup) throw new Error('找不到要排序的快照。');
+    if (!previousGroup) throw new Error(t().editor.mutations.reorderAnnotations.groupMissing);
     const nextEntries = previousEntries.map((entry) => (
       entry.kind === 'group' && entry.anchor.id === anchorId ? { ...entry, annotations: reordered } : entry
     ));
     await runGuideMutation({
-      label: '正在儲存標註順序…',
-      errorLabel: '標註排序',
+      operation: 'reorderAnnotations',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
       mutate: async (snapshot, guideId) => {
@@ -184,7 +185,7 @@ export function useGuideMutations({
         );
         adoptGuide(result.guide);
         return {
-          message: '已更新標註順序',
+          message: t().editor.mutations.reorderAnnotations.done,
           expectedRevision: result.guide.contentRevision,
           restoreSelectionId: anchorId,
           restore: () => reorderGuideAnnotationsAtomically(
@@ -201,12 +202,11 @@ export function useGuideMutations({
   async function deleteEntry() {
     const currentEntryId = entryId(requireSelectedEntry());
     await runGuideMutation({
-      label: '正在刪除步驟…',
-      errorLabel: '步驟刪除',
+      operation: 'deleteStep',
       rethrow: true,
       mutate: async (snapshot, guideId) => {
         const deletingEntry = snapshot.entries.find((entry) => entryId(entry) === currentEntryId);
-        if (!deletingEntry) throw new Error('步驟內容已變更，無法安全刪除。');
+        if (!deletingEntry) throw new Error(t().editor.mutations.deleteStep.changed);
         const deletingIndex = snapshot.entryIds.indexOf(currentEntryId);
         const result = await deleteGuideEntriesAtomically(
           guideId,
@@ -221,7 +221,7 @@ export function useGuideMutations({
           ? [deletingEntry.step]
           : [deletingEntry.anchor, ...deletingEntry.annotations];
         return {
-          message: `已刪除步驟 ${deletingIndex + 1}`,
+          message: t().editor.mutations.deleteStep.done(deletingIndex + 1),
           expectedRevision: result.guide.contentRevision,
           restoreSelectionId: currentEntryId,
           restore: () => restoreGuideEntriesAtomically(
@@ -238,7 +238,7 @@ export function useGuideMutations({
 
   async function handleDeleteAnnotation(step: Step) {
     const currentEntry = requireSelectedEntry(step.groupId);
-    if (currentEntry.kind !== 'group') throw new Error('只有快照標註可以個別刪除。');
+    if (currentEntry.kind !== 'group') throw new Error(t().editor.mutations.deleteAnnotation.notSnapshot);
     const groupId = step.groupId;
     if (!groupId) return;
     const previousEntries = entries;
@@ -252,8 +252,7 @@ export function useGuideMutations({
       return [{ ...entry, annotations: entry.annotations.filter((annotation) => annotation.id !== step.id) }];
     });
     await runGuideMutation({
-      label: '正在刪除標註…',
-      errorLabel: '標註刪除',
+      operation: 'deleteAnnotation',
       optimistic: { next: nextEntries, previous: previousEntries },
       rethrow: true,
       mutate: async (snapshot, guideId) => {
@@ -271,10 +270,10 @@ export function useGuideMutations({
           setZoomOpen(false);
         }
         const deletedAnnotation = result.deletedSteps.find((deleted) => deleted.id === step.id);
-        if (!deletedAnnotation) throw new Error('刪除標註後缺少可還原資料。');
+        if (!deletedAnnotation) throw new Error(t().editor.mutations.deleteAnnotation.restoreDataMissing);
         const restoredIndex = result.previousAnnotationIds.indexOf(step.id);
         return {
-          message: `已刪除標註 ${(restoredIndex >= 0 ? restoredIndex : annotationIndex) + 1}`,
+          message: t().editor.mutations.deleteAnnotation.done((restoredIndex >= 0 ? restoredIndex : annotationIndex) + 1),
           expectedRevision: result.guide.contentRevision,
           restoreSelectionId: groupId,
           restore: result.removedEntry
@@ -300,8 +299,7 @@ export function useGuideMutations({
   async function setEntriesNumbered(entryIdsToUpdate: readonly string[], numbered: boolean) {
     if (entryIdsToUpdate.length === 0) return;
     await runGuideMutation({
-      label: '正在儲存快照編號設定…',
-      errorLabel: '快照編號設定',
+      operation: 'numbering',
       rethrow: true,
       mutate: async (snapshot, guideId) => {
         const selectedIds = new Set(entryIdsToUpdate);
@@ -323,7 +321,7 @@ export function useGuideMutations({
         const previousValue = previousValues.size === 1 ? [...previousValues][0] : undefined;
         if (result.affectedEntryIds.length === 0 || previousValue === undefined || previousValue === numbered) return;
         return {
-          message: `已${numbered ? '開啟' : '關閉'}快照編號`,
+          message: t().editor.mutations.numbering.done(numbered),
           expectedRevision: result.guide.contentRevision,
           restoreSelectionId: selectedEntryId ?? undefined,
           restore: () => setGuideEntriesNumberedAtomically(
@@ -339,8 +337,7 @@ export function useGuideMutations({
 
   async function renameSection(sectionId: string, title: string) {
     await runGuideMutation({
-      label: '正在重新命名章節…',
-      errorLabel: '章節重新命名',
+      operation: 'renameSection',
       rethrow: true,
       mutate: async (snapshot, guideId) => {
         const result = await renameGuideSectionAtomically(
@@ -356,8 +353,7 @@ export function useGuideMutations({
 
   async function deleteSection(sectionId: string) {
     await runGuideMutation({
-      label: '正在刪除章節…',
-      errorLabel: '刪除章節',
+      operation: 'deleteSection',
       rethrow: true,
       mutate: async (snapshot, guideId) => {
         const deletedSection = snapshot.guide.sections.find((section) => section.id === sectionId);
@@ -371,7 +367,7 @@ export function useGuideMutations({
         // A section's display position derives from its start entry, so re-creating it with the
         // same start entry and title puts it back exactly where it was.
         return {
-          message: `已刪除章節「${deletedSection.title}」`,
+          message: t().editor.mutations.deleteSection.done(deletedSection.title),
           expectedRevision: result.guide.contentRevision,
           restore: () => addGuideSectionAtomically(
             guideId,
@@ -385,7 +381,7 @@ export function useGuideMutations({
   }
 
   async function handleUndo() {
-    if (!undoAction || !beginDataOperation('正在還原…')) return;
+    if (!undoAction || !beginDataOperation(t().editor.undo.inProgress)) return;
     setOperationError(null);
     try {
       const snapshot = await getGuideStructureSnapshot(undoAction.guideId);
@@ -403,14 +399,14 @@ export function useGuideMutations({
       }
       clearUndo();
     } catch (undoError) {
-      console.error('還原編輯操作失敗', undoError);
+      console.error('[frametrail] failed to undo editor operation', undoError);
       clearUndo();
       setOperationError(
         undoError instanceof GuideContentConflictError
-          ? '內容已在其他操作中變更，因此無法安全還原舊版本。'
-          : '無法還原，請再試一次。',
+          ? t().editor.undo.conflict
+          : t().editor.undo.failed,
       );
-      await refreshEditorData().catch((refreshError) => console.error('還原失敗後重新載入資料失敗', refreshError));
+      await refreshEditorData().catch((refreshError) => console.error('[frametrail] reload after failed undo failed', refreshError));
     } finally {
       endDataOperation();
     }

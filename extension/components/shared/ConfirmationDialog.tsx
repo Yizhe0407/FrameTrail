@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   open: boolean;
@@ -35,7 +36,7 @@ export default function ConfirmationDialog({
   description,
   confirmLabel,
   pending = false,
-  pendingLabel = '處理中',
+  pendingLabel = t().common.processing,
   confirmVariant = 'destructive',
   error = null,
   onOpenChange,
@@ -58,7 +59,7 @@ export default function ConfirmationDialog({
         {error && <InlineAlert className="mt-4">{error}</InlineAlert>}
         <DialogFooter className="mt-6">
           <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
-            取消
+            {t().common.cancel}
           </Button>
           <Button type="button" variant={confirmVariant} disabled={pending} onClick={() => void onConfirm()}>
             {pending && <Loader2 className="animate-spin" />}

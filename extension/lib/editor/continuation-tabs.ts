@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { isRecordableTab } from '../shared/restricted-urls';
 import type { ContinuationTabOption } from './editor-app-model';
+import { t } from '@/lib/shared/i18n';
 
 /**
  * Fails closed on any prepared source-permission payload that does not name a
@@ -14,14 +15,14 @@ export function validatePreparedPermissionSource(
   try {
     parsed = new URL(sourceOrigin);
   } catch {
-    throw new Error('來源網站授權資料無效，已停止操作。');
+    throw new Error(t().editor.permission.invalidGrant);
   }
   if (
     (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
     parsed.origin !== sourceOrigin ||
     permissionPattern !== `${parsed.origin}/*`
   ) {
-    throw new Error('來源網站授權資料不符合安全規則，已停止操作。');
+    throw new Error(t().editor.permission.unsafeGrant);
   }
 }
 

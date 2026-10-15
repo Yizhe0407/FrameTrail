@@ -20,6 +20,7 @@ import type {
 } from '../runtime/messages';
 import type { StepRecaptureContext } from '../storage/recording-state';
 import { CLEANUP_EVENT, STEP_FOLLOWUP_EVENTS } from './content-script-constants';
+import { t } from '@/lib/shared/i18n';
 
 function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remove(): void } {
   const host = document.createElement('div');
@@ -47,10 +48,10 @@ function createRecaptureToolbar(onCancel: () => void): { host: HTMLElement; remo
     'font:600 14px/1.3 system-ui,sans-serif',
   ].join(';');
   const label = document.createElement('span');
-  label.textContent = '請選取要補拍的目標（Esc 取消）';
+  label.textContent = t().recapturePicker.instructions;
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.textContent = '取消';
+  cancel.textContent = t().common.cancel;
   cancel.style.cssText = [
     'all:initial',
     'cursor:pointer',
@@ -170,7 +171,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
         const result = requireRuntimeMessageResult<StepRecaptureTargetResult>(
           await browser.runtime.sendMessage(payload),
           isStepRecaptureTargetResult,
-          '補拍服務回應格式無效，請重新整理頁面後再試一次。',
+          t().runtime.recaptureResponseInvalid,
         );
         if (!result.ok && result.status === 'rejected' && !removed) {
           busy = false;
@@ -250,7 +251,7 @@ export async function installRecaptureRecorder(context: StepRecaptureContext): P
         url: location.href,
       }),
       isRuntimeBoolean,
-      '補拍服務回應格式無效，請重新整理頁面後再試一次。',
+      t().runtime.recaptureResponseInvalid,
     );
   } catch (error) {
     console.error('[frametrail] recapture readiness check failed', error);

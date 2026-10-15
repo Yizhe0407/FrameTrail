@@ -10,6 +10,7 @@ import {
   type UniqueIdentifier,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { t } from '@/lib/shared/i18n';
 
 function useSortableSensors() {
   return useSensors(
@@ -23,29 +24,30 @@ function useSortableSensors() {
  * list is only usable without sight if the announcement says which item moved
  * and where it landed, so callers supply a 1-based position lookup.
  *
- * @param itemNoun what one row is called, e.g. 步驟
+ * @param itemNoun what one row is called, from the i18n `sortable` nouns
  * @param positionOf 1-based display position of an id, or 0 when it is unknown
  */
 function createSortableAccessibility(
   itemNoun: string,
   positionOf: (id: UniqueIdentifier) => number,
 ): { announcements: Announcements; screenReaderInstructions: ScreenReaderInstructions } {
-  const describe = (id: UniqueIdentifier) => `${itemNoun} ${positionOf(id)}`;
+  const copy = () => t().sortable;
+  const describe = (id: UniqueIdentifier) => copy().item(itemNoun, positionOf(id));
   return {
     screenReaderInstructions: {
-      draggable: `按 Enter 或空白鍵開始排序。開始後用方向鍵移動${itemNoun}，再按一次 Enter 或空白鍵放下，按 Esc 取消。`,
+      draggable: copy().instructions(itemNoun),
     },
     announcements: {
-      onDragStart: ({ active }) => `已提起 ${describe(active.id)}。`,
+      onDragStart: ({ active }) => copy().dragStart(describe(active.id)),
       onDragOver: ({ active, over }) => (
-        over ? `${describe(active.id)} 移到 第 ${positionOf(over.id)} 個位置。` : undefined
+        over ? copy().dragOver(describe(active.id), positionOf(over.id)) : undefined
       ),
       onDragEnd: ({ active, over }) => (
         over
-          ? `${describe(active.id)} 已放在 第 ${positionOf(over.id)} 個位置。`
-          : `${describe(active.id)} 已放回原位。`
+          ? copy().dragEnd(describe(active.id), positionOf(over.id))
+          : copy().dragEndInPlace(describe(active.id))
       ),
-      onDragCancel: ({ active }) => `已取消排序，${describe(active.id)} 回到原位。`,
+      onDragCancel: ({ active }) => copy().dragCancel(describe(active.id)),
     },
   };
 }

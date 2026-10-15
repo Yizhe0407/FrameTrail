@@ -3,8 +3,6 @@ import { strToU8 } from 'fflate';
 import { type StepEntry } from '../storage/models';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
 import {
-  DEFAULT_DESCRIPTION,
-  DEFAULT_IMAGE_ALT,
   DEFAULT_TITLE,
   escapeGuideMarkdown,
   guideExportFilename,
@@ -20,6 +18,7 @@ import {
   type RenderedEntryContent,
   type RenderedMarkdownEntry,
 } from './guide-export-render';
+import { t } from '@/lib/shared/i18n';
 
 /**
  * Builds a portable Markdown ZIP containing one Markdown document and every
@@ -76,14 +75,14 @@ function renderGuideMarkdown<T extends RenderedEntryContent>(
     // description leads, its screenshot follows, then any group annotations.
     const description = textValue(entry.description);
     if (description || entry.annotations.length === 0) {
-      lines.push('', escapeGuideMarkdown(textOrDefault(description, DEFAULT_DESCRIPTION)));
+      lines.push('', escapeGuideMarkdown(textOrDefault(description, t().export.missingDescription)));
     }
-    const alt = textOrDefault(entry.description, DEFAULT_IMAGE_ALT);
+    const alt = textOrDefault(entry.description, t().export.imageAlt);
     lines.push('', `![${escapeGuideMarkdown(alt)}](${imageReference(entry)})`);
     if (entry.annotations.length > 0) {
       lines.push('');
       for (const [index, annotation] of entry.annotations.entries()) {
-        lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, DEFAULT_DESCRIPTION))}`);
+        lines.push(`${index + 1}. ${escapeGuideMarkdown(textOrDefault(annotation.description, t().export.missingDescription))}`);
       }
     }
   }

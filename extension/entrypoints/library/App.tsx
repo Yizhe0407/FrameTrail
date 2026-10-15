@@ -29,7 +29,7 @@ import EditableTitle from '@/components/shared/EditableTitle';
 import Mascot from '@/components/shared/Mascot';
 import { reportError } from '@/components/shared/report-error';
 import { usePendingAction } from '@/components/shared/use-pending-action';
-import { UNTITLED_GUIDE_TITLE } from '@/lib/editor/editor-messages';
+import { intlLocale, t } from '@/lib/shared/i18n';
 import { exportProjectArchive } from '@/lib/export/project-archive-serialize';
 import { importProjectArchive } from '@/lib/export/project-archive-import';
 import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
@@ -67,7 +67,7 @@ export default function App() {
       setOperationLocked(state.operation !== null || state.isRecording);
     } catch (refreshError) {
       console.error('[frametrail] failed to load guide library', refreshError);
-      setError('無法讀取本機作品庫。');
+      setError(t().library.loadFailed);
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -96,15 +96,15 @@ export default function App() {
   }, []);
 
   const allTags = useMemo(
-    () => [...new Set(guides.flatMap((guide) => guide.tags))].sort((a, b) => a.localeCompare(b, 'zh-TW')),
+    () => [...new Set(guides.flatMap((guide) => guide.tags))].sort((a, b) => a.localeCompare(b, intlLocale())),
     [guides],
   );
 
   const visibleGuides = useMemo(() => {
-    const normalized = deferredQuery.trim().toLocaleLowerCase('zh-TW');
+    const normalized = deferredQuery.trim().toLocaleLowerCase(intlLocale());
     return guides.filter((guide) => {
       if (filterTags.length > 0 && !filterTags.every((tag) => guide.tags.includes(tag))) return false;
-      return !normalized || `${guide.title}\n${guide.description}`.toLocaleLowerCase('zh-TW').includes(normalized);
+      return !normalized || `${guide.title}\n${guide.description}`.toLocaleLowerCase(intlLocale()).includes(normalized);
     });
   }, [deferredQuery, filterTags, guides]);
 
@@ -119,7 +119,7 @@ export default function App() {
         if (options.refreshAfter !== false) await refresh({ showLoading: false });
         return true;
       } catch (operationError) {
-        setError(reportError('[frametrail] library operation failed', operationError, '操作失敗，請再試一次。'));
+        setError(reportError('[frametrail] library operation failed', operationError, t().library.operationFailed));
         return false;
       }
     });
@@ -146,7 +146,7 @@ export default function App() {
       // Keeps the object URL alive until the download settles; a download that
       // never starts rejects into the page-level alert below.
       await downloadBlobViaBrowser(blob, exportFilename(guide.title));
-      toast.success(`「${guide.title}」的可編輯檔案已開始下載。`);
+      toast.success(t().library.exportStarted(guide.title));
     }, { refreshAfter: false });
     // A failed export reports through the page-level live alert. Close the
     // modal so it does not aria-hide that alert from assistive technology.
@@ -167,12 +167,12 @@ export default function App() {
 
   async function importGuideFile(file: File) {
     if (file.size > PROJECT_ARCHIVE_LIMITS.maxArchiveBytes) {
-      setError('匯入檔案超過 128 MB 安全上限。');
+      setError(t().library.importTooLarge);
       return;
     }
     await run('import', async () => {
       const imported = await importProjectArchive(file);
-      const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || '匯入的作品';
+      const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || t().library.importedFallbackTitle;
       const guide = await createGuideFromSteps(
         imported.steps,
         {
@@ -195,7 +195,7 @@ export default function App() {
             <Mascot className="size-11" />
             <div className="flex flex-col">
               <span className="text-xs font-bold text-muted-foreground">FrameTrail</span>
-              <h1 className="text-2xl leading-tight font-bold text-foreground">作品庫</h1>
+              <h1 className="text-2xl leading-tight font-bold text-foreground">{t().library.title}</h1>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -215,14 +215,14 @@ export default function App() {
               onClick={() => importInput.current?.click()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}匯入
+              {pendingId === 'import' ? <Loader2 className="animate-spin" /> : <Upload />}{t().library.import}
             </Button>
             <Button
               variant="default"
               onClick={() => void createNewGuide()}
               disabled={loading || operationLocked || pendingId !== null}
             >
-              {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}新增
+              {pendingId === 'new' ? <Loader2 className="animate-spin" /> : <Plus />}{t().library.create}
             </Button>
           </div>
         </div>
@@ -231,7 +231,7 @@ export default function App() {
       <main className="mx-auto flex max-w-7xl flex-col px-6 pt-6 pb-10 sm:px-10">
         {operationLocked && (
           <Alert className="mb-4">
-            <AlertDescription>錄製或補拍進行中；為避免資料寫入錯誤，目前只能瀏覽作品庫。</AlertDescription>
+            <AlertDescription>{t().library.lockedNotice}</AlertDescription>
           </Alert>
         )}
         {error && (
@@ -245,8 +245,8 @@ export default function App() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜尋標題或說明…"
-              aria-label="搜尋作品"
+              placeholder={t().library.searchPlaceholder}
+              aria-label={t().library.searchLabel}
               maxLength={120}
               className="min-w-0 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
@@ -258,7 +258,7 @@ export default function App() {
                 className={cn('h-11', filterTags.length > 0 && 'bg-selected text-on-accent hover:bg-selected')}
               >
                 <Filter />
-                篩選
+                {t().library.filter}
                 {filterTags.length > 0 && (
                   <Badge variant="outline" className="h-5 min-w-5 px-1">
                     {filterTags.length}
@@ -273,7 +273,7 @@ export default function App() {
             >
               <div className="mb-2.5 flex items-center justify-between gap-3">
                 <span id="guide-tag-filter-label" className="text-xs font-bold text-muted-foreground">
-                  依標籤篩選
+                  {t().library.filterByTag}
                 </span>
                 {filterTags.length > 0 && (
                   <button
@@ -281,12 +281,12 @@ export default function App() {
                     onClick={() => setFilterTags([])}
                     className="shrink-0 rounded-sm text-xs font-bold text-brand-text outline-none focus-ring hover:underline"
                   >
-                    清除
+                    {t().library.clearFilter}
                   </button>
                 )}
               </div>
               {allTags.length === 0 ? (
-                <p className="py-1 text-xs text-muted-foreground">尚無任何標籤</p>
+                <p className="py-1 text-xs text-muted-foreground">{t().library.noTags}</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {allTags.map((tag) => {
@@ -322,19 +322,19 @@ export default function App() {
 
         {loading ? (
           <div role="status" className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 size-5 animate-spin" />讀取作品庫…
+            <Loader2 className="mr-2 size-5 animate-spin" />{t().library.loading}
           </div>
         ) : visibleGuides.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-card px-6 py-10 text-center">
             <Mascot className="mb-2 size-16" />
-            <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? '找不到符合的作品' : '建立第一份作品'}</h2>
+            <h2 className="text-lg font-bold">{query || filterTags.length > 0 ? t().library.noMatches : t().library.empty}</h2>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
               {query || filterTags.length > 0
-                ? '換個關鍵字，或清除標籤篩選再試一次。'
-                : '到想示範的網頁打開 FrameTrail 按「開始錄製」，或先建立一份空白作品。'}
+                ? t().library.noMatchesHint
+                : t().library.emptyHint}
             </p>
             {!query && filterTags.length === 0 && (
-              <Button className="mt-3" onClick={() => void createNewGuide()}><Plus />新增</Button>
+              <Button className="mt-3" onClick={() => void createNewGuide()}><Plus />{t().library.create}</Button>
             )}
           </div>
         ) : (
@@ -345,7 +345,7 @@ export default function App() {
               // disabling the other cards makes that lock visible instead of a silent no-op.
               const actionsLocked = operationLocked || pendingId !== null;
               const otherActionPending = pendingId !== null && !pending;
-              const lockedTitle = (title: string) => (otherActionPending ? '另一項操作進行中' : title);
+              const lockedTitle = (title: string) => (otherActionPending ? t().library.otherActionPending : title);
               const visibleTags = guide.tags.slice(0, 3);
               const hiddenTagCount = guide.tags.length - visibleTags.length;
               return (
@@ -358,7 +358,7 @@ export default function App() {
                       <div className="flex flex-wrap gap-1.5">
                         {visibleTags.map((tag) => (
                           <Badge key={tag} variant="tag" className={cn('max-w-full truncate', tagHueClass(tag))}>
-                            ＃{tag}
+                            {t().library.tag(tag)}
                           </Badge>
                         ))}
                         {hiddenTagCount > 0 && <Badge variant="outline">+{hiddenTagCount}</Badge>}
@@ -366,8 +366,8 @@ export default function App() {
                     )}
                     <EditableTitle
                       value={guide.title}
-                      fallback={UNTITLED_GUIDE_TITLE}
-                      label="作品名稱"
+                      fallback={t().common.untitledGuide}
+                      label={t().library.titleLabel}
                       disabled={actionsLocked}
                       // `run` reports the reason via the page-level alert and returns
                       // false on failure; rejecting here rolls the field back to the stored title.
@@ -383,9 +383,9 @@ export default function App() {
                       </p>
                     )}
                     <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
-                      <span>{guide.entryCount} 個畫面</span>
+                      <span>{t().library.screenCount(guide.entryCount)}</span>
                       <span className="size-1 rounded-full bg-current opacity-50" />
-                      <span>{guide.stepCount} 標註</span>
+                      <span>{t().library.annotationCount(guide.stepCount)}</span>
                     </div>
                     <div className="flex-1" />
                     <div className="mt-1 flex items-center gap-1 border-t-2 border-border-soft pt-3">
@@ -397,10 +397,10 @@ export default function App() {
                             onClick={() => void run(guide.id, () => openSelectedGuideInEditor(guide.id))}
                             disabled={actionsLocked}
                           >
-                            {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}開啟
+                            {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}{t().common.open}
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{lockedTitle('開啟')}</TooltipContent>
+                        <TooltipContent>{lockedTitle(t().common.open)}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -408,14 +408,14 @@ export default function App() {
                             size="icon"
                             variant="ghost"
                             className="size-8 shrink-0"
-                            aria-label="複製"
+                            aria-label={t().common.duplicate}
                             onClick={() => void run(guide.id, async () => { await duplicateGuide(guide.id); })}
                             disabled={actionsLocked}
                           >
                             <Copy />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{lockedTitle('複製')}</TooltipContent>
+                        <TooltipContent>{lockedTitle(t().common.duplicate)}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -423,14 +423,14 @@ export default function App() {
                             size="icon"
                             variant="ghost"
                             className="size-8 shrink-0"
-                            aria-label={`匯出 ${guide.title}`}
+                            aria-label={t().library.exportGuideLabel(guide.title)}
                             onClick={() => setExportTarget(guide)}
                             disabled={actionsLocked}
                           >
                             <Download />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{lockedTitle('匯出可編輯 .frametrail 檔案')}</TooltipContent>
+                        <TooltipContent>{lockedTitle(t().library.exportArchiveTooltip)}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -438,14 +438,14 @@ export default function App() {
                             size="icon"
                             variant="ghost"
                             className="size-8 shrink-0 hover:bg-danger-soft hover:text-danger"
-                            aria-label="刪除"
+                            aria-label={t().common.delete}
                             onClick={() => setDeleteTarget(guide)}
                             disabled={actionsLocked}
                           >
                             <Trash2 />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{lockedTitle('刪除')}</TooltipContent>
+                        <TooltipContent>{lockedTitle(t().common.delete)}</TooltipContent>
                       </Tooltip>
                     </div>
                   </div>
@@ -458,13 +458,13 @@ export default function App() {
 
       <ConfirmationDialog
         open={exportTarget !== null}
-        title="匯出可編輯檔案？"
+        title={t().library.exportDialogTitle}
         description={exportTarget
-          ? `將下載 ${exportFilename(exportTarget.title)}。檔案包含原始截圖、標註、遮罩、說明與章節，可再次匯入 FrameTrail 編輯；因含未套用遮罩的原始截圖，請勿直接公開分享。`
+          ? t().library.exportDialogDescription(exportFilename(exportTarget.title))
           : ''}
-        confirmLabel="下載 .frametrail"
+        confirmLabel={t().library.exportDialogConfirm}
         confirmVariant="default"
-        pendingLabel="匯出中"
+        pendingLabel={t().library.exportDialogPending}
         pending={exportTarget ? pendingId === exportTarget.id : false}
         onOpenChange={(open) => { if (!open) setExportTarget(null); }}
         onConfirm={() => { if (exportTarget) void exportGuide(exportTarget); }}
@@ -472,9 +472,9 @@ export default function App() {
 
       <ConfirmationDialog
         open={deleteTarget !== null}
-        title="永久刪除這份作品？"
-        description="原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出 .frametrail 可編輯檔案。"
-        confirmLabel="永久刪除"
+        title={t().library.deleteDialogTitle}
+        description={t().library.deleteDialogDescription}
+        confirmLabel={t().library.deleteDialogConfirm}
         pending={deleteTarget ? pendingId === deleteTarget.id : false}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
         onConfirm={() => { if (deleteTarget) void deleteGuide(deleteTarget); }}

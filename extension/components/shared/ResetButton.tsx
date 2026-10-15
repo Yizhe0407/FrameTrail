@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/shared/utils';
 import { useState, type ComponentProps } from 'react';
 import ConfirmationDialog from './ConfirmationDialog';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   hasSteps: boolean;
@@ -32,15 +33,15 @@ export default function ResetButton({
     setResetting(true);
     setResetError(null);
     try {
-      if (!sessionId) throw new Error('找不到要重置的內容。');
+      if (!sessionId) throw new Error(t().reset.noTarget);
       await resetSession(sessionId);
       await onReset?.();
       setConfirmationOpen(false);
     } catch (err) {
       // The background reports actionable reasons (for example a reset refused
       // mid-recording); surface them instead of flattening to a generic retry.
-      const reason = reportError('重置錄製失敗', err, '');
-      setResetError(reason ? `重置失敗：${reason}` : '重置失敗，請再試一次。');
+      const reason = reportError('[frametrail] failed to reset recording', err, '');
+      setResetError(reason ? t().reset.failedWithReason(reason) : t().reset.failed);
     } finally {
       setResetting(false);
     }
@@ -58,7 +59,7 @@ export default function ResetButton({
                 setConfirmationOpen(true);
               }}
               disabled={!hasSteps || !sessionId || disabled || resetting}
-              aria-label={resetting ? '正在重置' : '重置目前錄製'}
+              aria-label={resetting ? t().reset.pendingLabel : t().reset.actionLabel}
               className={cn(
                 'hover:bg-danger-soft hover:text-danger',
                 variant === 'outline' && 'hover:border-recording',
@@ -66,17 +67,17 @@ export default function ResetButton({
               )}
             >
               {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-              <span>{resetting ? '重置中' : '重置'}</span>
+              <span>{resetting ? t().reset.pending : t().reset.label}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{disabled ? '錄製或補拍期間無法重置' : '重置目前錄製'}</TooltipContent>
+          <TooltipContent>{disabled ? t().reset.disabledTooltip : t().reset.actionLabel}</TooltipContent>
         </Tooltip>
       </div>
       <ConfirmationDialog
         open={confirmationOpen}
-        title="重置目前錄製？"
-        description="所有步驟與標註都會永久刪除，這項操作無法復原。"
-        confirmLabel="重置"
+        title={t().reset.dialogTitle}
+        description={t().reset.dialogDescription}
+        confirmLabel={t().reset.label}
         pending={resetting}
         // Failure keeps the dialog open for a retry, so the message must live
         // inside the modal; anything rendered behind it is aria-hidden.

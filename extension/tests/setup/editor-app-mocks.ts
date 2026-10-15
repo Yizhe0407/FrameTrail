@@ -18,7 +18,6 @@ export function makeEditorDatabaseMocks() {
 
   return {
     GuideContentConflictError,
-    UNTITLED_GUIDE_BASE: '未命名作品',
     addGuideSectionAtomically: vi.fn(),
     buildStepEntries: vi.fn((steps: any[]) => steps),
     deleteGuideAnnotationAtomically: vi.fn(),

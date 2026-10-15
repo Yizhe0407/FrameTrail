@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openLibrary } from '@/lib/runtime/actions';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   operationActive: boolean;
@@ -45,12 +46,12 @@ export default function EditorHeader({
           FrameTrail
         </h1>
         <span className="hidden shrink-0 rounded-full border-2 border-border bg-secondary px-2.5 py-0.5 text-xs font-bold text-foreground sm:inline-block">
-          編輯器
+          {t().common.editor}
         </span>
         {operationActive && (
           <Badge variant="status" className="min-w-0">
             <span className="size-1.5 rounded-full bg-recording animate-pulse" />
-            <span className="truncate">{operation === 'recapture' ? '補拍中' : '錄製中'}</span>
+            <span className="truncate">{operation === 'recapture' ? t().common.recapturing : t().common.recording}</span>
           </Badge>
         )}
       </div>
@@ -60,14 +61,14 @@ export default function EditorHeader({
           <TooltipTrigger asChild>
             <Button
               variant="outline"
-              aria-label="作品庫"
+              aria-label={t().common.library}
               className="px-2.5 sm:px-3.5"
               onClick={() => void openLibrary()}
             >
-              <Library /><span className="hidden sm:inline">作品庫</span>
+              <Library /><span className="hidden sm:inline">{t().common.library}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>回到作品庫</TooltipContent>
+          <TooltipContent>{t().editor.header.libraryTooltip}</TooltipContent>
         </Tooltip>
         {guideActionsAvailable && (
           <>
@@ -75,12 +76,12 @@ export default function EditorHeader({
             <ResetButton hasSteps={steps.length > 0} sessionId={sessionId} disabled={unavailable} onReset={onReset} />
             <Button
               variant="default"
-              aria-label="匯出"
+              aria-label={t().common.export}
               className="px-2.5 sm:px-4"
               onClick={onOpenPublish}
               disabled={unavailable || steps.length === 0 || !onOpenPublish}
             >
-              <Download /><span className="hidden sm:inline">匯出</span>
+              <Download /><span className="hidden sm:inline">{t().common.export}</span>
             </Button>
           </>
         )}

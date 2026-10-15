@@ -9,10 +9,8 @@ import { cn } from '@/lib/shared/utils';
 import type { RecordingMode, RecordingState } from '@/lib/storage/recording-state';
 import { startRecordingIntoNewGuide } from '@/lib/guide/guide-actions';
 import {
-  normalizeRecordingMode,
   recordingItemCountLabel,
   recordingModeCopy,
-  RECORDING_MODE_COPY,
 } from '@/lib/recording/recording-mode-copy';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import { focusTab } from '@/lib/runtime/navigation';
@@ -23,6 +21,7 @@ import {
   markCrossTabRecordingDeclined,
 } from '@/lib/runtime/cross-tab-recording';
 import { claimPendingStart, discardPendingStart, parkPendingStart } from '@/lib/runtime/pending-start';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   recording: RecordingState;
@@ -31,24 +30,6 @@ interface Props {
   openingEditor?: boolean;
   className?: string;
 }
-
-// Popup-only copy; the label/noun are shared elsewhere via recording-mode-copy.
-// The Record type keeps the mapping total, so a missing RecordingMode key is
-// a compile error rather than a runtime lookup failure.
-const MODE_DETAILS: Record<RecordingMode, {
-  description: string;
-  /** Button copy while START_RECORDING for this mode is in flight. */
-  startingLabel: string;
-}> = {
-  steps: {
-    description: '每次點擊都會擷取一張截圖，自動編號成一連串操作步驟。',
-    startingLabel: '正在連接頁面',
-  },
-  snapshot: {
-    description: '鎖定目前畫面，在同一張截圖上加入多個標註點。',
-    startingLabel: '正在建立乾淨底圖',
-  },
-};
 
 const MODE_ORDER: readonly RecordingMode[] = ['steps', 'snapshot'];
 
@@ -93,7 +74,7 @@ function useStartPreflight(onProbeError: (message: string) => void) {
         console.error('[frametrail] failed to inspect the active tab', error);
         if (!disposed) {
           setRestrictedPage(true);
-          onProbeError('無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。');
+          onProbeError(t().popup.activeTabUnreadable);
         }
       });
 
@@ -105,7 +86,7 @@ function useStartPreflight(onProbeError: (message: string) => void) {
         ]);
         if (!disposed) setCrossTab(granted ? 'granted' : declined ? 'declined' : 'ungranted');
       } catch (error) {
-        console.warn('讀取跨分頁錄製權限失敗', error);
+        console.warn('[frametrail] failed to read the cross-tab recording permission', error);
         if (!disposed) setCrossTab('ungranted');
       }
     })();
@@ -147,7 +128,7 @@ export default function RecordControls({
             parkPendingStart(resumeStart.mode, resumeStart.tabId),
             markCrossTabRecordingDeclined(),
           ]).then(() => true, (error) => {
-            console.warn('暫存開始錄製請求失敗', error);
+            console.warn('[frametrail] failed to park the pending recording start', error);
             return false;
           })
         : Promise.resolve(false);
@@ -158,7 +139,7 @@ export default function RecordControls({
       else await markCrossTabRecordingDeclined();
       return { granted, parked };
     } catch (error) {
-      console.warn('請求跨分頁錄製權限失敗', error);
+      console.warn('[frametrail] failed to request the cross-tab recording permission', error);
       return { granted: false, parked: false };
     }
   }
@@ -184,12 +165,12 @@ export default function RecordControls({
       const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
       if (isRestrictedUrl(activeTab?.url)) {
         setRestrictedPage(true);
-        throw new Error('此頁面不允許錄製，請切換到要示範的一般網站分頁後再試一次。');
+        throw new Error(t().popup.restrictedPageError);
       }
       await startRecordingIntoNewGuide(mode);
       onStarted?.();
     } catch (error) {
-      setControlError(reportError('開始錄製失敗', error, '無法開始錄製，請重新整理頁面後再試一次。'));
+      setControlError(reportError('[frametrail] failed to start recording', error, t().popup.startFailed));
     } finally {
       setPending(false);
     }
@@ -205,7 +186,7 @@ export default function RecordControls({
       await focusTab(recording.tabId, tab.windowId);
       window.close();
     } catch (error) {
-      setControlError(reportError('回到錄製分頁失敗', error, '無法回到錄製分頁，分頁可能已關閉。'));
+      setControlError(reportError('[frametrail] failed to return to the recording tab', error, t().popup.returnToTabFailed));
     }
   }
 
@@ -214,7 +195,7 @@ export default function RecordControls({
     return (
       <div className={cn('space-y-3', className)}>
         <OpenEditorButton
-          label={editorFailed ? '重試開啟編輯器' : '完成並開啟編輯器'}
+          label={editorFailed ? t().popup.retryOpenEditor : t().popup.finishAndOpenEditor}
           pending={openingEditor}
           onOpen={onOpenEditor}
           className={cn(buttonVariants({ size: 'lg' }), 'w-full')}
@@ -231,7 +212,7 @@ export default function RecordControls({
       <div className={cn('flex flex-col gap-4', className)}>
         <button type="button" disabled className={RECORD_BUTTON_CLASS}>
           <Loader2 className="size-4 animate-spin" />
-          {MODE_DETAILS[normalizeRecordingMode(recording.mode)].startingLabel}
+          {recordingModeCopy(recording.mode).startingLabel}
         </button>
       </div>
     );
@@ -244,12 +225,12 @@ export default function RecordControls({
         <div className="rounded-md border-2 border-border bg-surface-raised px-3.5 py-3">
           <div className="flex items-center gap-2 text-sm font-bold text-foreground">
             <span className="size-2 rounded-full bg-recording" />
-            {recording.phase === 'paused' ? '已暫停' : recordingModeCopy(recording.mode).label}
+            {recording.phase === 'paused' ? t().common.paused : recordingModeCopy(recording.mode).label}
             {' · '}
             {recordingItemCountLabel(recording.mode, recording.itemCount)}
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-            錄製控制保留在原分頁右下角。
+            {t().popup.controlsStayOnPage}
           </p>
         </div>
         <div className="flex flex-col gap-2">
@@ -259,13 +240,13 @@ export default function RecordControls({
             className={cn(buttonVariants(), 'w-full')}
           >
             <ExternalLink className="size-4" />
-            回到錄製分頁
+            {t().popup.returnToRecordingTab}
           </button>
           {/* Secondary exit while a run is live (UX_PLAN 6.4): the editor shows
               what has been captured so far without interrupting the recording,
               which the page controller still owns. */}
           <OpenEditorButton
-            label="開啟編輯器"
+            label={t().common.openEditor}
             pending={openingEditor}
             onOpen={onOpenEditor}
             className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'w-full')}
@@ -275,7 +256,7 @@ export default function RecordControls({
     );
   }
 
-  const activeMode = MODE_DETAILS[mode];
+  const activeMode = recordingModeCopy(mode);
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
@@ -284,7 +265,7 @@ export default function RecordControls({
       <div className="flex flex-col gap-2.5">
         {/* 2px outline + 2px padding puts each option exactly 4px inside, the
             inset the concentric `rounded-sm` radius is drawn for. */}
-        <div role="radiogroup" aria-label="錄製模式" className="flex gap-0.5 rounded-md border-2 border-border bg-secondary p-0.5">
+        <div role="radiogroup" aria-label={t().common.recordingMode} className="flex gap-0.5 rounded-md border-2 border-border bg-secondary p-0.5">
           {MODE_ORDER.map((candidate) => {
             const Icon = MODE_ICONS[candidate];
             return (
@@ -304,7 +285,7 @@ export default function RecordControls({
                 )}
               >
                 <Icon className="size-4" aria-hidden="true" />
-                {RECORDING_MODE_COPY[candidate].label}
+                {recordingModeCopy(candidate).label}
               </button>
             );
           })}
@@ -317,14 +298,14 @@ export default function RecordControls({
             the click handler so the browser accepts it as a user gesture. */}
         {mode === 'steps' && (crossTab === 'declined' || crossTab === 'ungranted') && (
           <p className="px-0.5 text-xs leading-relaxed text-muted-foreground">
-            目前僅錄製單一分頁。
+            {t().popup.singleTabOnly}
             <button
               type="button"
               onClick={() => void requestCrossTabPermission()}
               disabled={pending}
               className="ml-0.5 rounded-sm font-bold text-brand-text underline underline-offset-2 outline-none focus-ring disabled:pointer-events-none"
             >
-              啟用跨分頁錄製
+              {t().popup.enableCrossTab}
             </button>
           </p>
         )}
@@ -335,7 +316,7 @@ export default function RecordControls({
       {restrictedPage && (
         <p role="status" className="flex items-start gap-2 rounded-md border-2 border-border bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-foreground">
           <TriangleAlert className="mt-px size-4 shrink-0" aria-hidden="true" />
-          <span>這個頁面無法錄製。請切換到要示範的一般網頁分頁，再開啟 FrameTrail。</span>
+          <span>{t().popup.restrictedPageHint}</span>
         </p>
       )}
 
@@ -355,7 +336,7 @@ export default function RecordControls({
         ) : (
           <span className="size-3 rounded-full border-2 border-current bg-current/40" aria-hidden="true" />
         )}
-        {pending ? MODE_DETAILS[mode].startingLabel : '開始錄製'}
+        {pending ? activeMode.startingLabel : t().common.startRecording}
       </button>
     </div>
   );

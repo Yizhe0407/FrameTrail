@@ -25,6 +25,7 @@ import type {
   FrameTrailStopMessage,
   SnapshotRecorderFailureMessage,
 } from '@/lib/runtime/messages';
+import { t } from '@/lib/shared/i18n';
 
 const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
 export default defineContentScript({
@@ -240,7 +241,7 @@ export default defineContentScript({
       isCurrentRecordedTab = requireRuntimeMessageResult(
         await browser.runtime.sendMessage(readyMessage),
         isRuntimeBoolean,
-        '錄製服務回應格式無效，請重新整理頁面後再試一次。',
+        t().runtime.recordingResponseInvalid,
       );
     } catch (err) {
       console.error('[frametrail] recorder readiness check failed', err);

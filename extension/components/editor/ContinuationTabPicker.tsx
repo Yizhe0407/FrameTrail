@@ -1,6 +1,7 @@
 import { Check, Globe } from 'lucide-react';
 import type { ContinuationTabOption } from '@/lib/editor/editor-app-model';
 import { cn } from '@/lib/shared/utils';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   tabs: ContinuationTabOption[];
@@ -22,7 +23,7 @@ export default function ContinuationTabPicker({ tabs, selectedTabId, onSelect, d
   return (
     <div
       role="radiogroup"
-      aria-label="選擇要接續錄製的分頁"
+      aria-label={t().continuationTabs.label}
       className="app-scrollbar mt-3 max-h-52 overflow-y-auto rounded-md border-2 border-border"
     >
       {tabs.map((tab) => {

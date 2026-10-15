@@ -4,6 +4,7 @@ import { isClickCaptureResult, requireRuntimeMessageResult } from '../../runtime
 import type { ClickCapture, ClickCaptureResult } from '../../runtime/messages';
 import type { ResolvedSnapshotTarget } from '../snapshot-targeting';
 import type { SnapshotShieldRect } from '../snapshot-shield-protocol';
+import { t } from '@/lib/shared/i18n';
 
 export type CaptureSender = ReturnType<typeof createCaptureSender>;
 
@@ -40,7 +41,7 @@ export function createCaptureSender(runId: string) {
     const result = requireRuntimeMessageResult<ClickCaptureResult>(
       await browser.runtime.sendMessage(payload),
       isClickCaptureResult,
-      '截圖服務回應格式無效，請重新整理頁面後再試一次。',
+      t().runtime.captureResponseInvalid,
     );
     if (result.ok) return true;
     console.warn('[frametrail] step was not captured:', result.error);

@@ -3,6 +3,7 @@ import { getRecordingState, onRecordingStateChange } from '../storage/storage';
 import { createDefaultRecordingState } from '../storage/recording-state';
 import { getSteps } from '../storage/step-repository';
 import { type Step } from '../storage/models';
+import { t } from '@/lib/shared/i18n';
 
 
 /** Exported so tests assert the reconciliation contract, not a magic number. */
@@ -140,7 +141,7 @@ export function useRecordingSession(
         }
       } catch (error) {
         if (mounted.current && request === latestStepsRequest.current) {
-          setDataError('無法讀取錄製內容，請重新整理後再試一次。');
+          setDataError(t().runtime.recordingDataUnreadable);
         }
         throw error;
       } finally {
@@ -193,7 +194,7 @@ export function useRecordingSession(
       .catch((error) => {
         if (disposed) return;
         console.error('[frametrail] failed to read recording state', error);
-        setDataError('無法讀取錄製狀態，請重新整理後再試一次。');
+        setDataError(t().runtime.recordingStateUnreadable);
       });
 
     const unsubscribe = onRecordingStateChange((state) => {

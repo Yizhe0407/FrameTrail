@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   id: string;
@@ -32,9 +33,9 @@ export default function SortableItem({ id, children, className, handleClassName,
           type="button"
           {...attributes}
           {...listeners}
-          aria-label="拖曳排序"
+          aria-label={t().sortable.handle}
           // Names the interaction for screen readers, which otherwise just announce "button".
-          aria-roledescription="可拖曳的排序控制項"
+          aria-roledescription={t().sortable.roleDescription}
           disabled={disabled}
           className={cn(
             'flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border-none bg-transparent text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40',
@@ -44,7 +45,7 @@ export default function SortableItem({ id, children, className, handleClassName,
           <GripVertical className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent>拖曳以重新排序（鍵盤：Enter 或空白鍵開始，方向鍵移動，再按一次放下）</TooltipContent>
+      <TooltipContent>{t().sortable.tooltip}</TooltipContent>
     </Tooltip>
   );
 

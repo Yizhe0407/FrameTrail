@@ -1,4 +1,5 @@
 import { Loader2, PencilLine } from 'lucide-react';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   /** Copy while idle. The pending copy is owned here because it is identical on
@@ -11,8 +12,6 @@ interface Props {
    * live-run secondary exit), so each passes its own `buttonVariants` classes. */
   className?: string;
 }
-
-const OPENING_EDITOR_LABEL = '正在開啟編輯器';
 
 /**
  * The popup's 「開啟編輯器」 button. It exists once so the pending label, the
@@ -30,7 +29,7 @@ export default function OpenEditorButton({ label, pending, onOpen, className }: 
       {pending
         ? <Loader2 className="animate-spin" />
         : <PencilLine />}
-      {pending ? OPENING_EDITOR_LABEL : label}
+      {pending ? t().common.openingEditor : label}
     </button>
   );
 }

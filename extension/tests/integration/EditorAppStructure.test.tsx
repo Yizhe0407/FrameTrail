@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
-import { DESCRIPTION_SAVE_RETRY_MESSAGE } from '@/lib/runtime/user-messages';
+import { t } from '@/lib/shared/i18n';
 
 const database = await vi.hoisted(async () => (await import('../setup/editor-app-mocks')).makeEditorDatabaseMocks());
 
@@ -623,7 +623,7 @@ describe('editor handoff answers (單一編輯器分頁)', () => {
 
     const reply = await act(async () => handoff({ type: 'EDITOR_HANDOFF', sessionId: 'guide-2' }));
 
-    expect(reply).toEqual({ ok: false, error: DESCRIPTION_SAVE_RETRY_MESSAGE });
+    expect(reply).toEqual({ ok: false, error: t().editor.descriptionSaveRetry });
   });
 
   it('still reports ready for its own Guide when the save is blocked, because nothing will navigate', async () => {

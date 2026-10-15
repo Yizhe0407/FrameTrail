@@ -4,13 +4,7 @@ import { getSteps } from '../../storage/step-repository';
 import { isRestrictedUrl } from '../../shared/restricted-urls';
 import { waitForTabComplete } from '../../runtime/tab-loading';
 import type { SourcePermissionPreflightSuccess, StartRecordingMessage } from '../../runtime/messages';
-
-// Shared with the recapture flow and the continuation preflight, so the
-// wording of the two source-tab failure modes cannot drift apart.
-export const SOURCE_TAB_OPEN_FAILED_MESSAGE = '無法開啟原始頁面。';
-export const RESTRICTED_CONTINUATION_SOURCE_MESSAGE = '此來源頁面不允許錄製。';
-export const EDITOR_ONLY_CONTINUATION_MESSAGE = '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。';
-const CONTINUATION_SOURCE_REDIRECTED_MESSAGE = '原始頁面已重新導向，未開始錄製。';
+import { t } from '@/lib/shared/i18n';
 
 export type SourceTabAcquisition = { tab: Browser.tabs.Tab; reused: boolean };
 
@@ -166,18 +160,18 @@ export async function resolveContinuationTab(
   sender: Browser.runtime.MessageSender,
 ): Promise<{ ok: true; tab: Browser.tabs.Tab } | { ok: false; error: string }> {
   if (!isEditorSenderForSession(sender, message.sessionId)) {
-    return { ok: false, error: EDITOR_ONLY_CONTINUATION_MESSAGE };
+    return { ok: false, error: t().background.editorOnlyContinuation };
   }
   const sourceUrl = await resolveGuideContinuationSourceUrl(message.sessionId);
   if (!sourceUrl) {
-    return { ok: false, error: '這份內容還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。' };
+    return { ok: false, error: t().background.continuationSourceMissing };
   }
   const permission = await checkSourcePermission(sourceUrl);
   if (permission === 'restricted') {
-    return { ok: false, error: RESTRICTED_CONTINUATION_SOURCE_MESSAGE };
+    return { ok: false, error: t().background.restrictedContinuationSource };
   }
   if (permission === 'permission-required') {
-    return { ok: false, error: '需要先允許 FrameTrail 存取此網站，才能接續錄製。' };
+    return { ok: false, error: t().background.continuationAccessRequired };
   }
   const opened = await openVerifiedSourceTab(
     sourceUrl,
@@ -187,7 +181,7 @@ export async function resolveContinuationTab(
   if (!opened.ok) {
     return {
       ok: false,
-      error: opened.reason === 'open-failed' ? SOURCE_TAB_OPEN_FAILED_MESSAGE : CONTINUATION_SOURCE_REDIRECTED_MESSAGE,
+      error: opened.reason === 'open-failed' ? t().background.sourceTabOpenFailed : t().background.continuationSourceRedirected,
     };
   }
   return { ok: true, tab: opened.source.tab };

@@ -12,6 +12,7 @@ import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
 import SortableItem from './SortableItem';
+import { t } from '@/lib/shared/i18n';
 
 interface RowProps {
   step: Step;
@@ -42,7 +43,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
     try {
       await onDelete(step);
     } catch (err) {
-      setActionError(reportError('刪除標註失敗', err, '標註刪除失敗，請再試一次。'));
+      setActionError(reportError('[frametrail] failed to delete annotation', err, t().editor.annotations.deleteFailed));
     } finally {
       setDeleting(false);
     }
@@ -56,13 +57,13 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
         </span>
         <input
           type="text"
-          aria-label={`標註 ${index + 1} 說明`}
+          aria-label={t().editor.annotations.descriptionLabel(index + 1)}
           value={description}
           maxLength={PERSISTED_STEP_LIMITS.maxDescriptionLength}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => void flush().catch(() => undefined)}
           disabled={deleteDisabled || deleting}
-          placeholder="輸入標註說明…"
+          placeholder={t().editor.annotations.placeholder}
           className="min-w-0 flex-1 rounded-md border-none bg-transparent px-1.5 py-1 text-sm text-foreground outline-none focus-ring placeholder:text-muted-foreground"
         />
         <div className="flex shrink-0 items-center gap-0.5 opacity-80 transition-opacity group-hover:opacity-100">
@@ -73,13 +74,13 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
                 onClick={handleDelete}
                 onPointerDown={(event) => event.preventDefault()}
                 disabled={deleteDisabled || deleting}
-                aria-label={`刪除標註 ${index + 1}`}
+                aria-label={t().editor.annotations.delete(index + 1)}
                 className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-ring hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
               </button>
             </TooltipTrigger>
-            <TooltipContent>{deleteDisabled ? '錄製或補拍期間無法刪除標註' : '刪除標註'}</TooltipContent>
+            <TooltipContent>{deleteDisabled ? t().editor.annotations.deleteDisabled : t().editor.annotations.deleteTooltip}</TooltipContent>
           </Tooltip>
           {dragHandle}
         </div>
@@ -100,7 +101,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
             onClick={() => void handleDelete()}
             className="ml-2 rounded-md px-1.5 py-0.5 font-bold text-brand-text underline underline-offset-2 outline-none focus-ring"
           >
-            重試刪除
+            {t().editor.annotations.retryDelete}
           </button>
         </InlineAlert>
       )}
@@ -135,23 +136,23 @@ export default function AnnotationList({
     onReorder,
     {
       disabled: editingDisabled,
-      itemNoun: '標註',
+      itemNoun: t().sortable.annotationNoun,
       logLabel: '[frametrail] failed to reorder snapshot annotations',
     },
   );
 
   if (annotations.length === 0) {
-    return <p className="rounded-md border-2 border-dashed border-border-soft p-4 text-sm text-muted-foreground">此快照目前沒有標註。</p>;
+    return <p className="rounded-md border-2 border-dashed border-border-soft p-4 text-sm text-muted-foreground">{t().editor.annotations.empty}</p>;
   }
 
   return (
     <div className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-md border-2 border-border bg-card">
       <div className="flex shrink-0 items-center justify-between border-b-2 border-border-soft px-4 py-3">
         <span className="text-xs font-bold text-muted-foreground">
-          標註 · {annotations.length}
+          {t().editor.annotations.count(annotations.length)}
         </span>
         <label className="flex cursor-pointer items-center gap-2.5 text-xs font-bold text-muted-foreground select-none">
-          順序編號
+          {t().editor.annotations.numbering}
           <Switch
             checked={numbered}
             onCheckedChange={(checked) => void onSetNumbered?.(checked)}

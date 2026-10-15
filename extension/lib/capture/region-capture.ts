@@ -1,5 +1,6 @@
 import { BRAND_DANGER } from './brand-colors';
 import { createViewportOverlayHost } from './viewport-overlay-host';
+import { t } from '@/lib/shared/i18n';
 
 export const REGION_CAPTURE_MIN_SIZE = 8;
 
@@ -182,7 +183,7 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   blocker.className = 'ft-region-blocker';
   blocker.tabIndex = 0;
   blocker.setAttribute('role', 'application');
-  blocker.setAttribute('aria-label', '區域擷取');
+  blocker.setAttribute('aria-label', t().regionCapture.label);
   const selection = document.createElement('div');
   selection.className = 'ft-region-selection';
   selection.dataset.visible = 'false';
@@ -192,12 +193,12 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   status.className = 'ft-region-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  status.textContent = '拖曳選取要擷取的區域，按 Esc 可取消';
+  status.textContent = t().regionCapture.instructions;
   const cancelButton = document.createElement('button');
   cancelButton.type = 'button';
   cancelButton.className = 'ft-region-cancel';
-  cancelButton.textContent = '取消';
-  cancelButton.setAttribute('aria-label', '取消區域擷取');
+  cancelButton.textContent = t().common.cancel;
+  cancelButton.setAttribute('aria-label', t().regionCapture.cancelLabel);
   panel.append(status, cancelButton);
   blocker.append(selection, panel);
   root.append(style, blocker);
@@ -252,7 +253,7 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     start = clipRegionPoint({ x: event.clientX, y: event.clientY }, readViewport());
     pointerId = event.pointerId;
     renderRect(normalizeRegionRect(start, start, readViewport()));
-    status.textContent = '拖曳中；放開以擷取，按 Esc 可取消';
+    status.textContent = t().regionCapture.dragging;
     blocker.setPointerCapture?.(event.pointerId);
   };
 
@@ -272,13 +273,13 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     renderRect(rect);
     if (!isRegionRectInsideViewport(rect, readViewport(), minSize)) {
       renderRect(null);
-      status.textContent = `選取範圍太小，寬高至少需 ${minSize} 像素，請重新拖曳`;
+      status.textContent = t().regionCapture.tooSmall(minSize);
       return;
     }
 
     capturing = true;
     blocker.dataset.capturing = 'true';
-    status.textContent = '正在擷取選取區域';
+    status.textContent = t().regionCapture.capturing;
     void (async () => {
       try {
         await waitForRegionCapturePaint(settleFrames);

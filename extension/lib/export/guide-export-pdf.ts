@@ -1,7 +1,6 @@
 import { throwIfAborted } from '../shared/abort';
 import { type StepEntry } from '../storage/models';
 import {
-  DEFAULT_DESCRIPTION,
   DEFAULT_TITLE,
   GUIDE_EXPORT_LIMITS,
   GUIDE_EXPORT_THEME,
@@ -16,6 +15,7 @@ import {
 } from './guide-export-contract';
 import { renderEntryImages } from './guide-export-render';
 import { pdfLineMiddleOffset, truncatePdfText, wrapPdfText } from './pdf-text-layout';
+import { t } from '@/lib/shared/i18n';
 
 /**
  * Generates a local PDF using a hybrid raster pipeline: text and decorations
@@ -68,9 +68,9 @@ export async function generateGuidePdf(
   await paginator.addParagraph(title, PDF_TITLE_TEXT);
   const guideDescription = textValue(metadata.description);
   if (guideDescription) await paginator.addParagraph(guideDescription, PDF_GUIDE_DESCRIPTION_TEXT);
-  const metaParts = [`共 ${entries.length} 個步驟`];
+  const metaParts = [t().export.stepCount(entries.length)];
   const createdAt = formatGuideCreatedAt(metadata.createdAt);
-  if (createdAt) metaParts.push(`建立於 ${createdAt}`);
+  if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   await paginator.addParagraph(metaParts.join(' · '), PDF_META_TEXT);
   await paginator.addRule(0, PDF_HEADER_RULE_GAP_AFTER, PDF_HEADER_RULE_THICKNESS, PDF_COLOR_RULE);
 
@@ -82,7 +82,7 @@ export async function generateGuidePdf(
     if (section) await paginator.addParagraph(section.title, PDF_SECTION_TEXT);
     await paginator.addStepHeading(
       rendered.content.ordinal,
-      textOrDefault(rendered.content.description, DEFAULT_DESCRIPTION),
+      textOrDefault(rendered.content.description, t().export.missingDescription),
     );
     await paginator.addImage(rendered.imageBytes);
     // 標題已包含項目說明。
@@ -318,7 +318,7 @@ class GuidePdfPaginator {
     const prefixWidth = this.context.measureText(prefix).width;
     const lines = wrapPdfText(
       this.context,
-      textOrDefault(text, DEFAULT_DESCRIPTION),
+      textOrDefault(text, t().export.missingDescription),
       PDF_CONTENT_WIDTH - prefixWidth,
       this.signal,
     );
@@ -483,7 +483,7 @@ class GuidePdfPaginator {
     context.fillStyle = PDF_COLOR_MUTED;
     context.textBaseline = 'top';
     context.textAlign = 'left';
-    const pageLabel = `第 ${this.pageNumber} 頁`;
+    const pageLabel = t().export.pageNumber(this.pageNumber);
     const pageLabelWidth = context.measureText(pageLabel).width;
     const maxTitleWidth = Math.max(0, PDF_CONTENT_WIDTH - pageLabelWidth - PDF_FOOTER_TITLE_GAP);
     context.fillText(truncatePdfText(context, this.footerTitle, maxTitleWidth), PDF_MARGIN, PDF_FOOTER_TEXT_Y);

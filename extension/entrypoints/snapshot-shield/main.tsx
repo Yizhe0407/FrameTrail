@@ -25,7 +25,6 @@ import {
   type WithoutToken,
 } from '@/lib/recording/snapshot-shield-protocol';
 import {
-  RECORDING_CHANNEL_LOST_MESSAGE,
   RECORDING_CONTROL_TIMEOUT_MS,
   SNAPSHOT_FREEZE_EVENTS,
 } from '@/lib/recording/content-script-constants';
@@ -35,13 +34,15 @@ import { nextCandidateIndex } from '@/lib/capture/snapshot-candidates';
 import { isDocumentScrollingKey } from '@/lib/recording/recording-guards';
 import { createOverlay } from './overlay';
 import { createHoverScheduler } from './hover-scheduler';
+import { localizeDocument, t } from '@/lib/shared/i18n';
 
 const SHIELD_HOVER_TIMEOUT_MS = 4_000;
 const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
-const SHIELD_CHANNEL_FAILURE: RecordingControlResult = {
-  ok: false,
-  error: RECORDING_CHANNEL_LOST_MESSAGE,
-};
+function shieldChannelFailure(): RecordingControlResult {
+  return { ok: false, error: t().runtime.recordingChannelLost };
+}
+
+localizeDocument(t().page.snapshotShield);
 
 // Same freeze list as the frozen page, except pointerdown (its own handler
 // consumes selectively) and submit (nothing here can host a form submission).
@@ -149,7 +150,7 @@ function tryInitialize(event: MessageEvent): void {
       pendingRegionCompletion?.();
       pendingRegionCompletion = null;
       hover.invalidateSentRevision();
-      announce('擷取逾時，請重新選取目標');
+      announce(t().shield.captureTimedOut);
       if (interactionsEnabled && !regionCapture?.isActive()) hover.schedule();
     }, SHIELD_CAPTURE_TIMEOUT_MS);
   };
@@ -165,7 +166,7 @@ function tryInitialize(event: MessageEvent): void {
   const failShieldChannel = () => {
     if (channelFailed) return;
     channelFailed = true;
-    for (const requestId of pendingControls.keys()) settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE);
+    for (const requestId of pendingControls.keys()) settlePendingControl(requestId, shieldChannelFailure());
     pendingRegionCompletion?.();
     pendingRegionCompletion = null;
     clearCaptureTimeout();
@@ -257,7 +258,7 @@ function tryInitialize(event: MessageEvent): void {
     const requestId = ++controlSequence;
     return new Promise<RecordingControlResult>((resolve) => {
       const timeout = setTimeout(
-        () => settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE),
+        () => settlePendingControl(requestId, shieldChannelFailure()),
         RECORDING_CONTROL_TIMEOUT_MS,
       );
       pendingControls.set(requestId, { resolve, timeout });
@@ -267,7 +268,7 @@ function tryInitialize(event: MessageEvent): void {
         action,
         ...(undoToken ? { undoToken } : {}),
       });
-      if (!posted) settlePendingControl(requestId, SHIELD_CHANNEL_FAILURE);
+      if (!posted) settlePendingControl(requestId, shieldChannelFailure());
     });
   };
 
@@ -330,7 +331,7 @@ function tryInitialize(event: MessageEvent): void {
 
   const roveTo = (delta: number) => {
     if (!keyboardAnchors.length) {
-      announce('目前沒有可用鍵盤標註的元素');
+      announce(t().shield.noKeyboardTargets);
       return;
     }
     // Leave the skip link so Enter commits the candidate instead of being read
@@ -339,13 +340,13 @@ function tryInitialize(event: MessageEvent): void {
     keyboardIndex = nextCandidateIndex(keyboardIndex, keyboardAnchors.length, delta);
     const anchor = keyboardAnchors[keyboardIndex];
     hover.setAnchor(anchor.x, anchor.y);
-    announce(`候選 ${keyboardIndex + 1} / ${keyboardAnchors.length}：${anchor.label || '未命名元素'}`);
+    announce(t().shield.candidate(keyboardIndex + 1, keyboardAnchors.length, anchor.label || t().shield.unnamedElement));
   };
 
   const commitCurrent = () => {
     if (keyboardIndex < 0 || keyboardIndex >= keyboardAnchors.length) return;
     if (lastPreviewRect === null) {
-      announce('此處無法標註，請選擇其他元素');
+      announce(t().shield.cannotAnnotate);
       return;
     }
     const anchor = keyboardAnchors[keyboardIndex];
@@ -407,7 +408,7 @@ function tryInitialize(event: MessageEvent): void {
     skipLink = document.createElement('button');
     skipLink.type = 'button';
     skipLink.className = 'snapshot-skip-link';
-    skipLink.textContent = '跳至錄製控制';
+    skipLink.textContent = t().shield.skipToControls;
     skipLink.addEventListener('click', () => focusToolbar());
     skipContainer.append(skipLink);
     document.body.append(skipContainer);
@@ -480,15 +481,15 @@ function tryInitialize(event: MessageEvent): void {
         overlay.commit(event.data.selection);
         if (lastCommitWasRegion) {
           const label = event.data.selection.label;
-          announce(label !== null ? `已加入區域標註 ${label}` : '已加入區域標註');
+          announce(t().shield.regionAdded(label));
         } else if (lastCommitViaKeyboard) {
           const label = event.data.selection.label;
-          announce(label !== null ? `已加入標註 ${label}` : '已加入標註');
+          announce(t().shield.annotationAdded(label));
         }
       } else if (lastCommitWasRegion) {
-        announce('未建立區域標註，請重新拖曳');
+        announce(t().shield.regionNotCreated);
       } else if (lastCommitViaKeyboard) {
-        announce('未建立標註，請再選一次');
+        announce(t().shield.annotationNotCreated);
       }
       lastCommitViaKeyboard = false;
       lastCommitWasRegion = false;

@@ -1,3 +1,5 @@
+import { t } from '@/lib/shared/i18n';
+
 export const RECORDING_TOOLBAR_CORNER_KEY = 'frametrail:recordingToolbarCorner';
 
 export type RecordingToolbarCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -80,10 +82,5 @@ export function moveToolbarCorner(
 }
 
 export function toolbarCornerLabel(corner: RecordingToolbarCorner): string {
-  switch (corner) {
-    case 'top-left': return '左上角';
-    case 'top-right': return '右上角';
-    case 'bottom-left': return '左下角';
-    case 'bottom-right': return '右下角';
-  }
+  return t().toolbar.corner[corner];
 }

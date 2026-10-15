@@ -12,7 +12,6 @@ function render(ui: Parameters<typeof rtlRender>[0], options?: Parameters<typeof
 }
 
 const database = vi.hoisted(() => ({
-  UNTITLED_GUIDE_BASE: '未命名作品',
   createGuideFromSteps: vi.fn(),
   deleteGuidePermanently: vi.fn(),
   duplicateGuide: vi.fn(),
@@ -43,10 +42,6 @@ const archive = vi.hoisted(() => ({
   PROJECT_ARCHIVE_LIMITS: { maxArchiveBytes: 128 * 1024 * 1024 },
 }));
 
-vi.mock('@/lib/storage/models', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/storage/models')>()),
-  UNTITLED_GUIDE_BASE: database.UNTITLED_GUIDE_BASE,
-}));
 vi.mock('@/lib/storage/guide-repository', () => ({
   createGuideFromSteps: database.createGuideFromSteps,
   deleteGuidePermanently: database.deleteGuidePermanently,

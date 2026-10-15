@@ -1,7 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import {
   STEP_STORAGE_LIMITS,
-  defaultGuideTitle,
+  isDefaultGuideTitle,
   getEffectiveBounds,
   requireStorageIdentifier,
   sanitizeGuide,
@@ -135,9 +135,9 @@ export function newGuide(
  * True while a (sanitized) Guide is still exactly the empty shell newGuide
  * leaves behind with no initial metadata: nothing recorded, and no
  * user-entered title, description, tags, or sections. sanitizeGuide always
- * substitutes the timestamped 未命名教學 placeholder for an empty title, so on
- * a sanitized guide "unnamed" is exactly the placeholder derived from
- * createdAt — any user-typed title differs from it. contentRevision is
+ * substitutes the timestamped untitled placeholder for an empty title, so on
+ * a sanitized guide "unnamed" is exactly a placeholder derived from createdAt
+ * (in any locale) — any user-typed title differs from it. contentRevision is
  * deliberately not consulted: transient rows such as a snapshot run's deleted
  * empty anchor bump it without leaving any user content behind.
  */
@@ -145,7 +145,7 @@ export function isPristineGuide(guide: Guide): boolean {
   return (
     guide.stepCount === 0 &&
     guide.entryCount === 0 &&
-    guide.title === defaultGuideTitle(guide.createdAt) &&
+    isDefaultGuideTitle(guide.title, guide.createdAt) &&
     guide.description === '' &&
     guide.tags.length === 0 &&
     guide.sections.length === 0

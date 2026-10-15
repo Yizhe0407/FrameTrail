@@ -6,6 +6,7 @@ import {
 import { GUIDE_TAG_LIMITS, sanitizeGuideTag } from './guide-tag-model';
 import { isRecord } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
+import { getLocale, messagesFor, SUPPORTED_LOCALES, type Locale } from '../shared/i18n';
 export type { GuideSection } from './guide-section-model';
 
 export interface Bounds {
@@ -193,17 +194,27 @@ function sanitizeGuideText(value: unknown, maximum: number): string {
     : '';
 }
 
-/** Base display name shared by every untitled guide; defaultGuideTitle
- * composes the timestamped placeholder from it, and UI copy that talks about
- * unnamed guides derives from the same constant. */
-export const UNTITLED_GUIDE_BASE = '未命名作品';
-
-export function defaultGuideTitle(createdAt: number): string {
+function untitledGuideTitle(createdAt: number, locale: Locale): string {
+  const copy = messagesFor(locale).common;
   const date = new Date(createdAt);
-  const stamp = Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-    : '';
-  return stamp ? `${UNTITLED_GUIDE_BASE} · ${stamp}` : UNTITLED_GUIDE_BASE;
+  return Number.isFinite(date.getTime())
+    ? copy.untitledGuideWithStamp(
+      new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date),
+    )
+    : copy.untitledGuide;
+}
+
+/** The timestamped placeholder an untitled guide is stored with, written in
+ * the locale active when the guide was created. */
+export function defaultGuideTitle(createdAt: number): string {
+  return untitledGuideTitle(createdAt, getLocale());
+}
+
+/** Whether `title` is the untitled placeholder for a guide created at
+ * `createdAt`, in any shipped locale: a guide created under one UI language
+ * stays recognizably untitled after the user switches to another. */
+export function isDefaultGuideTitle(title: string, createdAt: number): boolean {
+  return SUPPORTED_LOCALES.some((locale) => title === untitledGuideTitle(createdAt, locale));
 }
 
 function nonNegativeInteger(value: unknown): number {

@@ -22,6 +22,7 @@ import {
 } from './messages';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { isBoundedString, isRecord } from '../shared/validation';
+import { t } from '@/lib/shared/i18n';
 
 export type RuntimeMessageResultGuard<T> = (value: unknown) => value is T;
 
@@ -228,8 +229,8 @@ export function isRuntimeBoolean(value: unknown): value is boolean {
 export function requireRuntimeMessageResult<T>(
   value: unknown,
   guard: RuntimeMessageResultGuard<T>,
-  unavailableMessage = 'FrameTrail 背景服務暫時無法回應，請重新整理頁面後再試一次。',
+  unavailableMessage?: string,
 ): T {
-  if (!guard(value)) throw new Error(unavailableMessage);
+  if (!guard(value)) throw new Error(unavailableMessage ?? t().runtime.backgroundUnavailable);
   return value;
 }

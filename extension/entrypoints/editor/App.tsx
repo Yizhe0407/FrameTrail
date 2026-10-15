@@ -30,7 +30,7 @@ import { getEditorSessionIdFromUrl } from '@/lib/runtime/navigation';
 import { useEditorEntryWorkspace } from '@/lib/editor/use-editor-entry-workspace';
 import { useEditorHandoff } from '@/lib/editor/use-editor-handoff';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
-import { DESCRIPTION_SAVE_RETRY_MESSAGE } from '@/lib/runtime/user-messages';
+import { t } from '@/lib/shared/i18n';
 import {
   ackStepRecaptureResult,
   cancelStepRecapture,
@@ -147,20 +147,20 @@ function EditorApp() {
         await refresh();
         setSelectedEntryId(result.entryId);
         setZoomOpen(false);
-        setOperationError(result.status === 'failed' ? result.message ?? '補拍失敗，原本內容未變更。' : null);
+        setOperationError(result.status === 'failed' ? result.message ?? t().editor.recaptureFailed : null);
         if (result.status === 'replaced') {
-          toast.success('補拍完成；原步驟的說明與順序已保留。原有圖片遮罩已清除。');
+          toast.success(t().editor.recaptureReplaced);
         } else if (result.status === 'cancelled') {
-          toast('已取消補拍，原本內容未變更。');
+          toast(t().editor.recaptureCancelled);
         }
       } catch (presentError) {
         // The run already settled in storage; only presenting its outcome failed,
         // so surface that instead of silently dropping it.
-        console.error('顯示補拍結果失敗', presentError);
-        setOperationError('補拍結果已儲存，但畫面更新失敗。請重新整理頁面查看最新內容。');
+        console.error('[frametrail] failed to present the recapture result', presentError);
+        setOperationError(t().editor.recapturePresentFailed);
       } finally {
         await ackStepRecaptureResult(result.runId, result.sessionId).catch((ackError) => {
-          console.warn('確認補拍結果失敗', ackError);
+          console.warn('[frametrail] failed to acknowledge the recapture result', ackError);
         });
       }
     })();
@@ -170,13 +170,13 @@ function EditorApp() {
     try {
       await flushAll();
     } catch (saveError) {
-      console.error('完成編輯器操作前儲存說明失敗', saveError);
+      console.error('[frametrail] failed to save descriptions before an editor operation', saveError);
       // A pending draft confirmation carries its own user-facing message; only
       // genuine save failures get the generic retry wording.
       setOperationError(
         saveError instanceof DraftConfirmationRequiredError
           ? saveError.message
-          : DESCRIPTION_SAVE_RETRY_MESSAGE,
+          : t().editor.descriptionSaveRetry,
       );
       throw saveError;
     }
@@ -196,7 +196,7 @@ function EditorApp() {
 
   function requireSelectedEntry(expectedEntryId?: string): StepEntry {
     if (!selectedEntry || (expectedEntryId !== undefined && expectedEntryId !== entryId(selectedEntry))) {
-      throw new Error('找不到目前選取的步驟。');
+      throw new Error(t().editor.selectedEntryMissing);
     }
     return selectedEntry;
   }
@@ -205,8 +205,8 @@ function EditorApp() {
   // pending-confirmation case); fill the banner only when nothing else already surfaced one.
   function selectEntrySafely(id: string): void {
     void selectEntry(id).catch((selectionError) => {
-      console.error('切換步驟失敗', selectionError);
-      setOperationError((current) => current ?? '切換步驟失敗：儲存目前說明時發生錯誤，請再試一次。');
+      console.error('[frametrail] failed to switch steps', selectionError);
+      setOperationError((current) => current ?? t().editor.selectFailed);
     });
   }
 
@@ -264,21 +264,21 @@ function EditorApp() {
   }
 
   const focusRecaptureSource = () =>
-    runRecaptureControl('回到補拍分頁失敗', focusStepRecaptureSource, '找不到補拍分頁。');
+    runRecaptureControl('[frametrail] failed to focus the recapture tab', focusStepRecaptureSource, t().editor.recaptureTabMissing);
 
   const cancelRecapture = () =>
-    runRecaptureControl('取消補拍失敗', cancelStepRecapture, '無法取消補拍，請再試一次。');
+    runRecaptureControl('[frametrail] failed to cancel recapture', cancelStepRecapture, t().editor.recaptureCancelFailed);
 
   async function publicationEntries(signal: AbortSignal) {
-    if (!sessionId) throw new Error('找不到要發佈的內容。');
-    if (!beginDataOperation('正在準備發佈內容…')) {
-      throw new Error('目前有其他資料操作進行中，請稍後再發佈。');
+    if (!sessionId) throw new Error(t().editor.publishTargetMissing);
+    if (!beginDataOperation(t().editor.preparingPublication)) {
+      throw new Error(t().editor.publishBusy);
     }
     try {
       await flushDescriptions();
       throwIfAborted(signal);
       const snapshot = await reload();
-      if (!snapshot) throw new Error('找不到要發佈的內容。');
+      if (!snapshot) throw new Error(t().editor.publishTargetMissing);
       throwIfAborted(signal);
       return {
         entries: snapshot.entries,
@@ -310,9 +310,9 @@ function EditorApp() {
   // Rejects instead of reporting through `operationError`: the caller's input
   // must roll back to the stored value, so it needs the failure directly.
   async function updateGuideMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
-    if (!guide) throw new Error('找不到要編輯的內容。');
+    if (!guide) throw new Error(t().editor.editTargetMissing);
     if (isPermissionFlowLocked() || dataOperationLock.current || operationActive) {
-      throw new Error('目前有其他操作進行中，請稍後再修改。');
+      throw new Error(t().editor.editBusy);
     }
     const updated = await updateGuide(guide.id, changes);
     adoptGuide(updated);
@@ -341,7 +341,7 @@ function EditorApp() {
       <SourcePermissionDialog
         open={preparedPermission !== null}
         sourceOrigin={preparedPermission?.source.kind === 'origin' ? preparedPermission.source.sourceOrigin : ''}
-        actionLabel={preparedPermission?.action.kind === 'continuation' ? '接續錄製' : '補拍'}
+        actionLabel={preparedPermission?.action.kind === 'continuation' ? t().editor.continuationAction : t().editor.recaptureAction}
         pending={permissionPending}
         onContinueElsewhere={
           preparedPermission?.action.kind === 'continuation'
@@ -373,20 +373,20 @@ function EditorApp() {
       <div className="flex min-h-0 flex-1 pb-32 lg:pb-0">
         {guideLoadState === 'loading' ? (
           <main role="status" className="flex min-w-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-            正在讀取內容…
+            {t().editor.loading}
           </main>
         ) : guideLoadState === 'missing' ? (
           <main className="flex min-w-0 flex-1 items-center justify-center p-8 text-center">
             <div className="flex max-w-md flex-col items-center text-muted-foreground">
               <Mascot className="mb-4 size-16" />
-              <h2 className="text-lg font-bold text-foreground">找不到這份內容</h2>
+              <h2 className="text-lg font-bold text-foreground">{t().editor.missingTitle}</h2>
               <p className="mt-2 text-sm leading-relaxed">
                 {viewedSessionId
-                  ? '這份內容可能已被刪除或網址已失效。為避免顯示其他錄製內容，編輯器不會自動切換到其他內容。'
-                  : '編輯器網址缺少內容識別碼。請從 FrameTrail 作品庫重新開啟內容。'}
+                  ? t().editor.missingDeleted
+                  : t().editor.missingId}
               </p>
               <Button variant="outline" className="mt-5" onClick={() => void openLibrary()}>
-                <Library />回到作品庫
+                <Library />{t().common.backToLibrary}
               </Button>
             </div>
           </main>
@@ -396,9 +396,9 @@ function EditorApp() {
               <span className="mb-4 flex size-14 items-center justify-center rounded-full border-2 border-border bg-warning-soft">
                 <AlertCircle className="size-6 text-foreground" aria-hidden="true" />
               </span>
-              <h2 className="text-lg font-bold text-foreground">內容結構需要修復</h2>
+              <h2 className="text-lg font-bold text-foreground">{t().editor.invalidTitle}</h2>
               <p className="mt-2 text-sm leading-relaxed">
-                為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份內容。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。
+                {t().editor.invalidBody}
               </p>
             </div>
           </main>
@@ -438,8 +438,8 @@ function EditorApp() {
             ) : (
               <main className="flex min-w-0 flex-1 items-center justify-center p-8 pb-36 text-center lg:pb-8">
                 <div className="max-w-sm text-muted-foreground">
-                  <h2 className="text-lg font-bold text-foreground">尚未選擇步驟</h2>
-                  <p className="mt-2 text-sm">請從左側步驟列表選擇要編輯的內容。</p>
+                  <h2 className="text-lg font-bold text-foreground">{t().editor.noSelectionTitle}</h2>
+                  <p className="mt-2 text-sm">{t().editor.noSelectionBody}</p>
                 </div>
               </main>
             )}

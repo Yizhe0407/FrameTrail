@@ -14,6 +14,7 @@ import {
   isStartRecordingResult,
   requireRuntimeMessageResult,
 } from '../runtime/runtime-message-result';
+import { t } from '@/lib/shared/i18n';
 
 // Preserve invocation order across async IndexedDB lookups. Without this, a
 // slow earlier select could overwrite a newer selection after its lookup ends.
@@ -27,7 +28,7 @@ function queueSelectionAction<T>(action: () => Promise<T>): Promise<T> {
 
 async function selectExistingGuide(guideId: string): Promise<Guide> {
   const guide = await getGuide(guideId);
-  if (!guide) throw new Error('找不到這份內容。');
+  if (!guide) throw new Error(t().runtime.guideNotFound);
   await setActiveGuideId(guide.id);
   return guide;
 }
@@ -101,7 +102,7 @@ export async function startRecordingIntoNewGuide(mode: RecordingMode): Promise<G
         autoCreatedGuide: true,
       }),
       isStartRecordingResult,
-      '無法連接錄製服務，請重新整理頁面後再試一次。',
+      t().runtime.recordingServiceUnavailable,
     );
     if (!result.ok) throw new Error(result.error);
     return guide;
@@ -148,7 +149,7 @@ export async function openSelectedGuideInEditor(guideId: string): Promise<void> 
   const result = requireRuntimeMessageResult<OpenEditorResult>(
     await browser.runtime.sendMessage({ type: 'OPEN_EDITOR', sessionId: guide.id }),
     isOpenEditorResult,
-    '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
+    t().popup.editorServiceUnavailable,
   );
   if (!result.ok) throw new Error(result.error);
 }

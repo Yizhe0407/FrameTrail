@@ -13,7 +13,7 @@ import {
   restrictToVerticalAxis,
   useSortableReorder,
 } from '@/lib/editor/dnd';
-import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
+import { t } from '@/lib/shared/i18n';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import EntryThumbnail from './EntryThumbnail';
@@ -50,7 +50,7 @@ function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactN
       aria-busy={!visible}
       className="relative size-full overflow-hidden"
     >
-      {visible ? children : <span className="sr-only">縮圖尚未載入</span>}
+      {visible ? children : <span className="sr-only">{t().editor.rail.thumbnailPending}</span>}
     </div>
   );
 }
@@ -85,7 +85,7 @@ export default function StepRail({
     onReorder,
     {
       disabled: reorderDisabled,
-      itemNoun: '步驟',
+      itemNoun: t().sortable.stepNoun,
       logLabel: '[frametrail] failed to reorder guide entries',
     },
   );
@@ -143,15 +143,15 @@ export default function StepRail({
   return (
     <nav
       ref={railRef}
-      aria-label="步驟導覽"
+      aria-label={t().editor.rail.label}
       className="fixed inset-x-0 bottom-0 z-30 flex h-32 shrink-0 flex-col border-t-2 border-border bg-card lg:static lg:z-auto lg:my-6 lg:ml-6 lg:h-auto lg:max-h-[calc(100%-3rem)] lg:min-h-0 lg:w-[200px] lg:min-w-[200px] lg:shrink-0 lg:self-start lg:basis-[200px] lg:rounded-md lg:border-2"
     >
       <div className="flex shrink-0 items-center justify-between gap-2 px-3.5 pt-3 pb-2 text-xs font-bold text-muted-foreground">
-        <span>步驟 · {entries.length}</span>
+        <span>{t().editor.rail.count(entries.length)}</span>
         {/* Legend for the grip-icon affordance; a rail of screenshots gives no other hint the order is editable. */}
         {entries.length > 1 && !reorderDisabled && (
           <span className="hidden items-center gap-0.5 lg:flex">
-            <GripVertical className="size-3" aria-hidden="true" />拖曳排序
+            <GripVertical className="size-3" aria-hidden="true" />{t().editor.rail.dragHint}
           </span>
         )}
       </div>
@@ -167,7 +167,7 @@ export default function StepRail({
           strategy={isDesktop ? verticalListSortingStrategy : horizontalListSortingStrategy}
         >
           <ul
-            aria-label="可重新排序的步驟清單"
+            aria-label={t().editor.rail.listLabel}
             className="app-scrollbar flex flex-1 flex-row gap-1 overflow-x-auto px-2 pb-2 lg:min-h-0 lg:flex-col lg:gap-1 lg:overflow-x-visible lg:overflow-y-auto lg:px-2 lg:pb-2"
           >
             {entries.map((entry, index) => {
@@ -207,7 +207,7 @@ export default function StepRail({
                           ref={active ? selectedItem : undefined}
                           type="button"
                           onClick={() => onSelect(id)}
-                          aria-label={`開啟步驟 ${index + 1}`}
+                          aria-label={t().editor.rail.openStep(index + 1)}
                           aria-current={active ? 'step' : undefined}
                           className="absolute inset-0 z-0 rounded-md outline-none focus-ring"
                         />
@@ -266,10 +266,10 @@ export default function StepRail({
               disabled={reorderDisabled}
               className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-dashed border-border bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:border-solid hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
             >
-              <Video className="size-3.5" />接續錄製
+              <Video className="size-3.5" />{t().editor.rail.continueRecording}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{`回到來源頁面繼續錄製，${NEW_STEPS_APPEND_NOTE}`}</TooltipContent>
+          <TooltipContent>{t().editor.rail.continueRecordingTooltip}</TooltipContent>
         </Tooltip>
       )}
     </nav>

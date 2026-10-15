@@ -9,7 +9,6 @@ import {
   checkSourcePermission,
   isEditorSenderForSession,
   openVerifiedSourceTab,
-  SOURCE_TAB_OPEN_FAILED_MESSAGE,
   sourcePermissionPreflightSuccess,
   withUncommittedSourceTab,
 } from './source-tab';
@@ -39,16 +38,7 @@ import type {
   StepRecaptureTargetResult,
 } from '../../runtime/messages';
 import type { RecordingState, StepRecaptureResult } from '../../storage/recording-state';
-
-// Exported: startRecording rejects with the same wording when the single
-// capture-operation slot is taken.
-export const ACTIVE_OPERATION_MESSAGE = '目前已有錄製或補拍正在進行。';
-const OPERATION_CHANGED_MESSAGE = '操作狀態已改變，請再試一次。';
-const RECAPTURE_SOURCE_REDIRECTED_MESSAGE = '原始頁面已重新導向，未開始補拍。';
-const RESTRICTED_RECAPTURE_SOURCE_MESSAGE = '此來源頁面不允許補拍。';
-const EDITOR_ONLY_RECAPTURE_PREFLIGHT_MESSAGE = '只能從目前 Guide 的 FrameTrail 編輯器驗證補拍來源。';
-const EDITOR_ONLY_RECAPTURE_START_MESSAGE = '只能從 FrameTrail 編輯器啟動補拍。';
-const EDITOR_ONLY_GUIDE_RECAPTURE_START_MESSAGE = '只能從目前 Guide 的 FrameTrail 編輯器啟動補拍。';
+import { t } from '@/lib/shared/i18n';
 
 type ValidatedRecaptureTarget = {
   target: DbStepRecaptureTarget;
@@ -99,10 +89,10 @@ async function validateRecaptureTarget(
   if (target.kind === 'single') {
     const step = await getStep(target.stepId);
     if (!step || step.sessionId !== sessionId) {
-      throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的步驟。');
+      throw new StepRecaptureStartError('TARGET_NOT_FOUND', t().recaptureFlow.stepNotFound);
     }
     if (step.groupId || !step.screenshotBlob || !getEffectiveBounds(step)) {
-      throw new StepRecaptureStartError('TARGET_CHANGED', '此步驟已變更，請重新整理編輯器後再試一次。');
+      throw new StepRecaptureStartError('TARGET_CHANGED', t().recaptureFlow.stepChanged);
     }
     return { target, entryId: step.id, sourceUrl: step.url };
   }
@@ -113,7 +103,7 @@ async function validateRecaptureTarget(
     getSteps(sessionId),
   ]);
   if (!anchor || !annotation || anchor.sessionId !== sessionId || annotation.sessionId !== sessionId) {
-    throw new StepRecaptureStartError('TARGET_NOT_FOUND', '找不到要補拍的快照。');
+    throw new StepRecaptureStartError('TARGET_NOT_FOUND', t().recaptureFlow.snapshotNotFound);
   }
   if (
     stepRole(anchor) !== 'anchor' ||
@@ -122,7 +112,7 @@ async function validateRecaptureTarget(
     !anchor.screenshotBlob ||
     !getEffectiveBounds(annotation)
   ) {
-    throw new StepRecaptureStartError('TARGET_CHANGED', '快照結構已變更，請重新整理編輯器後再試一次。');
+    throw new StepRecaptureStartError('TARGET_CHANGED', t().recaptureFlow.snapshotChanged);
   }
   const annotations = steps.filter(
     (step) => step.groupId === anchor.id && stepRole(step) === 'annotation' && getEffectiveBounds(step),
@@ -130,7 +120,7 @@ async function validateRecaptureTarget(
   if (annotations.length !== 1 || annotations[0].id !== annotation.id) {
     throw new StepRecaptureStartError(
       'UNSUPPORTED_SNAPSHOT_GROUP',
-      '此快照包含多個標註；更換底圖會使其他標註失效，請改用重拍整張快照。',
+      t().recaptureFlow.multiAnnotation,
     );
   }
   return { target, entryId: anchor.id, sourceUrl: anchor.url };
@@ -222,7 +212,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
           runId: null,
           recapture: null,
           recaptureResult: result,
-          error: status === 'failed' ? message ?? '補拍失敗。' : null,
+          error: status === 'failed' ? message ?? t().recaptureFlow.failed : null,
           recoverableError: null,
         };
       },
@@ -280,7 +270,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
         'failed',
         version,
         'SOURCE_TAB_CLOSED',
-        '補拍已停止，因為原始分頁已關閉或已變更。原本內容未變更。',
+        t().recaptureFlow.sourceTabChanged,
       );
       return;
     }
@@ -296,7 +286,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       'failed',
       version,
       'WORKER_RESTARTED',
-      '補拍流程曾中斷，原本內容未變更；請重新補拍。',
+      t().recaptureFlow.interrupted,
     );
   }
 
@@ -329,7 +319,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       await failStepRecapture(
         context.runId,
         'SOURCE_NAVIGATED',
-        '補拍已停止，因為原始頁面在選取期間發生導覽。原本內容未變更。',
+        t().recaptureFlow.sourceNavigated,
         expectedControlVersion,
       );
     }
@@ -350,7 +340,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     await failStepRecapture(
       state.recapture.runId,
       'SOURCE_TAB_CLOSED',
-      '補拍已停止，因為原始分頁已關閉。原本內容未變更。',
+      t().recaptureFlow.sourceTabClosed,
       expectedControlVersion,
     );
     return true;
@@ -389,7 +379,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       message.sessionId.trim().length === 0 ||
       !isEditorSenderForSession(sender, message.sessionId)
     ) {
-      return recapturePreflightFailure('INVALID_EDITOR', EDITOR_ONLY_RECAPTURE_PREFLIGHT_MESSAGE);
+      return recapturePreflightFailure('INVALID_EDITOR', t().recaptureFlow.editorOnlyPreflight);
     }
 
     let validated: ValidatedRecaptureTarget;
@@ -404,7 +394,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
 
     return (
       sourcePermissionPreflightSuccess(validated.sourceUrl) ??
-      recapturePreflightFailure('RESTRICTED_SOURCE', RESTRICTED_RECAPTURE_SOURCE_MESSAGE)
+      recapturePreflightFailure('RESTRICTED_SOURCE', t().recaptureFlow.restrictedSource)
     );
   }
 
@@ -414,14 +404,14 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     version: number,
   ): Promise<StartStepRecaptureResult> {
     await waitForQueuedClicks();
-    if (version !== control.controlVersion) return recaptureFailure('ACTIVE_OPERATION', OPERATION_CHANGED_MESSAGE);
+    if (version !== control.controlVersion) return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.operationChanged);
 
     if (!isEditorSenderForSession(sender, message.sessionId)) {
-      return recaptureFailure('INVALID_EDITOR', EDITOR_ONLY_RECAPTURE_START_MESSAGE);
+      return recaptureFailure('INVALID_EDITOR', t().recaptureFlow.editorOnlyStart);
     }
     const current = await getRecordingState();
     if (current.operation !== null || current.isRecording) {
-      return recaptureFailure('ACTIVE_OPERATION', ACTIVE_OPERATION_MESSAGE);
+      return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.activeOperation);
     }
 
     let validated: ValidatedRecaptureTarget;
@@ -433,10 +423,10 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     }
     const permission = await checkSourcePermission(validated.sourceUrl);
     if (permission === 'restricted') {
-      return recaptureFailure('RESTRICTED_SOURCE', RESTRICTED_RECAPTURE_SOURCE_MESSAGE);
+      return recaptureFailure('RESTRICTED_SOURCE', t().recaptureFlow.restrictedSource);
     }
     if (permission === 'permission-required') {
-      return recaptureFailure('HOST_PERMISSION_REQUIRED', '需要先允許 FrameTrail 存取此網站，才能補拍。');
+      return recaptureFailure('HOST_PERMISSION_REQUIRED', t().recaptureFlow.accessRequired);
     }
 
     const opened = await openVerifiedSourceTab(
@@ -447,7 +437,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     if (!opened.ok) {
       return recaptureFailure(
         'SOURCE_TAB_FAILED',
-        opened.reason === 'open-failed' ? SOURCE_TAB_OPEN_FAILED_MESSAGE : RECAPTURE_SOURCE_REDIRECTED_MESSAGE,
+        opened.reason === 'open-failed' ? t().background.sourceTabOpenFailed : t().recaptureFlow.sourceRedirected,
       );
     }
     const source = opened.source;
@@ -455,10 +445,10 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
 
     return withUncommittedSourceTab(source, async (commit) => {
       if (sourceTab.id == null || sourceTab.windowId == null) {
-        return recaptureFailure('SOURCE_TAB_FAILED', RECAPTURE_SOURCE_REDIRECTED_MESSAGE);
+        return recaptureFailure('SOURCE_TAB_FAILED', t().recaptureFlow.sourceRedirected);
       }
       if (version !== control.controlVersion) {
-        return recaptureFailure('ACTIVE_OPERATION', OPERATION_CHANGED_MESSAGE);
+        return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.operationChanged);
       }
 
       const runId = crypto.randomUUID();
@@ -488,7 +478,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
         recaptureResult: null,
       }));
       if (!started) {
-        return recaptureFailure('ACTIVE_OPERATION', OPERATION_CHANGED_MESSAGE);
+        return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.operationChanged);
       }
       // From here the persisted recapture context owns the tab; failure paths
       // settle through failStepRecapture, which closes a created tab itself.
@@ -521,9 +511,9 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
       } catch (error) {
         console.error('[frametrail] failed to start recapture recorder', error);
         if (version === control.controlVersion) {
-          await failStepRecapture(runId, 'INJECTION_FAILED', '無法在原始頁面啟動補拍。', version);
+          await failStepRecapture(runId, 'INJECTION_FAILED', t().recaptureFlow.injectFailed, version);
         }
-        return recaptureFailure('INJECTION_FAILED', '無法在原始頁面啟動補拍。');
+        return recaptureFailure('INJECTION_FAILED', t().recaptureFlow.injectFailed);
       }
     });
   }
@@ -533,14 +523,14 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     sender: Browser.runtime.MessageSender,
   ): Promise<StartStepRecaptureResult> {
     if (!isEditorSenderForSession(sender, message.sessionId)) {
-      return recaptureFailure('INVALID_EDITOR', EDITOR_ONLY_GUIDE_RECAPTURE_START_MESSAGE);
+      return recaptureFailure('INVALID_EDITOR', t().recaptureFlow.editorOnlyGuideStart);
     }
-    if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', '目前已有補拍正在啟動。');
+    if (startingRecapture) return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.alreadyStarting);
     startingRecapture = true;
     try {
       const current = await getRecordingState();
       if (current.operation !== null || current.isRecording) {
-        return recaptureFailure('ACTIVE_OPERATION', ACTIVE_OPERATION_MESSAGE);
+        return recaptureFailure('ACTIVE_OPERATION', t().recaptureFlow.activeOperation);
       }
       const version = control.claimControl({
         cancelRecorderGate: true,
@@ -560,11 +550,11 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     const state = await getRecordingState();
     if (state.recaptureResult?.runId === message.runId) return { ok: true, status: 'already-completed' };
     if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
-      return { ok: false, error: '這次補拍已經結束。' };
+      return { ok: false, error: t().recaptureFlow.alreadyEnded };
     }
     const context = state.recapture;
     if (!isEditorSenderForSession(sender, context.sessionId) && !isRecaptureSourceSender(sender, context)) {
-      return { ok: false, error: '無效的補拍來源。' };
+      return { ok: false, error: t().recaptureFlow.invalidSource };
     }
     const captureId = activeRecaptureCaptureId;
     if (captureId && isCaptureCommitting(captureId)) {
@@ -575,7 +565,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     const version = control.claimControl({ cancelRecaptureGate: true });
     await waitForQueuedClicks();
     // 原本內容 (not 原內容) matches the editor's own recapture wording.
-    const settled = await settleStepRecapture(message.runId, 'cancelled', version, 'CANCELLED', '已取消補拍，原本內容未變更。');
+    const settled = await settleStepRecapture(message.runId, 'cancelled', version, 'CANCELLED', t().recaptureFlow.cancelled);
     return settled ? { ok: true, status: 'cancelled' } : { ok: true, status: 'already-completed' };
   }
 
@@ -600,16 +590,16 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
   ): Promise<FocusStepRecaptureSourceResult> {
     const state = await getRecordingState();
     if (state.operation !== 'recapture' || state.recapture?.runId !== message.runId) {
-      return { ok: false, error: '這次補拍已經結束。' };
+      return { ok: false, error: t().recaptureFlow.alreadyEnded };
     }
     if (!isEditorSenderForSession(sender, state.recapture.sessionId)) {
-      return { ok: false, error: '無效的編輯器來源。' };
+      return { ok: false, error: t().recaptureFlow.invalidEditor };
     }
     try {
       await focusTab(state.recapture.sourceTabId, state.recapture.sourceWindowId);
       return { ok: true };
     } catch {
-      return { ok: false, error: '找不到補拍分頁。' };
+      return { ok: false, error: t().recaptureFlow.tabMissing };
     }
   }
 
@@ -639,8 +629,8 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     ) {
       throw new StaleCaptureError('Recapture changed before the screenshot could be taken.');
     }
-    if (activeTab?.id !== tabId) throw new Error('補拍失敗：原始頁面已不是目前作用中的分頁。');
-    if (activeTab.url !== expectedUrl) throw new Error('補拍失敗：原始頁面已變更。');
+    if (activeTab?.id !== tabId) throw new Error(t().recaptureFlow.sourceNotActive);
+    if (activeTab.url !== expectedUrl) throw new Error(t().recaptureFlow.sourceChanged);
   }
 
   async function handleRecaptureTarget(
@@ -737,7 +727,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
           : error instanceof Error
             ? error.message
             // 原本內容 (not 原內容) matches the editor's own recapture wording.
-            : '補拍失敗，原本內容未變更。';
+            : t().recaptureFlow.failedUnchanged;
       console.error('[frametrail] failed to replace step capture', error);
       if (expectedControlVersion === control.controlVersion) {
         const version = control.bumpVersion();

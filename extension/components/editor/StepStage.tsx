@@ -13,12 +13,8 @@ import TagSelectDialog from './TagSelectDialog';
 import EditableTitle from '@/components/shared/EditableTitle';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
-import { recordingItemCountLabel, RECORDING_MODE_COPY } from '@/lib/recording/recording-mode-copy';
-import {
-  MULTI_ANNOTATION_RECAPTURE_BLOCKED,
-  PRIVACY_REVIEW_REQUIRED_NOTICE,
-  UNTITLED_GUIDE_TITLE,
-} from '@/lib/editor/editor-messages';
+import { recordingItemCountLabel, recordingModeCopy } from '@/lib/recording/recording-mode-copy';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   entry: StepEntry;
@@ -72,7 +68,7 @@ export default function StepStage({
     try {
       await commitTags(tags);
     } catch (tagError) {
-      setStageError(reportError('更新標籤失敗', tagError, '標籤儲存失敗，請再試一次。'));
+      setStageError(reportError('[frametrail] failed to update guide tags', tagError, t().editor.stage.tagSaveFailed));
     }
   }
 
@@ -82,12 +78,12 @@ export default function StepStage({
         <div className="flex min-w-0 w-full items-center gap-1.5 sm:max-w-[45%]">
           <EditableTitle
             value={guideTitle ?? ''}
-            fallback={UNTITLED_GUIDE_TITLE}
-            label="內容標題"
+            fallback={t().common.untitledGuide}
+            label={t().editor.stage.titleLabel}
             disabled={editingDisabled || !onTitleChange}
             onCommit={(title) => onTitleChange?.(title)}
             onCommitError={(titleError) => {
-              setStageError(reportError('重新命名內容失敗', titleError, '標題儲存失敗，請再試一次。'));
+              setStageError(reportError('[frametrail] failed to rename guide', titleError, t().editor.stage.titleSaveFailed));
             }}
             className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-2 border-transparent px-2 py-1 text-[22px] leading-tight font-bold text-foreground transition-colors focus-ring hover:border-border-soft focus:border-border focus:bg-card [field-sizing:content]"
           />
@@ -100,7 +96,7 @@ export default function StepStage({
               <button
                 type="button"
                 onClick={() => void commitTagsInline(guideTags.filter((t) => t !== tag))}
-                aria-label={`移除 ${tag} 標籤`}
+                aria-label={t().editor.stage.removeTag(tag)}
                 disabled={editingDisabled}
                 className="flex size-5 shrink-0 items-center justify-center rounded-full text-on-accent outline-none transition-colors focus-ring hover:bg-on-accent hover:text-card disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -117,11 +113,11 @@ export default function StepStage({
                   disabled={editingDisabled}
                 >
                   <Plus className="size-3.5 stroke-[2.5]" />
-                  標籤
+                  {t().editor.stage.tagButton}
                 </button>
               </Badge>
             </TooltipTrigger>
-            <TooltipContent>新增標籤（顯示於作品庫）</TooltipContent>
+            <TooltipContent>{t().editor.stage.tagTooltip}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -142,7 +138,7 @@ export default function StepStage({
     try {
       await onSetNumbered(entryId(entry), next);
     } catch (err) {
-      setStageError(reportError('更新標註編號設定失敗', err, '編號設定儲存失敗，請再試一次。'));
+      setStageError(reportError('[frametrail] failed to update annotation numbering', err, t().editor.stage.numberingSaveFailed));
     } finally {
       setNumberingPending(false);
     }
@@ -154,12 +150,12 @@ export default function StepStage({
         <span className="rounded-full border-2 border-border bg-secondary px-2.5 py-0.5 text-xs font-bold text-foreground">
           {/* Names entries with the same vocabulary as the popup and recording toolbar. */}
           {entry.kind === 'single'
-            ? RECORDING_MODE_COPY.steps.label
-            : `${RECORDING_MODE_COPY.snapshot.label} · ${recordingItemCountLabel('snapshot', entry.annotations.length)}`}
+            ? recordingModeCopy('steps').label
+            : `${recordingModeCopy('snapshot').label} · ${recordingItemCountLabel('snapshot', entry.annotations.length)}`}
         </span>
       </div>
       <div className="flex items-center gap-3">
-        {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label="正在儲存編號設定" />}
+        {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label={t().editor.stage.savingNumbering} />}
         <StepActions
           entry={entry}
           onDelete={onDelete}
@@ -168,7 +164,7 @@ export default function StepStage({
           operationsDisabled={editingDisabled}
           recaptureDisabledReason={
             entry.kind === 'group' && entry.annotations.length !== 1
-              ? MULTI_ANNOTATION_RECAPTURE_BLOCKED
+              ? t().editor.multiAnnotationRecaptureBlocked
               : undefined
           }
         />
@@ -179,7 +175,7 @@ export default function StepStage({
   const zoomHint = (
     <span className="pointer-events-none absolute right-3 bottom-3 flex items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 py-1 text-xs font-bold text-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
       <ZoomIn className="size-3.5" />
-      點擊放大
+      {t().editor.stage.zoomHint}
     </span>
   );
 
@@ -187,7 +183,7 @@ export default function StepStage({
 
   const privacyReviewNotice = privacy.reviewRequired && (
     <div role="alert" className="rounded-md border-2 border-border bg-warning-soft px-3.5 py-2.5 text-sm text-foreground">
-      {PRIVACY_REVIEW_REQUIRED_NOTICE}
+      {t().editor.privacyReviewRequiredNotice}
     </div>
   );
 
@@ -203,12 +199,12 @@ export default function StepStage({
             <button
               type="button"
               onClick={onZoom}
-              aria-label="放大圖片"
+              aria-label={t().editor.stage.zoomImage}
               className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
             >
               <EntryThumbnail
                 entry={entry}
-                alt={`步驟 ${index + 1}`}
+                alt={t().editor.stage.stepAlt(index + 1)}
                 fit="contain"
                 className="max-w-full lg:h-full lg:max-h-full"
                 imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"
@@ -240,12 +236,12 @@ export default function StepStage({
           <button
             type="button"
             onClick={onZoom}
-            aria-label="放大圖片"
+            aria-label={t().editor.stage.zoomImage}
             className="group relative flex w-full cursor-zoom-in items-center justify-center rounded-md border-none bg-transparent outline-none focus-ring lg:h-full lg:max-h-full lg:max-w-full"
           >
             <EntryThumbnail
               entry={entry}
-              alt={`步驟 ${index + 1}（快照）`}
+              alt={t().editor.stage.snapshotAlt(index + 1)}
               fit="contain"
               className="max-w-full lg:h-full lg:max-h-full"
               imgClassName="block h-auto w-auto max-w-full rounded-md object-contain outline-2 outline-border lg:max-h-full"

@@ -20,10 +20,11 @@ import {
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-state';
 import { recordingModeCopy } from './recording-mode-copy';
-import { RECORDING_CHANNEL_LOST_MESSAGE } from './content-script-constants';
+
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import { useToolbarPosition } from './use-toolbar-position';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
+import { t } from '@/lib/shared/i18n';
 
 type ToolbarAction = RecordingControlMessage['type'];
 
@@ -101,8 +102,7 @@ export default function RecordingToolbar({
 
   useEffect(() => {
     if (state.itemCount > previousCount.current) {
-      const noun = recordingModeCopy(state.mode).itemNoun;
-      setAnnouncement(`已${state.mode === 'steps' ? '建立' : '加入'}${noun} ${state.itemCount}`);
+      setAnnouncement(recordingModeCopy(state.mode).itemAdded(state.itemCount));
       setShowSuccess(true);
       const timer = window.setTimeout(() => setShowSuccess(false), 800);
       previousCount.current = state.itemCount;
@@ -113,7 +113,7 @@ export default function RecordingToolbar({
   }, [state.itemCount, state.mode]);
 
   useEffect(() => {
-    if (regionCaptureActive) setAnnouncement('區域擷取已啟動，請在畫面上拖曳選取範圍');
+    if (regionCaptureActive) setAnnouncement(t().toolbar.regionCaptureStarted);
   }, [regionCaptureActive]);
 
   useEffect(() => {
@@ -123,7 +123,7 @@ export default function RecordingToolbar({
   }, [undo]);
 
   async function run(action: ToolbarAction, token?: string): Promise<RecordingControlResult> {
-    if (pendingRef.current) return { ok: false, error: '另一個動作仍在處理中。' };
+    if (pendingRef.current) return { ok: false, error: t().toolbar.busy };
     pendingRef.current = action;
     setPending(action);
     setMessage(null);
@@ -131,7 +131,7 @@ export default function RecordingToolbar({
       const result = requireRuntimeMessageResult<RecordingControlResult>(
         await onCommand(action, token),
         isRecordingControlResult,
-        RECORDING_CHANNEL_LOST_MESSAGE,
+        t().runtime.recordingChannelLost,
       );
       if (!result.ok) setMessage(result.error);
       return result;
@@ -141,7 +141,7 @@ export default function RecordingToolbar({
       console.error('[frametrail] recording toolbar command failed', error);
       const result = {
         ok: false,
-        error: error instanceof Error && error.message ? error.message : '動作失敗，請再試一次。',
+        error: error instanceof Error && error.message ? error.message : t().toolbar.actionFailed,
       } as const;
       setMessage(result.error);
       return result;
@@ -156,7 +156,7 @@ export default function RecordingToolbar({
     if (!result.ok || !result.undoToken || !result.removedItemNumber) return;
     onUndoApplied?.();
     setUndo({ token: result.undoToken, itemNumber: result.removedItemNumber });
-    setAnnouncement(`已移除${modeCopy.itemNoun} ${result.removedItemNumber}`);
+    setAnnouncement(modeCopy.itemRemoved(result.removedItemNumber));
   }
 
   async function handleRestore() {
@@ -165,7 +165,7 @@ export default function RecordingToolbar({
     if (!result.ok) return;
     onRestoreApplied?.();
     setUndo(null);
-    setAnnouncement('已還原');
+    setAnnouncement(t().toolbar.restored);
   }
 
   const handleDiscard = async () => {
@@ -205,6 +205,7 @@ export default function RecordingToolbar({
   };
 
   const paused = state.phase === 'paused';
+  const statusLabel = t().toolbar.status(paused, modeCopy.label, state.itemCount);
   const preparingNext = state.mode === 'snapshot' && state.phase === 'preparing-next';
   const invalidated = state.mode === 'snapshot' && state.phase === 'invalidated';
   const busy = pending !== null || state.phase === 'finishing';
@@ -251,12 +252,12 @@ export default function RecordingToolbar({
             </div>
           )}
           {!message && !state.error && showSuccess && (
-            <div className="ft-message" role="status"><Check className="ft-success" />已記錄</div>
+            <div className="ft-message" role="status"><Check className="ft-success" />{t().toolbar.recorded}</div>
           )}
           {undo && (
             <div className="ft-snackbar" role="status">
-              <span>已移除{modeCopy.itemNoun} {undo.itemNumber}</span>
-              <button type="button" onClick={handleRestore} disabled={busy}>還原</button>
+              <span>{modeCopy.itemRemoved(undo.itemNumber)}</span>
+              <button type="button" onClick={handleRestore} disabled={busy}>{t().common.restore}</button>
             </div>
           )}
           {confirmDiscard && (
@@ -268,9 +269,9 @@ export default function RecordingToolbar({
               aria-describedby={confirmDescriptionId}
               onKeyDown={handleConfirmKeyDown}
             >
-              <h2 className="ft-confirm-title" id={confirmTitleId}>放棄這次錄製？</h2>
+              <h2 className="ft-confirm-title" id={confirmTitleId}>{t().toolbar.discardTitle}</h2>
               <p className="ft-confirm-copy" id={confirmDescriptionId}>
-                這次新增的內容會被移除，先前已完成的內容不受影響。
+                {t().toolbar.discardBody}
               </p>
               <div className="ft-confirm-actions">
                 <button
@@ -279,7 +280,7 @@ export default function RecordingToolbar({
                   disabled={pending === 'DISCARD_CURRENT_RECORDING'}
                   onClick={() => setConfirmDiscard(false)}
                 >
-                  取消
+                  {t().common.cancel}
                 </button>
                 <button
                   type="button"
@@ -287,7 +288,7 @@ export default function RecordingToolbar({
                   disabled={pending === 'DISCARD_CURRENT_RECORDING'}
                   onClick={() => void handleDiscard()}
                 >
-                  {pending === 'DISCARD_CURRENT_RECORDING' ? '處理中' : '放棄錄製'}
+                  {pending === 'DISCARD_CURRENT_RECORDING' ? t().common.processing : t().toolbar.discard}
                 </button>
               </div>
             </div>
@@ -302,9 +303,9 @@ export default function RecordingToolbar({
               aria-describedby={confirmDescriptionId}
               onKeyDown={handleConfirmKeyDown}
             >
-              <h2 className="ft-confirm-title" id={confirmTitleId}>切換到步驟模式</h2>
+              <h2 className="ft-confirm-title" id={confirmTitleId}>{t().toolbar.switchToStepsTitle}</h2>
               <p className="ft-confirm-copy" id={confirmDescriptionId}>
-                目前的快照已有 {state.itemCount} 個標註，要保留嗎？
+                {t().toolbar.switchToStepsBody(state.itemCount)}
               </p>
               <div className="ft-confirm-actions ft-confirm-actions--stacked">
                 <button
@@ -312,7 +313,7 @@ export default function RecordingToolbar({
                   disabled={busy}
                   onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE')}
                 >
-                  {pending === 'SWITCH_TO_STEPS_MODE' ? '處理中' : '完成快照並切換'}
+                  {pending === 'SWITCH_TO_STEPS_MODE' ? t().common.processing : t().toolbar.finishSnapshotAndSwitch}
                 </button>
                 <button
                   type="button"
@@ -320,7 +321,7 @@ export default function RecordingToolbar({
                   disabled={busy}
                   onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT')}
                 >
-                  {pending === 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT' ? '處理中' : '捨棄快照並切換'}
+                  {pending === 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT' ? t().common.processing : t().toolbar.discardSnapshotAndSwitch}
                 </button>
                 <button
                   ref={cancelSwitchRef}
@@ -328,7 +329,7 @@ export default function RecordingToolbar({
                   disabled={busy}
                   onClick={() => setConfirmSwitch(false)}
                 >
-                  取消，留在快照
+                  {t().toolbar.stayInSnapshot}
                 </button>
               </div>
             </div>
@@ -340,8 +341,8 @@ export default function RecordingToolbar({
               type="button"
               className="ft-collapsed"
               data-frametrail-toolbar-position=""
-              aria-label={`${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆；展開錄製控制`}
-              data-tooltip="展開控制器"
+              aria-label={t().toolbar.expandLabel(statusLabel)}
+              data-tooltip={t().toolbar.expandTooltip}
               onPointerDown={handlePositionPointerDown}
               onPointerMove={handlePositionPointerMove}
               onPointerUp={finishPositionDrag}
@@ -366,13 +367,13 @@ export default function RecordingToolbar({
               ref={(element) => { floatingRef.current = element; }}
               className={`ft-toolbar${invalidated ? ' ft-toolbar--invalidated' : ''}`}
               role="toolbar"
-              aria-label="錄製控制"
+              aria-label={t().toolbar.controlsLabel}
             >
               {invalidated ? (
                 <>
                   <div className="ft-invalidated-status" role="status">
                     <TriangleAlert aria-hidden="true" />
-                    <span className="ft-invalidated-copy">畫面尺寸已改變，需建立新快照才能繼續。</span>
+                    <span className="ft-invalidated-copy">{t().toolbar.viewportChanged}</span>
                   </div>
                   <div className="ft-invalidated-actions">
                     {/* The invalidated shell has no collapse control (collapsing
@@ -383,8 +384,8 @@ export default function RecordingToolbar({
                       type="button"
                       className="ft-button"
                       data-danger="true"
-                      aria-label="放棄這次錄製"
-                      data-tooltip="放棄這次錄製"
+                      aria-label={t().toolbar.discardLabel}
+                      data-tooltip={t().toolbar.discardLabel}
                       disabled={busy}
                       onClick={() => setConfirmDiscard(true)}
                     >
@@ -396,7 +397,7 @@ export default function RecordingToolbar({
                       disabled={busy}
                       onClick={() => void run('FINISH_RECORDING')}
                     >
-                      {pending === 'FINISH_RECORDING' ? '整理中' : '完成錄製'}
+                      {pending === 'FINISH_RECORDING' ? t().toolbar.finishing : t().toolbar.finishRecording}
                     </button>
                     <button
                       type="button"
@@ -405,7 +406,7 @@ export default function RecordingToolbar({
                       onClick={() => void run('REBUILD_INVALIDATED_SNAPSHOT')}
                     >
                       {pending === 'REBUILD_INVALIDATED_SNAPSHOT' ? <Loader2 /> : <Plus />}
-                      {pending === 'REBUILD_INVALIDATED_SNAPSHOT' ? '重建中' : '保留並重建'}
+                      {pending === 'REBUILD_INVALIDATED_SNAPSHOT' ? t().toolbar.rebuilding : t().toolbar.keepAndRebuild}
                     </button>
                   </div>
                 </>
@@ -415,8 +416,8 @@ export default function RecordingToolbar({
                     type="button"
                     className="ft-status"
                     data-frametrail-toolbar-position=""
-                    aria-label={`${preparingNext ? '下一張尚未建立' : `${paused ? '已暫停' : '錄製中'}，${modeCopy.label}，${state.itemCount} 筆`}；拖曳或使用方向鍵移動`}
-                    data-tooltip="拖曳或使用方向鍵移動錄製控制"
+                    aria-label={t().toolbar.moveLabel(preparingNext ? t().toolbar.nextPending : statusLabel)}
+                    data-tooltip={t().toolbar.moveTooltip}
                     onPointerDown={handlePositionPointerDown}
                     onPointerMove={handlePositionPointerMove}
                     onPointerUp={finishPositionDrag}
@@ -426,15 +427,15 @@ export default function RecordingToolbar({
                     <span className="ft-dot" aria-hidden="true" />
                     <span className="ft-status-text">
                       {regionCaptureActive
-                        ? '區域擷取中'
-                        : preparingNext ? '下一張尚未建立' : '已擷取'}
+                        ? t().toolbar.regionCapturing
+                        : preparingNext ? t().toolbar.nextPending : t().toolbar.captured}
                     </span>
                     <span className="ft-count-badge">{state.itemCount}</span>
                   </button>
 
                   <span className="ft-divider" aria-hidden="true" />
 
-                  <div className="ft-mode-switch" role="radiogroup" aria-label="錄製模式">
+                  <div className="ft-mode-switch" role="radiogroup" aria-label={t().common.recordingMode}>
                     {MODE_OPTIONS.map((option) => (
                       <button
                         key={option}
@@ -454,8 +455,8 @@ export default function RecordingToolbar({
                       <button
                         type="button"
                         className="ft-button"
-                        aria-label="復原上一個"
-                        data-tooltip="復原上一步"
+                        aria-label={t().toolbar.undo}
+                        data-tooltip={t().toolbar.undoTooltip}
                         disabled={busy || state.itemCount === 0}
                         onClick={handleUndo}
                       >
@@ -466,8 +467,8 @@ export default function RecordingToolbar({
                       <button
                         type="button"
                         className="ft-button"
-                        aria-label={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
-                        data-tooltip={regionCaptureActive ? '區域擷取進行中' : '裁切擷取區域'}
+                        aria-label={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
+                        data-tooltip={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
                         aria-pressed={regionCaptureActive}
                         disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
                         onClick={() => onStartRegionCapture()}
@@ -479,8 +480,8 @@ export default function RecordingToolbar({
                       <button
                         type="button"
                         className="ft-button"
-                        aria-label={paused ? '繼續錄製' : '暫停錄製'}
-                        data-tooltip={paused ? '繼續錄製' : '暫停錄製'}
+                        aria-label={paused ? t().toolbar.resume : t().toolbar.pause}
+                        data-tooltip={paused ? t().toolbar.resume : t().toolbar.pause}
                         disabled={busy}
                         onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
                       >
@@ -493,8 +494,8 @@ export default function RecordingToolbar({
                       <button
                         type="button"
                         className="ft-button"
-                        aria-label="完成並新增快照"
-                        data-tooltip="完成並新增快照"
+                        aria-label={t().toolbar.finishAndNextSnapshot}
+                        data-tooltip={t().toolbar.finishAndNextSnapshot}
                         disabled={busy}
                         onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
                       >
@@ -505,8 +506,8 @@ export default function RecordingToolbar({
                       type="button"
                       className="ft-button"
                       data-danger="true"
-                      aria-label="放棄這次錄製"
-                      data-tooltip="放棄這次錄製"
+                      aria-label={t().toolbar.discardLabel}
+                      data-tooltip={t().toolbar.discardLabel}
                       disabled={busy}
                       onClick={() => setConfirmDiscard(true)}
                     >
@@ -515,8 +516,8 @@ export default function RecordingToolbar({
                     <button
                       type="button"
                       className="ft-button"
-                      aria-label="收合控制器"
-                      data-tooltip="收合控制器"
+                      aria-label={t().toolbar.collapse}
+                      data-tooltip={t().toolbar.collapse}
                       disabled={busy}
                       onClick={() => setCollapsed(true)}
                     >
@@ -532,7 +533,7 @@ export default function RecordingToolbar({
                   >
                     {pending === 'FINISH_RECORDING' || pending === 'CREATE_NEXT_SNAPSHOT' || state.phase === 'finishing'
                       ? <Loader2 />
-                      : preparingNext ? '建立新快照' : '完成'}
+                      : preparingNext ? t().toolbar.createSnapshot : t().toolbar.finish}
                   </button>
                 </>
               )}

@@ -70,6 +70,14 @@ FrameTrail 是一個在瀏覽器內錄製操作並產生逐步圖片教學的擴
 - 編輯與補拍使用 `captureRevision` compare-and-set；Guide 結構操作另使用 `contentRevision` CAS 與單一 `guides + steps` transaction。stale reorder／delete／restore／move／duplicate／numbering／section mutation 會整筆 rollback，不會把省略的舊 row 默默 append。React 端會消除過期的非同步讀取、保留未變更物件，並只在錄製期間輪詢 IndexedDB。
 - StepRail 縮圖使用 `IntersectionObserver`、320px 預載範圍、`content-visibility` 與 lazy Blob URL mounting；只有 active 或接近 viewport 的圖片才進入解碼管線。
 
+### 介面語言
+
+- 支援繁體中文與英文，跟隨瀏覽器介面語言（`chrome.i18n.getUILanguage()`）：所有中文變體（zh-*）顯示繁體中文，其他語言一律顯示英文。manifest 的 `_locales` 與頁面文案使用同一個來源，因此擴充功能名稱與介面語言一致。
+- 所有介面文案集中在 `extension/lib/shared/i18n/messages/`。`zh-TW.ts` 定義文案結構，`en.ts` 以同一型別撰寫，少鍵、多鍵或參數不符都會在編譯時失敗；需要語序或複數的句子以函式表達。
+- 程式碼一律在顯示當下以 `t()` 讀取文案，不在模組載入時快取字串（`tests/unit/i18n-usage.test.ts` 會以 TypeScript AST 檢查）。ESLint 也禁止在文案目錄以外寫入中文字串；比對網頁內容的正規表示式不受此限制。
+- 日期、排序、大小寫比較與匯出 HTML 的 `lang` 都跟隨目前語言。新作品的預設標題以建立當下的語言寫入；判斷空白作品時會辨識所有語言的預設標題。
+- 新增語言：在 `messages/` 新增一份 `Messages` 型別的文案、加入 `SUPPORTED_LOCALES` 與 `resolveLocale()` 的對應，並在 `public/_locales/` 補上 manifest 文案。
+
 ## 編輯與補拍工作流程
 
 ### 補拍

@@ -19,6 +19,7 @@ import {
   type RecordingToolbarCorner,
   type ToolbarPoint,
 } from './recording-toolbar-position';
+import { t } from '@/lib/shared/i18n';
 
 interface UseToolbarPositionOptions {
   /** The floating element being positioned (toolbar or its collapsed pill). */
@@ -156,7 +157,7 @@ export function useToolbarPosition({
     suppressNextClick.current = true;
     const nextCorner = snapToolbarCorner(drag.position, floatingSize(), viewport());
     moveToCorner(nextCorner);
-    announce(`錄製控制已移到${toolbarCornerLabel(nextCorner)}`);
+    announce(t().toolbar.movedTo(toolbarCornerLabel(nextCorner)));
   };
 
   const handlePositionKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -171,7 +172,7 @@ export function useToolbarPosition({
     event.preventDefault();
     const nextCorner = moveToolbarCorner(corner, direction);
     moveToCorner(nextCorner);
-    announce(`錄製控制已移到${toolbarCornerLabel(nextCorner)}`);
+    announce(t().toolbar.movedTo(toolbarCornerLabel(nextCorner)));
   };
 
   return {

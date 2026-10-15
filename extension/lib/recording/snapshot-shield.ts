@@ -33,6 +33,7 @@ import {
 import { deepElementFromPoint } from '../capture/selector/element-availability';
 import { createViewportOverlayHost, setImportantStyle } from '../capture/viewport-overlay-host';
 import type { RecordingControlResult } from '../runtime/messages';
+import { t } from '@/lib/shared/i18n';
 
 const SHIELD_PAGE = '/snapshot-shield.html';
 const SHIELD_READY_TIMEOUT_MS = 4_000;
@@ -303,12 +304,12 @@ export function createSnapshotShield(
   };
 
   const handleControl = async (message: SnapshotShieldControlMessage, generation: number): Promise<void> => {
-    let result: RecordingControlResult = { ok: false, error: '目前無法執行這個動作。' };
+    let result: RecordingControlResult = { ok: false, error: t().runtime.shieldActionUnavailable };
     try {
       if (onControl) result = await onControl(message);
     } catch (error) {
       console.error('[frametrail] failed to handle snapshot toolbar command', error);
-      result = { ok: false, error: '動作失敗，請再試一次。' };
+      result = { ok: false, error: t().runtime.shieldActionFailed };
     }
     if (isStale(generation)) return;
 

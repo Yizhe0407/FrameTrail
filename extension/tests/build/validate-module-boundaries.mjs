@@ -27,8 +27,8 @@ function normalized(file) {
   return path.relative(root, file).split(path.sep).join('/');
 }
 
-// Pure schema/constants modules (zero imports) that storage/models may depend
-// on as peers. The existence check below fails loudly if one is renamed.
+// Pure schema/constants modules (importing only lib/shared) that storage/models
+// may depend on as peers. The existence check below fails loudly if one is renamed.
 const storageModelModules = new Set([
   'lib/storage/models.ts',
   'lib/storage/guide-section-model.ts',

@@ -8,6 +8,7 @@ import { reportError } from '@/components/shared/report-error';
 import { byMostRecentlyAccessed } from '@/lib/editor/continuation-tabs';
 import { focusTab } from '@/lib/runtime/navigation';
 import { isRecordableTab } from '@/lib/shared/restricted-urls';
+import { t } from '@/lib/shared/i18n';
 
 interface Props {
   isRecording?: boolean;
@@ -29,7 +30,7 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
       const target =
         tabs.find((tab) => tab.id === recordingTabId) ??
         tabs.filter(isRecordableTab).sort(byMostRecentlyAccessed)[0];
-      if (target?.id == null) throw new Error('找不到可錄製的網頁分頁。');
+      if (target?.id == null) throw new Error(t().emptyState.noRecordableTab);
 
       await focusTab(target.id, target.windowId);
 
@@ -41,7 +42,7 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
         await actionApi?.openPopup?.();
       }
     } catch (error) {
-      setActionError(reportError('回到錄製頁面失敗', error, '無法回到錄製頁面，請重試。'));
+      setActionError(reportError('[frametrail] failed to return to the recording page', error, t().emptyState.returnFailed));
     } finally {
       setPending(false);
     }
@@ -51,13 +52,13 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
       <Mascot className="size-16" />
       <div className="flex max-w-[380px] flex-col items-center gap-2">
-        <h2 className="text-lg font-bold text-foreground">尚未建立內容</h2>
+        <h2 className="text-lg font-bold text-foreground">{t().emptyState.title}</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          到想示範的網頁按下「開始錄製」，每一次點擊都會變成這裡的一個步驟。
+          {t().emptyState.body}
         </p>
         <Button onClick={returnToRecordingPage} disabled={pending} className="mt-2">
           {pending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
-          {pending ? '正在開啟' : isRecording ? '回到錄製分頁' : '回到網頁開始錄製'}
+          {pending ? t().emptyState.opening : isRecording ? t().emptyState.returnToRecordingTab : t().emptyState.returnToPage}
         </Button>
         {actionError && <InlineAlert className="text-left">{actionError}</InlineAlert>}
       </div>

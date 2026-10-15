@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, Copy, Loader2, Trash2 } from 'lucide-react';
 import { compositeStepEntry } from '@/lib/export/entry-render';
 import { getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
-import { PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED } from '@/lib/editor/editor-messages';
+import { t } from '@/lib/shared/i18n';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -49,7 +49,7 @@ export default function StepActions({
 
   async function handleCopy() {
     if (copying || operationsDisabled || privacyReviewRequired) {
-      if (privacyReviewRequired) setActionError(PRIVACY_REVIEW_REQUIRED_ACTION_BLOCKED);
+      if (privacyReviewRequired) setActionError(t().editor.privacyReviewRequiredActionBlocked);
       return;
     }
     setCopying(true);
@@ -64,7 +64,7 @@ export default function StepActions({
         copiedTimer.current = null;
       }, 2_000);
     } catch (err) {
-      setActionError(reportError('複製圖片到剪貼簿失敗', err, '複製失敗，請確認剪貼簿權限後再試一次。'));
+      setActionError(reportError('[frametrail] failed to copy image to clipboard', err, t().editor.actions.copyFailed));
     } finally {
       setCopying(false);
     }
@@ -77,7 +77,7 @@ export default function StepActions({
     try {
       await onRecapture();
     } catch (err) {
-      setActionError(reportError('啟動補拍失敗', err, '無法啟動補拍，請再試一次。'));
+      setActionError(reportError('[frametrail] failed to start recapture', err, t().editor.actions.recaptureStartFailed));
     } finally {
       setRecapturing(false);
     }
@@ -90,7 +90,7 @@ export default function StepActions({
     try {
       await onDelete();
     } catch (err) {
-      setActionError(reportError('刪除步驟失敗', err, '刪除失敗，請再試一次。'));
+      setActionError(reportError('[frametrail] failed to delete step', err, t().editor.actions.deleteFailed));
     } finally {
       setDeleting(false);
     }
@@ -106,13 +106,13 @@ export default function StepActions({
               type="button"
               onClick={handleCopy}
               disabled={operationsDisabled || privacyReviewRequired || copying || deleting || recapturing}
-              aria-label="複製圖片"
+              aria-label={t().editor.actions.copyImage}
               className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
             >
               {copying ? <Loader2 className="size-4 animate-spin" /> : copied ? <Check className="size-4 text-brand-text" /> : <Copy className="size-4" />}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{privacyReviewRequired ? '請先重新確認敏感資訊遮罩' : '複製圖片'}</TooltipContent>
+          <TooltipContent>{privacyReviewRequired ? t().editor.privacyReviewTooltip : t().editor.actions.copyImage}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -120,13 +120,13 @@ export default function StepActions({
               type="button"
               onClick={() => void handleRecapture()}
               disabled={!onRecapture || operationsDisabled || recapturing || deleting || copying || Boolean(recaptureDisabledReason)}
-              aria-label="重新拍攝"
+              aria-label={t().editor.actions.recapture}
               className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
             >
               {recapturing ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{recaptureDisabledReason ?? (operationsDisabled ? '目前無法補拍步驟' : '重新拍攝')}</TooltipContent>
+          <TooltipContent>{recaptureDisabledReason ?? (operationsDisabled ? t().editor.actions.recaptureUnavailable : t().editor.actions.recapture)}</TooltipContent>
         </Tooltip>
         <span className="mx-0.5 h-5 w-0.5 rounded-full bg-border-soft" aria-hidden="true" />
         <Tooltip>
@@ -135,13 +135,13 @@ export default function StepActions({
               type="button"
               onClick={handleDelete}
               disabled={deleteDisabled || operationsDisabled || deleting || copying || recapturing}
-              aria-label="刪除步驟"
+              aria-label={t().editor.actions.deleteStep}
               className="flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40"
             >
               {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             </button>
           </TooltipTrigger>
-          <TooltipContent>{deleteDisabled ? '錄製或補拍期間無法刪除步驟' : '刪除'}</TooltipContent>
+          <TooltipContent>{deleteDisabled ? t().editor.actions.deleteDisabled : t().common.delete}</TooltipContent>
         </Tooltip>
       </div>
       {actionError && <InlineAlert>{actionError}</InlineAlert>}

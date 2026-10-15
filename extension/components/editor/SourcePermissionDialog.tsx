@@ -10,10 +10,10 @@ import {
 import { Button } from '@/components/ui/button';
 import ContinuationTabPicker from '@/components/editor/ContinuationTabPicker';
 import InlineAlert from '@/components/shared/InlineAlert';
-import { NEW_STEPS_APPEND_NOTE } from '@/lib/editor/editor-messages';
+import { t } from '@/lib/shared/i18n';
 import type { ContinuationTabOption } from '@/lib/editor/editor-app-model';
 import type { RecordingMode } from '@/lib/storage/recording-state';
-import { RECORDING_MODE_COPY } from '@/lib/recording/recording-mode-copy';
+import { recordingModeCopy } from '@/lib/recording/recording-mode-copy';
 import { cn } from '@/lib/shared/utils';
 
 const MODE_OPTIONS: readonly RecordingMode[] = ['steps', 'snapshot'];
@@ -88,14 +88,14 @@ export default function SourcePermissionDialog({
             ) : (
               <ShieldCheck className="size-5 text-brand-text" aria-hidden="true" />
             )}
-            {pickerOpen ? '選擇要接續錄製的分頁' : sourceUnavailable ? actionLabel : `${actionLabel}前需要存取來源網站`}
+            {pickerOpen ? t().editor.permission.pickTab : sourceUnavailable ? actionLabel : t().editor.permission.needsAccess(actionLabel)}
           </DialogTitle>
           <DialogDescription className="leading-6">
             {pickerOpen
-              ? `錄製會從選取的分頁開始，之後會跟著你切換的分頁；${NEW_STEPS_APPEND_NOTE}。`
+              ? t().editor.permission.pickTabBody
               : sourceUnavailable
-                ? `${sourceUnavailableReason}你可以改在目前開啟的網頁分頁繼續錄製。`
-                : 'FrameTrail 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。'}
+                ? t().editor.permission.sourceUnavailableBody(sourceUnavailableReason)
+                : t().editor.permission.accessBody}
           </DialogDescription>
         </DialogHeader>
 
@@ -106,7 +106,8 @@ export default function SourcePermissionDialog({
         )}
 
         {continuationMode !== undefined && onContinuationModeChange && (
-          <div role="radiogroup" aria-label="錄製模式" className="mt-4 flex gap-1 rounded-md bg-secondary p-1">
+          // 2px outline + 2px padding puts each option exactly 4px inside, as `rounded-sm` expects.
+          <div role="radiogroup" aria-label={t().common.recordingMode} className="mt-4 flex gap-0.5 rounded-md border-2 border-border bg-secondary p-0.5">
             {MODE_OPTIONS.map((mode) => (
               <button
                 key={mode}
@@ -116,13 +117,13 @@ export default function SourcePermissionDialog({
                 disabled={anyPending}
                 onClick={() => onContinuationModeChange(mode)}
                 className={cn(
-                  'flex-1 rounded-md py-2 text-center text-[13px] outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+                  'flex h-9 flex-1 items-center justify-center rounded-sm border-2 text-sm font-bold outline-none transition-colors focus-ring disabled:pointer-events-none disabled:opacity-50',
                   continuationMode === mode
-                    ? 'border border-black/5 bg-white font-bold text-[#1c1c1c] shadow-[0_2px_6px_rgba(28,28,28,0.12)] dark:border-transparent'
-                    : 'font-medium text-foreground/50 hover:text-foreground',
+                    ? 'border-border bg-selected text-on-accent'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
                 )}
               >
-                {RECORDING_MODE_COPY[mode].label}
+                {recordingModeCopy(mode).label}
               </button>
             ))}
           </div>
@@ -138,7 +139,7 @@ export default function SourcePermissionDialog({
         )}
 
         {!pickerOpen && onContinueElsewhere && (
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">{NEW_STEPS_APPEND_NOTE}。</p>
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">{t().editor.permission.appendNote}</p>
         )}
 
         {continueElsewhereError && (
@@ -147,7 +148,7 @@ export default function SourcePermissionDialog({
 
         <DialogFooter className="mt-6">
           <Button type="button" variant="outline" disabled={anyPending} onClick={onCancel}>
-            <X />取消
+            <X />{t().common.cancel}
           </Button>
           {pickerOpen ? (
             <Button
@@ -156,7 +157,7 @@ export default function SourcePermissionDialog({
               onClick={onConfirmContinueElsewhere}
             >
               {continueElsewherePending ? <Loader2 className="animate-spin" /> : <Video />}
-              開始錄製
+              {t().common.startRecording}
             </Button>
           ) : (
             <>
@@ -168,13 +169,13 @@ export default function SourcePermissionDialog({
                   onClick={onContinueElsewhere}
                 >
                   {continueElsewherePending ? <Loader2 className="animate-spin" /> : <ExternalLink />}
-                  改在其他頁面接續
+                  {t().editor.permission.continueElsewhere}
                 </Button>
               )}
               {!sourceUnavailable && (
                 <Button type="button" disabled={anyPending} onClick={onConfirm}>
                   {pending && <Loader2 className="animate-spin" />}
-                  {pending ? '正在授權…' : '允許並開始'}
+                  {pending ? t().editor.permission.authorizing : t().editor.permission.allowAndStart}
                 </Button>
               )}
             </>

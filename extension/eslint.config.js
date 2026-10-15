@@ -46,6 +46,30 @@ export default tseslint.config(
     },
   },
   {
+    // Every user-facing string lives in the i18n catalogs (lib/shared/i18n/messages),
+    // so a Chinese literal anywhere else is copy that would not follow the UI
+    // language. Regex literals stay allowed: they match page text, not UI copy.
+    files: ['components/**/*.{ts,tsx}', 'entrypoints/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+    ignores: ['lib/shared/i18n/messages/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal:not([regex])[raw=/[\\u3400-\\u9fff]/]',
+          message: 'Put user-facing copy in lib/shared/i18n/messages and read it through t().',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/[\\u3400-\\u9fff]/]',
+          message: 'Put user-facing copy in lib/shared/i18n/messages and read it through t().',
+        },
+        {
+          selector: 'JSXText[value=/[\\u3400-\\u9fff]/]',
+          message: 'Put user-facing copy in lib/shared/i18n/messages and read it through t().',
+        },
+      ],
+    },
+  },
+  {
     // Playwright fixtures take a callback named `use`, which the React rule cannot distinguish from the `use` hook — a false positive.
     files: ['tests/e2e/**'],
     rules: {

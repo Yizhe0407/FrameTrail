@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { throwIfAborted } from '../shared/abort';
+import { t } from '@/lib/shared/i18n';
 
 type DownloadChangeListener = Parameters<typeof browser.downloads.onChanged.addListener>[0];
 
@@ -62,7 +63,7 @@ export async function downloadBlobViaBrowser(
   try {
     throwIfAborted(signal);
     const downloadId = await browser.downloads.download({ url, filename, saveAs });
-    if (typeof downloadId !== 'number') throw new Error('瀏覽器沒有開始下載，請再試一次。');
+    if (typeof downloadId !== 'number') throw new Error(t().export.downloadNotStarted);
     revokeWhenDownloadSettles(downloadId, url);
   } catch (downloadError) {
     // Nothing was queued, so no consumer is left holding the URL.

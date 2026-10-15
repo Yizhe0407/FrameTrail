@@ -16,7 +16,7 @@ import { ensureSelectedGuide } from '@/lib/guide/guide-actions';
 import { getGuide } from '@/lib/storage/guide-repository';
 import { reportError } from '@/components/shared/report-error';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
-import { EDITOR_OPEN_FAILED_MESSAGE } from '@/lib/runtime/user-messages';
+import { t } from '@/lib/shared/i18n';
 
 function App() {
   // Opts out of step reads: the full hook re-fetches every step (screenshot
@@ -59,7 +59,7 @@ function App() {
       window.close();
     } catch (navigationError) {
       console.error('[frametrail] failed to open library', navigationError);
-      setEditorOpenError('無法開啟作品庫，請再試一次。');
+      setEditorOpenError(t().popup.libraryOpenFailed);
     }
   }
 
@@ -79,7 +79,7 @@ function App() {
           sessionId: targetSessionId ?? undefined,
         }),
         isOpenEditorResult,
-        '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
+        t().popup.editorServiceUnavailable,
       );
       if (!result.ok) {
         setEditorOpenError(result.error);
@@ -88,7 +88,7 @@ function App() {
       window.close();
     } catch (openError) {
       setEditorOpenError(
-        reportError('[frametrail] failed to request editor navigation', openError, EDITOR_OPEN_FAILED_MESSAGE),
+        reportError('[frametrail] failed to request editor navigation', openError, t().runtime.editorOpenFailed),
       );
     } finally {
       setOpeningEditor(false);
@@ -116,7 +116,7 @@ function App() {
           {isRecording && recording.phase !== 'starting' && (
             <span className="size-1.5 rounded-full bg-recording" aria-hidden="true" />
           )}
-          {recording.phase === 'starting' ? '準備中' : isRecording ? '錄製中' : '待命'}
+          {recording.phase === 'starting' ? t().popup.status.starting : isRecording ? t().popup.status.recording : t().popup.status.idle}
         </span>
       </div>
 
@@ -141,14 +141,14 @@ function App() {
       {!editorRecovery && !isRecording && (
         <div className="flex flex-col gap-2">
           <OpenEditorButton
-            label="開啟編輯器"
+            label={t().common.openEditor}
             pending={openingEditor}
             onOpen={openEditor}
             className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}
           />
           <div className="grid grid-cols-2 gap-2">
             <Button variant="outline" size="sm" onClick={() => void openLibraryView()} className="w-full">
-              <Library />作品庫
+              <Library />{t().common.library}
             </Button>
             <ResetButton hasSteps={hasGuideContent} sessionId={sessionId} variant="outline" className="h-8 w-full px-3 text-[13px]" />
           </div>
