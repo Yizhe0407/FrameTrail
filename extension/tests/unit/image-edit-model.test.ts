@@ -60,4 +60,12 @@ describe('image edits on steps', () => {
     expect(getEntryImageEdits(entry)).toBe(getEntryImageEdits(entry));
     expect(getEntryImageEdits({ kind: 'single', step: { ...owner, imageEdits: undefined } })).toEqual([]);
   });
+
+  it('keep a crop on image owners only, and drop an invalid one', () => {
+    const crop = { x: 10, y: 20, width: 100, height: 50 };
+    expect(sanitizeStepForStorage(step({ crop })).crop).toEqual(crop);
+    expect(sanitizeStepForStorage(step({ crop: { x: 0, y: 0, width: 0, height: 5 } })).crop).toBeUndefined();
+    expect(sanitizeStepForStorage(step({ crop: null })).crop).toBeUndefined();
+    expect(sanitizeStepForStorage(step({ id: 'g-note', groupId: 'g', crop })).crop).toBeUndefined();
+  });
 });

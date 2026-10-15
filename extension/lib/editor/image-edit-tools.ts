@@ -1,4 +1,4 @@
-import { EyeOff, MousePointer2, MoveUpRight, RectangleHorizontal, Type, type LucideIcon } from 'lucide-react';
+import { Crop, EyeOff, MousePointer2, MoveUpRight, RectangleHorizontal, Type, type LucideIcon } from 'lucide-react';
 import { t } from '@/lib/shared/i18n';
 import type { ImageEditColor } from '@/lib/storage/image-edit-model';
 import {
@@ -8,9 +8,9 @@ import {
   type Point,
 } from './image-edit-geometry';
 import { fitTextHeight, MIN_ARROW_LENGTH, MIN_TEXT_WIDTH } from './image-edit-item-geometry';
-import { newItemId, type ImageEditItem, type ImageEditItemKind } from './image-edit-items';
+import { CROP_ITEM_ID, newItemId, type ImageEditItem, type ImageEditItemKind } from './image-edit-items';
 
-export type ImageEditToolId = 'select' | 'text' | 'arrow' | 'rect' | 'redact';
+export type ImageEditToolId = 'select' | 'text' | 'arrow' | 'rect' | 'redact' | 'crop';
 
 /** How new items look: remembered across the session and applied to whatever is drawn next. */
 export interface ImageEditStyle {
@@ -41,7 +41,7 @@ export interface ImageEditTool {
   /** Builds the item for a finished drag, or null when the gesture was too small to mean anything. */
   create?: (input: CreateInput) => ImageEditItem | null;
   /** Which style controls apply to what this tool draws. */
-  styleControls: 'none' | 'stroke' | 'text';
+  styleControls: 'none' | 'stroke' | 'text' | 'crop';
 }
 
 function boxFromDrag({ from, to, size }: CreateInput) {
@@ -122,6 +122,18 @@ export const IMAGE_EDIT_TOOLS: readonly ImageEditTool[] = [
       return bounds ? { id: newItemId(), kind: 'redaction', bounds } : null;
     },
     styleControls: 'none',
+  },
+  {
+    id: 'crop',
+    icon: Crop,
+    label: () => t().editor.imageEdit.tools.crop,
+    hint: () => t().editor.imageEdit.hints.crop,
+    creates: 'crop',
+    create: (input) => {
+      const bounds = boxFromDrag(input);
+      return bounds ? { id: CROP_ITEM_ID, kind: 'crop', bounds } : null;
+    },
+    styleControls: 'crop',
   },
 ];
 

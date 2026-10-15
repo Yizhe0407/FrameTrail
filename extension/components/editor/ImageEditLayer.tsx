@@ -100,6 +100,23 @@ function arrowHandleStyle(item: Extract<ImageEditItem, { kind: 'arrow' }>, handl
   };
 }
 
+/** Dims everything outside the crop, so the area that will be kept stands out. */
+function CropShade({ bounds, size }: { bounds: { x: number; y: number; width: number; height: number }; size: ImageCssSize }) {
+  const top = percent(bounds.y, size.height);
+  const bottomStart = percent(bounds.y + bounds.height, size.height);
+  const left = percent(bounds.x, size.width);
+  const rightStart = percent(bounds.x + bounds.width, size.width);
+  const shade = 'pointer-events-none absolute bg-black/55';
+  return (
+    <div aria-hidden="true" data-stepmark-crop-shade className="pointer-events-none absolute inset-0">
+      <div className={shade} style={{ left: 0, top: 0, width: '100%', height: top }} />
+      <div className={shade} style={{ left: 0, top: bottomStart, width: '100%', bottom: 0 }} />
+      <div className={shade} style={{ left: 0, top, width: left, height: percent(bounds.height, size.height) }} />
+      <div className={shade} style={{ left: rightStart, top, right: 0, height: percent(bounds.height, size.height) }} />
+    </div>
+  );
+}
+
 /** The textarea shown while a text item is typed into, sized and coloured like the final text. */
 function TextEditor({
   item,
@@ -328,27 +345,32 @@ export default function ImageEditLayer({
   const hitSvgItems = strokeHitItems.filter((item) => item.id !== editingText?.id);
 
   function renderChrome(item: ImageEditItem) {
-    const selected = item.id === selectedId;
+    const isCrop = item.kind === 'crop';
+    // The crop tool is modal: only the crop can be touched, and the crop can only be touched in it.
+    const inert = tool === 'crop' ? !isCrop : isCrop;
+    const selected = isCrop ? tool === 'crop' : item.id === selectedId;
     const isNew = isNewDraft && draft?.id === item.id;
     const strokeOnly = item.kind === 'rect' || item.kind === 'arrow';
     return (
       <div
         key={item.id}
         role="button"
-        tabIndex={disabled || isNew ? -1 : 0}
+        tabIndex={disabled || isNew || inert ? -1 : 0}
         aria-label={itemLabel(item)}
         aria-pressed={selected}
         data-stepmark-edit-item={item.id}
         data-stepmark-edit-kind={item.kind}
         className={cn(
           'absolute box-border outline-none',
-          strokeOnly && 'pointer-events-none',
+          (strokeOnly || inert) && 'pointer-events-none',
           item.kind === 'arrow'
             ? ''
-            : selected || isNew
-              ? 'border-2 border-focus'
-              : 'border-2 border-transparent hover:border-dashed hover:border-focus/70',
-          !disabled && !strokeOnly && 'cursor-move',
+            : isCrop
+              ? 'border-2 border-white shadow-[0_0_0_1px_rgb(0_0_0/0.5)]'
+              : selected || isNew
+                ? 'border-2 border-focus'
+                : 'border-2 border-transparent hover:border-dashed hover:border-focus/70',
+          !disabled && !strokeOnly && !inert && 'cursor-move',
         )}
         style={boxStyle(item, size)}
         onPointerDown={(event) => beginMove(event, item)}
@@ -371,6 +393,7 @@ export default function ImageEditLayer({
     );
   }
 
+  const cropItem = chromeItems.find((item) => item.kind === 'crop') ?? null;
   const textAndRedactions = chromeItems.filter((item) => item.kind === 'text' || item.kind === 'redaction');
   const visibleText = textAndRedactions.filter((item) => item.id !== editingText?.id);
 
@@ -398,7 +421,7 @@ export default function ImageEditLayer({
         preserveAspectRatio="none"
         aria-hidden="true"
       >
-        {hitSvgItems.map((item) => {
+        {hitSvgItems.filter(() => tool !== 'crop').map((item) => {
           const hit = {
             fill: 'none',
             stroke: 'transparent',
@@ -417,6 +440,12 @@ export default function ImageEditLayer({
       </svg>
       {strokeHitItems.filter((item) => item.id !== editingText?.id).map(renderChrome)}
       {visibleText.map(renderChrome)}
+      {cropItem && (
+        <>
+          <CropShade bounds={cropItem.bounds} size={size} />
+          {renderChrome(cropItem)}
+        </>
+      )}
       {editingText && <TextEditor key={editingText.id} item={editingText} scale={scale} size={size} onFinish={onFinishTextEdit} />}
     </div>
   );

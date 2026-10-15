@@ -54,7 +54,7 @@ describe('image edit items', () => {
   it('round-trips both stored fields through the flat item list, masks last', () => {
     const items = toItems([mask], [rect, arrow]);
     expect(items.map((item) => item.id)).toEqual(['r', 'a', 'm']);
-    expect(splitItems(items)).toEqual({ redactions: [mask], imageEdits: [rect, arrow] });
+    expect(splitItems(items)).toEqual({ redactions: [mask], imageEdits: [rect, arrow], crop: null });
   });
 
   it('keeps masks last when something is added', () => {

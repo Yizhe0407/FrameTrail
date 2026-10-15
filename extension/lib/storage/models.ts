@@ -70,6 +70,11 @@ export interface Step {
   /** Text, arrows and rectangles drawn on the image in the editor, in screenshot
    * CSS coordinates. Same ownership as `redactions`; painted beneath the masks. */
   imageEdits?: ImageEdit[];
+  /** Non-destructive crop, in screenshot CSS coordinates, snapped to whole device
+   * pixels. The stored image is never changed: previews and exports show only
+   * this region, with every other coordinate shifted by its origin. Absent
+   * (or null when clearing) means the whole image. */
+  crop?: Bounds | null;
   devicePixelRatio: number;
   /** Actual screenshot pixels per CSS pixel, measured from the captured image. */
   screenshotScale?: number;
@@ -369,6 +374,12 @@ export function getEntryImageEdits(entry: StepEntry): ImageEdit[] {
   return edits;
 }
 
+/** The crop of a timeline entry's image: the whole image when none is set. */
+export function getEntryCrop(entry: StepEntry): Bounds | null {
+  const crop = getEntryImageOwner(entry).crop;
+  return crop && isValidBounds(crop) ? crop : null;
+}
+
 export function sanitizeStepForStorage(step: Step): Step {
   const id = requireStorageIdentifier(step.id, 'Step id');
   const sessionId = requireStorageIdentifier(step.sessionId, 'Step session id');
@@ -407,6 +418,7 @@ export function sanitizeStepForStorage(step: Step): Step {
     }
   }
 
+  const crop = !isSnapshotAnnotation && step.crop && isValidBounds(step.crop) ? { ...step.crop } : undefined;
   let imageEdits: ImageEdit[] | undefined;
   if (!isSnapshotAnnotation && step.imageEdits !== undefined) {
     if (Array.isArray(step.imageEdits) && step.imageEdits.length > IMAGE_EDIT_LIMITS.maxItems) {
@@ -437,6 +449,7 @@ export function sanitizeStepForStorage(step: Step): Step {
   }
   if (redactions !== undefined) sanitized.redactions = redactions;
   if (imageEdits !== undefined) sanitized.imageEdits = imageEdits;
+  if (crop !== undefined) sanitized.crop = crop;
   if (!isSnapshotAnnotation && redactionReviewRequired) sanitized.redactionReviewRequired = true;
   if (step.screenshotScale !== undefined) {
     sanitized.screenshotScale = sanitizePixelRatio(step.screenshotScale, 'Step screenshot scale');

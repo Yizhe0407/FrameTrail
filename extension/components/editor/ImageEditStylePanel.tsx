@@ -10,6 +10,32 @@ interface Props {
   onChange: (patch: Partial<ImageEditStyle>) => void;
 }
 
+interface CropProps {
+  /** The pixel size the image will have after the crop, or null when not cropped. */
+  size: { width: number; height: number } | null;
+  onClear: () => void;
+}
+
+/** What the crop tool offers instead of colours: the resulting size and a way to undo the crop. */
+export function ImageEditCropPanel({ size, onClear }: CropProps) {
+  const copy = t().editor.imageEdit;
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="text-xs font-bold text-foreground tabular-nums">
+        {size ? copy.cropSize(size.width, size.height) : copy.noCrop}
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        disabled={!size}
+        className="flex h-8 items-center rounded-md border-2 border-border bg-card px-3 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+      >
+        {copy.clearCrop}
+      </button>
+    </div>
+  );
+}
+
 const optionClass =
   'flex h-8 min-w-8 items-center justify-center rounded-sm px-2 text-xs font-bold outline-none transition-colors focus-ring';
 

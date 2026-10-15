@@ -5,7 +5,7 @@ import { PROJECT_SECTION_LIMITS, type ProjectSection } from '../storage/project-
 import { PROJECT_TAG_LIMITS } from '../storage/project-tag-model';
 
 export const PROJECT_ARCHIVE_FORMAT = 'stepmark-project';
-/** Version 3 adds `imageEdits` (text, arrows, rectangles) to steps. Version 2 files stay importable. */
+/** Version 3 adds `imageEdits` (text, arrows, rectangles) and `crop` to steps. Version 2 files stay importable. */
 export const PROJECT_ARCHIVE_VERSION = 3;
 export const SUPPORTED_ARCHIVE_VERSIONS: readonly number[] = [2, 3];
 export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.stepmark.project+json';
@@ -106,6 +106,7 @@ export interface ArchiveStep {
   redactions?: ArchiveRedaction[];
   redactionReviewRequired?: boolean;
   imageEdits?: ImageEdit[];
+  crop?: ArchiveBounds;
   devicePixelRatio: number;
   screenshotScale?: number;
   description: string;
@@ -170,6 +171,7 @@ export const STEP_KEYS = [
   'redactions',
   'redactionReviewRequired',
   'imageEdits',
+  'crop',
   'devicePixelRatio',
   'screenshotScale',
   'description',

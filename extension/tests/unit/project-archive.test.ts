@@ -131,6 +131,7 @@ describe('project archive', () => {
       redactions: [{ id: 'mask-1', kind: 'solid', bounds: { x: 2, y: 3, width: 4, height: 5 } }],
       redactionReviewRequired: false,
       imageEdits: [{ id: 'edit-1', kind: 'rect', bounds: { x: 1, y: 1, width: 5, height: 5 }, width: 2, color: 'red' }],
+      crop: { x: 1, y: 2, width: 30, height: 20 },
       screenshotScale: 1.5,
       captureRevision: 3,
       lastCaptureRunId: 'capture-run-3',
@@ -448,6 +449,16 @@ describe('project archive', () => {
       const step = makeStep({ id: 'drawn', screenshotBlob: pngBlob(4, 4), imageEdits: edits });
       const { steps } = await importProjectArchive(await exportProjectArchive([step]));
       expect(steps[0].imageEdits).toEqual(edits);
+    });
+
+    it('round-trips a crop and rejects a malformed one', async () => {
+      const crop = { x: 5, y: 6, width: 70, height: 40 };
+      const { steps } = await importProjectArchive(await exportProjectArchive([makeStep({ id: 'cropped', screenshotBlob: pngBlob(4, 4), crop })]));
+      expect(steps[0].crop).toEqual(crop);
+
+      const archive = await archiveObject([makeStep({ id: 'cropped', screenshotBlob: pngBlob(4, 4), crop })]);
+      archive.manifest.steps[0].crop = { x: 0, y: 0, width: 0, height: 5 };
+      await expect(importProjectArchive(JSON.stringify(archive))).rejects.toBeInstanceOf(ProjectArchiveError);
     });
 
     it('still imports a version 2 file that has no image edits', async () => {

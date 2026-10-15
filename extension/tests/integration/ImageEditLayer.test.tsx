@@ -199,3 +199,38 @@ describe('ImageEditLayer keyboard and disabled state', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 });
+
+describe('ImageEditLayer crop', () => {
+  const crop: ImageEditItem = { id: 'crop', kind: 'crop', bounds: { x: 100, y: 40, width: 200, height: 100 } };
+
+  it('creates a crop from a drag with the crop tool', () => {
+    const { layer, onCreate } = setup({ items: [], tool: 'crop' });
+    fireEvent.pointerDown(layer, { clientX: 20, clientY: 20, button: 0 });
+    fireEvent.pointerMove(layer, { clientX: 220, clientY: 120 });
+    fireEvent.pointerUp(layer, { clientX: 220, clientY: 120 });
+    expect(onCreate).toHaveBeenCalledWith({ id: 'crop', kind: 'crop', bounds: { x: 20, y: 20, width: 200, height: 100 } });
+  });
+
+  it('dims outside the crop at all times, but only lets the crop tool touch it', () => {
+    const idle = setup({ items: [mask, crop], tool: 'select' });
+    expect(idle.container.querySelector('[data-stepmark-crop-shade]')).toBeTruthy();
+    expect(chrome(idle.container, 'crop').className).toContain('pointer-events-none');
+    expect(chrome(idle.container, 'mask-1').className).not.toContain('pointer-events-none');
+    cleanup();
+
+    const modal = setup({ items: [mask, crop], tool: 'crop' });
+    expect(chrome(modal.container, 'crop').className).not.toContain('pointer-events-none');
+    expect(chrome(modal.container, 'mask-1').className).toContain('pointer-events-none');
+    expect(modal.container.querySelectorAll('[data-stepmark-edit-handle]')).toHaveLength(8);
+  });
+
+  it('moves and resizes the crop with its handles', () => {
+    const { layer, container, onUpdate } = setup({ items: [crop], tool: 'crop' });
+    const handle = container.querySelector('[data-stepmark-edit-handle="se"]') as HTMLElement;
+    fireEvent.pointerDown(handle, { clientX: 300, clientY: 140, button: 0 });
+    fireEvent.pointerMove(layer, { clientX: 350, clientY: 160 });
+    fireEvent.pointerUp(layer, { clientX: 350, clientY: 160 });
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: 'crop', bounds: { x: 100, y: 40, width: 250, height: 120 } }));
+  });
+});
+

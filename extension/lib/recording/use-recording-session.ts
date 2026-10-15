@@ -59,6 +59,7 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
       boundsMatch(previousStep.manualBounds, step.manualBounds) &&
       redactionsMatch(previousStep.redactions, step.redactions) &&
       imageEditsMatch(previousStep.imageEdits, step.imageEdits) &&
+      boundsMatch(previousStep.crop, step.crop) &&
       previousStep.redactionReviewRequired === step.redactionReviewRequired &&
       previousStep.devicePixelRatio === step.devicePixelRatio &&
       previousStep.screenshotScale === step.screenshotScale &&

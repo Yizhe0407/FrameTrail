@@ -474,6 +474,9 @@ export function validateRuntimeStep(stepValue: unknown, path: string): Step {
   if (hasOwn(record, 'imageEdits') && record.imageEdits !== undefined) {
     step.imageEdits = expectImageEdits(record.imageEdits, `${path}.imageEdits`);
   }
+  if (hasOwn(record, 'crop') && record.crop !== undefined) {
+    step.crop = expectBounds(record.crop, `${path}.crop`);
+  }
   const redactionReviewRequired = expectOptionalBoolean(record, 'redactionReviewRequired', path);
   if (redactionReviewRequired !== undefined) step.redactionReviewRequired = redactionReviewRequired;
   const screenshotScale = expectOptionalNumber(

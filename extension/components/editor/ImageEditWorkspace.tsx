@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { Button } from '@/components/ui/button';
-import { getEntryImageEdits, getEntryImageOwner, getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
+import { getEntryCrop, getEntryImageEdits, getEntryImageOwner, getEntryPrivacyState, type StepEntry } from '@/lib/storage/models';
 import type { TextEdit } from '@/lib/storage/image-edit-model';
-import { appendItem, splitItems, toItems, type ImageEditItem } from '@/lib/editor/image-edit-items';
+import { appendItem, CROP_ITEM_ID, splitItems, toItems, type ImageEditItem } from '@/lib/editor/image-edit-items';
+import { snapCrop } from '@/lib/editor/image-edit-crop';
 import { fitTextHeight } from '@/lib/editor/image-edit-item-geometry';
 import { DEFAULT_IMAGE_EDIT_STYLE, imageEditTool, type ImageEditStyle, type ImageEditToolId } from '@/lib/editor/image-edit-tools';
 import { useImageEditSession } from '@/lib/editor/image-edit-session';
@@ -25,8 +26,12 @@ import {
 import { t } from '@/lib/shared/i18n';
 import EntryThumbnail from './EntryThumbnail';
 import ImageEditLayer from './ImageEditLayer';
-import ImageEditStylePanel from './ImageEditStylePanel';
+import ImageEditStylePanel, { ImageEditCropPanel } from './ImageEditStylePanel';
 import ImageEditToolbar from './ImageEditToolbar';
+
+/** Items with a colour and a size/thickness to restyle. */
+const isStyled = (item: ImageEditItem): item is Extract<ImageEditItem, { kind: 'text' | 'arrow' | 'rect' }> =>
+  item.kind === 'text' || item.kind === 'arrow' || item.kind === 'rect';
 
 /** Breathing room kept around the fitted image so edge masks are easy to reach. */
 const FIT_MARGIN = 24;
@@ -49,7 +54,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   const entryRef = useRef(entry);
   entryRef.current = entry;
   const owner = getEntryImageOwner(entry);
-  const [initialItems] = useState(() => toItems(getEntryPrivacyState(entry).redactions, getEntryImageEdits(entry)));
+  const [initialItems] = useState(() => toItems(getEntryPrivacyState(entry).redactions, getEntryImageEdits(entry), getEntryCrop(entry)));
   const session = useImageEditSession({
     initialItems,
     persist: (items) => saveEntryImageEdits(entryRef.current, splitItems(items)),
@@ -180,7 +185,17 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
     if (imageEditTool(next).create) setSelectedId(null);
   };
 
-  const replaceItem = (next: ImageEditItem) => commit(items.map((item) => (item.id === next.id ? next : item)));
+  const screenshotScale = owner.screenshotScale ?? owner.devicePixelRatio;
+  /** A crop is snapped to whole device pixels as it is stored, and disappears if it would cover the whole image. */
+  const settle = (item: ImageEditItem): ImageEditItem | null => {
+    if (item.kind !== 'crop' || !imageSize) return item;
+    const bounds = snapCrop(item.bounds, imageSize, screenshotScale);
+    return bounds ? { ...item, bounds } : null;
+  };
+  const replaceItem = (next: ImageEditItem) => {
+    const settled = settle(next);
+    commit(settled ? items.map((item) => (item.id === settled.id ? settled : item)) : items.filter((item) => item.id !== next.id));
+  };
   const deleteItem = (id: string) => {
     setSelectedId(null);
     commit(items.filter((item) => item.id !== id));
@@ -190,8 +205,10 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
       setEditing({ item, isNew: true });
       return;
     }
-    setSelectedId(item.id);
-    commit(appendItem(items, item));
+    const settled = settle(item);
+    if (!settled) return;
+    setSelectedId(settled.kind === 'crop' ? null : settled.id);
+    commit(appendItem(items, settled));
   };
   const startTextEdit = (id: string) => {
     const item = items.find((candidate) => candidate.id === id);
@@ -219,21 +236,25 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   const applyStyle = (patch: Partial<ImageEditStyle>) => {
     setStyle((current) => ({ ...current, ...patch }));
     const restyle = <T extends ImageEditItem>(item: T): T => {
-      if (item.kind === 'redaction') return item;
+      if (item.kind === 'redaction' || item.kind === 'crop') return item;
       const next = { ...item, ...(patch.color ? { color: patch.color } : {}) } as ImageEditItem;
       if (next.kind === 'text' && patch.fontSize) return fitTextHeight({ ...next, fontSize: patch.fontSize }) as unknown as T;
       if ((next.kind === 'arrow' || next.kind === 'rect') && patch.strokeWidth) return { ...next, width: patch.strokeWidth } as unknown as T;
       return next as T;
     };
     if (editing) setEditing({ ...editing, item: restyle(editing.item) });
-    else if (selectedItem && selectedItem.kind !== 'redaction') replaceItem(restyle(selectedItem));
+    else if (selectedItem && isStyled(selectedItem)) replaceItem(restyle(selectedItem));
   };
 
   /** Style controls follow the selection, or the active tool when nothing is selected. */
-  const styleSource = editing?.item ?? (selectedItem && selectedItem.kind !== 'redaction' ? selectedItem : null);
+  const styleSource = editing?.item ?? (selectedItem && isStyled(selectedItem) ? selectedItem : null);
   const styleControls = styleSource
     ? styleSource.kind === 'text' ? 'text' : 'stroke'
     : activeTool.styleControls;
+  const cropItem = items.find((item) => item.kind === 'crop') ?? null;
+  const cropPixels = cropItem
+    ? { width: Math.round(cropItem.bounds.width * screenshotScale), height: Math.round(cropItem.bounds.height * screenshotScale) }
+    : null;
   const shownStyle: ImageEditStyle = styleSource
     ? {
         color: styleSource.color,
@@ -299,8 +320,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
           <ImageEditToolbar
             tool={tool}
             onToolChange={changeTool}
-            hasSelection={selectedId !== null}
-            onDeleteSelected={() => selectedId && deleteItem(selectedId)}
+            hasSelection={selectedId !== null || (tool === 'crop' && cropItem !== null)}
+            onDeleteSelected={() => deleteItem(selectedId ?? CROP_ITEM_ID)}
             itemCount={items.length}
             canUndo={session.canUndo}
             canRedo={session.canRedo}
@@ -316,7 +337,10 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
             onDone={() => void requestClose()}
             doneDisabled={closing}
           />
-          {styleControls !== 'none' && (
+          {styleControls === 'crop' && (
+            <ImageEditCropPanel size={cropPixels} onClear={() => deleteItem(CROP_ITEM_ID)} />
+          )}
+          {(styleControls === 'text' || styleControls === 'stroke') && (
             <ImageEditStylePanel controls={styleControls} style={shownStyle} onChange={applyStyle} />
           )}
           {session.saveFailed && (
@@ -365,6 +389,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                 {canvasStyle && (
                   <EntryThumbnail
                     entry={entry}
+                    crop={null}
                     redactions={shown.redactions}
                     imageEdits={shown.imageEdits}
                     alt={copy.title(number)}
