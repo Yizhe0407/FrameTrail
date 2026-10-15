@@ -40,7 +40,7 @@ export default function ResetButton({
     } catch (err) {
       // The background reports actionable reasons (for example a reset refused
       // mid-recording); surface them instead of flattening to a generic retry.
-      const reason = reportError('[frametrail] failed to reset recording', err, '');
+      const reason = reportError('[stepmark] failed to reset recording', err, '');
       setResetError(reason ? t().reset.failedWithReason(reason) : t().reset.failed);
     } finally {
       setResetting(false);

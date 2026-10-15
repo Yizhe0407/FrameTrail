@@ -30,12 +30,12 @@ function breadcrumb() {
 }
 
 describe('welcome page', () => {
-  it('sits under FrameTrail in the shared header and turns into the library', () => {
+  it('sits under Stepmark in the shared header and turns into the library', () => {
     render(<WelcomeApp />);
 
     expect(mocks.registerPage).toHaveBeenCalled();
     expect(breadcrumb().getByText('歡迎').closest('li')?.getAttribute('aria-current')).toBe('page');
-    expect(screen.getByRole('heading', { level: 1, name: '嗨！我是 FrameTrail' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: '嗨！我是 Stepmark' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /前往作品庫/ }));
     expect(mocks.navigateInPlace).toHaveBeenCalledWith('library');
@@ -63,11 +63,11 @@ describe('settings page', () => {
     expect(mocks.navigateInPlace).not.toHaveBeenCalled();
   });
 
-  it('returns to the library in the same tab from the FrameTrail crumb', async () => {
+  it('returns to the library in the same tab from the Stepmark crumb', async () => {
     render(<OptionsApp />);
 
     expect(mocks.registerPage).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'FrameTrail 作品庫' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stepmark 作品庫' }));
 
     await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('library'));
   });

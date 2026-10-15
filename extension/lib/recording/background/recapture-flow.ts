@@ -28,8 +28,8 @@ import type {
   ClickCapture,
   FocusStepRecaptureSourceMessage,
   FocusStepRecaptureSourceResult,
-  FrameTrailRecaptureReadyMessage,
-  FrameTrailRecaptureTargetMessage,
+  StepmarkRecaptureReadyMessage,
+  StepmarkRecaptureTargetMessage,
   PreflightStepRecaptureSourcePermissionErrorCode,
   PreflightStepRecaptureSourcePermissionMessage,
   PreflightStepRecaptureSourcePermissionResult,
@@ -223,14 +223,14 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     await runtime.stopRecorderInTab(context.sourceTabId);
     if (context.sourceTabCreated) {
       await browser.tabs.remove(context.sourceTabId).catch((error) => {
-        console.warn('[frametrail] failed to close temporary recapture tab', error);
+        console.warn('[stepmark] failed to close temporary recapture tab', error);
       });
     }
     try {
       // Back to the single editor tab, at the entry this recapture worked on.
       await deps.openEditor({ sessionId: context.sessionId, entryId: context.entryId });
     } catch (error) {
-      console.error('[frametrail] failed to return to editor after recapture', error);
+      console.error('[stepmark] failed to return to editor after recapture', error);
     }
     return true;
   }
@@ -347,7 +347,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
   }
 
   async function handleRecaptureReady(
-    message: FrameTrailRecaptureReadyMessage,
+    message: StepmarkRecaptureReadyMessage,
     sender: Browser.runtime.MessageSender,
   ): Promise<boolean> {
     const context = (await getRecordingState()).recapture;
@@ -509,7 +509,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
           },
         });
       } catch (error) {
-        console.error('[frametrail] failed to start recapture recorder', error);
+        console.error('[stepmark] failed to start recapture recorder', error);
         if (version === control.controlVersion) {
           await failStepRecapture(runId, 'INJECTION_FAILED', t().recaptureFlow.injectFailed, version);
         }
@@ -634,7 +634,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
   }
 
   async function handleRecaptureTarget(
-    message: FrameTrailRecaptureTargetMessage,
+    message: StepmarkRecaptureTargetMessage,
     sender: Browser.runtime.MessageSender,
     expectedControlVersion: number,
   ): Promise<StepRecaptureTargetResult> {
@@ -728,7 +728,7 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
             ? error.message
             // 原本內容 (not 原內容) matches the editor's own recapture wording.
             : t().recaptureFlow.failedUnchanged;
-      console.error('[frametrail] failed to replace step capture', error);
+      console.error('[stepmark] failed to replace step capture', error);
       if (expectedControlVersion === control.controlVersion) {
         const version = control.bumpVersion();
         await settleStepRecapture(message.runId, 'failed', version, errorCode, errorMessage);

@@ -45,7 +45,7 @@ export default function SortableItem({ id, children, className, handleClassName,
           <GripVertical className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent>{t().sortable.tooltip}</TooltipContent>
+      <TooltipContent>{t().sortable.handle}</TooltipContent>
     </Tooltip>
   );
 

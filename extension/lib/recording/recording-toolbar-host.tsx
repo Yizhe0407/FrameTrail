@@ -26,7 +26,7 @@ export function mountRecordingToolbar(
 ): MountedRecordingToolbar {
   // A popover so it shares the top layer with the hover frame and the page's
   // own modals; plain z-index would always lose to either.
-  const host = createViewportOverlayHost('data-frametrail-recording-toolbar', { 'pointer-events': 'none' }, { popover: true });
+  const host = createViewportOverlayHost('data-stepmark-recording-toolbar', { 'pointer-events': 'none' }, { popover: true });
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   const container = document.createElement('div');

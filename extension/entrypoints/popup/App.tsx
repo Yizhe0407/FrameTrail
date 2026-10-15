@@ -44,7 +44,7 @@ function App() {
       .catch((readError) => {
         // Fail open: the confirm dialog and background guard still protect the
         // action, while failing closed would strand a real reset need.
-        console.error('[frametrail] failed to read guide summary', readError);
+        console.error('[stepmark] failed to read guide summary', readError);
         if (active) setHasGuideContent(true);
       });
     return () => {
@@ -59,7 +59,7 @@ function App() {
       await openSettings();
       window.close();
     } catch (settingsError) {
-      console.error('[frametrail] failed to open settings', settingsError);
+      console.error('[stepmark] failed to open settings', settingsError);
       setEditorOpenError(t().nav.settingsOpenFailed);
     }
   }
@@ -70,7 +70,7 @@ function App() {
       await openLibrary();
       window.close();
     } catch (navigationError) {
-      console.error('[frametrail] failed to open library', navigationError);
+      console.error('[stepmark] failed to open library', navigationError);
       setEditorOpenError(t().nav.libraryOpenFailed);
     }
   }
@@ -100,7 +100,7 @@ function App() {
       window.close();
     } catch (openError) {
       setEditorOpenError(
-        reportError('[frametrail] failed to request editor navigation', openError, t().runtime.editorOpenFailed),
+        reportError('[stepmark] failed to request editor navigation', openError, t().runtime.editorOpenFailed),
       );
     } finally {
       setOpeningEditor(false);

@@ -8,7 +8,7 @@ export async function withMessageFailureFallback<T>(
   try {
     return await operation;
   } catch (error) {
-    console.error(`[frametrail] ${label}:`, describeBrowserError(error), error);
+    console.error(`[stepmark] ${label}:`, describeBrowserError(error), error);
     return fallback;
   }
 }

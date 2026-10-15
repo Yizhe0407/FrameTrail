@@ -31,7 +31,7 @@ export function createFollowMode(deps: { control: ControlPlane; runtime: Recorde
     followDebounceTimer = setTimeout(() => {
       followDebounceTimer = null;
       void queueLifecycle(() => followRecordingToTab(tabId)).catch((error) => {
-        console.error('[frametrail] failed to follow the activated tab', describeBrowserError(error), error);
+        console.error('[stepmark] failed to follow the activated tab', describeBrowserError(error), error);
       });
     }, FOLLOW_ACTIVATION_DEBOUNCE_MS);
   }
@@ -85,7 +85,7 @@ export function createFollowMode(deps: { control: ControlPlane; runtime: Recorde
       await runtime.injectRecorder(tabId, true);
     } catch (error) {
       console.warn(
-        '[frametrail] failed to move the recording into the activated tab',
+        '[stepmark] failed to move the recording into the activated tab',
         describeBrowserError(error),
         error,
       );

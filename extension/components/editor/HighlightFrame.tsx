@@ -19,7 +19,7 @@ interface Props {
 export default function HighlightFrame({ box, order }: Props) {
   return (
     <div
-      data-frametrail-annotation-frame={order}
+      data-stepmark-annotation-frame={order}
       className="pointer-events-none absolute box-border"
       style={{
         left: box.left,

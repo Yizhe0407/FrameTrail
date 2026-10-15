@@ -123,9 +123,9 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
       return isString(value.runId) && isViewport(value.viewport) && isDevicePixelRatio(value.devicePixelRatio);
     case 'SNAPSHOT_RECORDER_FAILED':
       return isString(value.runId) && value.reason === 'shield-channel';
-    case 'FRAME_TRAIL_CANCEL_CAPTURE':
+    case 'STEPMARK_CANCEL_CAPTURE':
       return isString(value.runId) && isString(value.captureId);
-    case 'FRAME_TRAIL_READY': {
+    case 'STEPMARK_READY': {
       if (!isString(value.runId)) return false;
       if (value.snapshotContext === undefined) return true;
       if (!isRecord(value.snapshotContext)) return false;
@@ -136,7 +136,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         isTimestamp(value.snapshotContext.timestamp)
       );
     }
-    case 'FRAME_TRAIL_CLICK':
+    case 'STEPMARK_CLICK':
       return (
         (value.captureKind === undefined || value.captureKind === 'element' || value.captureKind === 'region') &&
         isString(value.captureId) &&
@@ -150,7 +150,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         isHttpUrl(value.url) &&
         isTimestamp(value.timestamp)
       );
-    case 'FRAME_TRAIL_STEP_FRAME_BEGIN':
+    case 'STEPMARK_STEP_FRAME_BEGIN':
       return (
         isString(value.runId) &&
         isString(value.captureId) &&
@@ -159,17 +159,17 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         isString(value.tagName, MAX_STEP_FRAME_TAG_LENGTH) &&
         typeof value.interactive === 'boolean'
       );
-    case 'FRAME_TRAIL_STEP_FRAME_CLAIM':
-    case 'FRAME_TRAIL_STEP_FRAME_REJECT':
+    case 'STEPMARK_STEP_FRAME_CLAIM':
+    case 'STEPMARK_STEP_FRAME_REJECT':
       return isString(value.runId) && isString(value.captureId) && isString(value.relayToken);
-    case 'FRAME_TRAIL_STEP_FRAME_SETTLE':
+    case 'STEPMARK_STEP_FRAME_SETTLE':
       return (
         isString(value.runId) &&
         isString(value.captureId) &&
         isString(value.settleToken) &&
         typeof value.replay === 'boolean'
       );
-    case 'FRAME_TRAIL_STEP_FRAME_ABORT':
+    case 'STEPMARK_STEP_FRAME_ABORT':
       return isString(value.runId) && isString(value.captureId);
     case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
       return isString(value.sessionId) && isTarget(value.target);
@@ -178,9 +178,9 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
     case 'START_STEP_RECAPTURE':
       return isString(value.sessionId) && isTarget(value.target) &&
         (value.preferredTabId === undefined || isBrowserId(value.preferredTabId));
-    case 'FRAME_TRAIL_RECAPTURE_READY':
+    case 'STEPMARK_RECAPTURE_READY':
       return isString(value.runId) && isHttpUrl(value.url);
-    case 'FRAME_TRAIL_RECAPTURE_TARGET':
+    case 'STEPMARK_RECAPTURE_TARGET':
       return (
         isString(value.runId) &&
         isString(value.captureId) &&

@@ -158,7 +158,7 @@ export async function startRecordingIntoGuide(
       const live = await getRecordingState();
       if (!(live.isRecording && live.sessionId === guide.id)) await claim.release();
     } catch (rollbackError) {
-      console.error('[frametrail] failed to roll back the recording guide claim', rollbackError);
+      console.error('[stepmark] failed to roll back the recording guide claim', rollbackError);
     }
     throw startError;
   }

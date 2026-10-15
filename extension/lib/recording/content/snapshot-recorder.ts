@@ -84,7 +84,7 @@ export function createSnapshotRecorder(deps: SnapshotRecorderDeps) {
       viewport,
       devicePixelRatio: window.devicePixelRatio,
     } satisfies SnapshotInvalidatedMessage).catch((error) => {
-      console.error('[frametrail] failed to invalidate changed snapshot viewport', error);
+      console.error('[stepmark] failed to invalidate changed snapshot viewport', error);
     });
   };
   const onDprChange = () => {

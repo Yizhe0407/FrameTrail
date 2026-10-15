@@ -65,7 +65,7 @@ let pendingInitEvents: MessageEvent[] | null = [];
 function consume(event: Event): void {
   if (
     event.target instanceof Element &&
-    event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]')
+    event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-shield-skip],[data-stepmark-region-capture]')
   ) {
     return;
   }
@@ -85,7 +85,7 @@ function tryInitialize(event: MessageEvent): void {
   initialized = true;
   const overlay = createOverlay();
   const toolbarContainer = document.createElement('div');
-  toolbarContainer.setAttribute('data-frametrail-shield-toolbar', '');
+  toolbarContainer.setAttribute('data-stepmark-shield-toolbar', '');
   document.body.append(toolbarContainer);
   const toolbarRoot = createRoot(toolbarContainer);
   interface PendingControl {
@@ -118,7 +118,7 @@ function tryInitialize(event: MessageEvent): void {
       port.postMessage(message);
       return true;
     } catch (error) {
-      console.error('[frametrail] snapshot shield channel failed', error);
+      console.error('[stepmark] snapshot shield channel failed', error);
       failShieldChannel();
       return false;
     }
@@ -196,7 +196,7 @@ function tryInitialize(event: MessageEvent): void {
     }
     // Over the toolbar the highlight freezes on its last target instead of clearing,
     // since reaching undo/crop crosses the frozen page and would drop the aimed box.
-    if (event.target instanceof Element && event.target.closest('[data-frametrail-shield-toolbar]')) return;
+    if (event.target instanceof Element && event.target.closest('[data-stepmark-shield-toolbar]')) return;
     ensureKeyboardFocus();
     hover.pointerMove(event.clientX, event.clientY);
   };
@@ -223,7 +223,7 @@ function tryInitialize(event: MessageEvent): void {
     if (regionCapture?.isActive()) return;
     if (
       event.target instanceof Element &&
-      event.target.closest('[data-frametrail-shield-toolbar],[data-frametrail-shield-skip],[data-frametrail-region-capture]')
+      event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-shield-skip],[data-stepmark-region-capture]')
     ) {
       return;
     }
@@ -373,7 +373,7 @@ function tryInitialize(event: MessageEvent): void {
     if (regionCapture?.isActive()) return;
     if (!featureFlags.snapshotKeyboardNav) return;
     const target = event.target;
-    if (target instanceof Element && target.closest('[data-frametrail-shield-toolbar]')) return;
+    if (target instanceof Element && target.closest('[data-stepmark-shield-toolbar]')) return;
     if (event.key === 'Escape') {
       if (!skipLink) return;
       stopEvent(event);
@@ -383,7 +383,7 @@ function tryInitialize(event: MessageEvent): void {
       return;
     }
     if (!interactionsEnabled || capturing) return;
-    const inSkip = target instanceof Element && target.closest('[data-frametrail-shield-skip]');
+    const inSkip = target instanceof Element && target.closest('[data-stepmark-shield-skip]');
     switch (event.key) {
       case 'Tab':
         stopEvent(event);
@@ -407,7 +407,7 @@ function tryInitialize(event: MessageEvent): void {
 
   if (featureFlags.snapshotKeyboardNav) {
     const skipContainer = document.createElement('div');
-    skipContainer.setAttribute('data-frametrail-shield-skip', '');
+    skipContainer.setAttribute('data-stepmark-shield-skip', '');
     skipLink = document.createElement('button');
     skipLink.type = 'button';
     skipLink.className = 'snapshot-skip-link';
@@ -557,7 +557,7 @@ void (async () => {
     if (!isSnapshotShieldTokenRecord(record)) return;
     expectedToken = record.token;
   } catch (error) {
-    console.error('[frametrail] failed to load the snapshot shield init token', error);
+    console.error('[stepmark] failed to load the snapshot shield init token', error);
     return;
   }
   const queued = pendingInitEvents ?? [];

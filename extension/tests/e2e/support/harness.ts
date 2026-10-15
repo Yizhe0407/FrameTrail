@@ -4,10 +4,10 @@ import { inflateSync } from 'node:zlib';
 import type { Guide } from '../../../lib/storage/models';
 
 /** Browser 內的 page.evaluate 無法匯入 Node 模組，因此在此集中管理持久化契約字面值。 */
-const SCRIBE_DB = { name: 'frametrail', version: 1 } as const;
+const SCRIBE_DB = { name: 'stepmark', version: 1 } as const;
 // `as const` keeps the literal types non-widening so the typed chrome.storage.local.get overloads still apply inside evaluate bodies.
-const RECORDING_STATE_KEY = 'frametrail:recordingState' as const;
-const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId' as const;
+const RECORDING_STATE_KEY = 'stepmark:recordingState' as const;
+const ACTIVE_GUIDE_ID_KEY = 'stepmark:activeGuideId' as const;
 
 /** Pristine guide row seeded by resetExtensionData; `satisfies` fails the typecheck if the Guide model (via createGuide) gains or renames a field. */
 const E2E_GUIDE_TEMPLATE = {
@@ -30,7 +30,7 @@ declare const chrome: {
   storage: {
     local: {
       clear(): Promise<void>;
-      get(key: 'frametrail:recordingState'): Promise<Record<string, { isRecording?: boolean } | undefined>>;
+      get(key: 'stepmark:recordingState'): Promise<Record<string, { isRecording?: boolean } | undefined>>;
       get(key: string): Promise<Record<string, unknown>>;
       set(values: Record<string, unknown>): Promise<void>;
     };
@@ -172,7 +172,7 @@ export async function resetExtensionData(popup: Page): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.open(scribeDb.name, scribeDb.version);
       request.onerror = () => reject(request.error);
-      request.onblocked = () => reject(new Error('FrameTrail IndexedDB reset was blocked.'));
+      request.onblocked = () => reject(new Error('Stepmark IndexedDB reset was blocked.'));
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains('steps')) {
@@ -189,7 +189,7 @@ export async function resetExtensionData(popup: Page): Promise<void> {
         const storeNames = ['guides', 'steps'].filter((name) => db.objectStoreNames.contains(name));
         if (storeNames.length !== 2) {
           db.close();
-          reject(new Error(`FrameTrail IndexedDB v${scribeDb.version} stores are incomplete.`));
+          reject(new Error(`Stepmark IndexedDB v${scribeDb.version} stores are incomplete.`));
           return;
         }
         const tx = db.transaction(storeNames, 'readwrite');
@@ -435,9 +435,9 @@ export async function startRecording(appPage: Page, popup: Page, mode: Recording
   }, { mode, activeGuideIdKey: ACTIVE_GUIDE_ID_KEY });
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
   if (mode === 'steps') {
-    await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+    await expect.poll(() => appPage.locator('[data-stepmark-step-preview]').count()).toBe(1);
   } else {
-    await expect.poll(() => appPage.locator('[data-frametrail-snapshot-shield]').count()).toBe(1);
+    await expect.poll(() => appPage.locator('[data-stepmark-snapshot-shield]').count()).toBe(1);
     await getSnapshotFrame(appPage);
   }
 }
@@ -472,7 +472,7 @@ export async function captureNavLinkClickStep(appPage: Page, popup: Page): Promi
 /** Asserts the run survived a top-level navigation (still recording, recorder re-injected) then captures the navigated page's heading. */
 export async function captureNavigatedHeadingStep(appPage: Page, popup: Page): Promise<void> {
   await expect.poll(async () => (await readRecordingState(popup)).isRecording).toBe(true);
-  await expect.poll(() => appPage.locator('[data-frametrail-step-preview]').count()).toBe(1);
+  await expect.poll(() => appPage.locator('[data-stepmark-step-preview]').count()).toBe(1);
   const heading = appPage.getByRole('heading', { name: '已導覽到新文件' });
   const box = await heading.boundingBox();
   if (!box) throw new Error('Navigated heading has no box');

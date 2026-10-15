@@ -50,7 +50,7 @@ export function EditorSaveProvider({ children }: { children: ReactNode }) {
     const flushBeforeLeaving = () => {
       void flushAll().catch((error) => {
         if (!(error instanceof DraftConfirmationRequiredError)) {
-          console.error('[frametrail] failed to save descriptions before leaving the editor', error);
+          console.error('[stepmark] failed to save descriptions before leaving the editor', error);
         }
       });
     };
@@ -218,7 +218,7 @@ export function useStepDescriptionAutosave(
         } catch (refreshError) {
           // The IndexedDB commit is authoritative. A failed UI refresh must not
           // misreport a successfully persisted draft as data loss.
-          console.warn('[frametrail] description saved, but refreshing editor data failed', refreshError);
+          console.warn('[stepmark] description saved, but refreshing editor data failed', refreshError);
         }
       }
     })();
@@ -256,7 +256,7 @@ export function useStepDescriptionAutosave(
       // timer on journal success — otherwise typed text would only persist on
       // blur or unmount.
       timer.current = setTimeout(() => {
-        void flush().catch(logAutosaveFailure('[frametrail] description autosave failed'));
+        void flush().catch(logAutosaveFailure('[stepmark] description autosave failed'));
       }, journaled ? delay : 0);
     },
     [clearTimer, delay, flush],
@@ -330,14 +330,14 @@ export function useStepDescriptionAutosave(
     mounted.current = true;
     if (draft.current !== persisted.current && !confirmationRequired.current) {
       timer.current = setTimeout(() => {
-        void flush().catch(logAutosaveFailure('[frametrail] saving a recovered draft failed'));
+        void flush().catch(logAutosaveFailure('[stepmark] saving a recovered draft failed'));
       }, delay);
     }
     return () => {
       mounted.current = false;
       clearTimer();
       if (!confirmationRequired.current) {
-        void flush().catch(logAutosaveFailure('[frametrail] saving before unmounting a description field failed'));
+        void flush().catch(logAutosaveFailure('[stepmark] saving before unmounting a description field failed'));
       }
     };
   }, [clearTimer, delay, flush]);

@@ -52,7 +52,7 @@ export default function TagSelectDialog({
       })
       .catch((loadFailure) => {
         // Suggestions are a shortcut, not the feature, so a failed read isn't a save failure.
-        console.warn('[frametrail] failed to read previously used guide tags', loadFailure);
+        console.warn('[stepmark] failed to read previously used guide tags', loadFailure);
       });
     return () => { stale = true; };
   }, [open]);
@@ -65,7 +65,7 @@ export default function TagSelectDialog({
     try {
       await onSave([...selectedTags, tag]);
     } catch (saveFailure) {
-      setSaveError(reportError('[frametrail] failed to update guide tags', saveFailure, t().editor.tags.saveFailed));
+      setSaveError(reportError('[stepmark] failed to update guide tags', saveFailure, t().editor.tags.saveFailed));
     }
   }
 

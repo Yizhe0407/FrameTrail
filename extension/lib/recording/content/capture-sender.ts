@@ -20,7 +20,7 @@ export function createCaptureSender(runId: string) {
     captureKind: ClickCapture['captureKind'] = 'element',
   ): Promise<boolean> {
     const payload: ClickCapture = {
-      type: 'FRAME_TRAIL_CLICK',
+      type: 'STEPMARK_CLICK',
       captureKind,
       captureId,
       runId,
@@ -44,7 +44,7 @@ export function createCaptureSender(runId: string) {
       t().runtime.captureResponseInvalid,
     );
     if (result.ok) return true;
-    console.warn('[frametrail] step was not captured:', result.error);
+    console.warn('[stepmark] step was not captured:', result.error);
     return false;
   }
 
@@ -77,7 +77,7 @@ export function createCaptureSender(runId: string) {
       // The response was lost after the background may already have
       // committed the step; the durable recording state decides which of
       // the two actually happened, so labels cannot drift off-by-one.
-      console.warn('[frametrail] snapshot capture response was lost; reconciling with recording state', error);
+      console.warn('[stepmark] snapshot capture response was lost; reconciling with recording state', error);
       const after = await readAuthoritativeAnnotationCount();
       return after !== null && after > before ? after : null;
     }

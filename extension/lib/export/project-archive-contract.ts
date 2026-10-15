@@ -4,9 +4,9 @@ import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { GUIDE_SECTION_LIMITS, type GuideSection } from '../storage/guide-section-model';
 import { GUIDE_TAG_LIMITS } from '../storage/guide-tag-model';
 
-export const PROJECT_ARCHIVE_FORMAT = 'frametrail-project';
+export const PROJECT_ARCHIVE_FORMAT = 'stepmark-project';
 export const PROJECT_ARCHIVE_VERSION = 2;
-export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.frametrail.project+json';
+export const PROJECT_ARCHIVE_MIME_TYPE = 'application/vnd.stepmark.project+json';
 
 /** Public limits are exported so callers can explain rejected imports before retrying. */
 export const PROJECT_ARCHIVE_LIMITS = Object.freeze({

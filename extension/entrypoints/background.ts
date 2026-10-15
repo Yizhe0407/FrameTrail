@@ -85,7 +85,7 @@ import type {
   ClickCaptureResult,
   FinishResult,
   FocusStepRecaptureSourceResult,
-  FrameTrailSnapshotActiveMessage,
+  StepmarkSnapshotActiveMessage,
   OpenEditorResult,
   OpenLibraryResult,
   PreflightGuideContinuationSourcePermissionErrorCode,
@@ -147,7 +147,7 @@ const followMode = createFollowMode({ control, runtime: recorderRuntime });
 function discardPendingUndo(): void {
   pendingUndo = null;
   void clearPendingUndoRecord().catch((error) => {
-    console.warn('[frametrail] failed to clear the persisted undo record', error);
+    console.warn('[stepmark] failed to clear the persisted undo record', error);
   });
 }
 
@@ -326,7 +326,7 @@ async function withdrawAnchorThenDelete(
     await deleteStep(anchorId);
   } catch (cleanupError) {
     console.error(
-      '[frametrail] failed to remove incomplete snapshot:',
+      '[stepmark] failed to remove incomplete snapshot:',
       describeBrowserError(cleanupError),
       cleanupError,
     );
@@ -387,8 +387,8 @@ async function createAndActivateSnapshotAnchor(
     anchorPublished = true;
 
     control.acceptingClicks = true;
-    const activateMessage: FrameTrailSnapshotActiveMessage = {
-      type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE',
+    const activateMessage: StepmarkSnapshotActiveMessage = {
+      type: 'STEPMARK_SNAPSHOT_ACTIVE',
       runId,
     };
     const activated = await browser.tabs.sendMessage(tabId, activateMessage, { frameId: 0 });
@@ -602,7 +602,7 @@ async function handleStartRecording(
     try {
       await focusTab(tab.id!, tab.windowId);
     } catch (error) {
-      console.error('[frametrail] failed to focus the continuation source tab', error);
+      console.error('[stepmark] failed to focus the continuation source tab', error);
       await control.writeStateForControl(version, (current) =>
         startFailureState(current, message.mode, 'SOURCE_TAB_FAILED', t().background.sourceTabSwitchFailed));
       return;
@@ -670,7 +670,7 @@ async function handleStartRecording(
       },
     });
   } catch (err) {
-    console.error('[frametrail] failed to inject recorder:', describeBrowserError(err), err);
+    console.error('[stepmark] failed to inject recorder:', describeBrowserError(err), err);
     // The anchor was already published to the run state, so it must be
     // withdrawn before its row can go.
     if (startupAnchorId) await withdrawAnchorThenDelete(runId, startupAnchorId, version, true);
@@ -680,7 +680,7 @@ async function handleStartRecording(
     } catch (recoveryError) {
       control.acceptingClicks = false;
       console.error(
-        '[frametrail] failed to persist recording startup failure:',
+        '[stepmark] failed to persist recording startup failure:',
         describeBrowserError(recoveryError),
         recoveryError,
       );
@@ -740,7 +740,7 @@ async function validateRecorderMessageSender(
 }
 
 async function handleRecorderReady(
-  message: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>,
+  message: Extract<BackgroundMessage, { type: 'STEPMARK_READY' }>,
   sender: Browser.runtime.MessageSender,
 ): Promise<boolean> {
   const validated = await validateRecorderMessageSender(message, sender, {
@@ -838,7 +838,7 @@ async function reclaimAbandonedAutoCreatedGuide(state: RecordingState): Promise<
     await discardPristineGuide(state.autoCreatedGuideId);
   } catch (error) {
     console.error(
-      '[frametrail] failed to reclaim the abandoned auto-created guide:',
+      '[stepmark] failed to reclaim the abandoned auto-created guide:',
       describeBrowserError(error),
       error,
     );
@@ -862,7 +862,7 @@ async function deleteEmptySnapshotAnchorBestEffort(state: RecordingState): Promi
     await deleteEmptySnapshotAnchor(state);
   } catch (cleanupError) {
     console.error(
-      '[frametrail] failed to remove the empty snapshot anchor:',
+      '[stepmark] failed to remove the empty snapshot anchor:',
       describeBrowserError(cleanupError),
       cleanupError,
     );
@@ -939,7 +939,7 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
     try {
       await savePendingUndoRecord(undoRecord);
     } catch (persistError) {
-      console.warn('[frametrail] failed to persist the undo window', persistError);
+      console.warn('[stepmark] failed to persist the undo window', persistError);
     }
     await deleteStep(last.id);
     const updated = await updateRunState(
@@ -1052,7 +1052,7 @@ async function prepareNextSnapshot(message: RecordingControlMessage): Promise<Re
     // toolbar; all-frames mirrors startup injection so stale child recorders tear down too.
     await recorderRuntime.injectRecorder(previous.tabId, true);
   } catch (error) {
-    console.error('[frametrail] failed to enter snapshot preparation state', error);
+    console.error('[stepmark] failed to enter snapshot preparation state', error);
     await setRunError(message.runId, t().background.nextSnapshotControlsFailed);
     return controlFailure(t().background.nextSnapshotPrepareFailed);
   }
@@ -1127,7 +1127,7 @@ async function createNextSnapshot(
       },
     });
   } catch (error) {
-    console.error('[frametrail] failed to create next snapshot', error);
+    console.error('[stepmark] failed to create next snapshot', error);
     control.acceptingClicks = false;
     const rebuildingInvalidated = sourcePhase === 'invalidated';
     const errorMessage = rebuildingInvalidated ? t().background.rebuildSnapshotFailed : t().background.createSnapshotFailed;
@@ -1152,7 +1152,7 @@ async function createNextSnapshot(
       try {
         await recorderRuntime.injectRecorder(state.tabId!, true);
       } catch (reinjectionError) {
-        console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
+        console.error('[stepmark] failed to restore snapshot preparation toolbar', reinjectionError);
       }
     }
     return controlFailure(errorMessage);
@@ -1194,13 +1194,13 @@ async function switchToSnapshotMode(message: RecordingControlMessage): Promise<R
   try {
     await recorderRuntime.injectRecorder(previous.tabId!, true);
   } catch (error) {
-    console.error('[frametrail] failed to switch to snapshot mode', describeBrowserError(error), error);
+    console.error('[stepmark] failed to switch to snapshot mode', describeBrowserError(error), error);
     await updateRunState(message.runId, () => previous);
     control.acceptingClicks = previous.phase === 'recording';
     try {
       await recorderRuntime.injectRecorder(previous.tabId!, true);
     } catch (restoreError) {
-      console.error('[frametrail] failed to restore the step recorder', describeBrowserError(restoreError), restoreError);
+      console.error('[stepmark] failed to restore the step recorder', describeBrowserError(restoreError), restoreError);
     }
     return controlFailure(t().background.switchToSnapshotFailed);
   }
@@ -1278,7 +1278,7 @@ async function switchToStepsMode(
       },
     });
   } catch (error) {
-    console.error('[frametrail] failed to switch to steps mode', describeBrowserError(error), error);
+    console.error('[stepmark] failed to switch to steps mode', describeBrowserError(error), error);
     control.acceptingClicks = false;
     if (version === control.controlVersion) {
       await updateRunState(
@@ -1295,7 +1295,7 @@ async function switchToStepsMode(
       try {
         await recorderRuntime.injectRecorder(previous.tabId!, true);
       } catch (reinjectionError) {
-        console.error('[frametrail] failed to restore snapshot preparation toolbar', reinjectionError);
+        console.error('[stepmark] failed to restore snapshot preparation toolbar', reinjectionError);
       }
     }
     return controlFailure(t().background.switchToStepsFailed);
@@ -1329,7 +1329,7 @@ async function resetGuideLifecycle(message: ResetGuideMessage): Promise<ResetGui
     }
     return { ok: true, contentRevision: updated.contentRevision };
   } catch (error) {
-    console.error('[frametrail] failed to reset Guide', error);
+    console.error('[stepmark] failed to reset Guide', error);
     return { ok: false, error: t().background.resetFailedReload };
   }
 }
@@ -1391,7 +1391,7 @@ async function finishRecording(message: RecordingControlMessage): Promise<Record
   try {
     await editorOpen.openEditor({ sessionId: result.sessionId, entryId: result.entryId });
   } catch (error) {
-    console.error('[frametrail] failed to open editor after recording', error);
+    console.error('[stepmark] failed to open editor after recording', error);
     await control.writeStateForControl(version, markEditorOpenFailed);
     return { ok: true, finish: result };
   }
@@ -1435,7 +1435,7 @@ async function discardCurrentRecording(message: RecordingControlMessage): Promis
     await reclaimAbandonedAutoCreatedGuide(state);
     return { ok: true };
   } catch (error) {
-    console.error('[frametrail] failed to discard current recording', error);
+    console.error('[stepmark] failed to discard current recording', error);
     await control.writeStateForControl(version, (current) => ({
       ...current,
       error: t().background.discardFailed,
@@ -1456,7 +1456,7 @@ async function handleRecordingControl(
       state.runId !== message.runId ||
       !isTrustedRecorderControlSender(sender, state.tabId)
     ) {
-      console.warn('[frametrail] rejected an untrusted recorder control message', message.type);
+      console.warn('[stepmark] rejected an untrusted recorder control message', message.type);
       return controlFailure(t().background.actionUnavailable);
     }
   }
@@ -1629,7 +1629,7 @@ async function handleSnapshotClick(
 }
 
 async function handleCancelCapture(
-  message: Extract<BackgroundMessage, { type: 'FRAME_TRAIL_CANCEL_CAPTURE' }>,
+  message: Extract<BackgroundMessage, { type: 'STEPMARK_CANCEL_CAPTURE' }>,
   sender: Browser.runtime.MessageSender,
 ): Promise<ClickCaptureResult> {
   // No version requirement: cancelling an already-doomed capture is harmless,
@@ -1719,7 +1719,7 @@ async function handleClick(
         // The run can never accept another annotation; settle it once with a
         // recoverable error instead of failing every subsequent click.
         reason = 'snapshot-anchor-missing';
-        console.error('[frametrail] snapshot anchor is gone; settling the run:', err.message);
+        console.error('[stepmark] snapshot anchor is gone; settling the run:', err.message);
         await stopRunWithError(
           message.runId,
           snapshotAnchorMissingError().message,
@@ -1740,7 +1740,7 @@ async function handleClick(
         const messageText = describeBrowserError(err, t().background.captureFailed);
         reason = messageText;
         console.error(
-          '[frametrail] failed to capture/annotate/save step:',
+          '[stepmark] failed to capture/annotate/save step:',
           messageText,
           err,
         );
@@ -1749,7 +1749,7 @@ async function handleClick(
     } catch (recoveryError) {
       control.acceptingClicks = false;
       console.error(
-        '[frametrail] failed to persist capture failure:',
+        '[stepmark] failed to persist capture failure:',
         describeBrowserError(recoveryError),
         recoveryError,
       );
@@ -1769,7 +1769,7 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener((details) => {
     if (!opensWelcomeOnInstall(details)) return;
     openWelcomePage().catch((error: unknown) => {
-      console.error('[frametrail] failed to open the welcome page', error);
+      console.error('[stepmark] failed to open the welcome page', error);
     });
   });
   syncActionIconWithRecordingState();
@@ -1785,7 +1785,7 @@ export default defineBackground(() => {
     await recaptureFlow.recoverInterruptedRecapture();
     await recoverInterruptedRecording();
   })().catch((error) => {
-    console.error('[frametrail] failed to recover an interrupted operation', error);
+    console.error('[stepmark] failed to recover an interrupted operation', error);
   });
 
   const relaySender = (sender: Browser.runtime.MessageSender) => ({
@@ -1942,7 +1942,7 @@ export default defineBackground(() => {
           'snapshot recorder failure recovery failed',
           false,
         );
-      case 'FRAME_TRAIL_RECAPTURE_TARGET':
+      case 'STEPMARK_RECAPTURE_TARGET':
         if (!control.acceptingClicks) {
           return Promise.resolve({ ok: false, status: 'rejected' } satisfies StepRecaptureTargetResult);
         }
@@ -1957,7 +1957,7 @@ export default defineBackground(() => {
             { ok: false, status: 'failed' } satisfies StepRecaptureTargetResult,
           );
         }
-      case 'FRAME_TRAIL_STEP_FRAME_BEGIN':
+      case 'STEPMARK_STEP_FRAME_BEGIN':
         return withMessageFailureFallback(
           (async () => {
             await startupRecovery;
@@ -1967,7 +1967,7 @@ export default defineBackground(() => {
           'child-frame relay authorization failed',
           { ok: false } satisfies StepFrameRelayBeginResult,
         );
-      case 'FRAME_TRAIL_STEP_FRAME_CLAIM':
+      case 'STEPMARK_STEP_FRAME_CLAIM':
         return withMessageFailureFallback(
           (async () => {
             await startupRecovery;
@@ -1977,21 +1977,21 @@ export default defineBackground(() => {
           'child-frame relay claim failed',
           { ok: false } satisfies StepFrameRelayClaimResult,
         );
-      case 'FRAME_TRAIL_STEP_FRAME_REJECT':
+      case 'STEPMARK_STEP_FRAME_REJECT':
         return withMessageFailureFallback(
           stepFrameRelayBroker.reject(message, relaySender(sender)),
           'child-frame relay rejection failed',
           { ok: false } satisfies StepFrameRelayMutationResult,
         );
-      case 'FRAME_TRAIL_STEP_FRAME_SETTLE':
+      case 'STEPMARK_STEP_FRAME_SETTLE':
         return withMessageFailureFallback(
           stepFrameRelayBroker.settle(message, relaySender(sender)),
           'child-frame relay settlement failed',
           { ok: false } satisfies StepFrameRelayMutationResult,
         );
-      case 'FRAME_TRAIL_STEP_FRAME_ABORT':
+      case 'STEPMARK_STEP_FRAME_ABORT':
         return Promise.resolve(stepFrameRelayBroker.abort(message, relaySender(sender)));
-      case 'FRAME_TRAIL_CLICK':
+      case 'STEPMARK_CLICK':
         if (!control.acceptingClicks) {
           return Promise.resolve({ ok: false, error: 'not-accepting-clicks' } satisfies ClickCaptureResult);
         }
@@ -2008,19 +2008,19 @@ export default defineBackground(() => {
             { ok: false, error: 'capture-request-failed' } satisfies ClickCaptureResult,
           );
         }
-      case 'FRAME_TRAIL_CANCEL_CAPTURE':
+      case 'STEPMARK_CANCEL_CAPTURE':
         return withMessageFailureFallback(
           handleCancelCapture(message, sender),
           'capture cancellation failed',
           { ok: false, error: 'capture-cancellation-failed' } satisfies ClickCaptureResult,
         );
-      case 'FRAME_TRAIL_READY':
+      case 'STEPMARK_READY':
         return withMessageFailureFallback(
           handleRecorderReady(message, sender),
           'recorder ready handling failed',
           false,
         );
-      case 'FRAME_TRAIL_RECAPTURE_READY':
+      case 'STEPMARK_RECAPTURE_READY':
         return withMessageFailureFallback(
           recaptureFlow.handleRecaptureReady(message, sender),
           'recapture ready handling failed',
@@ -2037,12 +2037,12 @@ export default defineBackground(() => {
       isExtensionPageOnlyMessage(message) &&
       !isTrustedExtensionPageSender(sender, browser.runtime.getURL('/'))
     ) {
-      console.warn('[frametrail] rejected an untrusted extension control message', message.type);
+      console.warn('[stepmark] rejected an untrusted extension control message', message.type);
       return undefined;
     }
     void routeBackgroundMessage(message, sender).then(sendResponse, (error) => {
       console.error(
-        '[frametrail] background message handling failed unexpectedly:',
+        '[stepmark] background message handling failed unexpectedly:',
         describeBrowserError(error),
         error,
       );
@@ -2072,18 +2072,18 @@ export default defineBackground(() => {
         ),
       );
       if (!result.ok) {
-        console.warn('[frametrail] resumed start failed', result.error);
+        console.warn('[stepmark] resumed start failed', result.error);
         const live = await getRecordingState();
         if (!(live.isRecording && live.sessionId === claim.guide.id)) await claim.release();
       }
     })().catch((error) => {
-      console.error('[frametrail] failed to resume the start after the permission grant', error);
+      console.error('[stepmark] failed to resume the start after the permission grant', error);
     });
   });
 
   browser.commands?.onCommand.addListener((command) => {
     void handleCommandShortcut(command).catch((error) => {
-      console.error('[frametrail] failed to handle command shortcut', error);
+      console.error('[stepmark] failed to handle command shortcut', error);
     });
   });
 
@@ -2159,7 +2159,7 @@ export default defineBackground(() => {
           tabId,
           runId,
           expectedControlVersion,
-          '[frametrail] failed to restore snapshot preparation toolbar after navigation:',
+          '[stepmark] failed to restore snapshot preparation toolbar after navigation:',
         );
         if (restored === 'failed') {
           await setRunError(runId, t().background.controlsUnavailableHere);
@@ -2188,7 +2188,7 @@ export default defineBackground(() => {
         tabId,
         runId,
         expectedControlVersion,
-        '[frametrail] failed to re-inject recorder after navigation:',
+        '[stepmark] failed to re-inject recorder after navigation:',
       );
       if (reinjected === 'failed') {
         await stopRunWithError(
@@ -2198,7 +2198,7 @@ export default defineBackground(() => {
         );
       }
     })().catch((error) => {
-      console.error('[frametrail] failed to handle recorded tab update', error);
+      console.error('[stepmark] failed to handle recorded tab update', error);
     });
   });
 
@@ -2213,7 +2213,7 @@ export default defineBackground(() => {
     void browser.tabs.query({ active: true, windowId }).then(([tab]) => {
       if (tab?.id != null) followMode.scheduleRecordingFollow(tab.id);
     }).catch((error) => {
-      console.warn('[frametrail] failed to inspect the focused window', error);
+      console.warn('[stepmark] failed to inspect the focused window', error);
     });
   });
 
@@ -2233,13 +2233,13 @@ export default defineBackground(() => {
         recordedTabClosedError(),
       );
     })().catch((error) => {
-      console.error('[frametrail] failed to handle recorded tab removal', error);
+      console.error('[stepmark] failed to handle recorded tab removal', error);
     });
   });
 
   // Through the click queue so rehydration is ordered before any queued
   // restore/undo message this startup is already receiving.
   void queueClick(recoverPendingUndo).catch((error) => {
-    console.error('[frametrail] failed to recover the undo window', error);
+    console.error('[stepmark] failed to recover the undo window', error);
   });
 });

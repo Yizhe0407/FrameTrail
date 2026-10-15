@@ -70,7 +70,7 @@ export default function ThumbnailSurface({
       {!privacyReviewRequired && redactionBoxes.map((redaction) => (
         <div
           key={redaction.id}
-          data-frametrail-redaction={redaction.id}
+          data-stepmark-redaction={redaction.id}
           className="pointer-events-none absolute z-10"
           style={{
             left: redaction.left,
@@ -83,7 +83,7 @@ export default function ThumbnailSurface({
       ))}
       {overlay && contentFrame && (
         <div
-          data-frametrail-image-content-frame
+          data-stepmark-image-content-frame
           className="pointer-events-none absolute z-20"
           style={contentFrame}
         >

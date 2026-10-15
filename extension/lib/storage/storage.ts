@@ -254,7 +254,7 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
 
 /** UI-only Guide selection. RecordingState remains the durable owner of an
  * active capture transaction and must never be rewritten merely to navigate. */
-export const ACTIVE_GUIDE_ID_KEY = 'frametrail:activeGuideId';
+export const ACTIVE_GUIDE_ID_KEY = 'stepmark:activeGuideId';
 
 function normalizeActiveGuideId(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;

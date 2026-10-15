@@ -10,7 +10,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import {
-  isFrameTrailStepFrameResultMessage,
+  isStepmarkStepFrameResultMessage,
   isStepFrameHopPayload,
   isStepFrameRelayBeginResult,
   isStepFrameRelayClaimResult,
@@ -95,16 +95,16 @@ describe('step frame relay protocol', () => {
     expect(isStepFrameRelayMutationResult(null)).toBe(false);
 
     const valid = {
-      type: 'FRAME_TRAIL_STEP_FRAME_RESULT',
+      type: 'STEPMARK_STEP_FRAME_RESULT',
       runId: 'run-id',
       captureId: 'capture-id',
       replay: true,
     };
-    expect(isFrameTrailStepFrameResultMessage(valid)).toBe(true);
-    expect(isFrameTrailStepFrameResultMessage({ ...valid, replay: false })).toBe(true);
-    expect(isFrameTrailStepFrameResultMessage({ ...valid, type: 'other' })).toBe(false);
-    expect(isFrameTrailStepFrameResultMessage({ ...valid, runId: '' })).toBe(false);
-    expect(isFrameTrailStepFrameResultMessage({ ...valid, captureId: 'x'.repeat(129) })).toBe(false);
-    expect(isFrameTrailStepFrameResultMessage({ ...valid, replay: 'true' })).toBe(false);
+    expect(isStepmarkStepFrameResultMessage(valid)).toBe(true);
+    expect(isStepmarkStepFrameResultMessage({ ...valid, replay: false })).toBe(true);
+    expect(isStepmarkStepFrameResultMessage({ ...valid, type: 'other' })).toBe(false);
+    expect(isStepmarkStepFrameResultMessage({ ...valid, runId: '' })).toBe(false);
+    expect(isStepmarkStepFrameResultMessage({ ...valid, captureId: 'x'.repeat(129) })).toBe(false);
+    expect(isStepmarkStepFrameResultMessage({ ...valid, replay: 'true' })).toBe(false);
   });
 });

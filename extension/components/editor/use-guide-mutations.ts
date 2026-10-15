@@ -57,7 +57,7 @@ export function useGuideMutations({
   clearUndo,
 }: UseGuideMutationsOptions) {
   function showStructureMutationError(operation: GuideMutationOperation, mutationError: unknown): void {
-    console.error(`[frametrail] guide mutation failed: ${operation}`, mutationError);
+    console.error(`[stepmark] guide mutation failed: ${operation}`, mutationError);
     setOperationError(
       mutationError instanceof GuideContentConflictError
         ? t().editor.mutations.conflict
@@ -98,7 +98,7 @@ export function useGuideMutations({
         try {
           await refreshEditorData();
         } catch (refreshError) {
-          console.error(`[frametrail] reload after failed ${operation} failed`, refreshError);
+          console.error(`[stepmark] reload after failed ${operation} failed`, refreshError);
         } finally {
           if (!optimistic) setOptimisticEntries(null);
         }
@@ -110,7 +110,7 @@ export function useGuideMutations({
       try {
         await refreshEditorData();
       } catch (reloadError) {
-        console.error(`[frametrail] reload after ${operation} failed`, reloadError);
+        console.error(`[stepmark] reload after ${operation} failed`, reloadError);
         setOperationError(t().editor.mutations.reloadFailed);
       }
       if (undo) offerUndo(undo, sessionId);
@@ -399,14 +399,14 @@ export function useGuideMutations({
       }
       clearUndo();
     } catch (undoError) {
-      console.error('[frametrail] failed to undo editor operation', undoError);
+      console.error('[stepmark] failed to undo editor operation', undoError);
       clearUndo();
       setOperationError(
         undoError instanceof GuideContentConflictError
           ? t().editor.undo.conflict
           : t().editor.undo.failed,
       );
-      await refreshEditorData().catch((refreshError) => console.error('[frametrail] reload after failed undo failed', refreshError));
+      await refreshEditorData().catch((refreshError) => console.error('[stepmark] reload after failed undo failed', refreshError));
     } finally {
       endDataOperation();
     }

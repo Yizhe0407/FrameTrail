@@ -30,7 +30,7 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 afterEach(() => {
-  document.querySelectorAll('[data-frametrail-region-capture]').forEach((element) => element.remove());
+  document.querySelectorAll('[data-stepmark-region-capture]').forEach((element) => element.remove());
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

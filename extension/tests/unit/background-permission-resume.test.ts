@@ -4,7 +4,7 @@ import { ACTIVE_GUIDE_ID_KEY } from '@/lib/storage/storage';
 import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
 
-const PENDING_START_KEY = 'frametrail:pending-start:v1';
+const PENDING_START_KEY = 'stepmark:pending-start:v1';
 
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
 const extra = vi.hoisted(() => ({
@@ -153,7 +153,7 @@ describe('start resumed after the cross-tab permission grant', () => {
     expect(extra.createGuide).not.toHaveBeenCalled();
     expect(extra.local.get(ACTIVE_GUIDE_ID_KEY)).toBe('guide-previous');
     expect(error).toHaveBeenCalledWith(
-      '[frametrail] failed to resume the start after the permission grant',
+      '[stepmark] failed to resume the start after the permission grant',
       expect.any(Error),
     );
   });

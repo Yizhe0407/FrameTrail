@@ -8,7 +8,7 @@
  */
 export const zhTW = {
   common: {
-    appName: 'FrameTrail',
+    appName: 'Stepmark',
     cancel: '取消',
     close: '關閉',
     save: '儲存',
@@ -49,14 +49,14 @@ export const zhTW = {
     open: '設定',
     languageDescription: '介面使用的語言。選擇「跟隨瀏覽器」時，會依瀏覽器的語言自動切換。',
     welcomeTitle: '歡迎頁',
-    welcomeDescription: '重新看一次怎麼把 FrameTrail 釘到工具列，以及兩種錄法的差別。',
+    welcomeDescription: '重新看一次怎麼把 Stepmark 釘到工具列，以及兩種錄法的差別。',
     openWelcome: '打開歡迎頁',
   },
 
   // The header every full-page surface shares (components/shared/AppHeader).
   nav: {
     breadcrumb: '目前位置',
-    homeLabel: 'FrameTrail 作品庫',
+    homeLabel: 'Stepmark 作品庫',
     homeTooltip: '回到作品庫',
     libraryOpenFailed: '無法開啟作品庫，請再試一次。',
     settingsOpenFailed: '無法開啟設定頁，請再試一次。',
@@ -64,11 +64,11 @@ export const zhTW = {
 
   welcome: {
     crumb: '歡迎',
-    title: '嗨！我是 FrameTrail',
+    title: '嗨！我是 Stepmark',
     intro: '點一點、錄一錄，就能把網頁操作變成一步一步的圖文教學。',
     pinTitle: '先把我釘到工具列',
-    pinBody: '點瀏覽器右上角的拼圖，再點 FrameTrail 旁邊的圖釘。之後隨時點我就能開始錄。',
-    pinIllustrationLabel: '瀏覽器的擴充功能選單：FrameTrail 旁邊的圖釘已經按下',
+    pinBody: '點瀏覽器右上角的拼圖，再點 Stepmark 旁邊的圖釘。之後隨時點我就能開始錄。',
+    pinIllustrationLabel: '瀏覽器的擴充功能選單：Stepmark 旁邊的圖釘已經按下',
     pinMenuTitle: '擴充功能',
     pinOtherExtension: '其他擴充功能',
     modesTitle: '選一種錄法',
@@ -80,12 +80,12 @@ export const zhTW = {
   },
 
   page: {
-    popup: 'FrameTrail',
-    library: 'FrameTrail 作品庫',
-    editor: 'FrameTrail 編輯器',
-    snapshotShield: 'FrameTrail 快照標註',
-    options: 'FrameTrail 設定',
-    welcome: '歡迎使用 FrameTrail',
+    popup: 'Stepmark',
+    library: 'Stepmark 作品庫',
+    editor: 'Stepmark 編輯器',
+    snapshotShield: 'Stepmark 快照標註',
+    options: 'Stepmark 設定',
+    welcome: '歡迎使用 Stepmark',
   },
 
   mode: {
@@ -112,8 +112,8 @@ export const zhTW = {
     recordTargetNew: '新專案',
     recordTargetCount: (count: number) => `${count} 個畫面`,
     continueRecording: '接續錄製',
-    editorServiceUnavailable: '無法連接編輯器服務，請重新開啟 FrameTrail 後再試一次。',
-    activeTabUnreadable: '無法讀取目前分頁，請重新開啟 FrameTrail 後再試一次。',
+    editorServiceUnavailable: '無法連接編輯器服務，請重新開啟 Stepmark 後再試一次。',
+    activeTabUnreadable: '無法讀取目前分頁，請重新開啟 Stepmark 後再試一次。',
     restrictedPageError: '此頁面不允許錄製，請切換到要示範的一般網站分頁後再試一次。',
     startFailed: '無法開始錄製，請重新整理頁面後再試一次。',
     returnToTabFailed: '無法回到錄製分頁，分頁可能已關閉。',
@@ -123,7 +123,7 @@ export const zhTW = {
     returnToRecordingTab: '回到錄製分頁',
     singleTabOnly: '目前僅錄製單一分頁。',
     enableCrossTab: '啟用跨分頁錄製',
-    restrictedPageHint: '這個頁面無法錄製。請切換到要示範的一般網頁分頁，再開啟 FrameTrail。',
+    restrictedPageHint: '這個頁面無法錄製。請切換到要示範的一般網頁分頁，再開啟 Stepmark。',
   },
 
   library: {
@@ -146,7 +146,7 @@ export const zhTW = {
     noMatches: '找不到符合的作品',
     empty: '建立第一份作品',
     noMatchesHint: '換個關鍵字，或清除標籤篩選再試一次。',
-    emptyHint: '到想示範的網頁打開 FrameTrail 按「開始錄製」，或先建立一份空白作品。',
+    emptyHint: '到想示範的網頁打開 Stepmark 按「開始錄製」，或先建立一份空白作品。',
     otherActionPending: '另一項操作進行中',
     tag: (tag: string) => `＃${tag}`,
     titleLabel: '作品名稱',
@@ -156,11 +156,11 @@ export const zhTW = {
     exportArchiveTooltip: '匯出',
     exportDialogTitle: '匯出可編輯檔案？',
     exportDialogDescription: (filename: string) =>
-      `將下載 ${filename}。檔案包含原始截圖、標註、遮罩、說明與章節，可再次匯入 FrameTrail 編輯；因含未套用遮罩的原始截圖，請勿直接公開分享。`,
-    exportDialogConfirm: '下載 .frametrail',
+      `將下載 ${filename}。檔案包含原始截圖、標註、遮罩、說明與章節，可再次匯入 Stepmark 編輯；因含未套用遮罩的原始截圖，請勿直接公開分享。`,
+    exportDialogConfirm: '下載 .stepmark',
     exportDialogPending: '匯出中',
     deleteDialogTitle: '永久刪除這份作品？',
-    deleteDialogDescription: '原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出 .frametrail 可編輯檔案。',
+    deleteDialogDescription: '原始截圖、標註、遮罩與說明都會從本機刪除。建議先匯出 .stepmark 可編輯檔案。',
     deleteDialogConfirm: '永久刪除',
   },
 
@@ -198,9 +198,9 @@ export const zhTW = {
     loading: '正在讀取內容…',
     missingTitle: '找不到這份內容',
     missingDeleted: '這份內容可能已被刪除或網址已失效。為避免顯示其他錄製內容，編輯器不會自動切換到其他內容。',
-    missingId: '編輯器網址缺少內容識別碼。請從 FrameTrail 作品庫重新開啟內容。',
+    missingId: '編輯器網址缺少內容識別碼。請從 Stepmark 作品庫重新開啟內容。',
     invalidTitle: '內容結構需要修復',
-    invalidBody: '為避免遺漏、拆散或覆蓋步驟，FrameTrail 已停止載入與發佈這份內容。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。',
+    invalidBody: '為避免遺漏、拆散或覆蓋步驟，Stepmark 已停止載入與發佈這份內容。請先從作品庫匯出可編輯檔案，再重新開啟或復原內容。',
     noSelectionTitle: '尚未選擇步驟',
     noSelectionBody: '請從左側步驟列表選擇要編輯的內容。',
     recaptureFailed: '補拍失敗，原本內容未變更。',
@@ -376,7 +376,7 @@ export const zhTW = {
       needsAccess: (action: string) => `${action}前需要存取來源網站`,
       pickTabBody: '錄製會從選取的分頁開始，之後會跟著你切換的分頁；新步驟會接在最後。',
       sourceUnavailableBody: (reason: string) => `${reason}你可以改在目前開啟的網頁分頁繼續錄製。`,
-      accessBody: 'FrameTrail 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。',
+      accessBody: 'Stepmark 只會要求這個網站的存取權，且會在開始前由背景程序再次核對目前儲存的來源。',
       appendNote: '新步驟會接在最後。',
       continueElsewhere: '改在其他頁面接續',
       authorizing: '正在授權…',
@@ -447,11 +447,8 @@ export const zhTW = {
   sortable: {
     handle: '拖曳排序',
     roleDescription: '可拖曳的排序控制項',
-    tooltip: '拖曳以重新排序（鍵盤：Enter 或空白鍵開始，方向鍵移動，再按一次放下）',
     stepNoun: '步驟',
     annotationNoun: '標註',
-    instructions: (noun: string) =>
-      `按 Enter 或空白鍵開始排序。開始後用方向鍵移動${noun}，再按一次 Enter 或空白鍵放下，按 Esc 取消。`,
     item: (noun: string, position: number) => `${noun} ${position}`,
     dragStart: (item: string) => `已提起 ${item}。`,
     dragOver: (item: string, position: number) => `${item} 移到 第 ${position} 個位置。`,
@@ -569,7 +566,7 @@ export const zhTW = {
 
   /** Messages the background service and recorders report back to a page. */
   runtime: {
-    backgroundUnavailable: 'FrameTrail 背景服務暫時無法回應，請重新整理頁面後再試一次。',
+    backgroundUnavailable: 'Stepmark 背景服務暫時無法回應，請重新整理頁面後再試一次。',
     recordingServiceUnavailable: '無法連接錄製服務，請重新整理頁面後再試一次。',
     editorOpenFailed: '無法開啟編輯器，請再試一次。',
     guideNotFound: '找不到這份內容。',
@@ -644,10 +641,10 @@ export const zhTW = {
     stoppedRecorderUnavailable: '錄製已停止，因為頁面切換後無法載入錄製工具。',
     sourceTabOpenFailed: '無法開啟原始頁面。',
     restrictedContinuationSource: '此來源頁面不允許錄製。',
-    editorOnlyContinuation: '只能從目前 Guide 的 FrameTrail 編輯器接續錄製。',
+    editorOnlyContinuation: '只能從目前 Guide 的 Stepmark 編輯器接續錄製。',
     continuationSourceRedirected: '原始頁面已重新導向，未開始錄製。',
     continuationSourceMissing: '這份內容還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。',
-    continuationAccessRequired: '需要先允許 FrameTrail 存取此網站，才能接續錄製。',
+    continuationAccessRequired: '需要先允許 Stepmark 存取此網站，才能接續錄製。',
   },
 
   recaptureFlow: {
@@ -655,9 +652,9 @@ export const zhTW = {
     operationChanged: '操作狀態已改變，請再試一次。',
     sourceRedirected: '原始頁面已重新導向，未開始補拍。',
     restrictedSource: '此來源頁面不允許補拍。',
-    editorOnlyPreflight: '只能從目前 Guide 的 FrameTrail 編輯器驗證補拍來源。',
-    editorOnlyStart: '只能從 FrameTrail 編輯器啟動補拍。',
-    editorOnlyGuideStart: '只能從目前 Guide 的 FrameTrail 編輯器啟動補拍。',
+    editorOnlyPreflight: '只能從目前 Guide 的 Stepmark 編輯器驗證補拍來源。',
+    editorOnlyStart: '只能從 Stepmark 編輯器啟動補拍。',
+    editorOnlyGuideStart: '只能從目前 Guide 的 Stepmark 編輯器啟動補拍。',
     stepNotFound: '找不到要補拍的步驟。',
     stepChanged: '此步驟已變更，請重新整理編輯器後再試一次。',
     snapshotNotFound: '找不到要補拍的快照。',
@@ -669,7 +666,7 @@ export const zhTW = {
     interrupted: '補拍流程曾中斷，原本內容未變更；請重新補拍。',
     sourceNavigated: '補拍已停止，因為原始頁面在選取期間發生導覽。原本內容未變更。',
     sourceTabClosed: '補拍已停止，因為原始分頁已關閉。原本內容未變更。',
-    accessRequired: '需要先允許 FrameTrail 存取此網站，才能補拍。',
+    accessRequired: '需要先允許 Stepmark 存取此網站，才能補拍。',
     injectFailed: '無法在原始頁面啟動補拍。',
     alreadyStarting: '目前已有補拍正在啟動。',
     alreadyEnded: '這次補拍已經結束。',

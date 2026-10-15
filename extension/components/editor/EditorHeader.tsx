@@ -41,7 +41,7 @@ export default function EditorHeader({
   return (
     <AppHeader
       current={guideTitle == null ? t().common.editor : guideTitle.trim() || t().common.untitledGuide}
-      currentHeading={{ id: 'frametrail-editor-title' }}
+      currentHeading={{ id: 'stepmark-editor-title' }}
       beforeNavigate={beforeNavigate}
       status={operationActive && (
         <Badge variant="status" className="min-w-0">

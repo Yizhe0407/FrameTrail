@@ -68,7 +68,7 @@ export default function StepStage({
     try {
       await commitTags(tags);
     } catch (tagError) {
-      setStageError(reportError('[frametrail] failed to update guide tags', tagError, t().editor.stage.tagSaveFailed));
+      setStageError(reportError('[stepmark] failed to update guide tags', tagError, t().editor.stage.tagSaveFailed));
     }
   }
 
@@ -83,7 +83,7 @@ export default function StepStage({
             disabled={editingDisabled || !onTitleChange}
             onCommit={(title) => onTitleChange?.(title)}
             onCommitError={(titleError) => {
-              setStageError(reportError('[frametrail] failed to rename guide', titleError, t().editor.stage.titleSaveFailed));
+              setStageError(reportError('[stepmark] failed to rename guide', titleError, t().editor.stage.titleSaveFailed));
             }}
             className="w-fit min-w-[8ch] max-w-[calc(100%-1.75rem)] rounded-md border-2 border-transparent px-2 py-1 text-[22px] leading-tight font-bold text-foreground transition-colors focus-ring hover:border-border-soft focus:border-border focus:bg-card [field-sizing:content]"
           />
@@ -138,7 +138,7 @@ export default function StepStage({
     try {
       await onSetNumbered(entryId(entry), next);
     } catch (err) {
-      setStageError(reportError('[frametrail] failed to update annotation numbering', err, t().editor.stage.numberingSaveFailed));
+      setStageError(reportError('[stepmark] failed to update annotation numbering', err, t().editor.stage.numberingSaveFailed));
     } finally {
       setNumberingPending(false);
     }

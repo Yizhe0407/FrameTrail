@@ -73,7 +73,7 @@ function useStartPreflight(onProbeError: (message: string) => void) {
         setActiveTabId(tab?.id != null && !isRestrictedUrl(tab.url) ? tab.id : null);
       })
       .catch((error) => {
-        console.error('[frametrail] failed to inspect the active tab', error);
+        console.error('[stepmark] failed to inspect the active tab', error);
         if (!disposed) {
           setRestrictedPage(true);
           onProbeError(t().popup.activeTabUnreadable);
@@ -88,7 +88,7 @@ function useStartPreflight(onProbeError: (message: string) => void) {
         ]);
         if (!disposed) setCrossTab(granted ? 'granted' : declined ? 'declined' : 'ungranted');
       } catch (error) {
-        console.warn('[frametrail] failed to read the cross-tab recording permission', error);
+        console.warn('[stepmark] failed to read the cross-tab recording permission', error);
         if (!disposed) setCrossTab('ungranted');
       }
     })();
@@ -132,7 +132,7 @@ export default function RecordControls({
             parkPendingStart(resumeStart),
             markCrossTabRecordingDeclined(),
           ]).then(() => true, (error) => {
-            console.warn('[frametrail] failed to park the pending recording start', error);
+            console.warn('[stepmark] failed to park the pending recording start', error);
             return false;
           })
         : Promise.resolve(false);
@@ -143,7 +143,7 @@ export default function RecordControls({
       else await markCrossTabRecordingDeclined();
       return { granted, parked };
     } catch (error) {
-      console.warn('[frametrail] failed to request the cross-tab recording permission', error);
+      console.warn('[stepmark] failed to request the cross-tab recording permission', error);
       return { granted: false, parked: false };
     }
   }
@@ -174,7 +174,7 @@ export default function RecordControls({
       await startRecordingIntoGuide(mode, targetGuideId);
       onStarted?.();
     } catch (error) {
-      setControlError(reportError('[frametrail] failed to start recording', error, t().popup.startFailed));
+      setControlError(reportError('[stepmark] failed to start recording', error, t().popup.startFailed));
     } finally {
       setPending(false);
     }
@@ -190,7 +190,7 @@ export default function RecordControls({
       await focusTab(recording.tabId, tab.windowId);
       window.close();
     } catch (error) {
-      setControlError(reportError('[frametrail] failed to return to the recording tab', error, t().popup.returnToTabFailed));
+      setControlError(reportError('[stepmark] failed to return to the recording tab', error, t().popup.returnToTabFailed));
     }
   }
 

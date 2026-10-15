@@ -151,7 +151,7 @@ export default function PublishGuideDialog(props: PublishGuideDialogProps) {
       if (isAbortError(actionError) || controller.signal.aborted) {
         setNotice(t().editor.publish.cancelled);
       } else {
-        console.error(`[frametrail] guide export failed: ${action}`, actionError);
+        console.error(`[stepmark] guide export failed: ${action}`, actionError);
         setError(publicationCopy(action).failed);
       }
     } finally {

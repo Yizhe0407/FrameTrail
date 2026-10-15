@@ -43,7 +43,7 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
     try {
       await onDelete(step);
     } catch (err) {
-      setActionError(reportError('[frametrail] failed to delete annotation', err, t().editor.annotations.deleteFailed));
+      setActionError(reportError('[stepmark] failed to delete annotation', err, t().editor.annotations.deleteFailed));
     } finally {
       setDeleting(false);
     }
@@ -137,7 +137,7 @@ export default function AnnotationList({
     {
       disabled: editingDisabled,
       itemNoun: t().sortable.annotationNoun,
-      logLabel: '[frametrail] failed to reorder snapshot annotations',
+      logLabel: '[stepmark] failed to reorder snapshot annotations',
     },
   );
 

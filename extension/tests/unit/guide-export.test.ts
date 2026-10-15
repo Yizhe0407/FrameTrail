@@ -143,8 +143,8 @@ describe('guide export', () => {
 
   it('strips filesystem-unsafe characters and falls back for symbol-only titles', () => {
     expect(guideExportFilename({ title: 'a\\b:c*d?e"f<g>h|i' }, 'markdown')).toBe('a-b-c-d-e-f-g-h-i.md');
-    expect(guideExportFilename({ title: '  ！？＊  ' }, 'markdown')).toBe('frame-trail-guide.md');
-    expect(guideExportFilename({}, 'pdf')).toBe('frame-trail-guide.pdf');
+    expect(guideExportFilename({ title: '  ！？＊  ' }, 'markdown')).toBe('stepmark-guide.md');
+    expect(guideExportFilename({}, 'pdf')).toBe('stepmark-guide.pdf');
   });
 
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {

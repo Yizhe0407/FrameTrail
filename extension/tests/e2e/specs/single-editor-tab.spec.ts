@@ -67,7 +67,7 @@ test.describe('single editor tab', () => {
     // the editor turns that very tab into the library, adding no tab.
     await firstEditor.bringToFront();
     const pagesBefore = extensionContext.pages().length;
-    await firstEditor.getByRole('button', { name: 'FrameTrail 作品庫' }).click();
+    await firstEditor.getByRole('button', { name: 'Stepmark 作品庫' }).click();
     await firstEditor.waitForURL(/\/library\.html$/);
     expect(extensionPages(extensionContext, 'editor')).toHaveLength(0);
     expect(extensionContext.pages()).toHaveLength(pagesBefore);

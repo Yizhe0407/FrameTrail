@@ -11,7 +11,7 @@ import {
   type Step,
 } from './models';
 
-export interface FrameTrailDB extends DBSchema {
+export interface StepmarkDB extends DBSchema {
   steps: {
     key: string;
     value: Step;
@@ -24,8 +24,8 @@ export interface FrameTrailDB extends DBSchema {
   };
 }
 
-export type GuideStepsTransaction = IDBPTransaction<FrameTrailDB, ['guides', 'steps'], 'readwrite'>;
-export type ReadonlyGuideStepsTransaction = IDBPTransaction<FrameTrailDB, ['guides', 'steps'], 'readonly'>;
+export type GuideStepsTransaction = IDBPTransaction<StepmarkDB, ['guides', 'steps'], 'readwrite'>;
+export type ReadonlyGuideStepsTransaction = IDBPTransaction<StepmarkDB, ['guides', 'steps'], 'readonly'>;
 
 interface GroupSummaryAccumulator {
   hasAnchorImage: boolean;
@@ -191,12 +191,12 @@ async function abortTransaction(tx: GuideStepsTransaction, error: unknown): Prom
   throw error;
 }
 
-let databasePromise: Promise<IDBPDatabase<FrameTrailDB>> | undefined;
-let databaseConnection: IDBPDatabase<FrameTrailDB> | undefined;
+let databasePromise: Promise<IDBPDatabase<StepmarkDB>> | undefined;
+let databaseConnection: IDBPDatabase<StepmarkDB> | undefined;
 
-function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
+function getDatabase(): Promise<IDBPDatabase<StepmarkDB>> {
   if (databasePromise) return databasePromise;
-  databasePromise = openDB<FrameTrailDB>('frametrail', 1, {
+  databasePromise = openDB<StepmarkDB>('stepmark', 1, {
     upgrade(db) {
       const steps = db.createObjectStore('steps', { keyPath: 'id' });
       steps.createIndex('by-session', 'sessionId');
@@ -204,7 +204,7 @@ function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
       guides.createIndex('by-updated-at', 'updatedAt');
     },
     blocked(currentVersion, blockedVersion) {
-      console.warn(`FrameTrail database upgrade to ${blockedVersion ?? 'unknown'} is blocked by version ${currentVersion}.`);
+      console.warn(`Stepmark database upgrade to ${blockedVersion ?? 'unknown'} is blocked by version ${currentVersion}.`);
     },
     blocking(currentVersion, blockedVersion) {
       // A versionchange must never remain blocked by this long-lived extension
@@ -212,7 +212,7 @@ function getDatabase(): Promise<IDBPDatabase<FrameTrailDB>> {
       databaseConnection?.close();
       databaseConnection = undefined;
       databasePromise = undefined;
-      console.warn(`FrameTrail database version ${currentVersion} closed for version ${blockedVersion ?? 'unknown'}.`);
+      console.warn(`Stepmark database version ${currentVersion} closed for version ${blockedVersion ?? 'unknown'}.`);
     },
     terminated() {
       databaseConnection = undefined;
@@ -239,7 +239,7 @@ function isClosedConnectionError(error: unknown): boolean {
  * committed, retrying once against a freshly opened connection is safe and
  * transparently recovers autosaves and other in-flight callers. */
 export async function runWithDatabase<T>(
-  operation: (db: IDBPDatabase<FrameTrailDB>) => Promise<T>,
+  operation: (db: IDBPDatabase<StepmarkDB>) => Promise<T>,
 ): Promise<T> {
   const db = await getDatabase();
   try {

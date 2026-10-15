@@ -41,7 +41,7 @@ export const test = base.extend<Fixtures & Options>({
   recordTrace: [true, { option: true }],
 
   extensionContext: async ({ nativeScrollbars, recordTrace }, use, testInfo) => {
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'frametrail-playwright-'));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'stepmark-playwright-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chromium',
       headless: process.env.PW_HEADED !== '1',

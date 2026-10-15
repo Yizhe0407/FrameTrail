@@ -88,7 +88,7 @@ export async function exportImagesAsZip(
   });
   throwIfAborted(signal);
 
-  const filename = `frame-trail-images-${localDateStamp()}.zip`;
+  const filename = `stepmark-images-${localDateStamp()}.zip`;
   await downloadBlobViaBrowser(blob, filename, { signal });
   return { filename, itemCount: entries.length };
 }

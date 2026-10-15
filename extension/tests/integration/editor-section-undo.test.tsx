@@ -20,7 +20,7 @@ vi.mock('wxt/browser', async () => {
   const { makeExtensionPageRuntimeMock } = await import('../setup/browser-mocks');
   return {
     browser: {
-      runtime: makeExtensionPageRuntimeMock({ extensionHost: 'frametrail' }),
+      runtime: makeExtensionPageRuntimeMock({ extensionHost: 'stepmark' }),
       permissions: { request: vi.fn() },
     },
   };

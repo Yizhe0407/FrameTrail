@@ -7,7 +7,7 @@ import { StepRecaptureError } from '@/lib/storage/step-repository';
 import type { Step } from '@/lib/storage/models';
 import type { RecordingState } from '@/lib/storage/recording-state';
 import type { StepRecaptureTarget } from '@/lib/storage/step-repository';
-import type { FrameTrailRecaptureTargetMessage } from '@/lib/runtime/messages';
+import type { StepmarkRecaptureTargetMessage } from '@/lib/runtime/messages';
 import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork } from '../setup/background-test-utils';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
@@ -101,10 +101,10 @@ function recaptureContext(overrides: Partial<NonNullable<RecordingState['recaptu
 }
 
 function targetMessage(
-  overrides: Partial<FrameTrailRecaptureTargetMessage> = {},
-): FrameTrailRecaptureTargetMessage {
+  overrides: Partial<StepmarkRecaptureTargetMessage> = {},
+): StepmarkRecaptureTargetMessage {
   return {
-    type: 'FRAME_TRAIL_RECAPTURE_TARGET',
+    type: 'STEPMARK_RECAPTURE_TARGET',
     runId: 'recapture-1',
     captureId: 'capture-1',
     rect: { x: 5, y: 6, width: 70, height: 80 },
@@ -330,7 +330,7 @@ describe('startStepRecapture', () => {
     harness.injectRecorder.mockImplementation(async () => {
       const context = harness.getState().recapture!;
       await harness.flow.handleRecaptureReady(
-        { type: 'FRAME_TRAIL_RECAPTURE_READY', runId: context.runId, url: SOURCE_URL },
+        { type: 'STEPMARK_RECAPTURE_READY', runId: context.runId, url: SOURCE_URL },
         sourceSender(),
       );
     });
@@ -515,7 +515,7 @@ describe('handleRecaptureReady', () => {
   it('advances selection only for the persisted source document', async () => {
     const { settle } = await startWithHandshake((runId) =>
       harness.flow.handleRecaptureReady(
-        { type: 'FRAME_TRAIL_RECAPTURE_READY', runId, url: SOURCE_URL },
+        { type: 'STEPMARK_RECAPTURE_READY', runId, url: SOURCE_URL },
         sourceSender(),
       ),
     );
@@ -530,7 +530,7 @@ describe('handleRecaptureReady', () => {
     const { settle } = await startWithHandshake(async (runId) => {
       acknowledged.push(
         await harness.flow.handleRecaptureReady(
-          { type: 'FRAME_TRAIL_RECAPTURE_READY', runId, url: SOURCE_URL },
+          { type: 'STEPMARK_RECAPTURE_READY', runId, url: SOURCE_URL },
           sourceSender({ tabId: 999 }),
         ),
       );
@@ -548,7 +548,7 @@ describe('handleRecaptureReady', () => {
     silenceIntentionalErrorLogs();
     const { settle } = await startWithHandshake(async () => {
       await harness.flow.handleRecaptureReady(
-        { type: 'FRAME_TRAIL_RECAPTURE_READY', runId: 'some-other-run', url: SOURCE_URL },
+        { type: 'STEPMARK_RECAPTURE_READY', runId: 'some-other-run', url: SOURCE_URL },
         sourceSender(),
       );
     });
@@ -563,7 +563,7 @@ describe('handleRecaptureReady', () => {
 
     await expect(
       harness.flow.handleRecaptureReady(
-        { type: 'FRAME_TRAIL_RECAPTURE_READY', runId: 'recapture-1', url: SOURCE_URL },
+        { type: 'STEPMARK_RECAPTURE_READY', runId: 'recapture-1', url: SOURCE_URL },
         sourceSender(),
       ),
     ).resolves.toBe(false);

@@ -10,7 +10,7 @@ export const RECORDER_READY_TIMEOUT_MS = 5_000;
 /** The viewport/url/timestamp context a snapshot recorder reports alongside
  * its READY handshake; the anchor capture consumes it during startup. */
 export type SnapshotCaptureContext = NonNullable<
-  Extract<BackgroundMessage, { type: 'FRAME_TRAIL_READY' }>['snapshotContext']
+  Extract<BackgroundMessage, { type: 'STEPMARK_READY' }>['snapshotContext']
 >;
 
 export interface ClaimControlOptions {

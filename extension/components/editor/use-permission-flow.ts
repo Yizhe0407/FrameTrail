@@ -202,7 +202,7 @@ export function usePermissionFlow({
       }
       await startStepRecaptureOrThrow(sessionId, prepared.action.target);
     } catch (permissionError) {
-      failFlow(flow, '[frametrail] failed to authorize and start source recording', permissionError, t().editor.permission.sourceStartFailed);
+      failFlow(flow, '[stepmark] failed to authorize and start source recording', permissionError, t().editor.permission.sourceStartFailed);
     } finally {
       if (flow.isCurrent()) clearPreparedPermission();
     }
@@ -233,7 +233,7 @@ export function usePermissionFlow({
       setContinuationTabs(tabs);
       setSelectedContinuationTabId(defaultContinuationTab(tabs, lastStepUrl)?.id ?? null);
     } catch (listError) {
-      console.error('[frametrail] failed to list continuation tabs', listError);
+      console.error('[stepmark] failed to list continuation tabs', listError);
       if (flow.isCurrent()) {
         setContinueElsewhereError(t().editor.permission.tabsUnreadable);
       }
@@ -269,7 +269,7 @@ export function usePermissionFlow({
         confirmed = await browser.tabs.get(target.id);
       } catch (switchError) {
         // The picked tab closed while the dialog was open; refresh the list instead of using a stale choice.
-        console.warn('[frametrail] failed to switch to the chosen continuation tab', switchError);
+        console.warn('[stepmark] failed to switch to the chosen continuation tab', switchError);
         if (flow.isCurrent()) {
           keepDialogOpen = true;
           setContinueElsewherePending(false);
@@ -288,7 +288,7 @@ export function usePermissionFlow({
         mode: continuationMode,
       });
     } catch (continueError) {
-      failFlow(flow, '[frametrail] failed to continue recording on another page', continueError, t().editor.permission.continueElsewhereFailed);
+      failFlow(flow, '[stepmark] failed to continue recording on another page', continueError, t().editor.permission.continueElsewhereFailed);
     } finally {
       if (flow.isCurrent() && !keepDialogOpen) clearPreparedPermission();
     }
@@ -305,7 +305,7 @@ export function usePermissionFlow({
     try {
       prepared = await requestRecapturePreflight(sessionId!, target, targetEntryId);
     } catch (recaptureError) {
-      failFlow(flow, '[frametrail] failed to verify recapture source', recaptureError, t().editor.permission.recaptureSourceUnverified);
+      failFlow(flow, '[stepmark] failed to verify recapture source', recaptureError, t().editor.permission.recaptureSourceUnverified);
     } finally {
       finishPermissionPreflight(flow, prepared);
     }
@@ -322,7 +322,7 @@ export function usePermissionFlow({
     try {
       prepared = await requestContinuationPreflight(sessionId!);
     } catch (continuationError) {
-      failFlow(flow, '[frametrail] failed to verify continuation source', continuationError, t().editor.permission.continuationSourceUnverified);
+      failFlow(flow, '[stepmark] failed to verify continuation source', continuationError, t().editor.permission.continuationSourceUnverified);
     } finally {
       finishPermissionPreflight(flow, prepared);
     }

@@ -21,14 +21,14 @@ import { installStepRecorder } from '@/lib/recording/content/step-recorder';
 import { createToolbarChannel } from '@/lib/recording/content/toolbar-channel';
 import { CLEANUP_EVENT } from '@/lib/recording/content-script-constants';
 import type {
-  FrameTrailSnapshotActiveMessage,
-  FrameTrailStopMessage,
+  StepmarkSnapshotActiveMessage,
+  StepmarkStopMessage,
   SnapshotRecorderFailureMessage,
 } from '@/lib/runtime/messages';
 import { t } from '@/lib/shared/i18n';
 import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
-const INSTANCE_KEY = `__frame_trail_instance_${browser.runtime.id}`;
+const INSTANCE_KEY = `__stepmark_instance_${browser.runtime.id}`;
 export default defineContentScript({
   matches: ['<all_urls>'],
   registration: 'runtime',
@@ -146,12 +146,12 @@ export default defineContentScript({
       cleanup: () => cleanup(),
     });
 
-    const onRecorderMessage = (message: FrameTrailStopMessage | FrameTrailSnapshotActiveMessage) => {
-      if (message?.type === 'FRAME_TRAIL_STOP') {
+    const onRecorderMessage = (message: StepmarkStopMessage | StepmarkSnapshotActiveMessage) => {
+      if (message?.type === 'STEPMARK_STOP') {
         cleanup();
         return;
       }
-      if (message?.type === 'FRAME_TRAIL_SNAPSHOT_ACTIVE' && message.runId === runId) {
+      if (message?.type === 'STEPMARK_SNAPSHOT_ACTIVE' && message.runId === runId) {
         snapshot.setInteractionsActive(true);
         snapshot.notifyInvalidated();
         return Promise.resolve(true);
@@ -193,7 +193,7 @@ export default defineContentScript({
               reason: 'shield-channel',
             } satisfies SnapshotRecorderFailureMessage);
           } catch (error) {
-            console.error('[frametrail] failed to report snapshot shield failure', error);
+            console.error('[stepmark] failed to report snapshot shield failure', error);
           }
         },
       );
@@ -208,7 +208,7 @@ export default defineContentScript({
             try {
               shield.sendKeyboardCandidates(collectKeyboardCandidateAnchors());
             } catch (error) {
-              console.warn('[frametrail] failed to enumerate keyboard candidates', error);
+              console.warn('[stepmark] failed to enumerate keyboard candidates', error);
             }
           };
           if (typeof requestIdleCallback === 'function') requestIdleCallback(sendCandidates, { timeout: 500 });
@@ -228,7 +228,7 @@ export default defineContentScript({
     let isCurrentRecordedTab = false;
     try {
       const readyMessage: import('@/lib/runtime/messages').RecorderReadyMessage = {
-        type: 'FRAME_TRAIL_READY',
+        type: 'STEPMARK_READY',
         runId,
         ...(shouldFreezeSnapshot
           ? {
@@ -250,13 +250,13 @@ export default defineContentScript({
         t().runtime.recordingResponseInvalid,
       );
     } catch (err) {
-      console.error('[frametrail] recorder readiness check failed', err);
+      console.error('[stepmark] recorder readiness check failed', err);
     }
     if (!isCurrentRecordedTab || instanceHost[INSTANCE_KEY] !== instanceId) {
       cleanup();
       return;
     }
 
-    console.log('[frametrail] recorder ready on', location.href);
+    console.log('[stepmark] recorder ready on', location.href);
   },
 });

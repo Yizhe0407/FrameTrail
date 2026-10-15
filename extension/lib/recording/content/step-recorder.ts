@@ -118,7 +118,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     capture: actions.capture,
     cancelCapture: async () => {
       gesture.cancel();
-      await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId: session.runId, captureId: gesture.captureId });
+      await browser.runtime.sendMessage({ type: 'STEPMARK_CANCEL_CAPTURE', runId: session.runId, captureId: gesture.captureId });
     },
     endGesture: () => {
       // Capture window closed: stop swallowing page events. The scroll pin
@@ -171,13 +171,13 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         ]);
         if (timeout) clearTimeout(timeout);
         if (outcome.kind === 'timeout') {
-          await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId: session.runId, captureId });
-          console.warn('[frametrail] region capture exceeded its failsafe budget and was cancelled');
+          await browser.runtime.sendMessage({ type: 'STEPMARK_CANCEL_CAPTURE', runId: session.runId, captureId });
+          console.warn('[stepmark] region capture exceeded its failsafe budget and was cancelled');
         }
       },
       onCancel: async () => {
         if (!captureSent) return;
-        await browser.runtime.sendMessage({ type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId: session.runId, captureId });
+        await browser.runtime.sendMessage({ type: 'STEPMARK_CANCEL_CAPTURE', runId: session.runId, captureId });
       },
       onClose: () => {
         if (session.regionCapture === controller) session.regionCapture = null;
@@ -231,7 +231,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         captureId,
       );
     } catch (err) {
-      console.error('[frametrail] sendMessage failed', err);
+      console.error('[stepmark] sendMessage failed', err);
       return false;
     }
   };
@@ -245,7 +245,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     // being swallowed after the dedup window declines to capture it.
     if (pe.isTrusted) lateClickSuppressor.onTrustedPointerDown();
     if (session.paused || session.regionCapture?.isActive()) return;
-    if (pe.target instanceof Element && pe.target.closest('[data-frametrail-recording-toolbar]')) return;
+    if (pe.target instanceof Element && pe.target.closest('[data-stepmark-recording-toolbar]')) return;
 
     // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
     // step: leave it untouched so the drag scrolls and no bogus step lands.
@@ -290,7 +290,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
           }),
         );
         if (outcome === 'timeout') {
-          console.warn('[frametrail] capture exceeded its failsafe budget; invalidated it before replaying the click');
+          console.warn('[stepmark] capture exceeded its failsafe budget; invalidated it before replaying the click');
         }
       },
     });
@@ -314,7 +314,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     let claimResult: unknown;
     try {
       claimResult = await browser.runtime.sendMessage({
-        type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
+        type: 'STEPMARK_STEP_FRAME_CLAIM',
         runId: session.runId,
         captureId: relayed.payload.captureId,
         relayToken: relayed.payload.relayToken,
@@ -334,14 +334,14 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
       settlementStarted = true;
       try {
         const result: unknown = await browser.runtime.sendMessage({
-          type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
+          type: 'STEPMARK_STEP_FRAME_SETTLE',
           runId: session.runId,
           captureId: relayed.payload.captureId,
           settleToken: claimResult.settleToken,
           replay,
         } satisfies StepFrameRelaySettleMessage);
         if (!isStepFrameRelayMutationResult(result) || !result.ok) {
-          console.warn('[frametrail] child-frame relay settlement was rejected');
+          console.warn('[stepmark] child-frame relay settlement was rejected');
         }
       } catch {
         // The child frame's local failsafe releases the gesture if the
@@ -383,12 +383,12 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
       );
       if (!replayConfirmed) await settleRelay(false);
       if (outcome === 'timeout') {
-        console.warn('[frametrail] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
+        console.warn('[stepmark] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
       }
     } catch (error) {
       gesture.release();
       await settleRelay(false);
-      console.warn('[frametrail] child-frame relay handling failed', error);
+      console.warn('[stepmark] child-frame relay handling failed', error);
     }
   };
 
@@ -410,7 +410,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         !session.regionCapture?.isActive() &&
         Date.now() - relayed.payload.originTimestamp < STEP_FRAME_CLICK_FAILSAFE_MS,
       onSkipped: () => {
-        console.warn('[frametrail] skipped a relayed step-frame hop that went stale while queued');
+        console.warn('[stepmark] skipped a relayed step-frame hop that went stale while queued');
       },
       start: (gesture) => runRelayedFrameGesture(gesture, relayed),
     });

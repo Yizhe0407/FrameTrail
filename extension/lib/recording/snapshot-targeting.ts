@@ -25,9 +25,9 @@ import {
 import { findImageForArea, resolveImageMapTargetAtPoint } from './image-map-resolver';
 import { isFiniteRect } from '../shared/validation';
 import { CLEANUP_EVENT } from './content-script-constants';
-import type { FrameTrailStopMessage } from '../runtime/messages';
+import type { StepmarkStopMessage } from '../runtime/messages';
 
-const FRAME_PROBE_MESSAGE = `frame_trail_snapshot_probe_${browser.runtime.id}`;
+const FRAME_PROBE_MESSAGE = `stepmark_snapshot_probe_${browser.runtime.id}`;
 const FRAME_PROBE_TIMEOUT_MS = 120;
 const FRAME_PROBE_CHILD_BUDGET_MS = 20;
 const FRAME_PROBE_RETRY_DELAY_MS = 2_000;
@@ -317,12 +317,12 @@ export function installSnapshotFrameProbe(runId: string): void {
             }
           : null;
       } catch (error) {
-        console.error('[frametrail] child frame probe failed', error);
+        console.error('[stepmark] child frame probe failed', error);
       }
       try {
         port.postMessage(response);
       } catch (error) {
-        console.warn('[frametrail] child frame probe response channel closed', error);
+        console.warn('[stepmark] child frame probe response channel closed', error);
       } finally {
         release();
         closePortQuietly(port);
@@ -334,8 +334,8 @@ export function installSnapshotFrameProbe(runId: string): void {
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onStop);
   };
-  const onStop = (message: FrameTrailStopMessage) => {
-    if (message?.type === 'FRAME_TRAIL_STOP') cleanup();
+  const onStop = (message: StepmarkStopMessage) => {
+    if (message?.type === 'STEPMARK_STOP') cleanup();
   };
   window.addEventListener('message', onMessage);
   document.addEventListener(CLEANUP_EVENT, cleanup);

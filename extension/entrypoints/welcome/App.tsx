@@ -29,7 +29,7 @@ function PinIllustration() {
         <div className="px-3 py-1 text-muted-foreground">{t().welcome.pinMenuTitle}</div>
         <div className="flex items-center gap-2 bg-brand-bg-soft px-3 py-1.5 font-bold">
           <Mascot className="size-4" />
-          <span className="flex-1 truncate">FrameTrail</span>
+          <span className="flex-1 truncate">Stepmark</span>
           <span className="flex size-6 items-center justify-center rounded-full border-2 border-border bg-tamago text-on-accent">
             <Pin className="size-3" />
           </span>

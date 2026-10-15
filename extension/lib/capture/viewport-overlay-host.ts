@@ -22,7 +22,7 @@ const BASE_DECLARATIONS: Record<string, string> = {
 
 /** Marks every host this extension injects. Hit-testing keys off it so the
  * recorder can never target its own UI. */
-export const OVERLAY_HOST_ATTRIBUTE = 'data-frametrail-overlay';
+export const OVERLAY_HOST_ATTRIBUTE = 'data-stepmark-overlay';
 
 export function setImportantStyle(element: HTMLElement, property: string, value: string): void {
   element.style.setProperty(property, value, 'important');

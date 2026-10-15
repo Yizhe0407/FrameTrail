@@ -6,7 +6,7 @@ const plural = (count: number, one: string, other: string) => `${count} ${count 
  * function signature must match it exactly. */
 export const en: Messages = {
   common: {
-    appName: 'FrameTrail',
+    appName: 'Stepmark',
     cancel: 'Cancel',
     close: 'Close',
     save: 'Save',
@@ -44,15 +44,15 @@ export const en: Messages = {
   settings: {
     title: 'Settings',
     open: 'Settings',
-    languageDescription: 'The language FrameTrail’s interface uses. “Match browser” follows your browser’s language.',
+    languageDescription: 'The language Stepmark’s interface uses. “Match browser” follows your browser’s language.',
     welcomeTitle: 'Welcome page',
-    welcomeDescription: 'See again how to pin FrameTrail to the toolbar and how the two recording modes differ.',
+    welcomeDescription: 'See again how to pin Stepmark to the toolbar and how the two recording modes differ.',
     openWelcome: 'Open welcome page',
   },
 
   nav: {
     breadcrumb: 'Location',
-    homeLabel: 'FrameTrail library',
+    homeLabel: 'Stepmark library',
     homeTooltip: 'Back to the library',
     libraryOpenFailed: 'Couldn’t open the library. Please try again.',
     settingsOpenFailed: 'Couldn’t open settings. Please try again.',
@@ -60,28 +60,28 @@ export const en: Messages = {
 
   welcome: {
     crumb: 'Welcome',
-    title: 'Hi! I’m FrameTrail',
+    title: 'Hi! I’m Stepmark',
     intro: 'Click around, record, and your browser steps become a step-by-step visual guide.',
     pinTitle: 'Pin me to the toolbar',
-    pinBody: 'Click the puzzle piece at the top right of your browser, then the pin next to FrameTrail. After that, I’m one click away whenever you want to record.',
-    pinIllustrationLabel: 'The browser’s extensions menu, with the pin next to FrameTrail turned on',
+    pinBody: 'Click the puzzle piece at the top right of your browser, then the pin next to Stepmark. After that, I’m one click away whenever you want to record.',
+    pinIllustrationLabel: 'The browser’s extensions menu, with the pin next to Stepmark turned on',
     pinMenuTitle: 'Extensions',
     pinOtherExtension: 'Another extension',
     modesTitle: 'Pick a way to record',
     promisesTitle: 'Good to know',
     localOnly: 'Every screenshot stays on this computer. Nothing is uploaded.',
-    crossTab: 'Recording covers the current tab. To follow you across tabs, FrameTrail asks for permission the first time you start.',
+    crossTab: 'Recording covers the current tab. To follow you across tabs, Stepmark asks for permission the first time you start.',
     revisitHint: 'You can find this page again in Settings.',
     goToLibrary: 'Go to library',
   },
 
   page: {
-    popup: 'FrameTrail',
-    library: 'FrameTrail Library',
-    editor: 'FrameTrail Editor',
-    snapshotShield: 'FrameTrail snapshot annotation',
-    options: 'FrameTrail Settings',
-    welcome: 'Welcome to FrameTrail',
+    popup: 'Stepmark',
+    library: 'Stepmark Library',
+    editor: 'Stepmark Editor',
+    snapshotShield: 'Stepmark snapshot annotation',
+    options: 'Stepmark Settings',
+    welcome: 'Welcome to Stepmark',
   },
 
   mode: {
@@ -108,8 +108,8 @@ export const en: Messages = {
     recordTargetNew: 'New guide',
     recordTargetCount: (count: number) => `${count} ${count === 1 ? 'screen' : 'screens'}`,
     continueRecording: 'Continue recording',
-    editorServiceUnavailable: 'Couldn’t reach the editor. Reopen FrameTrail and try again.',
-    activeTabUnreadable: 'Couldn’t read the current tab. Reopen FrameTrail and try again.',
+    editorServiceUnavailable: 'Couldn’t reach the editor. Reopen Stepmark and try again.',
+    activeTabUnreadable: 'Couldn’t read the current tab. Reopen Stepmark and try again.',
     restrictedPageError: 'This page can’t be recorded. Switch to the website you want to demonstrate and try again.',
     startFailed: 'Couldn’t start recording. Reload the page and try again.',
     returnToTabFailed: 'Couldn’t return to the recording tab. It may have been closed.',
@@ -119,7 +119,7 @@ export const en: Messages = {
     returnToRecordingTab: 'Back to recording tab',
     singleTabOnly: 'Recording this tab only.',
     enableCrossTab: 'Record across tabs',
-    restrictedPageHint: 'This page can’t be recorded. Switch to the website you want to demonstrate, then open FrameTrail again.',
+    restrictedPageHint: 'This page can’t be recorded. Switch to the website you want to demonstrate, then open Stepmark again.',
   },
 
   library: {
@@ -142,7 +142,7 @@ export const en: Messages = {
     noMatches: 'No matching guides',
     empty: 'Create your first guide',
     noMatchesHint: 'Try another keyword, or clear the tag filter.',
-    emptyHint: 'Open FrameTrail on the page you want to demonstrate and press “Start recording”, or create a blank guide.',
+    emptyHint: 'Open Stepmark on the page you want to demonstrate and press “Start recording”, or create a blank guide.',
     otherActionPending: 'Another action is in progress',
     tag: (tag: string) => `#${tag}`,
     titleLabel: 'Guide title',
@@ -152,12 +152,12 @@ export const en: Messages = {
     exportArchiveTooltip: 'Export',
     exportDialogTitle: 'Export editable file?',
     exportDialogDescription: (filename: string) =>
-      `This downloads ${filename}. It contains the original screenshots, markers, masks, descriptions and sections, and can be imported back into FrameTrail. Because it includes the unmasked originals, don’t share it publicly.`,
-    exportDialogConfirm: 'Download .frametrail',
+      `This downloads ${filename}. It contains the original screenshots, markers, masks, descriptions and sections, and can be imported back into Stepmark. Because it includes the unmasked originals, don’t share it publicly.`,
+    exportDialogConfirm: 'Download .stepmark',
     exportDialogPending: 'Exporting',
     deleteDialogTitle: 'Delete this guide permanently?',
     deleteDialogDescription:
-      'The original screenshots, markers, masks and descriptions will be removed from this device. Consider exporting a .frametrail file first.',
+      'The original screenshots, markers, masks and descriptions will be removed from this device. Consider exporting a .stepmark file first.',
     deleteDialogConfirm: 'Delete permanently',
   },
 
@@ -196,10 +196,10 @@ export const en: Messages = {
     missingTitle: 'Guide not found',
     missingDeleted:
       'This guide may have been deleted, or the link is no longer valid. The editor won’t switch to other content on its own.',
-    missingId: 'The editor link is missing a guide ID. Reopen the guide from the FrameTrail library.',
+    missingId: 'The editor link is missing a guide ID. Reopen the guide from the Stepmark library.',
     invalidTitle: 'This guide needs repair',
     invalidBody:
-      'To avoid losing, splitting or overwriting steps, FrameTrail stopped loading and publishing this guide. Export an editable file from the library first, then reopen or restore it.',
+      'To avoid losing, splitting or overwriting steps, Stepmark stopped loading and publishing this guide. Export an editable file from the library first, then reopen or restore it.',
     noSelectionTitle: 'No step selected',
     noSelectionBody: 'Choose a step from the list on the left to edit it.',
     recaptureFailed: 'The retake failed. Nothing was changed.',
@@ -382,7 +382,7 @@ export const en: Messages = {
       pickTabBody: 'Recording starts in the selected tab and follows you as you switch tabs. New steps are added at the end.',
       sourceUnavailableBody: (reason: string) => `${reason} You can continue recording in a tab that’s open now.`,
       accessBody:
-        'FrameTrail only asks for access to this site, and the background service checks the saved source again before starting.',
+        'Stepmark only asks for access to this site, and the background service checks the saved source again before starting.',
       appendNote: 'New steps are added at the end.',
       continueElsewhere: 'Continue on another page',
       authorizing: 'Authorizing…',
@@ -453,11 +453,8 @@ export const en: Messages = {
   sortable: {
     handle: 'Drag to reorder',
     roleDescription: 'sortable handle',
-    tooltip: 'Drag to reorder (keyboard: Enter or Space to pick up, arrow keys to move, press again to drop)',
     stepNoun: 'Step',
     annotationNoun: 'Marker',
-    instructions: (noun: string) =>
-      `Press Enter or Space to start reordering. Use the arrow keys to move the ${noun.toLowerCase()}, press Enter or Space again to drop it, or Esc to cancel.`,
     item: (noun: string, position: number) => `${noun} ${position}`,
     dragStart: (item: string) => `Picked up ${item}.`,
     dragOver: (item: string, position: number) => `${item} moved to position ${position}.`,
@@ -573,7 +570,7 @@ export const en: Messages = {
   },
 
   runtime: {
-    backgroundUnavailable: 'FrameTrail’s background service isn’t responding. Reload the page and try again.',
+    backgroundUnavailable: 'Stepmark’s background service isn’t responding. Reload the page and try again.',
     recordingServiceUnavailable: 'Couldn’t reach the recording service. Reload the page and try again.',
     editorOpenFailed: 'Couldn’t open the editor. Please try again.',
     guideNotFound: 'Couldn’t find this guide.',
@@ -650,10 +647,10 @@ export const en: Messages = {
     stoppedRecorderUnavailable: 'Recording stopped because the recorder couldn’t load after the page changed.',
     sourceTabOpenFailed: 'Couldn’t open the original page.',
     restrictedContinuationSource: 'The source page can’t be recorded.',
-    editorOnlyContinuation: 'Recording can only be continued from this guide’s FrameTrail editor.',
+    editorOnlyContinuation: 'Recording can only be continued from this guide’s Stepmark editor.',
     continuationSourceRedirected: 'The original page redirected, so recording didn’t start.',
     continuationSourceMissing: 'This guide has no source page to continue from yet. Start a new recording from the popup.',
-    continuationAccessRequired: 'Allow FrameTrail to access this site before continuing the recording.',
+    continuationAccessRequired: 'Allow Stepmark to access this site before continuing the recording.',
   },
 
   recaptureFlow: {
@@ -661,9 +658,9 @@ export const en: Messages = {
     operationChanged: 'The operation state changed. Please try again.',
     sourceRedirected: 'The original page redirected, so the retake didn’t start.',
     restrictedSource: 'The source page can’t be retaken.',
-    editorOnlyPreflight: 'The retake source can only be verified from this guide’s FrameTrail editor.',
-    editorOnlyStart: 'Retakes can only be started from the FrameTrail editor.',
-    editorOnlyGuideStart: 'Retakes can only be started from this guide’s FrameTrail editor.',
+    editorOnlyPreflight: 'The retake source can only be verified from this guide’s Stepmark editor.',
+    editorOnlyStart: 'Retakes can only be started from the Stepmark editor.',
+    editorOnlyGuideStart: 'Retakes can only be started from this guide’s Stepmark editor.',
     stepNotFound: 'Couldn’t find the step to retake.',
     stepChanged: 'This step changed. Reload the editor and try again.',
     snapshotNotFound: 'Couldn’t find the snapshot to retake.',
@@ -676,7 +673,7 @@ export const en: Messages = {
     interrupted: 'The retake was interrupted. Nothing was changed — please retake again.',
     sourceNavigated: 'The retake stopped because the original page navigated during selection. Nothing was changed.',
     sourceTabClosed: 'The retake stopped because the original tab was closed. Nothing was changed.',
-    accessRequired: 'Allow FrameTrail to access this site before retaking.',
+    accessRequired: 'Allow Stepmark to access this site before retaking.',
     injectFailed: 'Couldn’t start the retake on the original page.',
     alreadyStarting: 'A retake is already starting.',
     alreadyEnded: 'This retake has already ended.',

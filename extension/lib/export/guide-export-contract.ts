@@ -26,8 +26,8 @@ export interface GuideMarkdownArchive {
   imageCount: number;
 }
 
-export const DEFAULT_TITLE = 'FrameTrail Guide';
-const DEFAULT_FILENAME = 'frame-trail-guide';
+export const DEFAULT_TITLE = 'Stepmark Guide';
+const DEFAULT_FILENAME = 'stepmark-guide';
 export const IMAGE_MIME_TYPE = 'image/jpeg';
 
 /** HTML 螢幕與 PDF 共用主題；HTML 列印仍使用省墨配色。 */

@@ -1,5 +1,5 @@
 import type {
-  FrameTrailStepFrameResultMessage,
+  StepmarkStepFrameResultMessage,
   StepFrameRelayAbortMessage,
   StepFrameRelayBeginMessage,
   StepFrameRelayBeginResult,
@@ -35,7 +35,7 @@ export interface StepFrameRelayBrokerDependencies {
   sendResult: (
     tabId: number,
     frameId: number,
-    message: FrameTrailStepFrameResultMessage,
+    message: StepmarkStepFrameResultMessage,
   ) => Promise<void>;
 }
 
@@ -90,7 +90,7 @@ export function createStepFrameRelayBroker(
     pending.delete(relayKey(relay.tabId, relay.captureId));
     try {
       await dependencies.sendResult(relay.tabId, relay.originFrameId, {
-        type: 'FRAME_TRAIL_STEP_FRAME_RESULT',
+        type: 'STEPMARK_STEP_FRAME_RESULT',
         runId: relay.runId,
         captureId: relay.captureId,
         replay,

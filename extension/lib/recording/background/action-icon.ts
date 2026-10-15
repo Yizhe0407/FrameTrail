@@ -18,7 +18,7 @@ async function applyActionIcon(recording: boolean): Promise<void> {
     await toolbarAction().setIcon({ path: actionIconPaths(recording) });
   } catch (error) {
     // Cosmetic only: a failed swap must never disturb the recording itself.
-    console.warn('[frametrail] failed to update the toolbar icon', error);
+    console.warn('[stepmark] failed to update the toolbar icon', error);
   }
 }
 
@@ -38,7 +38,7 @@ export function syncActionIconWithRecordingState(): () => void {
   };
   const unsubscribe = onRecordingStateChange(apply);
   getRecordingState().then(apply).catch((error: unknown) => {
-    console.warn('[frametrail] failed to sync the toolbar icon with the recording state', error);
+    console.warn('[stepmark] failed to sync the toolbar icon with the recording state', error);
   });
   return unsubscribe;
 }

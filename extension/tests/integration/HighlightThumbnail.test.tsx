@@ -102,7 +102,7 @@ describe('HighlightThumbnail', () => {
 
     act(() => fireEvent.load(image));
 
-    const contentFrame = view.container.querySelector<HTMLElement>('[data-frametrail-image-content-frame]')!;
+    const contentFrame = view.container.querySelector<HTMLElement>('[data-stepmark-image-content-frame]')!;
     expect(contentFrame.style.left).toBe('10px');
     expect(contentFrame.style.top).toBe('45px');
     expect(contentFrame.style.width).toBe('100px');
@@ -133,7 +133,7 @@ describe('HighlightThumbnail', () => {
     expect(image.style.visibility).toBe('');
 
     const highlight = view.container.querySelector<HTMLElement>('.pointer-events-none.absolute.box-border')!;
-    const redaction = view.container.querySelector<HTMLElement>('[data-frametrail-redaction="mask-1"]')!;
+    const redaction = view.container.querySelector<HTMLElement>('[data-stepmark-redaction="mask-1"]')!;
     expect(redaction.style.left).toBe('24px');
     expect(redaction.style.top).toBe('9px');
     expect(redaction.style.width).toBe('17px');

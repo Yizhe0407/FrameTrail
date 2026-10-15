@@ -9,7 +9,7 @@ import {
 import type { BackgroundMessage } from '@/lib/runtime/messages';
 
 const validClick = {
-  type: 'FRAME_TRAIL_CLICK',
+  type: 'STEPMARK_CLICK',
   captureId: 'capture-1',
   runId: 'run-1',
   rect: { x: 10.5, y: -2, width: 40, height: 20 },
@@ -23,7 +23,7 @@ const validClick = {
 } as const;
 
 const validStepFrameBegin = {
-  type: 'FRAME_TRAIL_STEP_FRAME_BEGIN',
+  type: 'STEPMARK_STEP_FRAME_BEGIN',
   runId: 'run-1',
   captureId: 'capture-1',
   rect: { x: -10.5, y: 20, width: 120.25, height: 48 },
@@ -33,21 +33,21 @@ const validStepFrameBegin = {
 } as const;
 
 const validStepFrameClaim = {
-  type: 'FRAME_TRAIL_STEP_FRAME_CLAIM',
+  type: 'STEPMARK_STEP_FRAME_CLAIM',
   runId: 'run-1',
   captureId: 'capture-1',
   relayToken: 'relay-token',
 } as const;
 
 const validStepFrameReject = {
-  type: 'FRAME_TRAIL_STEP_FRAME_REJECT',
+  type: 'STEPMARK_STEP_FRAME_REJECT',
   runId: 'run-1',
   captureId: 'capture-1',
   relayToken: 'relay-token',
 } as const;
 
 const validStepFrameSettle = {
-  type: 'FRAME_TRAIL_STEP_FRAME_SETTLE',
+  type: 'STEPMARK_STEP_FRAME_SETTLE',
   runId: 'run-1',
   captureId: 'capture-1',
   settleToken: 'settle-token',
@@ -55,7 +55,7 @@ const validStepFrameSettle = {
 } as const;
 
 const validStepFrameAbort = {
-  type: 'FRAME_TRAIL_STEP_FRAME_ABORT',
+  type: 'STEPMARK_STEP_FRAME_ABORT',
   runId: 'run-1',
   captureId: 'capture-1',
 } as const;
@@ -78,7 +78,7 @@ describe('background runtime message validation', () => {
     { type: 'OPEN_EDITOR', sessionId: 'guide-1', entryId: 'step-1' },
     { type: 'PAUSE_RECORDING', runId: 'run-1' },
     {
-      type: 'FRAME_TRAIL_READY',
+      type: 'STEPMARK_READY',
       runId: 'run-1',
       snapshotContext: {
         viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
@@ -274,7 +274,7 @@ describe('step frame relay runtime payload validation', () => {
     {
       name: 'background-to-origin result sent in the inbound background channel',
       message: {
-        type: 'FRAME_TRAIL_STEP_FRAME_RESULT',
+        type: 'STEPMARK_STEP_FRAME_RESULT',
         runId: 'run-1',
         captureId: 'capture-1',
         replay: true,
@@ -286,18 +286,18 @@ describe('step frame relay runtime payload validation', () => {
 });
 
 describe('background sender authorization', () => {
-  const extensionRoot = 'chrome-extension://frame-trail-id/';
+  const extensionRoot = 'chrome-extension://stepmark-id/';
 
   it('accepts popup and top-level pages owned by this extension', () => {
     expect(isTrustedExtensionPageSender(
-      { url: 'chrome-extension://frame-trail-id/popup.html' },
+      { url: 'chrome-extension://stepmark-id/popup.html' },
       extensionRoot,
     )).toBe(true);
     expect(isTrustedExtensionPageSender(
       {
         frameId: 0,
-        url: 'chrome-extension://frame-trail-id/editor.html?session=1',
-        tab: { id: 9, url: 'chrome-extension://frame-trail-id/editor.html?session=1' },
+        url: 'chrome-extension://stepmark-id/editor.html?session=1',
+        tab: { id: 9, url: 'chrome-extension://stepmark-id/editor.html?session=1' },
       },
       extensionRoot,
     )).toBe(true);
@@ -306,17 +306,17 @@ describe('background sender authorization', () => {
   it.each([
     { url: 'https://example.com/', tab: { id: 1, url: 'https://example.com/' }, frameId: 0 },
     {
-      url: 'chrome-extension://frame-trail-id/editor.html',
-      tab: { id: 1, url: 'chrome-extension://frame-trail-id/editor.html' },
+      url: 'chrome-extension://stepmark-id/editor.html',
+      tab: { id: 1, url: 'chrome-extension://stepmark-id/editor.html' },
       frameId: 2,
     },
     {
-      url: 'chrome-extension://frame-trail-id/editor.html',
+      url: 'chrome-extension://stepmark-id/editor.html',
       tab: { id: 1, url: 'https://example.com/' },
       frameId: 0,
     },
     { url: 'chrome-extension://different-extension/popup.html' },
-    { url: 'moz-extension://frame-trail-id/popup.html' },
+    { url: 'moz-extension://stepmark-id/popup.html' },
   ])('rejects content, child-frame, mixed-origin, and foreign-extension senders %#', (sender) => {
     expect(isTrustedExtensionPageSender(sender, extensionRoot)).toBe(false);
   });
@@ -336,8 +336,8 @@ describe('background sender authorization', () => {
     ];
     const recorderMessages: BackgroundMessage[] = [
       validClick,
-      { type: 'FRAME_TRAIL_CANCEL_CAPTURE', runId: 'run-1', captureId: 'capture-1' },
-      { type: 'FRAME_TRAIL_READY', runId: 'run-1' },
+      { type: 'STEPMARK_CANCEL_CAPTURE', runId: 'run-1', captureId: 'capture-1' },
+      { type: 'STEPMARK_READY', runId: 'run-1' },
       { type: 'SNAPSHOT_RECORDER_FAILED', runId: 'run-1', reason: 'shield-channel' },
     ];
 

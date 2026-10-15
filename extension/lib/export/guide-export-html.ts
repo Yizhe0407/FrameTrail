@@ -42,7 +42,7 @@ async function generateGuideHtmlDocument(
   const createdAt = formatGuideCreatedAt(metadata.createdAt);
   if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   const header = [
-    `<p class="guide-overline">FrameTrail</p>`,
+    `<p class="guide-overline">Stepmark</p>`,
     `<h1>${escapeGuideHtml(title)}</h1>`,
     description ? `<p class="guide-description">${htmlText(description)}</p>` : '',
     `<p class="guide-meta">${metaParts.map((part) => `<span>${escapeGuideHtml(part)}</span>`).join('\n')}</p>`,

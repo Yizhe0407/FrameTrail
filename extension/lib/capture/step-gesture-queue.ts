@@ -2,7 +2,7 @@
  * the previous step's screenshot is still in flight is queued instead of
  * silently dropped. Deliberately serial: only one entry's `start` ever runs
  * at a time, and the next one is not pulled until that promise fully settles
- * (including whatever replay/cleanup it does), so the `FRAME_TRAIL_CLICK`
+ * (including whatever replay/cleanup it does), so the `STEPMARK_CLICK`
  * messages this drives always reach the background in the user's real click
  * order — see step-repository.ts's read-then-write `order` computation,
  * which depends on that ordering being preserved. */
@@ -115,7 +115,7 @@ export function createStepGestureQueue(): StepGestureQueue {
     void entry
       .start(gesture)
       .catch((error) => {
-        console.error('[frametrail] step gesture failed unexpectedly', error);
+        console.error('[stepmark] step gesture failed unexpectedly', error);
       })
       .finally(() => {
         gesture.release();
@@ -134,7 +134,7 @@ export function createStepGestureQueue(): StepGestureQueue {
       }
       pending.push(entry);
       if (pending.length > QUEUE_DEPTH_WARN_THRESHOLD) {
-        console.warn(`[frametrail] step capture backlog is ${pending.length} deep`);
+        console.warn(`[stepmark] step capture backlog is ${pending.length} deep`);
       }
     },
     cancelActive() {

@@ -42,7 +42,7 @@ export default function EmptyState({ isRecording = false, recordingTabId = null 
         await actionApi?.openPopup?.();
       }
     } catch (error) {
-      setActionError(reportError('[frametrail] failed to return to the recording page', error, t().emptyState.returnFailed));
+      setActionError(reportError('[stepmark] failed to return to the recording page', error, t().emptyState.returnFailed));
     } finally {
       setPending(false);
     }

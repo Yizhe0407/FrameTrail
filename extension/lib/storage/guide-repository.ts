@@ -18,7 +18,7 @@ import {
   runGuideStepsWrite,
   runWithDatabase,
   summarizeSteps,
-  type FrameTrailDB,
+  type StepmarkDB,
   type GuideStepsTransaction,
 } from './database';
 import { clearActiveGuideId } from './storage';
@@ -60,7 +60,7 @@ export async function getGuide(id: string): Promise<Guide | undefined> {
   return guide ? sanitizeGuide(guide) : undefined;
 }
 
-type GuideOnlyTransaction = IDBPTransaction<FrameTrailDB, ['guides'], 'readwrite'>;
+type GuideOnlyTransaction = IDBPTransaction<StepmarkDB, ['guides'], 'readwrite'>;
 
 /** Loads a guide row inside a guides-only readwrite transaction, aborting the
  * transaction when the row is gone so the thrown error can never leave a

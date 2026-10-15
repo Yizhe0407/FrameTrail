@@ -11,7 +11,7 @@ export interface CaptureRect {
 }
 
 export interface ClickCapture {
-  type: 'FRAME_TRAIL_CLICK';
+  type: 'STEPMARK_CLICK';
   /** Element selections replay the original page click; region selections are capture-only. */
   captureKind?: 'element' | 'region';
   /** 讓已取消 gesture 使進行中的截圖失效。 */
@@ -167,13 +167,13 @@ export type RecordingControlResult =
   | { ok: false; error: string };
 
 /** 在 BackgroundMessage 外傳送，用於卸載 tab 錄製器並釋放 keep-alive port。 */
-export interface FrameTrailStopMessage {
-  type: 'FRAME_TRAIL_STOP';
+export interface StepmarkStopMessage {
+  type: 'STEPMARK_STOP';
 }
 
 /** 僅在乾淨 anchor 持久化後啟用快照互動。 */
-export interface FrameTrailSnapshotActiveMessage {
-  type: 'FRAME_TRAIL_SNAPSHOT_ACTIVE';
+export interface StepmarkSnapshotActiveMessage {
+  type: 'STEPMARK_SNAPSHOT_ACTIVE';
   runId: string;
 }
 
@@ -189,7 +189,7 @@ export type ClickCaptureResult = { ok: true } | { ok: false; error: string };
  * scripts may observe or forge hop messages, but cannot mint this authorization.
  */
 export interface StepFrameRelayBeginMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_BEGIN';
+  type: 'STEPMARK_STEP_FRAME_BEGIN';
   runId: string;
   captureId: string;
   /** Target rect in the originating child frame's viewport coordinates. */
@@ -205,7 +205,7 @@ export type StepFrameRelayBeginResult =
 
 /** The top-frame content script consumes the page-visible token exactly once. */
 export interface StepFrameRelayClaimMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_CLAIM';
+  type: 'STEPMARK_STEP_FRAME_CLAIM';
   runId: string;
   captureId: string;
   relayToken: string;
@@ -221,7 +221,7 @@ export type StepFrameRelayClaimResult =
 
 /** A non-top relay hop could not map the target into its parent viewport. */
 export interface StepFrameRelayRejectMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_REJECT';
+  type: 'STEPMARK_STEP_FRAME_REJECT';
   runId: string;
   captureId: string;
   relayToken: string;
@@ -229,7 +229,7 @@ export interface StepFrameRelayRejectMessage {
 
 /** The top frame reports whether the swallowed child gesture may replay. */
 export interface StepFrameRelaySettleMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_SETTLE';
+  type: 'STEPMARK_STEP_FRAME_SETTLE';
   runId: string;
   captureId: string;
   settleToken: string;
@@ -238,7 +238,7 @@ export interface StepFrameRelaySettleMessage {
 
 /** The originating frame timed out/cancelled before the relay completed. */
 export interface StepFrameRelayAbortMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_ABORT';
+  type: 'STEPMARK_STEP_FRAME_ABORT';
   runId: string;
   captureId: string;
 }
@@ -248,21 +248,21 @@ export interface StepFrameRelayMutationResult {
 }
 
 /** Background-to-origin completion; delivered with tabs.sendMessage(frameId). */
-export interface FrameTrailStepFrameResultMessage {
-  type: 'FRAME_TRAIL_STEP_FRAME_RESULT';
+export interface StepmarkStepFrameResultMessage {
+  type: 'STEPMARK_STEP_FRAME_RESULT';
   runId: string;
   captureId: string;
   replay: boolean;
 }
 
 interface CancelCaptureMessage {
-  type: 'FRAME_TRAIL_CANCEL_CAPTURE';
+  type: 'STEPMARK_CANCEL_CAPTURE';
   runId: string;
   captureId: string;
 }
 
 export interface RecorderReadyMessage {
-  type: 'FRAME_TRAIL_READY';
+  type: 'STEPMARK_READY';
   runId: string;
   /** 快照模式會先擷取此乾淨底圖，再接受標註。 */
   snapshotContext?: {
@@ -336,14 +336,14 @@ export type StartStepRecaptureResult =
   | { ok: true; runId: string; tabId: number; reusedTab: boolean }
   | { ok: false; code: StartStepRecaptureErrorCode; error: string };
 
-export interface FrameTrailRecaptureReadyMessage {
-  type: 'FRAME_TRAIL_RECAPTURE_READY';
+export interface StepmarkRecaptureReadyMessage {
+  type: 'STEPMARK_RECAPTURE_READY';
   runId: string;
   url: string;
 }
 
-export interface FrameTrailRecaptureTargetMessage {
-  type: 'FRAME_TRAIL_RECAPTURE_TARGET';
+export interface StepmarkRecaptureTargetMessage {
+  type: 'STEPMARK_RECAPTURE_TARGET';
   runId: string;
   captureId: string;
   rect: CaptureRect;
@@ -402,8 +402,8 @@ export type BackgroundMessage =
   | PreflightStepRecaptureSourcePermissionMessage
   | PreflightGuideContinuationSourcePermissionMessage
   | StartStepRecaptureMessage
-  | FrameTrailRecaptureReadyMessage
-  | FrameTrailRecaptureTargetMessage
+  | StepmarkRecaptureReadyMessage
+  | StepmarkRecaptureTargetMessage
   | CancelStepRecaptureMessage
   | AckStepRecaptureResultMessage
   | FocusStepRecaptureSourceMessage;

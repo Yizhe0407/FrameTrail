@@ -86,7 +86,7 @@ export default function StepRail({
     {
       disabled: reorderDisabled,
       itemNoun: t().sortable.stepNoun,
-      logLabel: '[frametrail] failed to reorder guide entries',
+      logLabel: '[stepmark] failed to reorder guide entries',
     },
   );
   const selectedItem = useRef<HTMLButtonElement | null>(null);
@@ -214,8 +214,8 @@ export default function StepRail({
                         {active && (
                           <span
                             aria-hidden="true"
-                            data-frametrail-selected-step-outline
-                            className="frametrail-selected-step-outline pointer-events-none absolute inset-0 z-10 rounded-md border-2"
+                            data-stepmark-selected-step-outline
+                            className="stepmark-selected-step-outline pointer-events-none absolute inset-0 z-10 rounded-md border-2"
                           />
                         )}
                         <div className="pointer-events-none relative z-[1] aspect-[16/9] w-full overflow-hidden rounded-sm bg-secondary">

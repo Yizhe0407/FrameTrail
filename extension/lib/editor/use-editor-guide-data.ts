@@ -82,7 +82,7 @@ export function useEditorGuideData(sessionId: string | null, steps: readonly unk
       if (disposed) return;
       adoptSnapshot(snapshot);
     }).catch(async (loadError) => {
-      console.error('[frametrail] failed to read the guide structure', loadError);
+      console.error('[stepmark] failed to read the guide structure', loadError);
       if (disposed) return;
       await applyLoadFailure(sessionId, () => disposed);
     });

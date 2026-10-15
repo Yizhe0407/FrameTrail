@@ -1,6 +1,6 @@
-# FrameTrail 擴充功能
+# Stepmark 擴充功能
 
-這個目錄包含 FrameTrail 的 WXT + React 瀏覽器擴充功能。安裝與使用請見 [專案 README](../README.md)。
+這個目錄包含 Stepmark 的 WXT + React 瀏覽器擴充功能。安裝與使用請見 [專案 README](../README.md)。
 
 ## 環境
 
@@ -27,7 +27,7 @@ pnpm dev:firefox
 - 作品庫可管理多份 Guide；Editor 只讀取 URL 指定 Guide，不會追隨或顯示其他全域錄製內容。
 - 單筆步驟、章節與 Undo 使用 `contentRevision` CAS；完整 StepEntry／Snapshot group 於單一 IndexedDB transaction 更新。
 - 發佈支援 PDF、Markdown ZIP（`.md` + 圖片）、自包含 HTML 與圖片 ZIP，公開圖片統一走遮罩 fail-closed compositor。
-- `.frametrail` 是包含原始未遮罩圖的可編輯匯出檔案，不應當作公開輸出。
+- `.stepmark` 是包含原始未遮罩圖的可編輯匯出檔案，不應當作公開輸出。
 - 錄製、編輯、發佈與縮圖 lazy mounting 全部在本機執行，不需要網路或後端。
 
 ## 原始碼分類

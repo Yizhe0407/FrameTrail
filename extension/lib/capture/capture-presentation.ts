@@ -1,16 +1,16 @@
 /**
- * Capture-only styling for FrameTrail overlays and the top-level viewport
+ * Capture-only styling for Stepmark overlays and the top-level viewport
  * scrollbar. Everything stays in layout so fixed/sticky content and viewport
  * coordinates do not move while a screenshot is being composed.
  */
 export const CAPTURE_PRESENTATION_CSS = `
-/* FrameTrail's interaction layers are capture-only UI. Keep their hosts in
+/* Stepmark's interaction layers are capture-only UI. Keep their hosts in
  * the document so layout and viewport coordinates remain unchanged, but make
  * them fully transparent while captureVisibleTab samples the page. */
-[data-frametrail-snapshot-shield],
-[data-frametrail-step-preview],
-[data-frametrail-recording-toolbar],
-[data-frametrail-region-capture] {
+[data-stepmark-snapshot-shield],
+[data-stepmark-step-preview],
+[data-stepmark-recording-toolbar],
+[data-stepmark-region-capture] {
   visibility: hidden !important;
   opacity: 0 !important;
 }

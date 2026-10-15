@@ -7,7 +7,7 @@ export default function BrandMark({ className }: { className?: string }) {
   return (
     <span className={cn('flex min-w-0 items-center gap-2', className)}>
       <Mascot />
-      <span className="shrink-0 text-base font-bold text-foreground">FrameTrail</span>
+      <span className="shrink-0 text-base font-bold text-foreground">Stepmark</span>
     </span>
   );
 }

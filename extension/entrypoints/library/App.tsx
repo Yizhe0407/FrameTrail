@@ -38,11 +38,11 @@ import { guideExportFilename } from '@/lib/export/guide-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
 
-/** Derives the .frametrail archive name from the same stem the publication
+/** Derives the .stepmark archive name from the same stem the publication
  * exporters use; strips the extension the (unexported) stem helper's facade appends. */
 function exportFilename(title: string): string {
   const stem = guideExportFilename({ title }, 'html').replace(/\.html$/, '');
-  return `${stem}.frametrail`;
+  return `${stem}.stepmark`;
 }
 
 export default function App() {
@@ -67,7 +67,7 @@ export default function App() {
       setGuides(nextGuides);
       setOperationLocked(state.operation !== null || state.isRecording);
     } catch (refreshError) {
-      console.error('[frametrail] failed to load guide library', refreshError);
+      console.error('[stepmark] failed to load guide library', refreshError);
       setError(t().library.loadFailed);
     } finally {
       if (showLoading) setLoading(false);
@@ -120,7 +120,7 @@ export default function App() {
         if (options.refreshAfter !== false) await refresh({ showLoading: false });
         return true;
       } catch (operationError) {
-        setError(reportError('[frametrail] library operation failed', operationError, t().library.operationFailed));
+        setError(reportError('[stepmark] library operation failed', operationError, t().library.operationFailed));
         return false;
       }
     });
@@ -173,7 +173,7 @@ export default function App() {
     }
     await run('import', async () => {
       const imported = await importProjectArchive(file);
-      const fallbackTitle = file.name.replace(/\.frametrail$/i, '').slice(0, 120) || t().library.importedFallbackTitle;
+      const fallbackTitle = file.name.replace(/\.stepmark$/i, '').slice(0, 120) || t().library.importedFallbackTitle;
       const guide = await createGuideFromSteps(
         imported.steps,
         {
@@ -197,7 +197,7 @@ export default function App() {
               ref={importInput}
               type="file"
               className="sr-only"
-              accept=".frametrail,application/vnd.frametrail.project+json"
+              accept=".stepmark,application/vnd.stepmark.project+json"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.currentTarget.value = '';

@@ -201,7 +201,7 @@ describe('cross-tab permission ask at recording start', () => {
     await waitFor(() => expect(mocks.permissionsRequest).toHaveBeenCalled());
 
     expect(mocks.storageSet).toHaveBeenCalledWith({
-      'frametrail:pending-start:v1': expect.objectContaining({ mode: 'steps', tabId: 7, guideId: 'guide-old' }),
+      'stepmark:pending-start:v1': expect.objectContaining({ mode: 'steps', tabId: 7, guideId: 'guide-old' }),
     });
   });
 });

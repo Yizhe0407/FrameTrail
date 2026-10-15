@@ -278,8 +278,8 @@ describe('作品庫', () => {
     render(<LibraryApp />);
 
     fireEvent.click(await screen.findByRole('button', { name: '匯出 安全教學' }));
-    expect(screen.getByText(/安全教學\.frametrail/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '下載 .frametrail' }));
+    expect(screen.getByText(/安全教學\.stepmark/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '下載 .stepmark' }));
 
     await waitFor(() => expect(archive.exportProjectArchive).toHaveBeenCalledWith(steps, {
       metadata: {
@@ -291,7 +291,7 @@ describe('作品庫', () => {
     }));
     expect(downloads.download).toHaveBeenCalledWith({
       url: 'blob:archive',
-      filename: '安全教學.frametrail',
+      filename: '安全教學.stepmark',
       saveAs: true,
     });
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:archive');
@@ -306,7 +306,7 @@ describe('作品庫', () => {
     render(<LibraryApp />);
 
     fireEvent.click(await screen.findByRole('button', { name: '匯出 安全教學' }));
-    fireEvent.click(screen.getByRole('button', { name: '下載 .frametrail' }));
+    fireEvent.click(screen.getByRole('button', { name: '下載 .stepmark' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('匯出空間不足');
     expect(screen.getByDisplayValue(guide.title)).toBeTruthy();
@@ -323,7 +323,7 @@ describe('作品庫', () => {
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
     await waitFor(() => expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(input!, {
-      target: { files: [new File(['broken'], 'broken.frametrail')] },
+      target: { files: [new File(['broken'], 'broken.stepmark')] },
     });
 
     expect((await screen.findByRole('alert')).textContent).toContain('檔案內容損毀');
@@ -365,7 +365,7 @@ describe('作品庫', () => {
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).toBeTruthy();
     await waitFor(() => expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(false));
-    const file = new File(['archive'], 'fallback.frametrail', { type: 'application/vnd.frametrail.project+json' });
+    const file = new File(['archive'], 'fallback.stepmark', { type: 'application/vnd.stepmark.project+json' });
     fireEvent.change(input!, { target: { files: [file] } });
 
     await waitFor(() => expect(archive.importProjectArchive).toHaveBeenCalledWith(file));

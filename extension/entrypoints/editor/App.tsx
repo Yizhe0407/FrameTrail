@@ -156,11 +156,11 @@ function EditorApp() {
       } catch (presentError) {
         // The run already settled in storage; only presenting its outcome failed,
         // so surface that instead of silently dropping it.
-        console.error('[frametrail] failed to present the recapture result', presentError);
+        console.error('[stepmark] failed to present the recapture result', presentError);
         setOperationError(t().editor.recapturePresentFailed);
       } finally {
         await ackStepRecaptureResult(result.runId, result.sessionId).catch((ackError) => {
-          console.warn('[frametrail] failed to acknowledge the recapture result', ackError);
+          console.warn('[stepmark] failed to acknowledge the recapture result', ackError);
         });
       }
     })();
@@ -170,7 +170,7 @@ function EditorApp() {
     try {
       await flushAll();
     } catch (saveError) {
-      console.error('[frametrail] failed to save descriptions before an editor operation', saveError);
+      console.error('[stepmark] failed to save descriptions before an editor operation', saveError);
       // A pending draft confirmation carries its own user-facing message; only
       // genuine save failures get the generic retry wording.
       setOperationError(
@@ -216,7 +216,7 @@ function EditorApp() {
   // pending-confirmation case); fill the banner only when nothing else already surfaced one.
   function selectEntrySafely(id: string): void {
     void selectEntry(id).catch((selectionError) => {
-      console.error('[frametrail] failed to switch steps', selectionError);
+      console.error('[stepmark] failed to switch steps', selectionError);
       setOperationError((current) => current ?? t().editor.selectFailed);
     });
   }
@@ -275,10 +275,10 @@ function EditorApp() {
   }
 
   const focusRecaptureSource = () =>
-    runRecaptureControl('[frametrail] failed to focus the recapture tab', focusStepRecaptureSource, t().editor.recaptureTabMissing);
+    runRecaptureControl('[stepmark] failed to focus the recapture tab', focusStepRecaptureSource, t().editor.recaptureTabMissing);
 
   const cancelRecapture = () =>
-    runRecaptureControl('[frametrail] failed to cancel recapture', cancelStepRecapture, t().editor.recaptureCancelFailed);
+    runRecaptureControl('[stepmark] failed to cancel recapture', cancelStepRecapture, t().editor.recaptureCancelFailed);
 
   async function publicationEntries(signal: AbortSignal) {
     if (!sessionId) throw new Error(t().editor.publishTargetMissing);

@@ -1,5 +1,4 @@
 import {
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -9,20 +8,20 @@ import {
   type ScreenReaderInstructions,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
-import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { arrayMove } from '@dnd-kit/sortable';
 import { t } from '@/lib/shared/i18n';
 
+/** Pointer-only on purpose: reordering is a drag, and there is no keyboard variant to keep in step with it. */
 function useSortableSensors() {
-  return useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 }
 
 /**
- * dnd-kit's built-in announcements are English and describe raw ids. A sortable
- * list is only usable without sight if the announcement says which item moved
- * and where it landed, so callers supply a 1-based position lookup.
+ * dnd-kit's built-in announcements are English and describe raw ids, so a drag
+ * is announced in the active language with the item's name and position;
+ * callers supply a 1-based position lookup. The built-in instructions describe
+ * keyboard pick-up, which this list does not offer, so they are emptied rather
+ * than left to say something untrue.
  *
  * @param itemNoun what one row is called, from the i18n `sortable` nouns
  * @param positionOf 1-based display position of an id, or 0 when it is unknown
@@ -34,9 +33,7 @@ function createSortableAccessibility(
   const copy = () => t().sortable;
   const describe = (id: UniqueIdentifier) => copy().item(itemNoun, positionOf(id));
   return {
-    screenReaderInstructions: {
-      draggable: copy().instructions(itemNoun),
-    },
+    screenReaderInstructions: { draggable: '' },
     announcements: {
       onDragStart: ({ active }) => copy().dragStart(describe(active.id)),
       onDragOver: ({ active, over }) => (

@@ -40,7 +40,7 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
       })
       .catch((error) => {
         // Fail closed to "new guide only": a missing list must never block recording.
-        console.warn('[frametrail] failed to read guides for the record target', error);
+        console.warn('[stepmark] failed to read guides for the record target', error);
       });
     return () => {
       active = false;

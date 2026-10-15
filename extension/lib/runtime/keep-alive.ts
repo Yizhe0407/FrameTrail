@@ -1,7 +1,7 @@
-export const KEEPALIVE_PORT_NAME = 'frametrail-keepalive';
+export const KEEPALIVE_PORT_NAME = 'stepmark-keepalive';
 
 /** 不同於單純斷線，此訊息確認擷取工作已不存在。 */
-export const KEEPALIVE_REJECTED_MESSAGE_TYPE = 'frametrail-keepalive-rejected';
+export const KEEPALIVE_REJECTED_MESSAGE_TYPE = 'stepmark-keepalive-rejected';
 
 function isKeepAliveRejectionMessage(message: unknown): boolean {
   return (
@@ -70,7 +70,7 @@ export function createKeepAlivePortHandler<TSender, TState>(
       }).catch((error) => {
         // Reading state failed, which says nothing about the sender: drop the
         // port without the rejection message so a healthy recorder reconnects.
-        console.error('[frametrail] failed to authorize keep-alive port', error);
+        console.error('[stepmark] failed to authorize keep-alive port', error);
         disconnect();
       });
     };
@@ -151,14 +151,14 @@ export function startKeepAlive(
     try {
       options.onRejected?.();
     } catch (error) {
-      console.error('[frametrail] keep-alive rejection handler failed', error);
+      console.error('[stepmark] keep-alive rejection handler failed', error);
     }
   };
 
   const scheduleReconnect = () => {
     if (stopped || suspended || reconnectTimer !== null) return;
     if (reconnectAttempt >= maxConsecutiveFailures) {
-      console.warn('[frametrail] keep-alive gave up after repeated failed reconnects');
+      console.warn('[stepmark] keep-alive gave up after repeated failed reconnects');
       giveUp();
       return;
     }
@@ -186,7 +186,7 @@ export function startKeepAlive(
     try {
       nextPort = runtime.connect({ name: options.name });
     } catch (error) {
-      console.warn('[frametrail] keep-alive connection failed; retrying', error);
+      console.warn('[stepmark] keep-alive connection failed; retrying', error);
       scheduleReconnect();
       return;
     }
@@ -204,7 +204,7 @@ export function startKeepAlive(
         nextPort.postMessage({ type: 'heartbeat' });
         reconnectAttempt = 0;
       } catch (error) {
-        console.warn('[frametrail] keep-alive heartbeat failed; reconnecting', error);
+        console.warn('[stepmark] keep-alive heartbeat failed; reconnecting', error);
         try {
           nextPort.disconnect();
         } catch {

@@ -109,7 +109,7 @@ export interface RecordingState {
   recaptureResult: StepRecaptureResult | null;
 }
 
-export const RECORDING_STATE_KEY = 'frametrail:recordingState';
+export const RECORDING_STATE_KEY = 'stepmark:recordingState';
 
 const DEFAULT_STATE: RecordingState = {
   operation: null,
