@@ -22,6 +22,7 @@ import {
   type ProjectStepsTransaction,
 } from './database';
 import { clearActiveProjectId } from './storage';
+import { notifyProjectsChanged } from './change-notifier';
 import { t } from '../shared/i18n';
 
 export async function createProject(initial?: Partial<Pick<Project, 'title' | 'description' | 'tags'>>): Promise<Project> {
@@ -89,6 +90,7 @@ export async function updateProject(
     const updated = sanitizeProject({ ...existing, ...patch, updatedAt: Math.max(existing.updatedAt, Date.now()) });
     await tx.store.put(updated);
     await tx.done;
+    notifyProjectsChanged();
     return updated;
   });
 }

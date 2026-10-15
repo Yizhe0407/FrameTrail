@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
+import { notifyProjectsChanged } from './change-notifier';
 import {
   STEP_STORAGE_LIMITS,
   isDefaultProjectTitle,
@@ -264,6 +265,7 @@ export async function runProjectStepsWrite<T>(
     try {
       const result = await operation(tx);
       await tx.done;
+      notifyProjectsChanged();
       return result;
     } catch (error) {
       return abortTransaction(tx, error);
