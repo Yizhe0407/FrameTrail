@@ -1,0 +1,112 @@
+import { useCallback, useEffect, useState } from 'react';
+import { isFolderBackupSupported, pickBackupDirectory, requestBackupPermission } from './directory-handle';
+import {
+  clearBackupConfig,
+  getBackupConfig,
+  getBackupLastRun,
+  saveBackupConfig,
+  type BackupLastRun,
+} from './backup-store';
+import { getBackupAvailability, runFolderBackup, type BackupAvailability } from './backup-service';
+
+/** How often an open page checks for projects that changed since the last backup. */
+const BACKUP_INTERVAL_MS = 30_000;
+
+/** Mount this on any long-lived page: it backs up on open, every half minute,
+ * and when the tab is hidden, so closing the editor right after an edit still
+ * leaves the folder up to date. A no-op until the user turns backup on. */
+export function useAutoFolderBackup(): void {
+  useEffect(() => {
+    const tick = () => void runFolderBackup().catch((error) => console.warn('[stepmark] folder backup failed', error));
+    tick();
+    const timer = window.setInterval(tick, BACKUP_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') tick();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+}
+
+export interface FolderBackupState {
+  supported: boolean;
+  loading: boolean;
+  folderName: string | null;
+  availability: BackupAvailability;
+  lastRun: BackupLastRun | null;
+  busy: boolean;
+  error: boolean;
+  /** Picks a folder, starts backing up straight away. */
+  choose: () => Promise<void>;
+  /** Re-grants access to the already chosen folder (needed after a browser restart). */
+  reauthorize: () => Promise<void>;
+  backUpNow: () => Promise<void>;
+  turnOff: () => Promise<void>;
+}
+
+export function useFolderBackup(): FolderBackupState {
+  const supported = isFolderBackupSupported();
+  const [loading, setLoading] = useState(true);
+  const [folderName, setFolderName] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<BackupAvailability>('off');
+  const [lastRun, setLastRun] = useState<BackupLastRun | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const [config, state, run] = await Promise.all([getBackupConfig(), getBackupAvailability(), getBackupLastRun()]);
+    setFolderName(config?.folderName ?? null);
+    setAvailability(state);
+    setLastRun(run);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void refresh()
+      .catch(() => setError(true))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [refresh]);
+
+  const guarded = useCallback(async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(false);
+    try {
+      await action();
+      await refresh();
+    } catch (actionError) {
+      console.error('[stepmark] folder backup action failed', actionError);
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh]);
+
+  const choose = useCallback(() => guarded(async () => {
+    const directory = await pickBackupDirectory();
+    if (!directory) return;
+    await saveBackupConfig({ directory, folderName: directory.name });
+    await runFolderBackup();
+  }), [guarded]);
+
+  const reauthorize = useCallback(() => guarded(async () => {
+    const config = await getBackupConfig();
+    if (!config) return;
+    if ((await requestBackupPermission(config.directory)) === 'granted') await runFolderBackup();
+  }), [guarded]);
+
+  const backUpNow = useCallback(() => guarded(async () => {
+    await runFolderBackup();
+  }), [guarded]);
+
+  const turnOff = useCallback(() => guarded(clearBackupConfig), [guarded]);
+
+  return { supported, loading, folderName, availability, lastRun, busy, error, choose, reauthorize, backUpNow, turnOff };
+}
