@@ -16,7 +16,6 @@ export interface ImageCssSize {
 
 export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-export const RESIZE_HANDLES: readonly ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
 /** Smallest edge a drawn item may have; anything smaller is treated as a stray click. */
 export const MIN_ITEM_SIZE = 4;

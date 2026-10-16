@@ -73,24 +73,6 @@ export function normalizeRegionRect(
   };
 }
 
-export function clipRegionRect(rect: RegionRect, viewport: RegionViewport): RegionRect | null {
-  if (
-    !Number.isFinite(rect.x) ||
-    !Number.isFinite(rect.y) ||
-    !Number.isFinite(rect.width) ||
-    !Number.isFinite(rect.height) ||
-    rect.width < 0 ||
-    rect.height < 0
-  ) {
-    return null;
-  }
-  return normalizeRegionRect(
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.width, y: rect.y + rect.height },
-    viewport,
-  );
-}
-
 export function isRegionRectLargeEnough(
   rect: RegionRect,
   minSize = REGION_CAPTURE_MIN_SIZE,

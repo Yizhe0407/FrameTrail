@@ -189,7 +189,6 @@ export const recordingToolbarStyles = `
   .ft-confirm-title { margin: 0; font-size: 14px; font-weight: 700; }
   .ft-confirm-copy { margin: 6px 0 16px; color: var(--ft-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
   .ft-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .ft-confirm-actions--stacked { flex-direction: column; align-items: stretch; }
   .ft-confirm button {
     min-height: 36px; padding: 0 12px; border: 2px solid var(--ft-border); border-radius: var(--ft-radius);
     background: var(--ft-surface); color: var(--ft-text); font-weight: 700; cursor: pointer;

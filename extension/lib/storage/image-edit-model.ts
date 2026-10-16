@@ -107,7 +107,6 @@ export interface StepMarkerEdit {
 }
 
 export type ImageEdit = TextEdit | ArrowEdit | RectEdit | EllipseEdit | StepMarkerEdit;
-export type ImageEditKind = ImageEdit['kind'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
