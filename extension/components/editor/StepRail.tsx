@@ -30,22 +30,23 @@ import ProjectSectionHeading from './ProjectSectionHeading';
 function InsertSlot({ afterStep, disabled, onInsert }: { afterStep: number; disabled: boolean; onInsert: () => void }) {
   return (
     <li className="relative z-10 -mt-1 hidden h-0 shrink-0 lg:block">
+      {/* The thumbnails' own padding makes the visible seam sit 2px below this row, hence -top-1.5 rather than -top-2. */}
       <button
         type="button"
         disabled={disabled}
         onClick={onInsert}
         aria-label={t().editor.rail.insertAfter(afterStep)}
-        className="group/slot absolute inset-x-0 -top-2 flex h-4 items-center justify-center outline-none disabled:pointer-events-none"
+        className="group/slot absolute inset-x-0 -top-1.5 flex h-4 items-center justify-center outline-none disabled:pointer-events-none"
       >
         <span
           aria-hidden="true"
-          className="absolute inset-x-2 top-1/2 border-t-2 border-dashed border-border opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100"
+          className="absolute inset-x-2 top-1/2 origin-center scale-x-0 border-t-2 border-dashed border-border opacity-0 transition-[transform,opacity] duration-200 ease-out group-hover/slot:scale-x-100 group-hover/slot:opacity-100 group-focus-visible/slot:scale-x-100 group-focus-visible/slot:opacity-100 motion-reduce:transition-none"
         />
         <span
           aria-hidden="true"
-          className="relative flex h-5 items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 text-[11px] leading-none font-bold text-foreground opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100 group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-focus"
+          className="relative flex h-[18px] scale-90 items-center gap-1 rounded-full border-2 border-border bg-primary px-2.5 text-[11px] leading-none font-bold text-primary-foreground opacity-0 shadow-sm transition-[transform,opacity] duration-150 ease-out group-hover/slot:scale-100 group-hover/slot:opacity-100 group-focus-visible/slot:scale-100 group-focus-visible/slot:opacity-100 group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-focus motion-reduce:transition-none"
         >
-          <Plus className="size-3" />{t().editor.rail.insertHere}
+          <Plus className="size-3" strokeWidth={3} />{t().editor.rail.insertHere}
         </span>
       </button>
     </li>
