@@ -25,9 +25,6 @@ export function makeEditorDatabaseMocks() {
     deleteProjectSectionAtomically: vi.fn(),
     deleteStepsAndReorder: vi.fn(),
     entryId,
-    flattenEntries: vi.fn((entries: any[]) => entries.flatMap((entry) => (
-      entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations]
-    ))),
     getProject: vi.fn(),
     getProjectStructureSnapshot: vi.fn(),
     getSteps: vi.fn(),

@@ -186,7 +186,6 @@ export const zhTW = {
   },
 
   errorBoundary: {
-    fallbackSurface: '畫面',
     title: (surface: string | undefined) => (surface ? `${surface}發生錯誤` : '發生錯誤'),
     body: '畫面無法正常顯示，你的資料仍安全保存。請重新載入再試一次。',
     unknownError: '發生未預期的問題',
@@ -241,7 +240,6 @@ export const zhTW = {
     recaptureAction: '補拍',
     descriptionSaveRetry: '尚有說明無法儲存。請重試後再繼續。',
     draftConfirmationRequired: '覆寫已儲存的說明前，需要先確認要保留哪一份草稿。',
-    newStepsAppendNote: '新步驟會接在最後',
     multiAnnotationRecaptureBlocked: '此快照包含多個標註；只補拍其中一處會讓其他標註對不上畫面，請重新製作整張快照。',
     privacyReviewRequiredNotice:
       '此舊圖片的敏感資訊遮罩尚未確認，因此預覽會保持全黑，複製與匯出也會被阻擋。請使用補拍取代這張圖片。',

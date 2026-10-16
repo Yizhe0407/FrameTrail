@@ -116,6 +116,9 @@ export interface RecordingState {
   recaptureResult: StepRecaptureResult | null;
 }
 
+/** How long a removed capture can be restored. The background keeps the removed row for this long and the toolbar offers Restore for the same time. */
+export const UNDO_WINDOW_MS = 5_000;
+
 export const RECORDING_STATE_KEY = 'stepmark:recordingState';
 
 const DEFAULT_STATE: RecordingState = {

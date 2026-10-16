@@ -106,7 +106,7 @@ import type {
   StepFrameRelayMutationResult,
   StepRecaptureTargetResult,
 } from '@/lib/runtime/messages';
-import type { RecordingState, RecoverableRecordingError } from '@/lib/storage/recording-state';
+import { UNDO_WINDOW_MS, type RecordingState, type RecoverableRecordingError } from '@/lib/storage/recording-state';
 import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
 /** 標示 anchor viewport 不符，讓整個快照流程失效。 */
@@ -945,7 +945,7 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
       runId: message.runId,
       step: last,
       expectedItemCount: nextCount,
-      expiresAt: Date.now() + 5_000,
+      expiresAt: Date.now() + UNDO_WINDOW_MS,
     };
     // Soft delete: persist a copy first, since MV3 may terminate the worker inside
     // the restore window. Best-effort — persistence failure degrades to memory-only undo.

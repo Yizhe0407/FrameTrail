@@ -517,12 +517,6 @@ export function entryId(entry: StepEntry): string {
   return entry.kind === 'single' ? entry.step.id : entry.anchor.id;
 }
 
-/** 包含所有 row id，避免 reorderSteps 留下衝突的舊 order。 */
-export function flattenEntries(entries: StepEntry[]): string[] {
-  return entries.flatMap((entry) =>
-    entry.kind === 'single' ? [entry.step.id] : [entry.anchor.id, ...entry.annotations.map((s) => s.id)],
-  );
-}
 
 
 export class ProjectStructureIntegrityError extends Error {

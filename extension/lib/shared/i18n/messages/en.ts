@@ -183,7 +183,6 @@ export const en: Messages = {
   },
 
   errorBoundary: {
-    fallbackSurface: 'Screen',
     title: (surface: string | undefined) => (surface ? `${surface} ran into a problem` : 'Something went wrong'),
     body: 'This screen couldn’t be displayed. Your data is still safe — reload and try again.',
     unknownError: 'No details are available',
@@ -240,7 +239,6 @@ export const en: Messages = {
     recaptureAction: 'Retake',
     descriptionSaveRetry: 'Some descriptions couldn’t be saved. Retry before continuing.',
     draftConfirmationRequired: 'Choose which draft to keep before overwriting the saved description.',
-    newStepsAppendNote: 'New steps are added at the end',
     multiAnnotationRecaptureBlocked:
       'This snapshot has several markers. A new base image would misplace the others, so record the whole snapshot again.',
     privacyReviewRequiredNotice:

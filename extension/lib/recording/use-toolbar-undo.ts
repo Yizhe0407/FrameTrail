@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
+import { UNDO_WINDOW_MS } from '@/lib/storage/recording-state';
 
 export const RECORDING_TOOLBAR_UNDO_KEY = 'stepmark:recordingToolbarUndo';
-
-/** How long "Restore" stays offered after an undo; the background's undo window is the same length. */
-export const UNDO_OFFER_MS = 5_000;
 
 export interface UndoOffer {
   token: string;
@@ -64,7 +62,7 @@ export function useToolbarUndo(runId: string, itemCount: number) {
   }, []);
 
   const offer = useCallback((next: UndoOffer, countAfterUndo: number) => {
-    const record: StoredOffer = { ...next, runId, expiresAt: Date.now() + UNDO_OFFER_MS, itemCount: countAfterUndo };
+    const record: StoredOffer = { ...next, runId, expiresAt: Date.now() + UNDO_WINDOW_MS, itemCount: countAfterUndo };
     settled.current = false;
     hasOffer.current = true;
     setStored(record);
