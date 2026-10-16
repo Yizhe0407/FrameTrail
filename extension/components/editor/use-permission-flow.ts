@@ -28,7 +28,8 @@ interface UsePermissionFlowOptions {
   flushDescriptions: () => Promise<void>;
   requireSelectedEntry: (expectedEntryId?: string) => StepEntry;
   setOperationError: (message: string | null) => void;
-  lastEntryMode: RecordingMode;
+  /** The mode of the entry a continuation follows (the last entry when none is named); it is the picker's default. */
+  entryMode: (entryId?: string) => RecordingMode;
 }
 
 /** Captured at the start of an asynchronous continuation; `isCurrent()` is
@@ -52,7 +53,7 @@ export function usePermissionFlow({
   flushDescriptions,
   requireSelectedEntry,
   setOperationError,
-  lastEntryMode,
+  entryMode,
 }: UsePermissionFlowOptions) {
   const [preparedPermission, setPreparedPermission] = useState<PreparedCapturePermission | null>(null);
   const [permissionPending, setPermissionPending] = useState(false);
@@ -322,7 +323,7 @@ export function usePermissionFlow({
     const flow = beginPermissionPreflight(null);
     if (flow == null) return;
     insertAfterEntryId.current = afterEntryId;
-    setContinuationMode(lastEntryMode);
+    setContinuationMode(entryMode(afterEntryId));
     let prepared: PreparedCapturePermission | null = null;
     try {
       prepared = await requestContinuationPreflight(sessionId!, afterEntryId);

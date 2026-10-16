@@ -38,7 +38,7 @@ function renderFlow(overrides: Record<string, unknown> = {}) {
     flushDescriptions: vi.fn().mockResolvedValue(undefined),
     requireSelectedEntry: vi.fn(() => selectedEntry),
     setOperationError: vi.fn(),
-    lastEntryMode: 'steps',
+    entryMode: () => 'steps',
     ...overrides,
   };
   const { result } = renderHook(() => usePermissionFlow(options as never));
@@ -113,7 +113,7 @@ describe('continuation recording mode', () => {
   ] as const)('defaults to the last entry (%s) and starts in the mode the user picked (%s)', async (lastEntryMode, picked) => {
     answerStartWith('g1');
     mocks.permissionsRequest.mockResolvedValue(true);
-    const { result } = renderFlow({ lastEntryMode });
+    const { result } = renderFlow({ entryMode: () => lastEntryMode });
 
     await act(() => result.current.handleContinueRecording());
     expect(result.current.continuationMode).toBe(lastEntryMode);

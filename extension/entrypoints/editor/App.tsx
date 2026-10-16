@@ -100,7 +100,10 @@ function EditorApp() {
     flushDescriptions,
     requireSelectedEntry,
     setOperationError,
-    lastEntryMode: entries.at(-1)?.kind === 'group' ? 'snapshot' : 'steps',
+    entryMode: (afterEntryId) => {
+      const followed = afterEntryId === undefined ? entries.at(-1) : entries.find((entry) => entryId(entry) === afterEntryId);
+      return followed?.kind === 'group' ? 'snapshot' : 'steps';
+    },
   });
 
   const [publishOpen, setPublishOpen] = useState(false);
