@@ -71,7 +71,7 @@ test.describe('popup workflows', () => {
     browserErrors: _browserErrors,
   }) => {
     const stepsMode = popupPage.getByRole('radio', { name: '步驟' });
-    const snapshotMode = popupPage.getByRole('radio', { name: '快照' });
+    const snapshotMode = popupPage.getByRole('radio', { name: '標註' });
     await expect(stepsMode).toHaveAttribute('aria-checked', 'true');
     await snapshotMode.click();
     await expect(snapshotMode).toHaveAttribute('aria-checked', 'true');
@@ -87,8 +87,8 @@ test.describe('popup workflows', () => {
     await popupPage.evaluate(() => {
       window.close = () => {};
     });
-    await popupPage.getByRole('radio', { name: '快照' }).click();
-    await expect(popupPage.getByRole('radio', { name: '快照' })).toHaveAttribute('aria-checked', 'true');
+    await popupPage.getByRole('radio', { name: '標註' }).click();
+    await expect(popupPage.getByRole('radio', { name: '標註' })).toHaveAttribute('aria-checked', 'true');
     const seededProjectId = await readActiveProjectId(statePage);
     expect(seededProjectId).toBeTruthy();
     await clickPopupCommandWithoutActivatingTab(popupPage, '開始錄製');
@@ -104,7 +104,7 @@ test.describe('popup workflows', () => {
     expect(runSessionId).toBeTruthy();
     expect(runSessionId).not.toBe(seededProjectId);
 
-    await expect(popupPage.getByText('快照 · 0 個標註')).toBeVisible();
+    await expect(popupPage.getByText('標註 · 0 個標註')).toBeVisible();
     await expect(popupPage.getByRole('button', { name: '回到錄製分頁' })).toBeEnabled();
     await expect(popupPage.getByRole('button', { name: '停止錄製' })).toHaveCount(0);
     await stopRecording(statePage);

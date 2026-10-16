@@ -154,7 +154,7 @@ test.describe('snapshot recording', () => {
     await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
     const point = await targetCenter(appPage, '#plain-text');
-    await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
+    await expect(shield.getByRole('button', { name: '結束', exact: true })).toBeVisible();
 
     await clickSnapshotTarget(appPage, point);
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
@@ -168,7 +168,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(async () => (await readSteps(popupPage)).length).toBe(2);
 
     const editorOpened = extensionContext.waitForEvent('page');
-    await shield.getByRole('button', { name: '完成', exact: true }).click();
+    await shield.getByRole('button', { name: '結束', exact: true }).click();
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
@@ -213,7 +213,8 @@ test.describe('snapshot recording', () => {
     })).toEqual({ left: 16, bottom: 16 });
     await expect.poll(readToolbarCorner).toBe('bottom-left');
 
-    await shield.getByRole('button', { name: '放棄這次錄製' }).click();
+    await shield.getByRole('button', { name: '更多' }).click();
+    await shield.getByRole('menuitem', { name: '放棄錄製' }).click();
     await expect(shield.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeVisible();
     await shield.getByRole('button', { name: '放棄錄製' }).click();
 
@@ -233,7 +234,7 @@ test.describe('snapshot recording', () => {
     await clickSnapshotTarget(appPage, await targetCenter(appPage, '#plain-text'));
     await expect.poll(async () => (await readRecordingState(popupPage)).itemCount).toBe(1);
 
-    await firstShield.getByRole('button', { name: '完成並新增快照' }).click();
+    await firstShield.getByRole('button', { name: '下一張' }).click();
     await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('preparing-next');
     await expect.poll(() => appPage.locator('[data-stepmark-snapshot-shield]').count()).toBe(0);
     await expect(appPage.locator('[data-stepmark-recording-toolbar]')).toHaveCount(1);
@@ -268,7 +269,7 @@ test.describe('snapshot recording', () => {
     );
 
     const editorOpened = extensionContext.waitForEvent('page');
-    await secondShield.getByRole('button', { name: '完成', exact: true }).click();
+    await secondShield.getByRole('button', { name: '結束', exact: true }).click();
     const editor = await editorOpened;
     await editor.waitForLoadState('domcontentloaded');
     await expect(editor.getByRole('button', { name: /開啟步驟/ })).toHaveCount(2);
@@ -441,7 +442,7 @@ test.describe('snapshot recording', () => {
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
     const shield = await getSnapshotFrame(appPage);
-    await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
+    await expect(shield.getByRole('button', { name: '結束', exact: true })).toBeVisible();
 
     // The shield takes keyboard focus on its own: Tab goes to the first candidate (the enabled action button). No pointer is used.
     await appPage.keyboard.press('Tab');

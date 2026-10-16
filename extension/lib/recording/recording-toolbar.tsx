@@ -7,10 +7,15 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import {
+  ArrowRight,
+  Camera,
   Check,
   Crop,
+  Crosshair,
+  GripVertical,
   Loader2,
   Minimize2,
+  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -73,12 +78,11 @@ export default function RecordingToolbar({
   const [undo, setUndo] = useState<{ token: string; itemNumber: number } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [confirmSwitch, setConfirmSwitch] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const previousCount = useRef(state.itemCount);
   const pendingRef = useRef<ToolbarAction | null>(null);
   const floatingRef = useRef<HTMLElement | null>(null);
   const cancelDiscardRef = useRef<HTMLButtonElement | null>(null);
-  const cancelSwitchRef = useRef<HTMLButtonElement | null>(null);
   const confirmTitleId = useId();
   const confirmDescriptionId = useId();
   const modeCopy = recordingModeCopy(state.mode);
@@ -102,10 +106,6 @@ export default function RecordingToolbar({
   useEffect(() => {
     if (confirmDiscard) cancelDiscardRef.current?.focus();
   }, [confirmDiscard]);
-
-  useEffect(() => {
-    if (confirmSwitch) cancelSwitchRef.current?.focus();
-  }, [confirmSwitch]);
 
   useEffect(() => {
     if (state.itemCount > previousCount.current) {
@@ -182,18 +182,9 @@ export default function RecordingToolbar({
 
   const handleSwitchMode = (target: RecordingMode) => {
     if (target === state.mode) return;
-    if (target === 'snapshot') {
-      void run('SWITCH_TO_SNAPSHOT_MODE');
-    } else if (state.phase === 'recording' && state.itemCount > 0) {
-      setConfirmSwitch(true);
-    } else {
-      void run('SWITCH_TO_STEPS_MODE');
-    }
-  };
-
-  const handleConfirmSwitch = async (action: ToolbarAction) => {
-    const result = await run(action);
-    if (result.ok) setConfirmSwitch(false);
+    // Leaving a snapshot keeps what was annotated, so there is nothing to ask about:
+    // discarding is its own, explicit action in the menu.
+    void run(target === 'snapshot' ? 'SWITCH_TO_SNAPSHOT_MODE' : 'SWITCH_TO_STEPS_MODE');
   };
 
   const handleConfirmKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -219,7 +210,11 @@ export default function RecordingToolbar({
     if (!toolbar?.classList.contains('ft-toolbar')) return;
     const fit = () => {
       toolbar.removeAttribute('data-compact');
-      if (toolbar.scrollWidth > toolbar.clientWidth + 1) toolbar.setAttribute('data-compact', '');
+      // Measured on the real children: scrollWidth would also count the tooltips'
+      // hidden ::after boxes, which stick out past the edge buttons.
+      const last = toolbar.lastElementChild;
+      const room = toolbar.getBoundingClientRect().right - (parseFloat(getComputedStyle(toolbar).paddingRight) || 0);
+      if (last && last.getBoundingClientRect().right > room + 1) toolbar.setAttribute('data-compact', '');
     };
     fit();
     window.addEventListener('resize', fit);
@@ -227,8 +222,23 @@ export default function RecordingToolbar({
   });
 
   const paused = state.phase === 'paused';
-  const statusLabel = t().toolbar.status(paused, modeCopy.label, state.itemCount);
   const preparingNext = state.mode === 'snapshot' && state.phase === 'preparing-next';
+  const statusLabel = regionCaptureActive
+    ? t().toolbar.regionCapturing
+    : preparingNext
+    ? t().toolbar.statusWaiting
+    : state.mode === 'snapshot'
+      ? t().toolbar.statusAnnotating(state.itemCount)
+      : paused
+        ? t().toolbar.statusPaused(state.itemCount)
+        : t().toolbar.statusRecording(state.itemCount);
+  const hint = regionCaptureActive
+    ? null
+    : preparingNext
+      ? t().toolbar.hintWaiting
+      : state.mode === 'snapshot' && state.phase === 'recording' && state.itemCount === 0
+        ? t().toolbar.hintAnnotating
+        : null;
   const invalidated = state.mode === 'snapshot' && state.phase === 'invalidated';
   const busy = pending !== null || state.phase === 'finishing';
 
@@ -249,17 +259,17 @@ export default function RecordingToolbar({
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pendingRef.current) return;
           setConfirmDiscard(false);
-          setConfirmSwitch(false);
+          setMenuOpen(false);
         }}
       >
-        {(confirmDiscard || confirmSwitch) && (
+        {(confirmDiscard || menuOpen) && (
           <div
             className="ft-modal-backdrop"
             aria-hidden="true"
             onPointerDown={() => {
               if (pendingRef.current) return;
               setConfirmDiscard(false);
-              setConfirmSwitch(false);
+              setMenuOpen(false);
             }}
           />
         )}
@@ -276,6 +286,9 @@ export default function RecordingToolbar({
           )}
           {!message && !state.error && showSuccess && (
             <div className="ft-message" role="status"><Check className="ft-success" />{t().toolbar.recorded}</div>
+          )}
+          {hint && !message && !state.error && !showSuccess && !undo && !menuOpen && !confirmDiscard && (
+            <div className="ft-hint">{hint}</div>
           )}
           {undo && (
             <div className="ft-snackbar" role="status">
@@ -317,44 +330,48 @@ export default function RecordingToolbar({
             </div>
           )}
 
-          {confirmSwitch && (
-            <div
-              className="ft-confirm"
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby={confirmTitleId}
-              aria-describedby={confirmDescriptionId}
-              onKeyDown={handleConfirmKeyDown}
-            >
-              <h2 className="ft-confirm-title" id={confirmTitleId}>{t().toolbar.switchToStepsTitle}</h2>
-              <p className="ft-confirm-copy" id={confirmDescriptionId}>
-                {t().toolbar.switchToStepsBody(state.itemCount)}
-              </p>
-              <div className="ft-confirm-actions ft-confirm-actions--stacked">
+          {menuOpen && (
+            <div className="ft-menu" role="menu" aria-label={t().toolbar.more}>
+              {onStartRegionCapture && state.mode === 'steps' && (
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE')}
+                  role="menuitem"
+                  disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onStartRegionCapture();
+                  }}
                 >
-                  {pending === 'SWITCH_TO_STEPS_MODE' ? t().common.processing : t().toolbar.finishSnapshotAndSwitch}
+                  <Crop size={16} />
+                  {regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
                 </button>
-                <button
-                  type="button"
-                  data-danger="true"
-                  disabled={busy}
-                  onClick={() => void handleConfirmSwitch('SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT')}
-                >
-                  {pending === 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT' ? t().common.processing : t().toolbar.discardSnapshotAndSwitch}
-                </button>
-                <button
-                  ref={cancelSwitchRef}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setConfirmSwitch(false)}
-                >
-                  {t().toolbar.stayInSnapshot}
-                </button>
-              </div>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setCollapsed(true);
+                }}
+              >
+                <Minimize2 size={16} />
+                {t().toolbar.collapse}
+              </button>
+              <span className="ft-menu-divider" aria-hidden="true" />
+              <button
+                type="button"
+                role="menuitem"
+                data-danger="true"
+                disabled={busy}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmDiscard(true);
+                }}
+              >
+                <Trash2 size={16} />
+                {t().toolbar.discard}
+              </button>
             </div>
           )}
 
@@ -438,7 +455,7 @@ export default function RecordingToolbar({
                     type="button"
                     className="ft-status"
                     data-stepmark-toolbar-position=""
-                    aria-label={t().toolbar.moveLabel(preparingNext ? t().toolbar.nextPending : statusLabel)
+                    aria-label={t().toolbar.moveLabel(statusLabel)
                       + (state.projectTitle ? `; ${t().toolbar.appendingTo(state.projectTitle)}` : '')}
                     data-tooltip={t().toolbar.moveTooltip}
                     onPointerDown={handlePositionPointerDown}
@@ -446,21 +463,24 @@ export default function RecordingToolbar({
                     onPointerUp={finishPositionDrag}
                     onPointerCancel={finishPositionDrag}
                   >
-                    <span className="ft-dot" aria-hidden="true" />
-                    <span className="ft-status-text">
-                      {regionCaptureActive
-                        ? t().toolbar.regionCapturing
-                        : preparingNext ? t().toolbar.nextPending : t().toolbar.captured}
-                    </span>
-                    <span className="ft-count-badge">{state.itemCount}</span>
+                    {preparingNext ? (
+                      <GripVertical className="ft-grip" aria-hidden="true" />
+                    ) : paused ? (
+                      <Pause className="ft-state-icon" data-tone="muted" aria-hidden="true" />
+                    ) : state.mode === 'snapshot' ? (
+                      <Crosshair className="ft-state-icon" aria-hidden="true" />
+                    ) : (
+                      <span className="ft-dot" aria-hidden="true" />
+                    )}
+                    {!preparingNext && (
+                      <span className="ft-count-badge" data-tone={paused ? 'muted' : undefined}>{state.itemCount}</span>
+                    )}
                     {state.projectTitle && (
                       <span className="ft-target" title={t().toolbar.appendingTo(state.projectTitle)}>
                         {state.projectTitle}
                       </span>
                     )}
                   </button>
-
-                  <span className="ft-divider" aria-hidden="true" />
 
                   <div className="ft-mode-switch" role="radiogroup" aria-label={t().common.recordingMode}>
                     {MODE_OPTIONS.map((option) => (
@@ -477,7 +497,47 @@ export default function RecordingToolbar({
                     ))}
                   </div>
 
+                  {preparingNext && (
+                    <button
+                      type="button"
+                      className="ft-primary"
+                      data-tooltip={t().toolbar.captureFrameTooltip}
+                      disabled={busy}
+                      onClick={() => void run('CREATE_NEXT_SNAPSHOT')}
+                    >
+                      {pending === 'CREATE_NEXT_SNAPSHOT' ? <Loader2 /> : <Camera />}
+                      {t().toolbar.captureFrame}
+                    </button>
+                  )}
+                  {state.mode === 'snapshot' && !preparingNext && (
+                    <button
+                      type="button"
+                      className="ft-primary"
+                      data-tooltip={t().toolbar.nextFrameTooltip}
+                      disabled={busy}
+                      onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
+                    >
+                      {t().toolbar.nextFrame}
+                      {pending === 'PREPARE_NEXT_SNAPSHOT' ? <Loader2 /> : <ArrowRight />}
+                    </button>
+                  )}
+
                   <div className="ft-actions-group">
+                    {state.mode === 'steps' && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        data-emphasis={paused ? 'true' : undefined}
+                        aria-label={paused ? t().toolbar.resume : t().toolbar.pause}
+                        data-tooltip={paused ? t().toolbar.resume : t().toolbar.pause}
+                        disabled={busy}
+                        onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
+                      >
+                        {pending === 'PAUSE_RECORDING' || pending === 'RESUME_RECORDING'
+                          ? <Loader2 />
+                          : paused ? <Play size={16} /> : <Pause size={16} />}
+                      </button>
+                    )}
                     {!preparingNext && (
                       <button
                         type="button"
@@ -490,77 +550,28 @@ export default function RecordingToolbar({
                         {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 size={18} />}
                       </button>
                     )}
-                    {!preparingNext && onStartRegionCapture && (
-                      <button
-                        type="button"
-                        className="ft-button"
-                        aria-label={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
-                        data-tooltip={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
-                        aria-pressed={regionCaptureActive}
-                        disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
-                        onClick={() => onStartRegionCapture()}
-                      >
-                        <Crop size={17} />
-                      </button>
-                    )}
-                    {state.mode === 'steps' && !preparingNext && (
-                      <button
-                        type="button"
-                        className="ft-button"
-                        aria-label={paused ? t().toolbar.resume : t().toolbar.pause}
-                        data-tooltip={paused ? t().toolbar.resume : t().toolbar.pause}
-                        disabled={busy}
-                        onClick={() => void run(paused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING')}
-                      >
-                        {pending === 'PAUSE_RECORDING' || pending === 'RESUME_RECORDING'
-                          ? <Loader2 />
-                          : paused ? <Play size={16} /> : <Pause size={16} />}
-                      </button>
-                    )}
-                    {state.mode === 'snapshot' && !preparingNext && (
-                      <button
-                        type="button"
-                        className="ft-button"
-                        aria-label={t().toolbar.finishAndNextSnapshot}
-                        data-tooltip={t().toolbar.finishAndNextSnapshot}
-                        disabled={busy}
-                        onClick={() => void run('PREPARE_NEXT_SNAPSHOT')}
-                      >
-                        {pending === 'PREPARE_NEXT_SNAPSHOT' ? <Loader2 /> : <Plus size={17} />}
-                      </button>
-                    )}
                     <button
                       type="button"
                       className="ft-button"
-                      data-danger="true"
-                      aria-label={t().toolbar.discardLabel}
-                      data-tooltip={t().toolbar.discardLabel}
+                      aria-label={t().toolbar.more}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      data-tooltip={menuOpen ? undefined : t().toolbar.more}
                       disabled={busy}
-                      onClick={() => setConfirmDiscard(true)}
+                      onClick={() => setMenuOpen((open) => !open)}
                     >
-                      <Trash2 size={17} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ft-button"
-                      aria-label={t().toolbar.collapse}
-                      data-tooltip={t().toolbar.collapse}
-                      disabled={busy}
-                      onClick={() => setCollapsed(true)}
-                    >
-                      <Minimize2 size={17} />
+                      <MoreHorizontal size={18} />
                     </button>
                   </div>
 
                   <button
                     type="button"
                     className="ft-finish"
+                    data-tooltip={t().toolbar.finishTooltip}
                     disabled={busy}
-                    onClick={() => void run(preparingNext ? 'CREATE_NEXT_SNAPSHOT' : 'FINISH_RECORDING')}
+                    onClick={() => void run('FINISH_RECORDING')}
                   >
-                    {pending === 'FINISH_RECORDING' || pending === 'CREATE_NEXT_SNAPSHOT' || state.phase === 'finishing'
-                      ? <Loader2 />
-                      : preparingNext ? t().toolbar.createSnapshot : t().toolbar.finish}
+                    {pending === 'FINISH_RECORDING' || state.phase === 'finishing' ? <Loader2 /> : t().toolbar.finish}
                   </button>
                 </>
               )}

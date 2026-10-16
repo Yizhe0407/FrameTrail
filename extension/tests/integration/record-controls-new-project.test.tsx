@@ -158,7 +158,7 @@ describe('popup mode picker', () => {
     await waitFor(() => expect(mocks.query).toHaveBeenCalled());
 
     const steps = screen.getByRole('radio', { name: /步驟/ });
-    const snapshot = screen.getByRole('radio', { name: /快照/ });
+    const snapshot = screen.getByRole('radio', { name: /標註/ });
     expect(steps.getAttribute('aria-describedby')).toBeTruthy();
     expect(document.getElementById(steps.getAttribute('aria-describedby')!)?.textContent).toBe(
       '每次點擊都會擷取一張截圖，自動編號成一連串操作步驟。',

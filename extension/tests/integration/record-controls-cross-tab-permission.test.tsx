@@ -147,7 +147,7 @@ describe('cross-tab permission ask at recording start', () => {
   it('never asks for the grant when starting a snapshot run', async () => {
     await renderIdleControls();
 
-    fireEvent.click(screen.getByRole('radio', { name: '快照' }));
+    fireEvent.click(screen.getByRole('radio', { name: '標註' }));
     expect(screen.queryByText(HINT_TEXT)).toBeNull();
 
     await clickStartAndWaitForSend(1);
