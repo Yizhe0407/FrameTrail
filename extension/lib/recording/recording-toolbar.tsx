@@ -23,6 +23,7 @@ import type { RecordingMode, RecordingPhase } from '@/lib/storage/recording-stat
 import { recordingModeCopy } from './recording-mode-copy';
 
 import { recordingToolbarStyles } from './recording-toolbar-styles';
+import type { ToolbarTheme } from './snapshot-shield-protocol';
 import { useToolbarPosition } from './use-toolbar-position';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t, useActiveLocale } from '@/lib/shared/i18n';
@@ -51,6 +52,8 @@ interface Props {
   onRestoreApplied?: () => void;
   onStartRegionCapture?: () => void;
   regionCaptureActive?: boolean;
+  /** Overrides the OS preference, for a mount point (the shield frame) where that preference cannot be read. */
+  theme?: ToolbarTheme;
 }
 
 export default function RecordingToolbar({
@@ -60,6 +63,7 @@ export default function RecordingToolbar({
   onRestoreApplied,
   onStartRegionCapture,
   regionCaptureActive = false,
+  theme,
 }: Props) {
   useActiveLocale();
   const [collapsed, setCollapsed] = useState(false);
@@ -241,6 +245,7 @@ export default function RecordingToolbar({
       <style>{recordingToolbarStyles}</style>
       <div
         className="ft-layer"
+        data-theme={theme}
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pendingRef.current) return;
           setConfirmDiscard(false);

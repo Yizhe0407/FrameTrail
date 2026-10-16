@@ -26,6 +26,8 @@ describe('snapshot shield protocol', () => {
     expect(isSnapshotShieldInitMessage({ type: SNAPSHOT_SHIELD_INIT, token }, token)).toBe(true);
     expect(isSnapshotShieldInitMessage({ type: SNAPSHOT_SHIELD_INIT, token: 'old-token' }, token)).toBe(false);
     expect(isSnapshotShieldInitMessage(null, token)).toBe(false);
+    expect(isSnapshotShieldInitMessage({ type: SNAPSHOT_SHIELD_INIT, token, theme: 'dark' }, token)).toBe(true);
+    expect(isSnapshotShieldInitMessage({ type: SNAPSHOT_SHIELD_INIT, token, theme: 'neon' }, token)).toBe(false);
   });
 
   it('validates ready and finite pointer coordinates', () => {

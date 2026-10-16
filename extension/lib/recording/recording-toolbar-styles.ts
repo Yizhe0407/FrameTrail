@@ -1,5 +1,25 @@
 import { BRAND_ACCENT, BRAND_DANGER } from '../capture/brand-colors';
 
+/** The dark palette, applied by the OS preference or by an explicit `data-theme`. */
+const darkTokens = `
+  color-scheme: dark;
+  --ft-surface: #24201b;
+  --ft-text: #f6eedf;
+  --ft-status-text: #f6eedf;
+  --ft-muted: #b5aa99;
+  --ft-border: #d9cdb8;
+  --ft-focus: #8ab4ff;
+  --ft-divider: rgba(246, 238, 223, .16);
+  --ft-actions-bg: #322c25;
+  --ft-btn-text: #f6eedf;
+  --ft-btn-hover-bg: rgba(246, 238, 223, .12);
+  --ft-btn-danger-hover-bg: rgba(217, 58, 63, .22);
+  --ft-btn-danger-hover-text: #ff8a8a;
+  --ft-error-text: #ff8a8a;
+  --ft-warning: #ffe27a;
+  --ft-link: #8ab4ff;
+`;
+
 /**
  * The recording toolbar's stylesheet, injected as a <style> tag inside its
  * mount target rather than relying on any page CSS.
@@ -40,24 +60,13 @@ export const recordingToolbarStyles = `
     --ft-link: #2b5fc8;
   }
   @media (prefers-color-scheme: dark) {
-    :host, .ft-layer {
-      color-scheme: dark;
-      --ft-surface: #24201b;
-      --ft-text: #f6eedf;
-      --ft-status-text: #f6eedf;
-      --ft-muted: #b5aa99;
-      --ft-border: #d9cdb8;
-      --ft-focus: #8ab4ff;
-      --ft-divider: rgba(246, 238, 223, .16);
-      --ft-actions-bg: #322c25;
-      --ft-btn-text: #f6eedf;
-      --ft-btn-hover-bg: rgba(246, 238, 223, .12);
-      --ft-btn-danger-hover-bg: rgba(217, 58, 63, .22);
-      --ft-btn-danger-hover-text: #ff8a8a;
-      --ft-error-text: #ff8a8a;
-      --ft-warning: #ffe27a;
-      --ft-link: #8ab4ff;
+    :host, .ft-layer:not([data-theme]) {
+      ${darkTokens}
     }
+  }
+  /* An explicit theme beats the media query, which reads light inside the shield frame. */
+  .ft-layer[data-theme='dark'] {
+    ${darkTokens}
   }
   * { box-sizing: border-box; letter-spacing: 0; }
   button { font: inherit; }

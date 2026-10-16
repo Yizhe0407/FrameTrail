@@ -20,6 +20,7 @@ import {
   type SnapshotShieldControlMessage,
   type SnapshotShieldFrameMessage,
   type SnapshotShieldInitMessage,
+  type ToolbarTheme,
   type SnapshotShieldPointerDownMessage,
   type SnapshotShieldPointerMoveMessage,
   type SnapshotShieldRegionCaptureMessage,
@@ -534,7 +535,8 @@ export function createSnapshotShield(
       };
       port.start();
 
-      const message: SnapshotShieldInitMessage = { type: SNAPSHOT_SHIELD_INIT, token };
+      const theme: ToolbarTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      const message: SnapshotShieldInitMessage = { type: SNAPSHOT_SHIELD_INIT, token, theme };
       try {
         frame.contentWindow.postMessage(message, frameUrl.origin, [channel.port2]);
       } catch (error) {

@@ -51,9 +51,14 @@ export interface SnapshotShieldPreviewResult {
   rect: SnapshotShieldRect | null;
 }
 
+export type ToolbarTheme = 'light' | 'dark';
+
 export interface SnapshotShieldInitMessage {
   type: typeof SNAPSHOT_SHIELD_INIT;
   token: string;
+  /** The recorded page's OS colour preference. The shield frame is pinned to `only light`, which makes its own
+   * `prefers-color-scheme` always read light, so the toolbar inside it cannot tell for itself. */
+  theme?: ToolbarTheme;
 }
 
 export interface SnapshotShieldReadyMessage {
@@ -245,7 +250,11 @@ export function isSnapshotShieldTokenRecord(value: unknown): value is SnapshotSh
 export function isSnapshotShieldInitMessage(value: unknown, token: string): value is SnapshotShieldInitMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Partial<SnapshotShieldInitMessage>;
-  return message.type === SNAPSHOT_SHIELD_INIT && message.token === token;
+  return (
+    message.type === SNAPSHOT_SHIELD_INIT &&
+    message.token === token &&
+    (message.theme === undefined || message.theme === 'light' || message.theme === 'dark')
+  );
 }
 
 export function isSnapshotShieldPortMessage(value: unknown, token: string): value is SnapshotShieldPortMessage {

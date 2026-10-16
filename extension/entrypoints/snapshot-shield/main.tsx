@@ -83,6 +83,7 @@ function tryInitialize(event: MessageEvent): void {
   const port = event.ports[0];
   if (!port) return;
   initialized = true;
+  const theme = event.data.theme;
   const overlay = createOverlay();
   const toolbarContainer = document.createElement('div');
   toolbarContainer.setAttribute('data-stepmark-shield-toolbar', '');
@@ -286,6 +287,7 @@ function tryInitialize(event: MessageEvent): void {
           }
           onStartRegionCapture={() => startRegionCapture()}
           regionCaptureActive={regionCapture?.isActive() ?? false}
+          theme={theme}
         />
       ) : null,
     );
