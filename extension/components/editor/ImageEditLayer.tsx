@@ -381,7 +381,8 @@ export default function ImageEditLayer({
     const selected = isCrop ? tool === 'crop' : item.id === selectedId;
     const isNew = isNewDraft && draft?.id === item.id;
     const strokeOnly = isStrokeHit(item);
-    const round = item.kind === 'ellipse' || item.kind === 'step';
+    // An ellipse is framed by its bounding box: `rounded-full` on a wide box draws a pill, not the ellipse, and the handles then float off the frame.
+    const round = item.kind === 'step';
     return (
       <div
         key={item.id}
