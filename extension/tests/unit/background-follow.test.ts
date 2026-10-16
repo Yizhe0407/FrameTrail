@@ -143,7 +143,7 @@ describe('follow-the-active-tab recording (steps mode)', () => {
     expect(mocks.executeScript).not.toHaveBeenCalled();
   });
 
-  it('never follows for a snapshot run', async () => {
+  it('never follows once a snapshot has been captured', async () => {
     storedState = recordingState({ mode: 'snapshot', groupAnchorId: 'anchor-1' });
     mocks.getStep.mockResolvedValue({
       id: 'anchor-1',
@@ -159,6 +159,17 @@ describe('follow-the-active-tab recording (steps mode)', () => {
 
     expect(storedState.tabId).toBe(4);
     expect(mocks.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('follows while a snapshot run is only waiting to capture, so any page can be chosen', async () => {
+    storedState = recordingState({ mode: 'snapshot', phase: 'preparing-next', itemCount: 0 });
+    await importBackground();
+    await flushAsyncWork();
+
+    await activateTab(9);
+
+    expect(storedState.tabId).toBe(9);
+    expect(mocks.executeScript).toHaveBeenCalled();
   });
 
   it('abandons a stale follow when the run changes between the read and the state mutation', async () => {

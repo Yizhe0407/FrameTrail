@@ -1,6 +1,7 @@
 import { browser, type Browser } from 'wxt/browser';
 import { queueLifecycle } from '../background-queues';
 import { getRecordingState } from '../../storage/storage';
+import type { RecordingState } from '../../storage/recording-state';
 import { isRecordableTabUrl } from '../../shared/restricted-urls';
 import { describeBrowserError } from '../../runtime/browser-errors';
 import type { ControlPlane } from './control-plane';
@@ -13,8 +14,11 @@ const FOLLOW_ACTIVATION_DEBOUNCE_MS = 300;
 
 /**
  * Follow-the-user recording: while a steps run is live, activating a different
- * eligible tab moves the run there instead of dropping clicks. Snapshot mode
- * never follows (coordinates are tied to one frozen document); without the
+ * eligible tab moves the run there instead of dropping clicks. The same goes
+ * for a snapshot run that is only waiting to capture: nothing is frozen or
+ * recorded yet, so choosing the page to capture is exactly what the user is
+ * doing. Once a snapshot is captured it never follows (its coordinates are tied
+ * to that one frozen document); without the
  * <all_urls> grant the run keeps its single-tab behavior; an ineligible tab
  * (restricted/extension page) moves nothing until an eligible tab is activated.
  * Tab listeners are wired in the background entrypoint — this module owns the
@@ -36,6 +40,12 @@ export function createFollowMode(deps: { control: ControlPlane; runtime: Recorde
     }, FOLLOW_ACTIVATION_DEBOUNCE_MS);
   }
 
+  /** A steps run that is live, or a snapshot run still waiting for its capture. */
+  function canFollow(state: Pick<RecordingState, 'mode' | 'phase'>): boolean {
+    if (state.mode === 'steps') return state.phase === 'recording' || state.phase === 'paused';
+    return state.mode === 'snapshot' && state.phase === 'preparing-next';
+  }
+
   async function followRecordingToTab(tabId: number): Promise<void> {
     const expectedControlVersion = control.controlVersion;
     const state = await getRecordingState();
@@ -43,11 +53,10 @@ export function createFollowMode(deps: { control: ControlPlane; runtime: Recorde
       expectedControlVersion !== control.controlVersion ||
       state.operation !== 'recording' ||
       !state.isRecording ||
-      state.mode !== 'steps' ||
       !state.runId ||
       state.tabId == null ||
       state.tabId === tabId ||
-      (state.phase !== 'recording' && state.phase !== 'paused')
+      !canFollow(state)
     ) {
       return;
     }
