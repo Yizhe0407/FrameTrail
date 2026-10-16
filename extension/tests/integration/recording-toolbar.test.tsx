@@ -189,7 +189,7 @@ describe('recording toolbar', () => {
     const { rerender } = render(
       <RecordingToolbar state={{ ...state, mode: 'snapshot', phase: 'preparing-next', itemCount: 0 }} onCommand={onCommand} />,
     );
-    expect(screen.getByText('先把頁面操作到位，再按「擷取」凍結畫面。')).toBeTruthy();
+    expect(screen.getByText('調整好頁面後，按「擷取」。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '復原上一個' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '擷取' }));
     await waitFor(() => expect(onCommand).toHaveBeenCalledWith('CREATE_NEXT_SNAPSHOT', undefined));
