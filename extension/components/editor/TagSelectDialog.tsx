@@ -162,7 +162,7 @@ export default function TagSelectDialog({
                           aria-label={t().editor.tags.addTag(tag)}
                           className="min-w-0"
                         >
-                          <DashedOutline radius="full" outset={2} />
+                          <DashedOutline radius="full" outset={2} hideOnHover />
                           <span className="min-w-0 truncate">{tag}</span>
                         </button>
                       </Badge>

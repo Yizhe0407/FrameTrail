@@ -10,6 +10,8 @@ interface DashedOutlineProps {
   radius: number | 'full';
   /** Pixels the outline extends past the parent's padding box on every side, e.g. 2 to sit on a 2px border. */
   outset?: number;
+  /** For a control whose hover state draws a solid border in its place; a plain container keeps its outline. */
+  hideOnHover?: boolean;
   className?: string;
 }
 
@@ -20,11 +22,11 @@ interface DashedOutlineProps {
  * picks the dash period that divides the outline's perimeter exactly, so every
  * dash is the same length, corners included.
  *
- * Drop it in as the first child of a `relative` element. It hides itself while
+ * Drop it in as the first child of a `relative` element. With `hideOnHover` it hides itself while
  * the parent is hovered, so a hover border can take its place. An outset past
  * the padding box needs a parent that doesn't clip its overflow.
  */
-export function DashedOutline({ radius, outset = 0, className }: DashedOutlineProps) {
+export function DashedOutline({ radius, outset = 0, hideOnHover = false, className }: DashedOutlineProps) {
   const ref = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 
@@ -47,7 +49,8 @@ export function DashedOutline({ radius, outset = 0, className }: DashedOutlinePr
       aria-hidden="true"
       data-slot="dashed-outline"
       className={cn(
-        'pointer-events-none absolute overflow-visible text-border [:hover>&]:hidden',
+        'pointer-events-none absolute overflow-visible text-border',
+        hideOnHover && '[:hover>&]:hidden',
         className,
       )}
       // Inline, so a parent's `[&>svg]:size-*` rule (Badge has one) can't shrink it.
