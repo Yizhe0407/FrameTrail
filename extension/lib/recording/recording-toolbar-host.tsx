@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import RecordingToolbar, { type RecordingToolbarState } from './recording-toolbar';
 import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from '../capture/overlay-layers';
+import { REAPPEAR_TRANSITION } from '../capture/capture-presentation';
 import { createViewportOverlayHost } from '../capture/viewport-overlay-host';
 import type { RecordingControlMessage, RecordingControlResult } from '@/lib/runtime/messages';
 
@@ -26,7 +27,7 @@ export function mountRecordingToolbar(
 ): MountedRecordingToolbar {
   // A popover so it shares the top layer with the hover frame and the page's
   // own modals; plain z-index would always lose to either.
-  const host = createViewportOverlayHost('data-stepmark-recording-toolbar', { 'pointer-events': 'none' }, { popover: true });
+  const host = createViewportOverlayHost('data-stepmark-recording-toolbar', { 'pointer-events': 'none', transition: REAPPEAR_TRANSITION }, { popover: true });
 
   const shadowRoot = host.attachShadow({ mode: 'closed' });
   const container = document.createElement('div');

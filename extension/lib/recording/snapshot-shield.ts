@@ -33,6 +33,7 @@ import {
 } from './snapshot-shield-protocol';
 import { deepElementFromPoint } from '../capture/selector/element-availability';
 import { createViewportOverlayHost, setImportantStyle } from '../capture/viewport-overlay-host';
+import { REAPPEAR_TRANSITION } from '../capture/capture-presentation';
 import type { RecordingControlResult } from '../runtime/messages';
 import { t } from '@/lib/shared/i18n';
 
@@ -199,7 +200,7 @@ export function createSnapshotShield(
       filter: 'none',
       'backdrop-filter': 'none',
       animation: 'none',
-      transition: 'none',
+      transition: REAPPEAR_TRANSITION,
       'pointer-events': 'auto',
     },
     { popover: true },

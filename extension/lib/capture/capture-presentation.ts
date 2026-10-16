@@ -3,6 +3,9 @@
  * scrollbar. Everything stays in layout so fixed/sticky content and viewport
  * coordinates do not move while a screenshot is being composed.
  */
+/** Eases an overlay back after the capture-time hide; set on the host so it runs once the hide rule is removed. */
+export const REAPPEAR_TRANSITION = 'opacity 160ms ease';
+
 export const CAPTURE_PRESENTATION_CSS = `
 /* Stepmark's interaction layers are capture-only UI. Keep their hosts in
  * the document so layout and viewport coordinates remain unchanged, but make
@@ -13,6 +16,11 @@ export const CAPTURE_PRESENTATION_CSS = `
 [data-stepmark-region-capture] {
   visibility: hidden !important;
   opacity: 0 !important;
+  /* Hiding must be instant or the overlay would still be partly visible in the
+   * screenshot. Restoring is not: the toolbar and shield declare an opacity
+   * transition, which only runs once this rule is gone, so they fade back in
+   * instead of popping into view after every capture. */
+  transition: none !important;
 }
 
 :root::-webkit-scrollbar,
