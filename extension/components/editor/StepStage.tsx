@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { DashedOutline } from '@/components/ui/dashed-outline';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import EntryThumbnail from './EntryThumbnail';
 import StepActions from './StepActions';
 import DescriptionField from './DescriptionField';
@@ -108,22 +107,17 @@ export default function StepStage({
               </button>
             </Badge>
           ))}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge asChild variant="tagAction" className="disabled:opacity-50">
-                <button
-                  type="button"
-                  onClick={() => setTagDialogOpen(true)}
-                  disabled={editingDisabled}
-                >
-                  <DashedOutline radius="full" outset={2} hideOnHover />
-                  <Plus className="size-3.5 stroke-[2.5]" />
-                  {t().editor.stage.tagButton}
-                </button>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>{t().editor.stage.tagTooltip}</TooltipContent>
-          </Tooltip>
+          <Badge asChild variant="tagAction" className="disabled:opacity-50">
+            <button
+              type="button"
+              onClick={() => setTagDialogOpen(true)}
+              disabled={editingDisabled}
+            >
+              <DashedOutline radius="full" outset={2} hideOnHover />
+              <Plus className="size-3.5 stroke-[2.5]" />
+              {t().editor.stage.tagButton}
+            </button>
+          </Badge>
         </div>
       </div>
 

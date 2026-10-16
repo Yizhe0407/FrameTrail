@@ -2,7 +2,6 @@ import { Loader2, RotateCcw } from 'lucide-react';
 import { reportError } from '@/components/shared/report-error';
 import { resetSession } from '@/lib/runtime/actions';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import { useState, type ComponentProps } from 'react';
 import ConfirmationDialog from './ConfirmationDialog';
@@ -50,28 +49,23 @@ export default function ResetButton({
   return (
     <>
       <div className="flex flex-col items-end gap-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={variant}
-              onClick={() => {
-                setResetError(null);
-                setConfirmationOpen(true);
-              }}
-              disabled={!hasSteps || !sessionId || disabled || resetting}
-              aria-label={resetting ? t().reset.pendingLabel : t().reset.actionLabel}
-              className={cn(
-                'hover:bg-danger-soft hover:text-danger',
-                variant === 'outline' && 'hover:border-recording',
-                className,
-              )}
-            >
-              {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-              <span>{resetting ? t().reset.pending : t().reset.label}</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{disabled ? t().reset.disabledTooltip : t().reset.actionLabel}</TooltipContent>
-        </Tooltip>
+        <Button
+          variant={variant}
+          onClick={() => {
+            setResetError(null);
+            setConfirmationOpen(true);
+          }}
+          disabled={!hasSteps || !sessionId || disabled || resetting}
+          aria-label={resetting ? t().reset.pendingLabel : t().reset.actionLabel}
+          className={cn(
+            'hover:bg-danger-soft hover:text-danger',
+            variant === 'outline' && 'hover:border-recording',
+            className,
+          )}
+        >
+          {resetting ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+          <span>{resetting ? t().reset.pending : t().reset.label}</span>
+        </Button>
       </div>
       <ConfirmationDialog
         open={confirmationOpen}

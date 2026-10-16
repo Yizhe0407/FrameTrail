@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { Loader2, RotateCcw, X } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { t } from '@/lib/shared/i18n';
 
 interface Props {
@@ -33,12 +32,7 @@ export default function UndoSnackbar({
       role="status"
       className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-2 rounded-full border-2 border-border bg-card py-1.5 pr-1.5 pl-4 text-sm font-bold text-foreground ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="min-w-0 truncate">{message}</span>
-        </TooltipTrigger>
-        <TooltipContent>{message}</TooltipContent>
-      </Tooltip>
+      <span className="min-w-0 truncate">{message}</span>
       <button
         type="button"
         onClick={onUndo}

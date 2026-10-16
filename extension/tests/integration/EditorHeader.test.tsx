@@ -81,8 +81,6 @@ describe('EditorHeader', () => {
   it('returns to the library in the same tab from the Stepmark crumb', async () => {
     renderHeader();
 
-    fireEvent.focus(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
-    expect(screen.getByRole('tooltip').textContent).toBe('回到專案庫');
     fireEvent.click(screen.getByRole('button', { name: 'Stepmark 專案庫' }));
 
     await waitFor(() => expect(mocks.navigateInPlace).toHaveBeenCalledWith('library'));

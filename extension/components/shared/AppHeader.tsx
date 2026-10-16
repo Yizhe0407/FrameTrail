@@ -64,19 +64,14 @@ export default function AppHeader({ current, currentHeading, status, actions, is
             {isHome ? (
               <span aria-current="page" className={cn(crumbClass, 'text-foreground')}>{brand}</span>
             ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t().nav.homeLabel}
-                    onClick={() => void navigate('library')}
-                    className={cn(crumbClass, 'text-foreground outline-none transition-colors focus-ring hover:bg-secondary')}
-                  >
-                    {brand}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t().nav.homeTooltip}</TooltipContent>
-              </Tooltip>
+              <button
+                type="button"
+                aria-label={t().nav.homeLabel}
+                onClick={() => void navigate('library')}
+                className={cn(crumbClass, 'text-foreground outline-none transition-colors focus-ring hover:bg-secondary')}
+              >
+                {brand}
+              </button>
             )}
           </li>
           {!isHome && (

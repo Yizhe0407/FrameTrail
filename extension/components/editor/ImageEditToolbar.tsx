@@ -30,19 +30,23 @@ interface HeaderProps {
 const iconButtonClass =
   'flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 
-function IconButton({ label, onClick, disabled, children }: {
+function IconButton({ label, onClick, disabled, tooltip = true, children }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Off where the neighbouring readout already explains the control (the zoom level next to its buttons). */
+  tooltip?: boolean;
   children: React.ReactNode;
 }) {
+  const button = (
+    <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={iconButtonClass}>
+      {children}
+    </button>
+  );
+  if (!tooltip) return button;
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={iconButtonClass}>
-          {children}
-        </button>
-      </TooltipTrigger>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   );
@@ -100,12 +104,12 @@ export function ImageEditHeaderActions(props: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-0.5 rounded-md border-2 border-border bg-card p-0.5">
-        <IconButton label={copy.zoomOut} onClick={props.onZoomOut} disabled={!props.canZoomOut}><ZoomOut className="size-4" /></IconButton>
+        <IconButton tooltip={false} label={copy.zoomOut} onClick={props.onZoomOut} disabled={!props.canZoomOut}><ZoomOut className="size-4" /></IconButton>
         <span className="min-w-12 text-center text-xs font-bold text-foreground tabular-nums" aria-live="polite">
           {copy.zoomLevel(Math.round(props.zoom * 100))}
         </span>
-        <IconButton label={copy.zoomIn} onClick={props.onZoomIn} disabled={!props.canZoomIn}><ZoomIn className="size-4" /></IconButton>
-        <IconButton label={copy.zoomFit} onClick={props.onZoomFit} disabled={props.zoom === 1}><Maximize className="size-4" /></IconButton>
+        <IconButton tooltip={false} label={copy.zoomIn} onClick={props.onZoomIn} disabled={!props.canZoomIn}><ZoomIn className="size-4" /></IconButton>
+        <IconButton tooltip={false} label={copy.zoomFit} onClick={props.onZoomFit} disabled={props.zoom === 1}><Maximize className="size-4" /></IconButton>
       </div>
 
       <span className="hidden text-xs text-muted-foreground sm:inline" aria-live="polite">{copy.count(props.itemCount)}</span>

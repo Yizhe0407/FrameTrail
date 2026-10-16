@@ -302,26 +302,22 @@ export default function App() {
                   {allTags.map((tag) => {
                     const active = filterTags.includes(tag);
                     return (
-                      <Tooltip key={tag}>
-                        <TooltipTrigger asChild>
-                          <Badge
-                            asChild
-                            variant={active ? 'tagFilterActive' : 'tagFilter'}
-                            className="max-w-full truncate"
-                          >
-                            <button
-                              type="button"
-                              aria-pressed={active}
-                              onClick={() => setFilterTags((current) => (
-                                active ? current.filter((value) => value !== tag) : [...current, tag]
-                              ))}
-                            >
-                              {tag}
-                            </button>
-                          </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>{tag}</TooltipContent>
-                      </Tooltip>
+                      <Badge
+                        key={tag}
+                        asChild
+                        variant={active ? 'tagFilterActive' : 'tagFilter'}
+                        className="max-w-full truncate"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setFilterTags((current) => (
+                            active ? current.filter((value) => value !== tag) : [...current, tag]
+                          ))}
+                        >
+                          {tag}
+                        </button>
+                      </Badge>
                     );
                   })}
                 </div>
@@ -400,19 +396,14 @@ export default function App() {
                     </div>
                     <div className="flex-1" />
                     <div className="mt-1 flex items-center gap-1 border-t-2 border-border-soft pt-3">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            className="min-w-0 flex-1"
-                            onClick={() => void run(project.id, () => openSelectedProjectInEditor(project.id, { inPlace: true }))}
-                            disabled={actionsLocked}
-                          >
-                            {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}{t().common.open}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{lockedTitle(t().common.open)}</TooltipContent>
-                      </Tooltip>
+                      <Button
+                        size="sm"
+                        className="min-w-0 flex-1"
+                        onClick={() => void run(project.id, () => openSelectedProjectInEditor(project.id, { inPlace: true }))}
+                        disabled={actionsLocked}
+                      >
+                        {pending ? <Loader2 className="animate-spin" /> : <PencilLine />}{t().common.open}
+                      </Button>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button

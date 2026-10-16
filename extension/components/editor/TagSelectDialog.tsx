@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import { DashedOutline } from '@/components/ui/dashed-outline';
 import { Input } from '@/components/ui/input';
 import { buttonVariants } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from '@/lib/storage/project-tag-model';
@@ -153,22 +152,17 @@ export default function TagSelectDialog({
               <span className="text-xs font-bold text-muted-foreground">{t().editor.tags.used}</span>
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((tag) => (
-                  <Tooltip key={tag}>
-                    <TooltipTrigger asChild>
-                      <Badge asChild variant="tagEditableAvailable" className="max-w-full select-none">
-                        <button
-                          type="button"
-                          onClick={() => void addTag(tag)}
-                          aria-label={t().editor.tags.addTag(tag)}
-                          className="min-w-0"
-                        >
-                          <DashedOutline radius="full" outset={2} hideOnHover />
-                          <span className="min-w-0 truncate">{tag}</span>
-                        </button>
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>{tag}</TooltipContent>
-                  </Tooltip>
+                  <Badge key={tag} asChild variant="tagEditableAvailable" className="max-w-full select-none">
+                    <button
+                      type="button"
+                      onClick={() => void addTag(tag)}
+                      aria-label={t().editor.tags.addTag(tag)}
+                      className="min-w-0"
+                    >
+                      <DashedOutline radius="full" outset={2} hideOnHover />
+                      <span className="min-w-0 truncate">{tag}</span>
+                    </button>
+                  </Badge>
                 ))}
               </div>
             </div>

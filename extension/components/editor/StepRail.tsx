@@ -14,7 +14,6 @@ import {
   useSortableReorder,
 } from '@/lib/editor/dnd';
 import { t } from '@/lib/shared/i18n';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import EntryThumbnail from './EntryThumbnail';
 import SortableItem from './SortableItem';
@@ -300,19 +299,14 @@ export default function StepRail({
         </SortableContext>
       </DndContext>
       {onContinueRecording && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => onContinueRecording()}
-              disabled={reorderDisabled}
-              className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-border bg-card text-xs leading-none font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
-            >
-              <Video className="size-3.5" />{t().editor.rail.continueRecording}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t().editor.rail.continueRecordingTooltip}</TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={() => onContinueRecording()}
+          disabled={reorderDisabled}
+          className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border-2 border-border bg-card text-xs leading-none font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40 lg:flex"
+        >
+          <Video className="size-3.5" />{t().editor.rail.continueRecording}
+        </button>
       )}
     </nav>
   );
