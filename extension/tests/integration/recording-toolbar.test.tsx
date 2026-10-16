@@ -6,18 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
+  remove: vi.fn(),
 }));
 
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { id: 'test-extension' },
-    storage: { local: { get: mocks.get, set: mocks.set } },
+    storage: { local: { get: mocks.get, set: mocks.set, remove: mocks.remove } },
   },
 }));
 
 import RecordingToolbar, { type RecordingToolbarState } from '@/lib/recording/recording-toolbar';
 import { RECORDING_TOOLBAR_CORNER_KEY } from '@/lib/recording/recording-toolbar-position';
 import { RECORDING_TOOLBAR_COLLAPSED_KEY } from '@/lib/recording/use-toolbar-collapsed';
+import { RECORDING_TOOLBAR_UNDO_KEY } from '@/lib/recording/use-toolbar-undo';
 
 const state: RecordingToolbarState = {
   runId: 'run-1',
@@ -30,6 +32,7 @@ const state: RecordingToolbarState = {
 beforeEach(() => {
   mocks.get.mockReset();
   mocks.set.mockReset();
+  mocks.remove.mockReset().mockResolvedValue(undefined);
   mocks.get.mockResolvedValue({ [RECORDING_TOOLBAR_CORNER_KEY]: 'bottom-right' });
   mocks.set.mockResolvedValue(undefined);
 });
@@ -275,6 +278,47 @@ describe('recording toolbar collapse', () => {
     expect(screen.getByText('調整好頁面後，按「擷取」。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '收合控制器' }));
     expect(screen.queryByText('調整好頁面後，按「擷取」。')).toBeNull();
+  });
+});
+
+describe('recording toolbar undo offer', () => {
+  const stored = (overrides: Record<string, unknown> = {}) => ({
+    token: 'undo-1', itemNumber: 2, runId: 'run-1', expiresAt: Date.now() + 4_000, itemCount: 1, ...overrides,
+  });
+  const serve = (offer: unknown) => mocks.get.mockImplementation(async (key: string) => (
+    key === RECORDING_TOOLBAR_UNDO_KEY ? { [key]: offer } : { [RECORDING_TOOLBAR_CORNER_KEY]: 'bottom-right' }
+  ));
+
+  it('saves the offer after an undo and removes it once restored', async () => {
+    const onCommand = vi.fn().mockResolvedValueOnce({ ok: true, undoToken: 'undo-1', removedItemNumber: 2 }).mockResolvedValue({ ok: true });
+    const { rerender } = await mount(<RecordingToolbar state={state} onCommand={onCommand} />);
+    fireEvent.click(screen.getByRole('button', { name: '復原上一個' }));
+    await screen.findAllByText('已移除步驟 2');
+    expect(mocks.set).toHaveBeenCalledWith({ [RECORDING_TOOLBAR_UNDO_KEY]: expect.objectContaining({ token: 'undo-1', runId: 'run-1', itemCount: 1 }) });
+
+    // The new count arrives after the undo: the offer must survive that, not be taken for a stale one.
+    rerender(<RecordingToolbar state={{ ...state, itemCount: 1 }} onCommand={onCommand} />);
+    fireEvent.click(await screen.findByRole('button', { name: '還原' }));
+    await waitFor(() => expect(onCommand).toHaveBeenCalledWith('RESTORE_LAST_CAPTURE', 'undo-1'));
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(RECORDING_TOOLBAR_UNDO_KEY));
+  });
+
+  it('offers Restore again in a toolbar mounted afresh while the window is still open', async () => {
+    serve(stored());
+    await mount(<RecordingToolbar state={{ ...state, itemCount: 1 }} onCommand={vi.fn()} />);
+    expect(await screen.findByText('已移除步驟 2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '還原' })).toBeTruthy();
+  });
+
+  it.each([
+    ['has expired', stored({ expiresAt: Date.now() - 1 }), 1],
+    ['belongs to another run', stored({ runId: 'run-0' }), 1],
+    ['no longer matches the item count', stored(), 3],
+  ])('does not offer Restore when the saved offer %s', async (_name, offer, count) => {
+    serve(offer);
+    await mount(<RecordingToolbar state={{ ...state, itemCount: count }} onCommand={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole('button', { name: '還原' })).toBeNull();
   });
 });
 

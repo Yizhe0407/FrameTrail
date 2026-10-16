@@ -30,6 +30,7 @@ import { recordingToolbarStyles } from './recording-toolbar-styles';
 import type { ToolbarTheme } from './snapshot-shield-protocol';
 import { useToolbarPosition } from './use-toolbar-position';
 import { useToolbarCollapsed } from './use-toolbar-collapsed';
+import { useToolbarUndo } from './use-toolbar-undo';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t, useActiveLocale } from '@/lib/shared/i18n';
 
@@ -75,7 +76,7 @@ export default function RecordingToolbar({
   const [pending, setPending] = useState<ToolbarAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
-  const [undo, setUndo] = useState<{ token: string; itemNumber: number } | null>(null);
+  const { undo, offer: offerUndo, clear: clearUndo } = useToolbarUndo(state.runId, state.itemCount);
   const [showSuccess, setShowSuccess] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const previousCount = useRef(state.itemCount);
@@ -123,12 +124,6 @@ export default function RecordingToolbar({
     if (regionCaptureActive) setAnnouncement(t().toolbar.regionCaptureStarted);
   }, [regionCaptureActive]);
 
-  useEffect(() => {
-    if (!undo) return;
-    const timer = window.setTimeout(() => setUndo(null), 5_000);
-    return () => window.clearTimeout(timer);
-  }, [undo]);
-
   async function run(action: ToolbarAction, token?: string): Promise<RecordingControlResult> {
     if (pendingRef.current) return { ok: false, error: t().toolbar.busy };
     pendingRef.current = action;
@@ -162,7 +157,7 @@ export default function RecordingToolbar({
     const result = await run('UNDO_LAST_CAPTURE');
     if (!result.ok || !result.undoToken || !result.removedItemNumber) return;
     onUndoApplied?.();
-    setUndo({ token: result.undoToken, itemNumber: result.removedItemNumber });
+    offerUndo({ token: result.undoToken, itemNumber: result.removedItemNumber }, result.removedItemNumber - 1);
     setAnnouncement(modeCopy.itemRemoved(result.removedItemNumber));
   }
 
@@ -171,7 +166,7 @@ export default function RecordingToolbar({
     const result = await run('RESTORE_LAST_CAPTURE', undo.token);
     if (!result.ok) return;
     onRestoreApplied?.();
-    setUndo(null);
+    clearUndo();
     setAnnouncement(t().toolbar.restored);
   }
 
@@ -245,8 +240,8 @@ export default function RecordingToolbar({
   useEffect(() => {
     if (!invalidated) return;
     setCollapsed(false);
-    setUndo(null);
-  }, [invalidated, setCollapsed]);
+    clearUndo();
+  }, [invalidated, setCollapsed, clearUndo]);
 
   if (state.phase === 'starting' || !collapseReady || !positionReady) return null;
 
