@@ -262,7 +262,6 @@ export const zhTW = {
 
     imageEdit: {
       open: '編輯圖片',
-      openTooltip: '放大編輯這張圖片：加文字、箭頭、外框、編號，或遮蔽敏感資訊',
       title: (number: number) => `編輯圖片 · 步驟 ${number}`,
       done: '完成',
       toolbarLabel: '圖片編輯工具',

@@ -264,7 +264,6 @@ export const en: Messages = {
 
     imageEdit: {
       open: 'Edit image',
-      openTooltip: 'Enlarge this image to add text, arrows, boxes and numbers, or to mask sensitive information',
       title: (number: number) => `Edit image · Step ${number}`,
       done: 'Done',
       toolbarLabel: 'Image editing tools',

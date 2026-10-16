@@ -162,20 +162,15 @@ export default function StepStage({
       <div className="flex items-center gap-3">
         {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label={t().editor.stage.savingNumbering} />}
         {canEditImage && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setImageEditorOpen(true)}
-                disabled={editingDisabled}
-                className="flex h-9 items-center gap-1.5 rounded-md border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
-              >
-                <SquareDashedMousePointer className="size-4" />
-                {t().editor.imageEdit.open}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t().editor.imageEdit.openTooltip}</TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            onClick={() => setImageEditorOpen(true)}
+            disabled={editingDisabled}
+            className="flex h-9 items-center gap-1.5 rounded-md border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+          >
+            <SquareDashedMousePointer className="size-4" />
+            {t().editor.imageEdit.open}
+          </button>
         )}
         <StepActions
           entry={entry}
