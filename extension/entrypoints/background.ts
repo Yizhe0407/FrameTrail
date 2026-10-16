@@ -28,7 +28,7 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture/capture-presentation';
-import { addStep, addSteps, deleteStep, deleteStepsAndReorder, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
+import { addStep, addSteps, deleteStep, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
 import { getProject, resetProject } from '@/lib/storage/project-repository';
 import { stepRole, type Step } from '@/lib/storage/models';
 import {
@@ -1214,10 +1214,7 @@ async function switchToSnapshotMode(message: RecordingControlMessage): Promise<R
   return { ok: true };
 }
 
-async function switchToStepsMode(
-  message: RecordingControlMessage,
-  discardSnapshot: boolean,
-): Promise<RecordingControlResult> {
+async function switchToStepsMode(message: RecordingControlMessage): Promise<RecordingControlResult> {
   const isSwitchable = (state: RecordingState) =>
     state.isRecording &&
     state.operation === 'recording' &&
@@ -1259,15 +1256,8 @@ async function switchToStepsMode(
   });
 
   try {
-    if (discardSnapshot && previous.groupAnchorId) {
-      const steps = await getSteps(previous.sessionId!);
-      const groupIds = steps
-        .filter((step) => step.id === previous.groupAnchorId || step.groupId === previous.groupAnchorId)
-        .map((step) => step.id);
-      await deleteStepsAndReorder(previous.sessionId!, groupIds, []);
-    } else {
-      await deleteEmptySnapshotAnchor(previous);
-    }
+    // What was annotated stays; only a snapshot that never got an annotation is dropped.
+    await deleteEmptySnapshotAnchor(previous);
     return await control.withRecorderReadyGate({
       slot: 'pendingRecorderReady',
       identity: { runId: message.runId, tabId: previous.tabId!, controlVersion: version },
@@ -1486,9 +1476,7 @@ async function handleRecordingControl(
     case 'SWITCH_TO_SNAPSHOT_MODE':
       return switchToSnapshotMode(message);
     case 'SWITCH_TO_STEPS_MODE':
-      return switchToStepsMode(message, false);
-    case 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT':
-      return switchToStepsMode(message, true);
+      return switchToStepsMode(message);
     case 'DISCARD_CURRENT_RECORDING':
       return discardCurrentRecording(message);
     case 'FINISH_RECORDING':
@@ -1929,7 +1917,6 @@ export default defineBackground(() => {
       case 'REBUILD_INVALIDATED_SNAPSHOT':
       case 'SWITCH_TO_SNAPSHOT_MODE':
       case 'SWITCH_TO_STEPS_MODE':
-      case 'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT':
       case 'DISCARD_CURRENT_RECORDING':
       case 'FINISH_RECORDING':
         return withMessageFailureFallback(

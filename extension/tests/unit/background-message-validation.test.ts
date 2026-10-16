@@ -64,7 +64,6 @@ describe('recording mode switch controls', () => {
   it.each([
     'SWITCH_TO_SNAPSHOT_MODE',
     'SWITCH_TO_STEPS_MODE',
-    'SWITCH_TO_STEPS_MODE_DISCARD_SNAPSHOT',
   ])('accepts %s only with a run id', (type) => {
     expect(isBackgroundMessage({ type, runId: 'run-1' })).toBe(true);
     expect(isBackgroundMessage({ type })).toBe(false);

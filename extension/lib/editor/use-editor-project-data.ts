@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getProject } from '../storage/project-repository';
-import { getProjectStructureSnapshot, type ProjectStructureSnapshot } from '../storage/project-structure';
+import { getProjectStructureSnapshot, repairEmptySnapshotAnchors, type ProjectStructureSnapshot } from '../storage/project-structure';
+import { getRecordingState } from '../storage/storage';
 import { type Project } from '../storage/models';
 import { retainScreenshotBlobs } from './retain-screenshot-blobs';
 
@@ -13,6 +14,20 @@ export type EditorProjectLoadState = 'loading' | 'ready' | 'missing' | 'invalid'
  * live here once. Mutations remain in the editor controller, which publishes
  * their results through `reload`/`adoptProject` instead of raw setters.
  */
+/** Sessions whose leftover empty snapshot anchors were already swept in this page. */
+const sweptSessions = new Set<string>();
+
+/** Once per Project per page load, and never while a recording may still be filling it. */
+async function sweepEmptySnapshotAnchors(sessionId: string): Promise<void> {
+  if (sweptSessions.has(sessionId)) return;
+  const recording = await getRecordingState().catch(() => null);
+  if (!recording || (recording.isRecording && recording.sessionId === sessionId)) return;
+  sweptSessions.add(sessionId);
+  await repairEmptySnapshotAnchors(sessionId).catch((error) => {
+    console.warn('[stepmark] failed to remove an empty snapshot anchor', error);
+  });
+}
+
 export function useEditorProjectData(sessionId: string | null, steps: readonly unknown[]) {
   const [project, setProject] = useState<Project | null>(null);
   const [canonicalSnapshot, setCanonicalSnapshot] = useState<ProjectStructureSnapshot | null>(null);
@@ -83,7 +98,7 @@ export function useEditorProjectData(sessionId: string | null, steps: readonly u
       return () => { disposed = true; };
     }
     setProjectLoadState((current) => current === 'ready' ? current : 'loading');
-    void getProjectStructureSnapshot(sessionId).then((snapshot) => {
+    void sweepEmptySnapshotAnchors(sessionId).then(() => getProjectStructureSnapshot(sessionId)).then((snapshot) => {
       if (disposed) return;
       adoptSnapshot(snapshot);
     }).catch(async (loadError) => {

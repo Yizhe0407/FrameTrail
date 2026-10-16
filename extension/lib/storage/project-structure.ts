@@ -13,6 +13,7 @@ import {
   orderedSessionSteps,
   sanitizeProject,
   sanitizeStepForStorage,
+  stepRole,
   type Project,
   type Step,
   type StepEntry,
@@ -270,6 +271,26 @@ export async function getProjectStructureSnapshot(sessionId: string): Promise<Pr
     const snapshot = structureSnapshot(project, steps, { skipPendingGroups: true });
     await tx.done;
     return snapshot;
+  });
+}
+
+/**
+ * Removes snapshot anchors that never received an annotation. A recording cleans up its own,
+ * but one can be left behind when the browser is closed mid-recording. The caller must make
+ * sure no recording is still adding to this Project. Returns how many were removed.
+ */
+export async function repairEmptySnapshotAnchors(sessionId: string): Promise<number> {
+  return runWithDatabase(async (db) => {
+    const tx = db.transaction(['steps'], 'readwrite');
+    const store = tx.objectStore('steps');
+    const steps = await store.index('by-session').getAll(sessionId);
+    const annotated = new Set(
+      steps.filter((step) => step.groupId && stepRole(step) === 'annotation').map((step) => step.groupId),
+    );
+    const orphans = steps.filter((step) => step.groupId === step.id && stepRole(step) === 'anchor' && !annotated.has(step.id));
+    for (const orphan of orphans) await store.delete(orphan.id);
+    await tx.done;
+    return orphans.length;
   });
 }
 
