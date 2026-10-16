@@ -165,7 +165,7 @@ describe('StepRail keyboard navigation', () => {
 
   it('每兩個步驟之間都能在該處接續錄製，並在其他操作進行時停用', () => {
     const onContinueRecording = vi.fn();
-    const entries = [makeEntry('step-1', 0), makeEntry('step-2', 1)];
+    const entries = [makeEntry('step-1', 0), makeEntry('step-2', 1), makeEntry('step-3', 2)];
     const { rerender } = render(
       <StepRail
         entries={entries}
@@ -176,6 +176,8 @@ describe('StepRail keyboard navigation', () => {
       />,
     );
 
+    // The seam after the last step is the bottom button's job.
+    expect(screen.queryByRole('button', { name: '在第 3 步後接續錄製' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '在第 1 步後接續錄製' }));
     expect(onContinueRecording).toHaveBeenCalledWith('step-1');
 

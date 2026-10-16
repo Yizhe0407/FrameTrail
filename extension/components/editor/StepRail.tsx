@@ -23,18 +23,20 @@ import ProjectSectionHeading from './ProjectSectionHeading';
 
 
 /**
- * The seam between two steps. Invisible until hovered or focused, so the rail
- * stays calm, then a dashed line with a pill says new steps go right here.
+ * The seam between two steps. It takes no room of its own: a zero-height row
+ * whose hit area straddles the existing gap, so the list keeps its density.
+ * Invisible until hovered or focused, then a dashed line with a pill floats
+ * over the seam to say new steps go right here.
  */
 function InsertSlot({ afterStep, disabled, onInsert }: { afterStep: number; disabled: boolean; onInsert: () => void }) {
   return (
-    <li className="hidden h-[18px] shrink-0 lg:block">
+    <li className="relative z-10 -mt-1 hidden h-0 shrink-0 lg:block">
       <button
         type="button"
         disabled={disabled}
         onClick={onInsert}
         aria-label={t().editor.rail.insertAfter(afterStep)}
-        className="group/slot relative flex size-full items-center justify-center outline-none disabled:pointer-events-none"
+        className="group/slot absolute inset-x-0 -top-2 flex h-4 items-center justify-center outline-none disabled:pointer-events-none"
       >
         <span
           aria-hidden="true"
@@ -42,7 +44,7 @@ function InsertSlot({ afterStep, disabled, onInsert }: { afterStep: number; disa
         />
         <span
           aria-hidden="true"
-          className="relative flex h-5 items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 text-[11px] font-bold text-foreground opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100 group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-focus"
+          className="relative flex h-5 items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 text-[11px] leading-none font-bold text-foreground opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100 group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-focus"
         >
           <Plus className="size-3" />{t().editor.rail.insertHere}
         </span>
@@ -283,7 +285,8 @@ export default function StepRail({
                     </div>
                   )}
                 </SortableItem>
-                {onContinueRecording && (
+                {/* The last seam is the 接續錄製 button below the list. */}
+                {onContinueRecording && index < entries.length - 1 && (
                   <InsertSlot
                     afterStep={index + 1}
                     disabled={reorderDisabled}
