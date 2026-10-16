@@ -291,7 +291,7 @@ export const zhTW = {
       fontSizeLabel: '文字大小',
       fontSizes: ['小', '中', '大', '特大'],
       lookLabel: '文字樣式',
-      looks: { plain: '純文字', outline: '描邊', box: '底色' },
+      looks: { plain: '純文字', outline: '描邊' },
       lookSample: 'Aa',
       fillLabel: '填色',
       fills: { none: '只有外框', tint: '淡色填滿' },

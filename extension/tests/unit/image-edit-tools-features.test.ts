@@ -56,18 +56,18 @@ describe('tool registry', () => {
   });
 
   it('starts text with the chosen look', () => {
-    const created = imageEditTool('text').create!({ from: { x: 5, y: 5 }, to: { x: 5, y: 5 }, size, style: { ...DEFAULT_IMAGE_EDIT_STYLE, look: 'box' }, nextNumber: 1 });
-    expect(created).toMatchObject({ kind: 'text', look: 'box', text: '' });
+    const created = imageEditTool('text').create!({ from: { x: 5, y: 5 }, to: { x: 5, y: 5 }, size, style: { ...DEFAULT_IMAGE_EDIT_STYLE, look: 'outline' }, nextNumber: 1 });
+    expect(created).toMatchObject({ kind: 'text', look: 'outline', text: '' });
   });
 });
 
 describe('style', () => {
   it('only applies the parts an item has', () => {
-    expect(applyStylePatch(rect as never, { color: '#22a559', fontSize: 56, look: 'box', fill: 'tint', strokeWidth: 6 })).toMatchObject({
+    expect(applyStylePatch(rect as never, { color: '#22a559', fontSize: 56, look: 'outline', fill: 'tint', strokeWidth: 6 })).toMatchObject({
       color: '#22a559', fill: 'tint', width: 6,
     });
-    const restyled = applyStylePatch(text as never, { look: 'box', fontSize: 56, strokeWidth: 6 }) as Extract<ImageEditItem, { kind: 'text' }>;
-    expect(restyled).toMatchObject({ look: 'box', fontSize: 56 });
+    const restyled = applyStylePatch(text as never, { look: 'outline', fontSize: 56, strokeWidth: 6 }) as Extract<ImageEditItem, { kind: 'text' }>;
+    expect(restyled).toMatchObject({ look: 'outline', fontSize: 56 });
     expect('width' in restyled).toBe(false);
     expect(applyStylePatch(marker('s', 1) as never, { markerRadius: 22, number: 7 })).toMatchObject({ radius: 22, number: 7 });
   });

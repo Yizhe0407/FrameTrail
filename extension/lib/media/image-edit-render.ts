@@ -162,15 +162,6 @@ export function rectCornerRadius(bounds: Pick<EditBounds, 'width' | 'height'>): 
   return Math.max(Math.min(RECT_CORNER_RADIUS, bounds.width / 2, bounds.height / 2), 0);
 }
 
-export interface TextBacking {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  radius: number;
-  fill: string;
-}
-
 /** Everything needed to paint one text edit, independent of how it is painted. */
 export interface TextPlacement {
   lines: { text: string; baselineY: number }[];
@@ -178,8 +169,6 @@ export interface TextPlacement {
   /** Width of the outline stroke drawn behind the glyphs, or null for none. */
   outlineWidth: number | null;
   outlineColor: string;
-  /** The solid rounded backing, for the `box` look. */
-  backing: TextBacking | null;
 }
 
 export function placeText(edit: TextEdit, measure: TextMeasure = measureTextWidth): TextPlacement {
@@ -187,26 +176,11 @@ export function placeText(edit: TextEdit, measure: TextMeasure = measureTextWidt
   const offset = textBaselineOffset(edit.fontSize);
   const lineTexts = layoutTextLines(edit.text, edit.fontSize, edit.bounds.width, measure);
   const ink = contrastColor(edit.color);
-  let backing: TextBacking | null = null;
-  if (edit.look === 'box') {
-    const padX = edit.fontSize * 0.45;
-    const padY = edit.fontSize * 0.22;
-    const widest = Math.max(...lineTexts.map((line) => measure(line, edit.fontSize)), 0);
-    backing = {
-      x: edit.bounds.x - padX,
-      y: edit.bounds.y - padY,
-      width: widest + padX * 2,
-      height: lineTexts.length * lineHeight + padY * 2,
-      radius: edit.fontSize * 0.3,
-      fill: withAlpha(ink, 0.9),
-    };
-  }
   return {
     x: edit.bounds.x,
     lines: lineTexts.map((text, index) => ({ text, baselineY: edit.bounds.y + index * lineHeight + offset })),
     outlineWidth: edit.look === 'outline' ? Math.max(2, edit.fontSize * 0.16) : null,
     outlineColor: ink,
-    backing,
   };
 }
 
@@ -302,15 +276,6 @@ function drawText(ctx: Canvas2D, edit: TextEdit, dpr: number, measure: TextMeasu
   ctx.font = `${IMAGE_EDIT_FONT_WEIGHT} ${edit.fontSize * dpr}px ${IMAGE_EDIT_FONT_FAMILY}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  if (placement.backing) {
-    const { x, y, width, height, radius, fill } = placement.backing;
-    applyShadow(ctx, dpr);
-    ctx.beginPath();
-    ctx.roundRect(x * dpr, y * dpr, width * dpr, height * dpr, radius * dpr);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    clearShadow(ctx);
-  }
   ctx.fillStyle = edit.color;
   if (placement.outlineWidth !== null) {
     // The outline silhouette carries the shadow; the glyphs on top add none, so it isn't doubled.
@@ -320,7 +285,7 @@ function drawText(ctx: Canvas2D, edit: TextEdit, dpr: number, measure: TextMeasu
     ctx.strokeStyle = placement.outlineColor;
     for (const line of placement.lines) ctx.strokeText(line.text, placement.x * dpr, line.baselineY * dpr);
     clearShadow(ctx);
-  } else if (!placement.backing) {
+  } else {
     applyShadow(ctx, dpr);
   }
   for (const line of placement.lines) ctx.fillText(line.text, placement.x * dpr, line.baselineY * dpr);

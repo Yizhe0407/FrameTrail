@@ -17,12 +17,8 @@ const SHADOW_FILTER = `drop-shadow(0 ${EDIT_SHADOW.offsetY}px ${EDIT_SHADOW.blur
 
 const TextShape = memo(function TextShape({ edit }: { edit: TextEdit }) {
   const placement = useMemo(() => placeText(edit), [edit]);
-  const { backing } = placement;
   return (
     <g style={{ filter: SHADOW_FILTER }}>
-      {backing && (
-        <rect x={backing.x} y={backing.y} width={backing.width} height={backing.height} rx={backing.radius} fill={backing.fill} />
-      )}
       <g
         fill={edit.color}
         fontFamily={IMAGE_EDIT_FONT_FAMILY}
@@ -32,7 +28,7 @@ const TextShape = memo(function TextShape({ edit }: { edit: TextEdit }) {
         strokeWidth={placement.outlineWidth ?? undefined}
         strokeLinejoin="round"
         paintOrder="stroke"
-        style={{ whiteSpace: 'pre', filter: backing ? 'none' : undefined }}
+        style={{ whiteSpace: 'pre' }}
       >
         {placement.lines.map((line, index) => (
           <text key={index} x={placement.x} y={line.baselineY}>{line.text}</text>

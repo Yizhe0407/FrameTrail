@@ -232,7 +232,7 @@ export default function ImageEditStylePanel({ fields, style, number, onChange }:
   );
 }
 
-/** "Aa" drawn the way the look will render it, over a neutral photo-like backing. */
+/** "Aa" drawn the way the look will render it, . */
 function LookSample({ look, color }: { look: (typeof TEXT_LOOKS)[number]; color: string }) {
   const copy = t().editor.imageEdit;
   const dark = isDark(color);
@@ -242,7 +242,6 @@ function LookSample({ look, color }: { look: (typeof TEXT_LOOKS)[number]; color:
       className="rounded-[4px] px-1.5 text-sm leading-6 font-bold"
       style={{
         color,
-        backgroundColor: look === 'box' ? edge : 'transparent',
         textShadow: look === 'outline' ? `-1px 0 ${edge}, 1px 0 ${edge}, 0 -1px ${edge}, 0 1px ${edge}` : undefined,
       }}
       aria-hidden="true"

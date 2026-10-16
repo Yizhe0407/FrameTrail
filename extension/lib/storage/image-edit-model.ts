@@ -21,8 +21,8 @@ export const IMAGE_EDIT_STROKE_WIDTHS = [2, 4, 6] as const;
 export const IMAGE_EDIT_FONT_SIZES = [16, 24, 36, 56] as const;
 export const IMAGE_EDIT_MARKER_RADII = [12, 16, 22] as const;
 
-/** How text keeps its legibility on any background: nothing, an outline in the contrasting colour, or a solid backing. */
-export const TEXT_LOOKS = ['plain', 'outline', 'box'] as const;
+/** How text keeps its legibility on any background: nothing, or an outline in the contrasting colour. */
+export const TEXT_LOOKS = ['plain', 'outline'] as const;
 export type TextLook = (typeof TEXT_LOOKS)[number];
 
 /** Whether a box or ellipse is just an outline or also lightly tinted inside. */

@@ -293,7 +293,7 @@ export const en: Messages = {
       fontSizeLabel: 'Text size',
       fontSizes: ['S', 'M', 'L', 'XL'],
       lookLabel: 'Text style',
-      looks: { plain: 'Plain', outline: 'Outline', box: 'Backing' },
+      looks: { plain: 'Plain', outline: 'Outline' },
       lookSample: 'Aa',
       fillLabel: 'Fill',
       fills: { none: 'Outline only', tint: 'Light tint' },

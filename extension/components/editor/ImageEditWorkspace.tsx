@@ -627,10 +627,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                 </div>
               </div>
             </div>
-            <p className="pointer-events-none absolute bottom-3 left-1/2 z-40 max-w-[90%] -translate-x-1/2 rounded-full border-2 border-border bg-card/95 px-3 py-1 text-center text-xs text-muted-foreground">
-              {activeTool.hint()} {copy.hints.navigate}
-            </p>
-          </div>
+            </div>
         </div>
       </DialogContent>
     </Dialog>
