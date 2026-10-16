@@ -35,12 +35,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('recording toolbar', () => {
-  it('names the existing project the run appends to, and nothing for a new project', () => {
+  it('keeps the target project out of the bar, naming it only in the status label and tooltip', () => {
     const { rerender } = render(<RecordingToolbar state={{ ...state, projectTitle: '既有教學' }} onCommand={vi.fn()} />);
-    expect(screen.getByText('既有教學').getAttribute('title')).toBe('新步驟會加到「既有教學」');
-    expect(screen.getByRole('button', { name: /拖曳移動/ }).getAttribute('aria-label')).toContain('新步驟會加到「既有教學」');
-    rerender(<RecordingToolbar state={{ ...state, projectTitle: null }} onCommand={vi.fn()} />);
     expect(screen.queryByText('既有教學')).toBeNull();
+    const handle = screen.getByRole('button', { name: /拖曳移動/ });
+    expect(handle.getAttribute('aria-label')).toContain('新步驟會加到「既有教學」');
+    expect(handle.getAttribute('data-tooltip')).toBe('新步驟會加到「既有教學」');
+    rerender(<RecordingToolbar state={{ ...state, projectTitle: null }} onCommand={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /拖曳移動/ }).getAttribute('aria-label')).not.toContain('既有教學');
   });
 
   it('offers the position control as drag-only: arrow keys do not move it', async () => {

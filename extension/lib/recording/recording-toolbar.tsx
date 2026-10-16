@@ -457,7 +457,7 @@ export default function RecordingToolbar({
                     data-stepmark-toolbar-position=""
                     aria-label={t().toolbar.moveLabel(statusLabel)
                       + (state.projectTitle ? `; ${t().toolbar.appendingTo(state.projectTitle)}` : '')}
-                    data-tooltip={t().toolbar.moveTooltip}
+                    data-tooltip={state.projectTitle ? t().toolbar.appendingTo(state.projectTitle) : t().toolbar.moveTooltip}
                     onPointerDown={handlePositionPointerDown}
                     onPointerMove={handlePositionPointerMove}
                     onPointerUp={finishPositionDrag}
@@ -474,11 +474,6 @@ export default function RecordingToolbar({
                     )}
                     {!preparingNext && (
                       <span className="ft-count-badge" data-tone={paused ? 'muted' : undefined}>{state.itemCount}</span>
-                    )}
-                    {state.projectTitle && (
-                      <span className="ft-target" title={t().toolbar.appendingTo(state.projectTitle)}>
-                        {state.projectTitle}
-                      </span>
                     )}
                   </button>
 

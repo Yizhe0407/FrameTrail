@@ -105,8 +105,6 @@ export const recordingToolbarStyles = `
   .ft-grip { width: 18px; height: 22px; flex: none; color: var(--ft-muted); }
   .ft-count-badge[data-tone="muted"] { background: var(--ft-actions-bg); color: var(--ft-muted); }
   .ft-count-badge { min-width: 26px; height: 26px; padding: 0 8px; border: 2px solid var(--ft-border); border-radius: 99px; background: var(--ft-count); color: var(--ft-count-text); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
-  .ft-target { max-width: 140px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 700; color: var(--ft-status-text); opacity: 0.7; }
-  .ft-target::before { content: '→ '; }
   .ft-actions-group { flex: none; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--ft-actions-bg); }
   /* Pill track with pill options, so the nested curves stay concentric; the
    * active option is the same tamago sticker as the app's selected state. */
