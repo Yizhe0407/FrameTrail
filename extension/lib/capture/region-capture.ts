@@ -137,6 +137,27 @@ export function resizeRegionRect(
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
+/** Gap between the selection and the action bar attached to it, and the margin kept to the viewport edge. */
+const ACTIONS_GAP = 8;
+
+/**
+ * Where the confirm/cancel bar goes: just under the selection's bottom-right corner, or above it when the
+ * selection reaches the bottom of the viewport, or inside it when the selection fills the height. Always whole
+ * inside the viewport, so it never covers the area being selected unless there is nowhere else to go.
+ */
+export function placeRegionActions(
+  rect: RegionRect,
+  viewport: RegionViewport,
+  size: { width: number; height: number },
+): RegionPoint {
+  const x = Math.min(Math.max(rect.x + rect.width - size.width, ACTIONS_GAP), Math.max(viewport.width - size.width - ACTIONS_GAP, ACTIONS_GAP));
+  const below = rect.y + rect.height + ACTIONS_GAP;
+  if (below + size.height <= viewport.height - ACTIONS_GAP) return { x, y: below };
+  const above = rect.y - size.height - ACTIONS_GAP;
+  if (above >= ACTIONS_GAP) return { x, y: above };
+  return { x, y: Math.max(rect.y + rect.height - size.height - ACTIONS_GAP, ACTIONS_GAP) };
+}
+
 export async function waitForRegionCapturePaint(frames = 2): Promise<void> {
   for (let index = 0; index < Math.max(0, frames); index += 1) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -172,14 +193,19 @@ const REGION_CAPTURE_STYLES = `
   .ft-region-handle[data-handle="s"] { left: calc(50% - 7px); bottom: -8px; cursor: ns-resize; }
   .ft-region-handle[data-handle="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
   .ft-region-handle[data-handle="w"] { left: -8px; top: calc(50% - 7px); cursor: ew-resize; }
-  .ft-region-panel {
-    position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px;
-    max-width: calc(100vw - 32px); min-height: 44px; padding: 6px 8px 6px 14px;
+  /* Guidance only: it never takes the pointer, so a box can be drawn right under it. */
+  .ft-region-hint {
+    position: fixed; top: 16px; left: 50%; max-width: calc(100vw - 32px); padding: 6px 14px;
     transform: translateX(-50%); border: 2px solid #1f1b16; border-radius: 999px;
-    background: #fffdf8; color: #1f1b16;
-    font-size: 13px; line-height: 1.4; cursor: default; pointer-events: auto;
+    background: #fffdf8; color: #1f1b16; font-size: 13px; line-height: 1.4; font-weight: 700;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
   }
-  .ft-region-status { min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Attached to the selection (see placeRegionActions) rather than a fixed corner. */
+  .ft-region-actions {
+    position: fixed; left: 0; top: 0; display: none; align-items: center; gap: 8px; padding: 4px;
+    border: 2px solid #1f1b16; border-radius: 999px; background: #fffdf8; cursor: default; pointer-events: auto;
+  }
+  .ft-region-actions[data-visible="true"] { display: flex; }
   .ft-region-cancel {
     min-width: 40px; min-height: 32px; padding: 0 12px; border: 2px solid #1f1b16; border-radius: 999px;
     background: #f2e9d9; color: #1f1b16; font: inherit; font-weight: 700; cursor: pointer;
@@ -194,7 +220,8 @@ const REGION_CAPTURE_STYLES = `
   .ft-region-cancel:focus-visible, .ft-region-confirm:focus-visible { outline: 2px solid #2f6fed; outline-offset: 2px; }
   .ft-region-blocker[data-capturing="true"] { cursor: wait; }
   .ft-region-blocker[data-capturing="true"] .ft-region-selection,
-  .ft-region-blocker[data-capturing="true"] .ft-region-panel { visibility: hidden; }
+  .ft-region-blocker[data-capturing="true"] .ft-region-hint,
+  .ft-region-blocker[data-capturing="true"] .ft-region-actions { visibility: hidden; }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 `;
 
@@ -222,10 +249,8 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   const selection = document.createElement('div');
   selection.className = 'ft-region-selection';
   selection.dataset.visible = 'false';
-  const panel = document.createElement('div');
-  panel.className = 'ft-region-panel';
   const status = document.createElement('div');
-  status.className = 'ft-region-status';
+  status.className = 'ft-region-hint';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   status.textContent = t().regionCapture.instructions;
@@ -246,8 +271,11 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     knob.dataset.handle = handle;
     selection.append(knob);
   }
-  panel.append(status, cancelButton, confirmButton);
-  blocker.append(selection, panel);
+  const actions = document.createElement('div');
+  actions.className = 'ft-region-actions';
+  actions.dataset.visible = 'false';
+  actions.append(cancelButton, confirmButton);
+  blocker.append(selection, status, actions);
   root.append(style, blocker);
 
   let closed = false;
@@ -263,6 +291,16 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     event.stopPropagation();
   };
 
+  /** Keeps the action bar attached to the box while it is being adjusted. */
+  const placeActions = (rect: RegionRect) => {
+    if (actions.dataset.visible !== 'true') return;
+    const measured = actions.getBoundingClientRect();
+    const size = { width: measured.width || 150, height: measured.height || 44 };
+    const at = placeRegionActions(rect, readViewport(), size);
+    actions.style.left = `${at.x}px`;
+    actions.style.top = `${at.y}px`;
+  };
+
   const renderRect = (rect: RegionRect | null) => {
     if (!rect || rect.width === 0 || rect.height === 0) {
       selection.dataset.visible = 'false';
@@ -273,6 +311,7 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     selection.style.top = `${rect.y}px`;
     selection.style.width = `${rect.width}px`;
     selection.style.height = `${rect.height}px`;
+    placeActions(rect);
   };
 
   const close = (notify = true) => {
@@ -302,6 +341,8 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     renderRect(rect);
     selection.dataset.interactive = rect ? 'true' : 'false';
     confirmButton.hidden = rect === null;
+    actions.dataset.visible = rect ? 'true' : 'false';
+    if (rect) placeActions(rect);
   };
 
   const commit = () => {
@@ -326,9 +367,9 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   const pointOf = (event: PointerEvent): RegionPoint => clipRegionPoint({ x: event.clientX, y: event.clientY }, readViewport());
 
   const onPointerDown = (event: PointerEvent) => {
-    // The panel's own buttons are not part of the drawing surface: pressing one must not start a box
+    // The action bar's own buttons are not part of the drawing surface: pressing one must not start a box
     // (which would clear the one being adjusted and capture the pointer, so the click never arrives).
-    if (event.composedPath().includes(panel)) {
+    if (event.composedPath().includes(actions)) {
       event.stopPropagation();
       return;
     }

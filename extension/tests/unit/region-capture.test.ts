@@ -6,6 +6,7 @@ import {
   isRegionRectLargeEnough,
   moveRegionRect,
   normalizeRegionRect,
+  placeRegionActions,
   resizeRegionRect,
 } from '@/lib/capture/region-capture';
 
@@ -80,6 +81,21 @@ describe('region adjustment geometry', () => {
     expect(resizeRegionRect(box, 'e', 500, 99, viewport)).toEqual({ x: 20, y: 20, width: 80, height: 30 });
     expect(resizeRegionRect(box, 'w', 500, 0, viewport, 8)).toEqual({ x: 52, y: 20, width: 8, height: 30 });
     expect(resizeRegionRect(box, 's', 0, -500, viewport, 8)).toEqual({ x: 20, y: 20, width: 40, height: 8 });
+  });
+});
+
+describe('placeRegionActions', () => {
+  const size = { width: 40, height: 20 };
+
+  it('sits under the selection corner, flips above at the bottom edge, and goes inside when neither fits', () => {
+    expect(placeRegionActions({ x: 10, y: 10, width: 60, height: 20 }, viewport, size)).toEqual({ x: 30, y: 38 });
+    expect(placeRegionActions({ x: 10, y: 40, width: 60, height: 38 }, viewport, size)).toEqual({ x: 30, y: 12 });
+    expect(placeRegionActions({ x: 10, y: 2, width: 60, height: 76 }, viewport, size)).toEqual({ x: 30, y: 50 });
+  });
+
+  it('stays whole inside the viewport horizontally', () => {
+    expect(placeRegionActions({ x: 0, y: 10, width: 20, height: 10 }, viewport, size).x).toBe(8);
+    expect(placeRegionActions({ x: 80, y: 10, width: 20, height: 10 }, viewport, size).x).toBe(52);
   });
 });
 
