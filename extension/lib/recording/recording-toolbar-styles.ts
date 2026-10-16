@@ -37,6 +37,8 @@ export const recordingToolbarStyles = `
     /* Mirrors the app's "sticker" tokens (assets/tailwind.css): 2px ink
      * outlines, flat pastel fills with ink text, one 12px radius, no shadows. */
     --ft-radius: 12px;
+    /* One height for the bar in both shapes, expanded and collapsed. */
+    --ft-bar-height: 58px;
     --ft-surface: #fffdf8;
     --ft-text: #1f1b16;
     --ft-status-text: #1f1b16;
@@ -81,7 +83,7 @@ export const recordingToolbarStyles = `
   }
   .ft-modal-backdrop { position: absolute; inset: 0; z-index: 1; pointer-events: auto; background: transparent; }
   .ft-toolbar {
-    height: 58px; width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 12px;
+    height: var(--ft-bar-height); width: max-content; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 12px;
     padding: 0 8px 0 18px; border: 2px solid var(--ft-border); border-radius: 999px;
     background: var(--ft-surface); color: var(--ft-text);
   }
@@ -158,7 +160,7 @@ export const recordingToolbarStyles = `
   .ft-secondary:hover:not(:disabled) { background: var(--ft-btn-hover-bg); color: var(--ft-text); }
   .ft-secondary:disabled { opacity: .5; cursor: wait; }
   .ft-collapsed {
-    position: relative; height: 48px; padding: 0 8px 0 16px; display: flex; align-items: center; gap: 11px;
+    position: relative; height: var(--ft-bar-height); padding: 0 8px 0 16px; display: flex; align-items: center; gap: 11px;
     border: 2px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface); color: var(--ft-text);
     cursor: pointer; touch-action: none;
   }

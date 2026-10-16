@@ -29,6 +29,7 @@ import { recordingModeCopy } from './recording-mode-copy';
 import { recordingToolbarStyles } from './recording-toolbar-styles';
 import type { ToolbarTheme } from './snapshot-shield-protocol';
 import { useToolbarPosition } from './use-toolbar-position';
+import { useToolbarCollapsed } from './use-toolbar-collapsed';
 import { isRecordingControlResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t, useActiveLocale } from '@/lib/shared/i18n';
 
@@ -70,7 +71,7 @@ export default function RecordingToolbar({
   theme,
 }: Props) {
   useActiveLocale();
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, setCollapsed, ready: collapseReady } = useToolbarCollapsed(state.runId);
   const [pending, setPending] = useState<ToolbarAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -96,7 +97,7 @@ export default function RecordingToolbar({
     floatingRef,
     // The floating element remounts when collapse toggles and resizes when the
     // phase switches layouts, so both feed the reposition/observer pass.
-    layoutKey: `${collapsed}:${state.phase}`,
+    layoutKey: `${collapsed}:${state.phase}:${collapseReady}`,
     isInteractionBlocked: () => pendingRef.current !== null,
     announce: setAnnouncement,
   });
@@ -244,9 +245,9 @@ export default function RecordingToolbar({
     if (!invalidated) return;
     setCollapsed(false);
     setUndo(null);
-  }, [invalidated]);
+  }, [invalidated, setCollapsed]);
 
-  if (state.phase === 'starting') return null;
+  if (state.phase === 'starting' || !collapseReady) return null;
 
   return (
     <>
@@ -283,7 +284,7 @@ export default function RecordingToolbar({
           {!message && !state.error && showSuccess && (
             <div className="ft-message" role="status"><Check className="ft-success" />{t().toolbar.recorded}</div>
           )}
-          {hint && !message && !state.error && !showSuccess && !undo && !confirmDiscard && (
+          {hint && !collapsed && !message && !state.error && !showSuccess && !undo && !confirmDiscard && (
             <div className="ft-hint">{hint}</div>
           )}
           {undo && (
