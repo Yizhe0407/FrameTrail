@@ -92,6 +92,7 @@ function EditorApp() {
     handleRecapture,
     handleContinueRecording,
     continuationMode,
+    insertAfterEntryId,
     setContinuationMode,
   } = usePermissionFlow({
     sessionId,
@@ -375,6 +376,9 @@ function EditorApp() {
         sourceUnavailableReason={
           preparedPermission?.source.kind === 'unavailable' ? preparedPermission.source.reason : null
         }
+        insertAfterStep={
+          insertAfterEntryId === undefined ? undefined : entries.findIndex((entry) => entryId(entry) === insertAfterEntryId) + 1 || undefined
+        }
         continuationMode={preparedPermission?.action.kind === 'continuation' ? continuationMode : undefined}
         onContinuationModeChange={setContinuationMode}
         onCancel={clearPreparedPermission}
@@ -432,7 +436,7 @@ function EditorApp() {
               onRenameSection={renameSection}
               onDeleteSection={deleteSection}
               onReorder={handleReorderEntries}
-              onContinueRecording={() => void handleContinueRecording()}
+              onContinueRecording={(afterEntryId) => void handleContinueRecording(afterEntryId)}
               reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive}
             />
             {selectedEntry ? (

@@ -452,7 +452,8 @@ export const zhTW = {
     permission: {
       pickTab: '選擇要接續錄製的分頁',
       needsAccess: (action: string) => `${action}前需要存取來源網站`,
-      pickTabBody: '錄製會從選取的分頁開始，之後會跟著你切換的分頁；新步驟會接在最後。',
+      pickTabBody: '錄製會從選取的分頁開始，之後會跟著你切換的分頁。',
+      insertNote: (step: number) => `新步驟會插在第 ${step} 步後面。`,
       sourceUnavailableBody: (reason: string) => `${reason}你可以改在目前開啟的網頁分頁繼續錄製。`,
       accessBody: 'Stepmark 只會要求這個網站的存取權，開始前也會再次確認來源網站。',
       appendNote: '新步驟會接在最後。',

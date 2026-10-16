@@ -96,6 +96,9 @@ vi.mock('@/components/editor/StepRail', () => ({
         <button type="button" onClick={() => props.onContinueRecording?.()}>
           接續錄製
         </button>
+        <button type="button" onClick={() => props.onContinueRecording?.('entry-1')}>
+          在 entry-1 後接續錄製
+        </button>
       </aside>
     );
   },
@@ -422,6 +425,23 @@ describe('Editor continuation on another page (改在其他頁面接續)', () =>
     expect(dialog.textContent).toContain('新步驟會接在最後。');
     expect(within(dialog).getByRole('button', { name: '允許並開始' })).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: '改在其他頁面接續' })).toBeTruthy();
+  });
+
+  it('carries the chosen insertion point into the recording that starts', async () => {
+    mockContinuationPreflight();
+    browserApi.requestPermission.mockResolvedValue(true);
+    render(<EditorApp />);
+    fireEvent.click(await screen.findByRole('button', { name: '在 entry-1 後接續錄製' }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(dialog.textContent).toContain('新步驟會插在第 1 步後面。');
+    expect(browserApi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION', afterEntryId: 'entry-1' }),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: '允許並開始' }));
+    await waitFor(() => expect(browserApi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'START_RECORDING', insertAfterEntryId: 'entry-1' }),
+    ));
   });
 
   it('opens an explicit tab picker that skips preselecting the last-step URL tab', async () => {

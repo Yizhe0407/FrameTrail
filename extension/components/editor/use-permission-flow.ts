@@ -68,7 +68,7 @@ export function usePermissionFlow({
   const flowEntryId = useRef<string | null>(null);
   const flowSessionId = useRef<string | null>(null);
   /** Entry a continuation inserts after; undefined appends at the end. */
-  const insertAfterEntryId = useRef<string | undefined>(undefined);
+  const [insertAfterEntryId, setInsertAfterEntryId] = useState<string | undefined>(undefined);
   const permissionFlowActive = preparedPermission !== null || permissionPending;
 
   const isPermissionFlowLocked = useCallback(() => lock.current, []);
@@ -93,6 +93,7 @@ export function usePermissionFlow({
     setContinueElsewhereError(null);
     setContinuationTabs(null);
     setSelectedContinuationTabId(null);
+    setInsertAfterEntryId(undefined);
   }, []);
 
   /** Cancels a prepared grant when the selection or Project it was bound to is
@@ -200,7 +201,7 @@ export function usePermissionFlow({
           sessionId,
           mode: continuationMode,
           continuation: {},
-          insertAfterEntryId: insertAfterEntryId.current,
+          insertAfterEntryId,
         });
         return;
       }
@@ -290,7 +291,7 @@ export function usePermissionFlow({
         type: 'START_RECORDING',
         sessionId: sessionId!,
         mode: continuationMode,
-        insertAfterEntryId: insertAfterEntryId.current,
+        insertAfterEntryId,
       });
     } catch (continueError) {
       failFlow(flow, '[stepmark] failed to continue recording on another page', continueError, t().editor.permission.continueElsewhereFailed);
@@ -322,7 +323,7 @@ export function usePermissionFlow({
     if (!canBeginFlow()) return;
     const flow = beginPermissionPreflight(null);
     if (flow == null) return;
-    insertAfterEntryId.current = afterEntryId;
+    setInsertAfterEntryId(afterEntryId);
     setContinuationMode(entryMode(afterEntryId));
     let prepared: PreparedCapturePermission | null = null;
     try {
@@ -345,6 +346,7 @@ export function usePermissionFlow({
     selectContinuationTab: setSelectedContinuationTabId,
     continuationMode,
     setContinuationMode,
+    insertAfterEntryId,
     isPermissionFlowLocked,
     clearPreparedPermission,
     syncWithSelection,

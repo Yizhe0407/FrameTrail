@@ -457,7 +457,8 @@ export const en: Messages = {
     permission: {
       pickTab: 'Choose a tab to continue recording',
       needsAccess: (action: string) => `${action} needs access to the source site`,
-      pickTabBody: 'Recording starts in the selected tab and follows you as you switch tabs. New steps are added at the end.',
+      pickTabBody: 'Recording starts in the selected tab and follows you as you switch tabs.',
+      insertNote: (step: number) => `New steps are inserted after step ${step}.`,
       sourceUnavailableBody: (reason: string) => `${reason} You can continue recording in a tab that’s open now.`,
       accessBody:
         'Stepmark only asks for access to this site, and checks the source page again before starting.',

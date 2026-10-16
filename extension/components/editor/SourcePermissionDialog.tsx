@@ -41,6 +41,8 @@ interface Props {
   /** When set, the Project has no stored source page: the source-locked confirm
    * is hidden and only the elsewhere path remains, with this reason shown. */
   sourceUnavailableReason?: string | null;
+  /** Continuation only: the 1-based step the new steps are inserted after; omitted when they go at the end. */
+  insertAfterStep?: number;
   continuationMode?: RecordingMode;
   onContinuationModeChange?: (mode: RecordingMode) => void;
   onCancel: () => void;
@@ -65,6 +67,7 @@ export default function SourcePermissionDialog({
   onSelectContinuationTab,
   onConfirmContinueElsewhere,
   sourceUnavailableReason = null,
+  insertAfterStep,
   continuationMode,
   onContinuationModeChange,
   onCancel,
@@ -138,8 +141,10 @@ export default function SourcePermissionDialog({
           />
         )}
 
-        {!pickerOpen && onContinueElsewhere && (
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">{t().editor.permission.appendNote}</p>
+        {onContinueElsewhere && (
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            {insertAfterStep === undefined ? t().editor.permission.appendNote : t().editor.permission.insertNote(insertAfterStep)}
+          </p>
         )}
 
         {continueElsewhereError && (
