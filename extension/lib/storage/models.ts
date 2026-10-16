@@ -539,7 +539,11 @@ export function orderedSessionSteps(steps: readonly Step[]): Step[] {
 /** DB mutations use a strict topology parser instead of the UI's fail-soft
  * buildStepEntries(). Every persisted row must belong to exactly one complete,
  * contiguous entry so a snapshot can never be partially mutated. */
-export function buildCompleteStepEntries(steps: readonly Step[], expectedSessionId?: string): StepEntry[] {
+export function buildCompleteStepEntries(
+  steps: readonly Step[],
+  expectedSessionId?: string,
+  { skipPendingGroups = false }: { skipPendingGroups?: boolean } = {},
+): StepEntry[] {
   const sorted = orderedSessionSteps(steps);
   const entries: StepEntry[] = [];
   const seenGroups = new Set<string>();
@@ -589,6 +593,10 @@ export function buildCompleteStepEntries(steps: readonly Step[], expectedSession
       index += 1;
     }
     if (annotations.length === 0) {
+      // A snapshot being recorded owns its anchor from the moment it is captured, before the
+      // first annotation exists. That is a normal state, not corruption, so a read-only view
+      // may leave it out; anything that mutates the Project still refuses it.
+      if (skipPendingGroups) continue;
       throw new ProjectStructureIntegrityError('A snapshot group has no complete annotation.');
     }
     if ((lastGroupIndex.get(groupId) ?? -1) >= index) {

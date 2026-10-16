@@ -42,6 +42,17 @@ describe('buildCompleteStepEntries', () => {
     expect(entries).toEqual([{ kind: 'group', anchor, annotations: [first, second] }]);
   });
 
+  it('refuses an anchor with no annotation, unless the caller only reads and opts to skip it', () => {
+    const [anchor, first] = makeGroup();
+    const ordinary = makeStep({ order: 3 });
+    const pending = makeGroup(2)[0];
+
+    expect(() => buildCompleteStepEntries([anchor, first, pending, ordinary], 'project'))
+      .toThrow('A snapshot group has no complete annotation.');
+    const entries = buildCompleteStepEntries([anchor, first, pending, ordinary], 'project', { skipPendingGroups: true });
+    expect(entries.map((entry) => (entry.kind === 'group' ? entry.anchor.id : entry.step.id))).toEqual([anchor.id, ordinary.id]);
+  });
+
   it.each(['ordinary step', 'another snapshot group'])('rejects a snapshot group split by %s', (separator) => {
     const [anchor, first, second] = makeGroup();
     const middle = separator === 'ordinary step'

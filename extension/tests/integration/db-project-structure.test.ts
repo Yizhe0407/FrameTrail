@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectContentConflictError, addProjectSectionAtomically, deleteProjectAnnotationAtomically, deleteProjectEntriesAtomically, deleteProjectSectionAtomically, getProjectStructureSnapshot, moveProjectEntriesAtomically, renameProjectSectionAtomically, reorderProjectAnnotationsAtomically, reorderProjectEntriesAtomically, restoreProjectAnnotationAtomically, restoreProjectEntriesAtomically, setProjectEntriesNumberedAtomically } from '@/lib/storage/project-structure';
 import { ProjectStructureIntegrityError, type ProjectSection, type Step } from '@/lib/storage/models';
-import { closeDatabase } from '@/lib/storage/database';
+import { closeDatabase, runWithDatabase } from '@/lib/storage/database';
 import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, getProjectSummaries, resetProject } from '@/lib/storage/project-repository';
 import { getSteps } from '@/lib/storage/step-repository';
 
@@ -55,6 +55,23 @@ describe('Project entry-safe atomic structure', () => {
     const after = await getProjectStructureSnapshot(project.id);
     expect(after.entryIds).toEqual(moved.entryIds);
     expect(after.project.contentRevision).toBe(moved.project.contentRevision);
+  });
+
+  it('reads a Project whose snapshot is still waiting for its first annotation, but will not mutate it', async () => {
+    const { project, snapshot } = await createTrackedProject(makeMixedSteps());
+    const anchorId = crypto.randomUUID();
+    await runWithDatabase(async (db) => {
+      const tx = db.transaction(['steps'], 'readwrite');
+      await tx.objectStore('steps').put(makeStep({
+        id: anchorId, sessionId: project.id, groupId: anchorId, bounds: null, numbered: false, order: 5,
+      }));
+      await tx.done;
+    });
+
+    const during = await getProjectStructureSnapshot(project.id);
+    expect(during.entryIds).toEqual(snapshot.entryIds);
+    await expect(deleteProjectEntriesAtomically(project.id, [snapshot.entryIds[0]], during.project.contentRevision))
+      .rejects.toBeInstanceOf(ProjectStructureIntegrityError);
   });
 
   it('treats snapshot groups as indivisible and rejects annotation ids', async () => {

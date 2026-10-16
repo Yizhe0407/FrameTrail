@@ -76,8 +76,12 @@ interface WritableProjectStructure extends ProjectStructureSnapshot {
   steps: Step[];
 }
 
-function structureSnapshot(project: Project, steps: readonly Step[]): ProjectStructureSnapshot {
-  const entries = buildCompleteStepEntries(steps, project.id);
+function structureSnapshot(
+  project: Project,
+  steps: readonly Step[],
+  options: { skipPendingGroups?: boolean } = {},
+): ProjectStructureSnapshot {
+  const entries = buildCompleteStepEntries(steps, project.id, options);
   const repairedProject = sanitizeProject({
     ...project,
     sections: repairProjectSections(project.sections, entries),
@@ -261,7 +265,9 @@ export async function getProjectStructureSnapshot(sessionId: string): Promise<Pr
     }
     const project = sanitizeProject(rawProject);
     const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);
-    const snapshot = structureSnapshot(project, steps);
+    // Read-only view: a snapshot still waiting for its first annotation is not shown rather
+    // than making the whole Project unreadable while it is being recorded.
+    const snapshot = structureSnapshot(project, steps, { skipPendingGroups: true });
     await tx.done;
     return snapshot;
   });
