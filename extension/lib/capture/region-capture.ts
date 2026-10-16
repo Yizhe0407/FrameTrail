@@ -1,6 +1,7 @@
 import { BRAND_DANGER } from './brand-colors';
 import { OVERLAY_LAYER, releaseTopLayer, showInTopLayer } from './overlay-layers';
 import { createViewportOverlayHost } from './viewport-overlay-host';
+import { OVERLAY_FONT_STACK } from './overlay-font';
 import { t } from '@/lib/shared/i18n';
 
 export const REGION_CAPTURE_MIN_SIZE = 8;
@@ -136,7 +137,7 @@ const REGION_CAPTURE_STYLES = `
   .ft-region-blocker {
     position: fixed; inset: 0; overflow: hidden; pointer-events: auto;
     cursor: crosshair; touch-action: none; user-select: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-family: ${OVERLAY_FONT_STACK};
   }
   .ft-region-selection {
     position: absolute; display: none; border: 2px solid ${BRAND_DANGER}; border-radius: 8px;

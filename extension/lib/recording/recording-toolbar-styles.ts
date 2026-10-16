@@ -1,4 +1,5 @@
 import { BRAND_ACCENT, BRAND_DANGER } from '../capture/brand-colors';
+import { OVERLAY_FONT_STACK } from '../capture/overlay-font';
 
 /** The dark palette, applied by the OS preference or by an explicit `data-theme`. */
 const darkTokens = `
@@ -72,7 +73,7 @@ export const recordingToolbarStyles = `
   button { font: inherit; }
   .ft-layer {
     position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-family: ${OVERLAY_FONT_STACK};
     font-size: 14px; line-height: 1.4;
   }
   .ft-position {
