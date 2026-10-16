@@ -22,12 +22,12 @@ const badgeVariants = cva(
         /** Editable tag already applied to the project (editor header); pair with `tagHueClass(tag)`. */
         tagEditable: 'gap-1.5 py-1 pr-1.5 pl-3 text-on-accent',
         tagEditableAvailable:
-          'relative border-transparent bg-transparent px-3 py-1 text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground',
+          'relative overflow-visible border-transparent bg-transparent px-3 py-1 text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground',
         /** Soft red rather than solid `destructive`: reports an operation in progress, not a failure. */
         status: 'gap-1.5 border-recording bg-danger-soft px-2.5 py-1 text-xs text-danger',
         /** The dashed "add a tag" control that closes the row of tags. */
         tagAction:
-          'relative h-8 gap-1 border-transparent bg-transparent px-3 py-1 text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground',
+          'relative h-8 gap-1 overflow-visible border-transparent bg-transparent px-3 py-1 text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground',
       },
     },
     defaultVariants: {

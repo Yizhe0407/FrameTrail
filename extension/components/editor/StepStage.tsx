@@ -116,7 +116,7 @@ export default function StepStage({
                   onClick={() => setTagDialogOpen(true)}
                   disabled={editingDisabled}
                 >
-                  <DashedOutline radius="full" className="-inset-0.5" />
+                  <DashedOutline radius="full" outset={2} />
                   <Plus className="size-3.5 stroke-[2.5]" />
                   {t().editor.stage.tagButton}
                 </button>

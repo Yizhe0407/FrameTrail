@@ -160,10 +160,10 @@ export default function TagSelectDialog({
                           type="button"
                           onClick={() => void addTag(tag)}
                           aria-label={t().editor.tags.addTag(tag)}
-                          className="min-w-0 truncate"
+                          className="min-w-0"
                         >
-                          <DashedOutline radius="full" className="-inset-0.5" />
-                          {tag}
+                          <DashedOutline radius="full" outset={2} />
+                          <span className="min-w-0 truncate">{tag}</span>
                         </button>
                       </Badge>
                     </TooltipTrigger>

@@ -8,7 +8,8 @@ const TARGET_PERIOD = 14;
 interface DashedOutlineProps {
   /** Corner radius in px, or 'full' for a pill. Match the parent's `rounded-*`. */
   radius: number | 'full';
-  /** Positioning classes; the default fills the parent's padding box. */
+  /** Pixels the outline extends past the parent's padding box on every side, e.g. 2 to sit on a 2px border. */
+  outset?: number;
   className?: string;
 }
 
@@ -20,9 +21,10 @@ interface DashedOutlineProps {
  * dash is the same length, corners included.
  *
  * Drop it in as the first child of a `relative` element. It hides itself while
- * the parent is hovered, so a hover border can take its place.
+ * the parent is hovered, so a hover border can take its place. An outset past
+ * the padding box needs a parent that doesn't clip its overflow.
  */
-export function DashedOutline({ radius, className }: DashedOutlineProps) {
+export function DashedOutline({ radius, outset = 0, className }: DashedOutlineProps) {
   const ref = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 
@@ -45,9 +47,16 @@ export function DashedOutline({ radius, className }: DashedOutlineProps) {
       aria-hidden="true"
       data-slot="dashed-outline"
       className={cn(
-        'pointer-events-none absolute inset-0 size-full overflow-visible text-border [:hover>&]:hidden',
+        'pointer-events-none absolute overflow-visible text-border [:hover>&]:hidden',
         className,
       )}
+      // Inline, so a parent's `[&>svg]:size-*` rule (Badge has one) can't shrink it.
+      style={{
+        top: -outset,
+        left: -outset,
+        width: `calc(100% + ${outset * 2}px)`,
+        height: `calc(100% + ${outset * 2}px)`,
+      }}
     >
       {size && <OutlineRect width={size.width} height={size.height} radius={radius} />}
     </svg>
