@@ -137,7 +137,7 @@ export const recordingToolbarStyles = `
   .ft-primary:disabled { opacity: .68; cursor: wait; }
   .ft-primary:focus-visible { outline: 2px solid var(--ft-focus); outline-offset: 2px; }
   .ft-primary svg { width: 16px; height: 16px; }
-  .ft-button:focus-visible, .ft-status:focus-visible, .ft-menu button:focus-visible, .ft-collapsed:focus-visible, .ft-finish:focus-visible,
+  .ft-button:focus-visible, .ft-status:focus-visible, .ft-collapsed:focus-visible, .ft-finish:focus-visible,
   .ft-secondary:focus-visible, .ft-confirm button:focus-visible,
   .ft-snackbar button:focus-visible {
     outline: 2px solid var(--ft-focus); outline-offset: 2px;
@@ -163,28 +163,13 @@ export const recordingToolbarStyles = `
     cursor: pointer; touch-action: none;
   }
   .ft-collapsed-expand { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--ft-actions-bg); color: var(--ft-text); }
-  .ft-menu {
-    position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 3; min-width: 190px; padding: 6px;
-    display: flex; flex-direction: column; gap: 2px; border: 2px solid var(--ft-border); border-radius: var(--ft-radius);
-    background: var(--ft-surface); color: var(--ft-text);
-  }
-  .ft-menu button {
-    display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 12px; border: 0; border-radius: var(--ft-radius);
-    background: transparent; color: inherit; font-weight: 600; text-align: left; cursor: pointer; white-space: nowrap;
-  }
-  .ft-menu button:hover:not(:disabled) { background: var(--ft-btn-hover-bg); }
-  .ft-menu button[data-danger="true"] { color: var(--ft-error-text); }
-  .ft-menu button[data-danger="true"]:hover:not(:disabled) { background: var(--ft-btn-danger-hover-bg); }
-  .ft-menu button:disabled { opacity: .45; cursor: default; }
-  .ft-menu svg { width: 16px; height: 16px; flex: none; }
-  .ft-menu-divider { height: 2px; margin: 3px 4px; border-radius: 99px; background: var(--ft-divider); }
   .ft-hint {
     position: absolute; right: 0; bottom: calc(100% + 8px); width: max-content; max-width: min(320px, calc(100vw - 32px));
     padding: 7px 12px; border: 2px solid var(--ft-border); border-radius: 999px; background: var(--ft-surface);
     color: var(--ft-muted); font-size: 12px; font-weight: 600; pointer-events: none;
   }
-  .ft-position[data-vertical="top"] .ft-menu, .ft-position[data-vertical="top"] .ft-hint { top: calc(100% + 8px); bottom: auto; }
-  .ft-position[data-horizontal="left"] .ft-menu, .ft-position[data-horizontal="left"] .ft-hint { left: 0; right: auto; }
+  .ft-position[data-vertical="top"] .ft-hint { top: calc(100% + 8px); bottom: auto; }
+  .ft-position[data-horizontal="left"] .ft-hint { left: 0; right: auto; }
   .ft-message, .ft-snackbar, .ft-confirm {
     position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; max-width: min(320px, calc(100vw - 32px));
     padding: 10px 12px; border: 2px solid var(--ft-border); border-radius: var(--ft-radius); background: var(--ft-surface);
@@ -229,6 +214,9 @@ export const recordingToolbarStyles = `
   [data-tooltip]:hover::after, [data-tooltip]:focus-visible::after {
     opacity: 1; visibility: visible; transform: translate(-50%, 0);
   }
+  /* The last button sits at the toolbar's edge: anchor its tooltip there so it cannot leave the viewport. */
+  .ft-collapse[data-tooltip]::after { left: auto; right: 0; transform: translate(0, 2px); }
+  .ft-collapse[data-tooltip]:hover::after, .ft-collapse[data-tooltip]:focus-visible::after { transform: translate(0, 0); }
   .ft-position[data-vertical="top"] [data-tooltip]::after { bottom: auto; top: calc(100% + 8px); transform: translate(-50%, -2px); }
   .ft-position[data-vertical="top"] [data-tooltip]:hover::after,
   .ft-position[data-vertical="top"] [data-tooltip]:focus-visible::after { transform: translate(-50%, 0); }

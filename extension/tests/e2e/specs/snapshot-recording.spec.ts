@@ -213,8 +213,7 @@ test.describe('snapshot recording', () => {
     })).toEqual({ left: 16, bottom: 16 });
     await expect.poll(readToolbarCorner).toBe('bottom-left');
 
-    await shield.getByRole('button', { name: '更多' }).click();
-    await shield.getByRole('menuitem', { name: '放棄錄製' }).click();
+    await shield.getByRole('button', { name: '放棄這次錄製' }).click();
     await expect(shield.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeVisible();
     await shield.getByRole('button', { name: '放棄錄製' }).click();
 

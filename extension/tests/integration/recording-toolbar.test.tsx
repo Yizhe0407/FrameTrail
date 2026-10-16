@@ -62,10 +62,7 @@ describe('recording toolbar', () => {
     const onCommand = vi.fn().mockResolvedValue({ ok: true });
     render(<RecordingToolbar state={state} onCommand={onCommand} />);
 
-    const openDiscard = () => {
-      fireEvent.click(screen.getByRole('button', { name: '更多' }));
-      fireEvent.click(screen.getByRole('menuitem', { name: '放棄錄製' }));
-    };
+    const openDiscard = () => fireEvent.click(screen.getByRole('button', { name: '放棄這次錄製' }));
     openDiscard();
     expect(screen.getByRole('alertdialog', { name: '放棄這次錄製？' })).toBeTruthy();
     expect(onCommand).not.toHaveBeenCalled();
@@ -81,30 +78,46 @@ describe('recording toolbar', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   });
 
-  it('starts a region capture from the menu and exposes its active state', () => {
+  it('starts a region capture straight from the bar in either mode, and exposes its active state', () => {
     const onStartRegionCapture = vi.fn();
     const { rerender } = render(
       <RecordingToolbar state={state} onCommand={vi.fn()} onStartRegionCapture={onStartRegionCapture} />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '更多' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '框選區域' }));
+    fireEvent.click(screen.getByRole('button', { name: '框選區域' }));
     expect(onStartRegionCapture).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('menu')).toBeNull();
+
+    rerender(
+      <RecordingToolbar state={{ ...state, mode: 'snapshot' }} onCommand={vi.fn()} onStartRegionCapture={onStartRegionCapture} />,
+    );
+    expect((screen.getByRole('button', { name: '框選區域' }) as HTMLButtonElement).disabled).toBe(false);
 
     rerender(
       <RecordingToolbar state={state} onCommand={vi.fn()} onStartRegionCapture={onStartRegionCapture} regionCaptureActive />,
     );
     expect(screen.getByRole('button', { name: /區域擷取中/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '更多' }));
-    expect((screen.getByRole('menuitem', { name: '區域擷取進行中' }) as HTMLButtonElement).disabled).toBe(true);
+    const active = screen.getByRole('button', { name: '區域擷取進行中' }) as HTMLButtonElement;
+    expect(active.disabled).toBe(true);
+    expect(active.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText('區域擷取已啟動，請在畫面上拖曳選取範圍')).toBeTruthy();
   });
 
-  it('collapses from the menu and keeps a meaningful compact status', () => {
+  it('has no region capture while a snapshot waits to be captured', () => {
+    render(
+      <RecordingToolbar
+        state={{ ...state, mode: 'snapshot', phase: 'preparing-next', itemCount: 0 }}
+        onCommand={vi.fn()}
+        onStartRegionCapture={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '框選區域' })).toBeNull();
+  });
+
+  it('collapses from the last button and keeps a meaningful compact status', () => {
     render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '更多' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '收合控制器' }));
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[buttons.length - 1].getAttribute('aria-label')).toBe('收合控制器');
+    fireEvent.click(screen.getByRole('button', { name: '收合控制器' }));
 
     expect(screen.getByRole('button', { name: /錄製中，2 步；展開錄製控制/ })).toBeTruthy();
   });

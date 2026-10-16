@@ -15,7 +15,6 @@ import {
   GripVertical,
   Loader2,
   Minimize2,
-  MoreHorizontal,
   Pause,
   Play,
   Plus,
@@ -78,7 +77,6 @@ export default function RecordingToolbar({
   const [undo, setUndo] = useState<{ token: string; itemNumber: number } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const previousCount = useRef(state.itemCount);
   const pendingRef = useRef<ToolbarAction | null>(null);
   const floatingRef = useRef<HTMLElement | null>(null);
@@ -259,17 +257,15 @@ export default function RecordingToolbar({
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pendingRef.current) return;
           setConfirmDiscard(false);
-          setMenuOpen(false);
         }}
       >
-        {(confirmDiscard || menuOpen) && (
+        {confirmDiscard && (
           <div
             className="ft-modal-backdrop"
             aria-hidden="true"
             onPointerDown={() => {
               if (pendingRef.current) return;
               setConfirmDiscard(false);
-              setMenuOpen(false);
             }}
           />
         )}
@@ -287,7 +283,7 @@ export default function RecordingToolbar({
           {!message && !state.error && showSuccess && (
             <div className="ft-message" role="status"><Check className="ft-success" />{t().toolbar.recorded}</div>
           )}
-          {hint && !message && !state.error && !showSuccess && !undo && !menuOpen && !confirmDiscard && (
+          {hint && !message && !state.error && !showSuccess && !undo && !confirmDiscard && (
             <div className="ft-hint">{hint}</div>
           )}
           {undo && (
@@ -327,51 +323,6 @@ export default function RecordingToolbar({
                   {pending === 'DISCARD_CURRENT_RECORDING' ? t().common.processing : t().toolbar.discard}
                 </button>
               </div>
-            </div>
-          )}
-
-          {menuOpen && (
-            <div className="ft-menu" role="menu" aria-label={t().toolbar.more}>
-              {onStartRegionCapture && state.mode === 'steps' && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onStartRegionCapture();
-                  }}
-                >
-                  <Crop size={16} />
-                  {regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
-                </button>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                disabled={busy}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setCollapsed(true);
-                }}
-              >
-                <Minimize2 size={16} />
-                {t().toolbar.collapse}
-              </button>
-              <span className="ft-menu-divider" aria-hidden="true" />
-              <button
-                type="button"
-                role="menuitem"
-                data-danger="true"
-                disabled={busy}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setConfirmDiscard(true);
-                }}
-              >
-                <Trash2 size={16} />
-                {t().toolbar.discard}
-              </button>
             </div>
           )}
 
@@ -545,17 +496,29 @@ export default function RecordingToolbar({
                         {pending === 'UNDO_LAST_CAPTURE' ? <Loader2 /> : <Undo2 size={18} />}
                       </button>
                     )}
+                    {!preparingNext && onStartRegionCapture && (
+                      <button
+                        type="button"
+                        className="ft-button"
+                        aria-label={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
+                        data-tooltip={regionCaptureActive ? t().toolbar.regionCaptureActive : t().toolbar.cropRegion}
+                        aria-pressed={regionCaptureActive}
+                        disabled={busy || paused || regionCaptureActive || state.phase !== 'recording'}
+                        onClick={() => onStartRegionCapture()}
+                      >
+                        <Crop size={17} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="ft-button"
-                      aria-label={t().toolbar.more}
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
-                      data-tooltip={menuOpen ? undefined : t().toolbar.more}
+                      data-danger="true"
+                      aria-label={t().toolbar.discardLabel}
+                      data-tooltip={t().toolbar.discardLabel}
                       disabled={busy}
-                      onClick={() => setMenuOpen((open) => !open)}
+                      onClick={() => setConfirmDiscard(true)}
                     >
-                      <MoreHorizontal size={18} />
+                      <Trash2 size={17} />
                     </button>
                   </div>
 
@@ -567,6 +530,16 @@ export default function RecordingToolbar({
                     onClick={() => void run('FINISH_RECORDING')}
                   >
                     {pending === 'FINISH_RECORDING' || state.phase === 'finishing' ? <Loader2 /> : t().toolbar.finish}
+                  </button>
+                  <button
+                    type="button"
+                    className="ft-button ft-collapse"
+                    aria-label={t().toolbar.collapse}
+                    data-tooltip={t().toolbar.collapse}
+                    disabled={busy}
+                    onClick={() => setCollapsed(true)}
+                  >
+                    <Minimize2 size={17} />
                   </button>
                 </>
               )}

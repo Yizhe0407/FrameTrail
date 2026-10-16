@@ -125,6 +125,36 @@ export function isRegionRectInsideViewport(
   );
 }
 
+export type RegionHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+const REGION_HANDLES: readonly RegionHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+/** Moves a region by (dx, dy), keeping it whole inside the viewport. */
+export function moveRegionRect(rect: RegionRect, dx: number, dy: number, viewport: RegionViewport): RegionRect {
+  const x = Math.min(Math.max(rect.x + dx, 0), Math.max(viewport.width - rect.width, 0));
+  const y = Math.min(Math.max(rect.y + dy, 0), Math.max(viewport.height - rect.height, 0));
+  return { x, y, width: rect.width, height: rect.height };
+}
+
+/** Drags one handle of a region by (dx, dy): the edges it owns follow the pointer, clipped to the viewport and never closer than `minSize`. */
+export function resizeRegionRect(
+  rect: RegionRect,
+  handle: RegionHandle,
+  dx: number,
+  dy: number,
+  viewport: RegionViewport,
+  minSize = REGION_CAPTURE_MIN_SIZE,
+): RegionRect {
+  let left = rect.x;
+  let top = rect.y;
+  let right = rect.x + rect.width;
+  let bottom = rect.y + rect.height;
+  if (handle.includes('w')) left = Math.min(Math.max(left + dx, 0), right - minSize);
+  if (handle.includes('e')) right = Math.max(Math.min(right + dx, viewport.width), left + minSize);
+  if (handle.includes('n')) top = Math.min(Math.max(top + dy, 0), bottom - minSize);
+  if (handle.includes('s')) bottom = Math.max(Math.min(bottom + dy, viewport.height), top + minSize);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 export async function waitForRegionCapturePaint(frames = 2): Promise<void> {
   for (let index = 0; index < Math.max(0, frames); index += 1) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -145,6 +175,21 @@ const REGION_CAPTURE_STYLES = `
     pointer-events: none;
   }
   .ft-region-selection[data-visible="true"] { display: block; }
+  /* Once drawn, the box can be moved and resized until it is confirmed. */
+  .ft-region-selection[data-interactive="true"] { pointer-events: auto; cursor: move; }
+  .ft-region-handle {
+    position: absolute; width: 14px; height: 14px; border: 2px solid ${BRAND_DANGER}; border-radius: 99px;
+    background: #fffdf8; display: none;
+  }
+  .ft-region-selection[data-interactive="true"] .ft-region-handle { display: block; }
+  .ft-region-handle[data-handle="nw"] { left: -8px; top: -8px; cursor: nwse-resize; }
+  .ft-region-handle[data-handle="n"] { left: calc(50% - 7px); top: -8px; cursor: ns-resize; }
+  .ft-region-handle[data-handle="ne"] { right: -8px; top: -8px; cursor: nesw-resize; }
+  .ft-region-handle[data-handle="e"] { right: -8px; top: calc(50% - 7px); cursor: ew-resize; }
+  .ft-region-handle[data-handle="se"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+  .ft-region-handle[data-handle="s"] { left: calc(50% - 7px); bottom: -8px; cursor: ns-resize; }
+  .ft-region-handle[data-handle="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+  .ft-region-handle[data-handle="w"] { left: -8px; top: calc(50% - 7px); cursor: ew-resize; }
   .ft-region-panel {
     position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px;
     max-width: calc(100vw - 32px); min-height: 44px; padding: 6px 8px 6px 14px;
@@ -158,7 +203,13 @@ const REGION_CAPTURE_STYLES = `
     background: #f2e9d9; color: #1f1b16; font: inherit; font-weight: 700; cursor: pointer;
   }
   .ft-region-cancel:hover { background: #ffe27a; }
-  .ft-region-cancel:focus-visible { outline: 2px solid #2f6fed; outline-offset: 2px; }
+  .ft-region-confirm {
+    min-width: 40px; min-height: 32px; padding: 0 14px; border: 2px solid #1f1b16; border-radius: 999px;
+    background: #a8d8ff; color: #1f1b16; font: inherit; font-weight: 800; cursor: pointer;
+  }
+  .ft-region-confirm[hidden] { display: none; }
+  .ft-region-confirm:hover { filter: brightness(.95); }
+  .ft-region-cancel:focus-visible, .ft-region-confirm:focus-visible { outline: 2px solid #2f6fed; outline-offset: 2px; }
   .ft-region-blocker[data-capturing="true"] { cursor: wait; }
   .ft-region-blocker[data-capturing="true"] .ft-region-selection,
   .ft-region-blocker[data-capturing="true"] .ft-region-panel { visibility: hidden; }
@@ -166,7 +217,7 @@ const REGION_CAPTURE_STYLES = `
 `;
 
 /**
- * Owns a full-viewport drag gesture. During capture only the visual children
+ * Owns a full-viewport selection: drag out a box, adjust it, confirm it. During capture only the visual children
  * are hidden; the transparent host remains hit-testable until the callback
  * settles, so no page target receives a synthetic follow-up click.
  */
@@ -201,14 +252,28 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   cancelButton.className = 'ft-region-cancel';
   cancelButton.textContent = t().common.cancel;
   cancelButton.setAttribute('aria-label', t().regionCapture.cancelLabel);
-  panel.append(status, cancelButton);
+  const confirmButton = document.createElement('button');
+  confirmButton.type = 'button';
+  confirmButton.className = 'ft-region-confirm';
+  confirmButton.hidden = true;
+  confirmButton.textContent = '✓';
+  confirmButton.setAttribute('aria-label', t().regionCapture.confirmLabel);
+  for (const handle of REGION_HANDLES) {
+    const knob = document.createElement('div');
+    knob.className = 'ft-region-handle';
+    knob.dataset.handle = handle;
+    selection.append(knob);
+  }
+  panel.append(status, cancelButton, confirmButton);
   blocker.append(selection, panel);
   root.append(style, blocker);
 
   let closed = false;
   let capturing = false;
-  let start: RegionPoint | null = null;
-  let pointerId: number | null = null;
+  /** The gesture in progress: drawing a new box, moving the current one, or dragging one of its handles. */
+  let drag: { pointerId: number; mode: 'draw' | 'move' | RegionHandle; origin: RegionPoint; base: RegionRect | null } | null = null;
+  /** The box waiting to be adjusted and confirmed. */
+  let pending: RegionRect | null = null;
   let cancelNotified = false;
 
   const consume = (event: Event) => {
@@ -250,36 +315,16 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     close();
   };
 
-  const onPointerDown = (event: PointerEvent) => {
-    consume(event);
-    if (capturing || event.button !== 0 || !event.isPrimary) return;
-    start = clipRegionPoint({ x: event.clientX, y: event.clientY }, readViewport());
-    pointerId = event.pointerId;
-    renderRect(normalizeRegionRect(start, start, readViewport()));
-    status.textContent = t().regionCapture.dragging;
-    blocker.setPointerCapture?.(event.pointerId);
-  };
-
-  const onPointerMove = (event: PointerEvent) => {
-    consume(event);
-    if (capturing || start === null || pointerId !== event.pointerId) return;
-    renderRect(normalizeRegionRect(start, { x: event.clientX, y: event.clientY }, readViewport()));
-  };
-
-  const onPointerUp = (event: PointerEvent) => {
-    consume(event);
-    if (capturing || start === null || pointerId !== event.pointerId) return;
-    if (blocker.hasPointerCapture?.(event.pointerId)) blocker.releasePointerCapture?.(event.pointerId);
-    const rect = normalizeRegionRect(start, { x: event.clientX, y: event.clientY }, readViewport());
-    start = null;
-    pointerId = null;
+  const setPending = (rect: RegionRect | null) => {
+    pending = rect;
     renderRect(rect);
-    if (!isRegionRectInsideViewport(rect, readViewport(), minSize)) {
-      renderRect(null);
-      status.textContent = t().regionCapture.tooSmall(minSize);
-      return;
-    }
+    selection.dataset.interactive = rect ? 'true' : 'false';
+    confirmButton.hidden = rect === null;
+  };
 
+  const commit = () => {
+    const rect = pending;
+    if (capturing || closed || !rect) return;
     capturing = true;
     blocker.dataset.capturing = 'true';
     status.textContent = t().regionCapture.capturing;
@@ -296,6 +341,64 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
     })();
   };
 
+  const pointOf = (event: PointerEvent): RegionPoint => clipRegionPoint({ x: event.clientX, y: event.clientY }, readViewport());
+
+  const onPointerDown = (event: PointerEvent) => {
+    consume(event);
+    if (capturing || event.button !== 0 || !event.isPrimary) return;
+    const point = pointOf(event);
+    const handle = (event.target as HTMLElement | null)?.dataset?.handle as RegionHandle | undefined;
+    const inside = pending !== null
+      && point.x >= pending.x && point.x <= pending.x + pending.width
+      && point.y >= pending.y && point.y <= pending.y + pending.height;
+    if (pending && handle) {
+      drag = { pointerId: event.pointerId, mode: handle, origin: point, base: pending };
+    } else if (pending && inside) {
+      drag = { pointerId: event.pointerId, mode: 'move', origin: point, base: pending };
+    } else {
+      // Anywhere else starts a new box, replacing the one being adjusted.
+      setPending(null);
+      drag = { pointerId: event.pointerId, mode: 'draw', origin: point, base: null };
+      renderRect(normalizeRegionRect(point, point, readViewport()));
+      status.textContent = t().regionCapture.dragging;
+    }
+    blocker.setPointerCapture?.(event.pointerId);
+  };
+
+  const rectForDrag = (event: PointerEvent): RegionRect | null => {
+    if (!drag) return null;
+    const point = pointOf(event);
+    const viewport = readViewport();
+    if (drag.mode === 'draw') return normalizeRegionRect(drag.origin, point, viewport);
+    const dx = point.x - drag.origin.x;
+    const dy = point.y - drag.origin.y;
+    if (drag.mode === 'move') return moveRegionRect(drag.base!, dx, dy, viewport);
+    return resizeRegionRect(drag.base!, drag.mode, dx, dy, viewport, minSize);
+  };
+
+  const onPointerMove = (event: PointerEvent) => {
+    consume(event);
+    if (capturing || drag === null || drag.pointerId !== event.pointerId) return;
+    renderRect(rectForDrag(event));
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    consume(event);
+    if (capturing || drag === null || drag.pointerId !== event.pointerId) return;
+    if (blocker.hasPointerCapture?.(event.pointerId)) blocker.releasePointerCapture?.(event.pointerId);
+    const rect = rectForDrag(event);
+    const finished = drag;
+    drag = null;
+    if (!rect || !isRegionRectInsideViewport(rect, readViewport(), minSize)) {
+      // Only a freshly drawn box can be too small; a move or resize keeps its minimum.
+      setPending(finished.mode === 'draw' ? null : finished.base);
+      status.textContent = finished.mode === 'draw' ? t().regionCapture.tooSmall(minSize) : t().regionCapture.adjust;
+      return;
+    }
+    setPending(rect);
+    status.textContent = t().regionCapture.adjust;
+  };
+
   const onPointerCancel = (event: PointerEvent) => {
     consume(event);
     cancel('user');
@@ -307,13 +410,20 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
       cancel('escape');
       return;
     }
+    if (event.key === 'Enter' && pending && !capturing) {
+      consume(event);
+      commit();
+      return;
+    }
     if (event.key === 'Tab' && !capturing) {
       // Shadow DOM retargets event.target to the host for this window-level
       // listener, so resolve the real origin via composedPath. Trap focus in
-      // a two-stop cycle so keyboard users can reach the cancel button.
+      // a short cycle so keyboard users can reach the cancel and confirm buttons.
       consume(event);
-      const origin = event.composedPath()[0];
-      (origin === cancelButton ? blocker : cancelButton).focus({ preventScroll: true });
+      const stops: HTMLElement[] = [blocker, cancelButton, ...(confirmButton.hidden ? [] : [confirmButton])];
+      const at = stops.indexOf(event.composedPath()[0] as HTMLElement);
+      const step = event.shiftKey ? -1 : 1;
+      stops[(at + step + stops.length) % stops.length].focus({ preventScroll: true });
       return;
     }
     consume(event);
@@ -331,6 +441,10 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   cancelButton.addEventListener('click', (event) => {
     consume(event);
     cancel('user');
+  });
+  confirmButton.addEventListener('click', (event) => {
+    consume(event);
+    commit();
   });
   window.addEventListener('keydown', onKeyDown, { capture: true });
   window.addEventListener('resize', onResize, { capture: true });

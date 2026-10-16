@@ -4,7 +4,9 @@ import {
   createRegionCapture,
   isRegionRectInsideViewport,
   isRegionRectLargeEnough,
+  moveRegionRect,
   normalizeRegionRect,
+  resizeRegionRect,
 } from '@/lib/capture/region-capture';
 
 const viewport = { width: 100, height: 80 };
@@ -63,6 +65,24 @@ describe('region capture geometry', () => {
   });
 });
 
+describe('region adjustment geometry', () => {
+  const box = { x: 20, y: 20, width: 40, height: 30 };
+
+  it('moves a region but keeps it whole inside the viewport', () => {
+    expect(moveRegionRect(box, 10, 5, viewport)).toEqual({ x: 30, y: 25, width: 40, height: 30 });
+    expect(moveRegionRect(box, -50, -50, viewport)).toEqual({ x: 0, y: 0, width: 40, height: 30 });
+    expect(moveRegionRect(box, 500, 500, viewport)).toEqual({ x: 60, y: 50, width: 40, height: 30 });
+  });
+
+  it('resizes from any handle, clips to the viewport and keeps the minimum size', () => {
+    expect(resizeRegionRect(box, 'se', 10, 10, viewport)).toEqual({ x: 20, y: 20, width: 50, height: 40 });
+    expect(resizeRegionRect(box, 'nw', -10, -5, viewport)).toEqual({ x: 10, y: 15, width: 50, height: 35 });
+    expect(resizeRegionRect(box, 'e', 500, 99, viewport)).toEqual({ x: 20, y: 20, width: 80, height: 30 });
+    expect(resizeRegionRect(box, 'w', 500, 0, viewport, 8)).toEqual({ x: 52, y: 20, width: 8, height: 30 });
+    expect(resizeRegionRect(box, 's', 0, -500, viewport, 8)).toEqual({ x: 20, y: 20, width: 40, height: 8 });
+  });
+});
+
 describe('createRegionCapture', () => {
   it('hides visuals, waits two frames, and keeps the blocker until capture settles', async () => {
     const frames: FrameRequestCallback[] = [];
@@ -78,6 +98,13 @@ describe('createRegionCapture', () => {
     blocker.dispatchEvent(pointerEvent('pointerdown', 10, 12));
     blocker.dispatchEvent(pointerEvent('pointermove', 50, 52));
     blocker.dispatchEvent(pointerEvent('pointerup', 50, 52));
+
+    // Releasing only draws the box: nothing is captured until it is confirmed.
+    expect(controller.isCapturing()).toBe(false);
+    expect(frames).toHaveLength(0);
+    const confirm = controller.host.shadowRoot!.querySelector<HTMLButtonElement>('.ft-region-confirm')!;
+    expect(confirm.hidden).toBe(false);
+    confirm.click();
 
     expect(controller.isCapturing()).toBe(true);
     expect(blocker.dataset.capturing).toBe('true');
@@ -133,6 +160,7 @@ describe('createRegionCapture', () => {
 
     blocker.dispatchEvent(pointerEvent('pointerdown', 10, 12));
     blocker.dispatchEvent(pointerEvent('pointerup', 50, 52));
+    controller.host.shadowRoot!.querySelector<HTMLButtonElement>('.ft-region-confirm')!.click();
     frames.shift()!(0);
     await flushMicrotasks();
     frames.shift()!(16);
@@ -152,6 +180,59 @@ describe('createRegionCapture', () => {
     expect(controller.host.isConnected).toBe(false);
     expect(onCancel).not.toHaveBeenCalled();
     expect(onCapture).toHaveBeenCalledOnce();
+  });
+
+  it('lets the drawn box be moved and resized before it is confirmed with Enter', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    }));
+    const onCapture = vi.fn();
+    const controller = createRegionCapture({ onCapture, viewport: () => viewport });
+    const root = controller.host.shadowRoot!;
+    const blocker = root.querySelector<HTMLElement>('.ft-region-blocker')!;
+    const selection = root.querySelector<HTMLElement>('.ft-region-selection')!;
+    expect(root.querySelector<HTMLButtonElement>('.ft-region-confirm')!.hidden).toBe(true);
+
+    blocker.dispatchEvent(pointerEvent('pointerdown', 10, 10));
+    blocker.dispatchEvent(pointerEvent('pointerup', 50, 40));
+    expect(selection.dataset.interactive).toBe('true');
+
+    // Drag inside the box to move it by (+20, +10).
+    blocker.dispatchEvent(pointerEvent('pointerdown', 30, 25));
+    blocker.dispatchEvent(pointerEvent('pointermove', 50, 35));
+    blocker.dispatchEvent(pointerEvent('pointerup', 50, 35));
+    // Drag the south-east handle by (+10, +10).
+    const handle = root.querySelector<HTMLElement>('.ft-region-handle[data-handle="se"]')!;
+    const down = pointerEvent('pointerdown', 70, 50);
+    Object.defineProperty(down, 'target', { value: handle });
+    blocker.dispatchEvent(down);
+    blocker.dispatchEvent(pointerEvent('pointermove', 80, 60));
+    blocker.dispatchEvent(pointerEvent('pointerup', 80, 60));
+    expect(onCapture).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+    frames.shift()!(0);
+    await flushMicrotasks();
+    frames.shift()!(16);
+    await flushMicrotasks();
+    expect(onCapture).toHaveBeenCalledWith({ x: 30, y: 20, width: 50, height: 40 });
+  });
+
+  it('starts a new box when the pointer goes down outside the adjustable one, and rejects a tiny box', () => {
+    const controller = createRegionCapture({ onCapture: vi.fn(), viewport: () => viewport });
+    const root = controller.host.shadowRoot!;
+    const blocker = root.querySelector<HTMLElement>('.ft-region-blocker')!;
+    const selection = root.querySelector<HTMLElement>('.ft-region-selection')!;
+
+    blocker.dispatchEvent(pointerEvent('pointerdown', 10, 10));
+    blocker.dispatchEvent(pointerEvent('pointerup', 50, 40));
+    blocker.dispatchEvent(pointerEvent('pointerdown', 80, 70));
+    blocker.dispatchEvent(pointerEvent('pointerup', 82, 72));
+
+    expect(selection.dataset.visible).toBe('false');
+    expect(root.querySelector<HTMLButtonElement>('.ft-region-confirm')!.hidden).toBe(true);
   });
 
   it('supports Escape cancellation without capturing', () => {
