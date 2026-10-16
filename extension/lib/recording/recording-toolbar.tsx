@@ -89,6 +89,7 @@ export default function RecordingToolbar({
   const {
     corner,
     position,
+    ready: positionReady,
     suppressNextClick,
     handlePositionPointerDown,
     handlePositionPointerMove,
@@ -247,7 +248,7 @@ export default function RecordingToolbar({
     setUndo(null);
   }, [invalidated, setCollapsed]);
 
-  if (state.phase === 'starting' || !collapseReady) return null;
+  if (state.phase === 'starting' || !collapseReady || !positionReady) return null;
 
   return (
     <>

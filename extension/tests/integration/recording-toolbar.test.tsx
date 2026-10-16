@@ -256,6 +256,20 @@ describe('recording toolbar collapse', () => {
     expect(screen.getByRole('button', { name: '收合控制器' })).toBeTruthy();
   });
 
+  it('is not drawn until its saved corner is known, so it never appears in the default corner first', async () => {
+    const releases: Array<() => void> = [];
+    mocks.get.mockImplementation((key: string) => new Promise((resolve) => {
+      releases.push(() => resolve(key === RECORDING_TOOLBAR_CORNER_KEY ? { [key]: 'bottom-left' } : {}));
+    }));
+    const { container } = render(<RecordingToolbar state={state} onCommand={vi.fn()} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('.ft-position')).toBeNull();
+
+    await act(async () => { releases.forEach((release) => release()); await Promise.resolve(); });
+    await waitFor(() => expect(container.querySelector('.ft-position')).not.toBeNull());
+    expect(container.querySelector('.ft-position')!.getAttribute('data-horizontal')).toBe('left');
+  });
+
   it('shows no guidance hint while collapsed', async () => {
     await mount(<RecordingToolbar state={{ ...state, mode: 'snapshot', phase: 'preparing-next', itemCount: 0 }} onCommand={vi.fn()} />);
     expect(screen.getByText('調整好頁面後，按「擷取」。')).toBeTruthy();

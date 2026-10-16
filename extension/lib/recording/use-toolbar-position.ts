@@ -45,6 +45,8 @@ export function useToolbarPosition({
 }: UseToolbarPositionOptions) {
   const [corner, setCorner] = useState<RecordingToolbarCorner>('bottom-right');
   const [position, setPosition] = useState<ToolbarPoint | null>(null);
+  /** True once the saved corner has been read (or failed to), so the toolbar is not drawn in the default corner first. */
+  const [ready, setReady] = useState(false);
   /** Set when a drag actually moved the element, so the click that ends the
    * same gesture (e.g. on the collapsed pill) must be swallowed. */
   const suppressNextClick = useRef(false);
@@ -85,7 +87,9 @@ export function useToolbarPosition({
     let active = true;
     void browser.storage.local.get(RECORDING_TOOLBAR_CORNER_KEY).then((stored) => {
       const saved = stored[RECORDING_TOOLBAR_CORNER_KEY];
-      if (!active || !isRecordingToolbarCorner(saved)) return;
+      if (!active) return;
+      setReady(true);
+      if (!isRecordingToolbarCorner(saved)) return;
       // Mount-time restore applies the saved corner without persisting it
       // back; inlined instead of moveToCorner(saved, false) so this one-shot
       // effect depends on nothing reactive.
@@ -93,6 +97,7 @@ export function useToolbarPosition({
       setPosition(positionForToolbarCorner(saved, floatingSize(), viewport(), margin()));
     }).catch((error) => {
       console.warn('[stepmark] failed to load recording toolbar position', error);
+      if (active) setReady(true);
     });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,7 +118,7 @@ export function useToolbarPosition({
       window.removeEventListener('resize', reposition);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [corner, layoutKey]);
+  }, [corner, layoutKey, ready]);
 
   const handlePositionPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (!event.isPrimary || event.button !== 0 || isInteractionBlocked()) return;
@@ -163,6 +168,7 @@ export function useToolbarPosition({
   return {
     corner,
     position,
+    ready,
     suppressNextClick,
     handlePositionPointerDown,
     handlePositionPointerMove,
