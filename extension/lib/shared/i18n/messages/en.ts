@@ -613,7 +613,6 @@ export const en: Messages = {
     candidate: (index: number, total: number, label: string) => `Target ${index} of ${total}: ${label}`,
     unnamedElement: 'Unnamed element',
     cannotAnnotate: 'This spot can’t be marked. Choose another element',
-    skipToControls: 'Skip to recording controls',
     regionAdded: (label: number | null) => (label !== null ? `Added region marker ${label}` : 'Added region marker'),
     annotationAdded: (label: number | null) => (label !== null ? `Added marker ${label}` : 'Added marker'),
     regionNotCreated: 'No region marker was created. Drag again',

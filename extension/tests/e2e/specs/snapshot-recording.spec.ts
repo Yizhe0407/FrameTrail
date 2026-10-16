@@ -443,8 +443,7 @@ test.describe('snapshot recording', () => {
     const shield = await getSnapshotFrame(appPage);
     await expect(shield.getByRole('button', { name: '完成', exact: true })).toBeVisible();
 
-    // Focus the skip link to enter the shield, then Tab to the first candidate (the enabled action button). No pointer is used.
-    await shield.locator('.snapshot-skip-link').focus();
+    // The shield takes keyboard focus on its own: Tab goes to the first candidate (the enabled action button). No pointer is used.
     await appPage.keyboard.press('Tab');
     await expect(shield.locator('.snapshot-box--preview')).toBeVisible({ timeout: 10_000 });
 

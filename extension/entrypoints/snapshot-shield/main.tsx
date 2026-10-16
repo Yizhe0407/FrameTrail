@@ -65,7 +65,7 @@ let pendingInitEvents: MessageEvent[] | null = [];
 function consume(event: Event): void {
   if (
     event.target instanceof Element &&
-    event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-shield-skip],[data-stepmark-region-capture]')
+    event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-region-capture]')
   ) {
     return;
   }
@@ -224,7 +224,7 @@ function tryInitialize(event: MessageEvent): void {
     if (regionCapture?.isActive()) return;
     if (
       event.target instanceof Element &&
-      event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-shield-skip],[data-stepmark-region-capture]')
+      event.target.closest('[data-stepmark-shield-toolbar],[data-stepmark-region-capture]')
     ) {
       return;
     }
@@ -244,7 +244,6 @@ function tryInitialize(event: MessageEvent): void {
   // Keyboard-only annotation traversal (§9.5). Roving over the parent-supplied
   // candidate anchors reuses the same probe/preview/commit engine as pointing.
   let liveRegion: HTMLElement | null = null;
-  let skipLink: HTMLButtonElement | null = null;
 
   const announce = (message: string) => {
     if (liveRegion) liveRegion.textContent = message;
@@ -339,9 +338,9 @@ function tryInitialize(event: MessageEvent): void {
       announce(t().shield.noKeyboardTargets);
       return;
     }
-    // Leave the skip link so Enter commits the candidate instead of being read
-    // as the skip link's own activation; the iframe keeps document focus.
-    if (skipLink && document.activeElement === skipLink) skipLink.blur();
+    // Leave any focused control so Enter commits the candidate instead of activating it;
+    // the iframe keeps document focus.
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
     keyboardIndex = nextCandidateIndex(keyboardIndex, keyboardAnchors.length, delta);
     const anchor = keyboardAnchors[keyboardIndex];
     hover.setAnchor(anchor.x, anchor.y);
@@ -362,8 +361,8 @@ function tryInitialize(event: MessageEvent): void {
     keyboardIndex = -1;
   };
 
-  // Unlike consume(), always prevents default: these keys are fully owned by the
-  // traversal, so even a focused skip link (exempt from consume) must not also fire natively.
+  // Unlike consume(), always prevents default: these keys are fully owned by the traversal,
+  // so a focused control (exempt from consume) must not also fire natively.
   const stopEvent = (event: Event) => {
     if (event.cancelable) event.preventDefault();
     event.stopImmediatePropagation();
@@ -377,15 +376,15 @@ function tryInitialize(event: MessageEvent): void {
     const target = event.target;
     if (target instanceof Element && target.closest('[data-stepmark-shield-toolbar]')) return;
     if (event.key === 'Escape') {
-      if (!skipLink) return;
+      if (!liveRegion) return;
+      // Escape leaves candidate traversal and hands the keyboard to the recording controls.
       stopEvent(event);
       resetKeyboard();
       overlay.preview(null);
-      skipLink.focus();
+      focusToolbar();
       return;
     }
     if (!interactionsEnabled || capturing) return;
-    const inSkip = target instanceof Element && target.closest('[data-stepmark-shield-skip]');
     switch (event.key) {
       case 'Tab':
         stopEvent(event);
@@ -394,8 +393,6 @@ function tryInitialize(event: MessageEvent): void {
       case 'Enter':
       case ' ':
       case 'Spacebar':
-        // Let a focused skip link activate natively (jump to controls).
-        if (inSkip) return;
         stopEvent(event);
         commitCurrent();
         return;
@@ -408,19 +405,6 @@ function tryInitialize(event: MessageEvent): void {
   };
 
   if (featureFlags.snapshotKeyboardNav) {
-    const skipContainer = document.createElement('div');
-    skipContainer.setAttribute('data-stepmark-shield-skip', '');
-    skipLink = document.createElement('button');
-    skipLink.type = 'button';
-    skipLink.className = 'snapshot-skip-link';
-    skipLink.textContent = t().shield.skipToControls;
-    onLocaleChange(() => {
-      if (skipLink) skipLink.textContent = t().shield.skipToControls;
-    });
-    skipLink.addEventListener('click', () => focusToolbar());
-    skipContainer.append(skipLink);
-    document.body.append(skipContainer);
-
     liveRegion = document.createElement('div');
     liveRegion.className = 'snapshot-live-region';
     liveRegion.setAttribute('role', 'status');
@@ -465,11 +449,11 @@ function tryInitialize(event: MessageEvent): void {
         resetKeyboard();
       }
       renderToolbar();
-      // Land keyboard users on the skip link once, so the first Tab enters the
+      // Give the shield document keyboard focus once, so the first Tab enters the
       // candidate list rather than being swallowed by the frozen page.
-      if (interactionsEnabled && !focusInitialized && skipLink) {
+      if (interactionsEnabled && !focusInitialized) {
         focusInitialized = true;
-        skipLink.focus({ preventScroll: true });
+        ensureKeyboardFocus();
       }
       return;
     }

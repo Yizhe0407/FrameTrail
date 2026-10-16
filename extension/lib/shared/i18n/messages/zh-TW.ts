@@ -606,7 +606,6 @@ export const zhTW = {
     candidate: (index: number, total: number, label: string) => `目標 ${index} / ${total}：${label}`,
     unnamedElement: '未命名元素',
     cannotAnnotate: '此處無法標註，請選擇其他元素',
-    skipToControls: '跳至錄製控制',
     regionAdded: (label: number | null) => (label !== null ? `已加入區域標註 ${label}` : '已加入區域標註'),
     annotationAdded: (label: number | null) => (label !== null ? `已加入標註 ${label}` : '已加入標註'),
     regionNotCreated: '未建立區域標註，請重新拖曳',

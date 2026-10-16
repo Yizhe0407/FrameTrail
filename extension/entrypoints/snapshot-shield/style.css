@@ -45,30 +45,6 @@ body.has-preview-target {
   border: 0;
 }
 
-/* Skip link stays offscreen until focused, then anchors top-left (§9.5). */
-.snapshot-skip-link {
-  position: fixed;
-  top: 16px;
-  left: -9999px;
-  z-index: 2147483647;
-  min-height: 40px;
-  padding: 6px 16px;
-  border: 2px solid #1f1b16;
-  border-radius: 12px;
-  background: #a8d8ff;
-  color: #1f1b16;
-  font: 700 14px/22px -apple-system, BlinkMacSystemFont, "Noto Sans TC", "PingFang TC", sans-serif;
-  cursor: pointer;
-  pointer-events: auto;
-}
-
-.snapshot-skip-link:focus-visible,
-.snapshot-skip-link:focus {
-  left: 16px;
-  outline: 2px solid #2f6fed;
-  outline-offset: 2px;
-}
-
 .snapshot-box {
   position: absolute;
   box-sizing: border-box;
