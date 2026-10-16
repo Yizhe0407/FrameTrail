@@ -27,7 +27,7 @@ export type ImageEditToolId = 'select' | 'text' | 'arrow' | 'rect' | 'ellipse' |
 /** Width of a text box made by a plain click instead of a drag. */
 const DEFAULT_TEXT_WIDTH = 240;
 
-export interface CreateInput {
+interface CreateInput {
   from: Point;
   to: Point;
   size: ImageCssSize;
@@ -37,7 +37,7 @@ export interface CreateInput {
 }
 
 /** What Shift does to a drag with this tool. */
-export type DragConstraint = 'square' | 'angle';
+type DragConstraint = 'square' | 'angle';
 
 export interface ImageEditTool {
   id: ImageEditToolId;

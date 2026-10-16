@@ -61,7 +61,7 @@ export interface SnapshotShieldInitMessage {
   theme?: ToolbarTheme;
 }
 
-export interface SnapshotShieldReadyMessage {
+interface SnapshotShieldReadyMessage {
   type: typeof SNAPSHOT_SHIELD_READY;
   token: string;
 }
@@ -92,14 +92,14 @@ export interface SnapshotShieldRegionCaptureMessage {
   rect: SnapshotShieldRect;
 }
 
-export interface SnapshotShieldPreviewMessage {
+interface SnapshotShieldPreviewMessage {
   type: typeof SNAPSHOT_SHIELD_PREVIEW;
   token: string;
   requestId: number;
   rect: SnapshotShieldRect | null;
 }
 
-export interface SnapshotShieldCaptureCompleteMessage {
+interface SnapshotShieldCaptureCompleteMessage {
   type: typeof SNAPSHOT_SHIELD_CAPTURE_COMPLETE;
   token: string;
   /** Echo of the originating capture's captureId. */
@@ -107,13 +107,13 @@ export interface SnapshotShieldCaptureCompleteMessage {
   selection: (SnapshotShieldSelection & { id: number }) | null;
 }
 
-export interface SnapshotShieldCommitMessage {
+interface SnapshotShieldCommitMessage {
   type: typeof SNAPSHOT_SHIELD_COMMIT;
   token: string;
   selection: SnapshotShieldSelection & { id: number };
 }
 
-export interface SnapshotShieldUndoMessage {
+interface SnapshotShieldUndoMessage {
   type: typeof SNAPSHOT_SHIELD_UNDO;
   token: string;
 }
@@ -139,7 +139,7 @@ export interface SnapshotShieldControlMessage {
   undoToken?: string;
 }
 
-export interface SnapshotShieldControlResultMessage {
+interface SnapshotShieldControlResultMessage {
   type: typeof SNAPSHOT_SHIELD_CONTROL_RESULT;
   token: string;
   requestId: number;
@@ -154,7 +154,7 @@ export interface SnapshotShieldKeyboardAnchor {
   label: string;
 }
 
-export interface SnapshotShieldCandidatesMessage {
+interface SnapshotShieldCandidatesMessage {
   type: typeof SNAPSHOT_SHIELD_CANDIDATES;
   token: string;
   anchors: SnapshotShieldKeyboardAnchor[];

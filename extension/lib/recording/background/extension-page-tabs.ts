@@ -17,7 +17,7 @@ import { EXTENSION_PAGE_KINDS, EXTENSION_PAGE_PATHS, type ExtensionPageKind } fr
  * for exactly one kind: whatever a tab shows now is the only thing it is
  * remembered as.
  */
-export { EXTENSION_PAGE_KINDS, type ExtensionPageKind };
+export { type ExtensionPageKind };
 
 export interface ExtensionPageTab {
   tabId: number;
@@ -100,7 +100,7 @@ export function editorPlacementFor(message: { inPlace?: boolean }, sender: Recap
 }
 
 /** Which extension page sent a message, from the authenticated sender URL. */
-export function extensionPageKindOf(sender: RecaptureMessageSender): ExtensionPageKind | null {
+function extensionPageKindOf(sender: RecaptureMessageSender): ExtensionPageKind | null {
   return EXTENSION_PAGE_KINDS.find((candidate) => isTrustedEditorSender(sender, extensionPageUrl(candidate))) ?? null;
 }
 
@@ -139,7 +139,7 @@ export async function showExtensionPage(
  * Reuse-or-create for a page that holds no state worth handing over: an
  * existing tab is simply brought forward, never navigated.
  */
-export async function openExtensionPage(kind: ExtensionPageKind, url: string): Promise<void> {
+async function openExtensionPage(kind: ExtensionPageKind, url: string): Promise<void> {
   const tab = await findExtensionPage(kind);
   if (!tab) {
     await createExtensionPage(url);

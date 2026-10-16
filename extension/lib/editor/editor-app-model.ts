@@ -17,7 +17,7 @@ export interface UndoAction {
  * either. */
 export type PendingUndoAction = Omit<UndoAction, 'id' | 'projectId'>;
 
-export type PreparedCaptureSource =
+type PreparedCaptureSource =
   /** `sourceUrl` is the background-resolved persisted URL. The elsewhere tab
    * picker only compares it against candidate tab URLs (to skip preselecting
    * the page the user just recorded); it is never sent anywhere. */

@@ -18,7 +18,7 @@ export interface Bounds {
   height: number;
 }
 
-export function isValidBounds(bounds: Bounds): boolean {
+function isValidBounds(bounds: Bounds): boolean {
   return (
     Number.isFinite(bounds.x) &&
     Number.isFinite(bounds.y) &&
@@ -113,8 +113,8 @@ export interface Project {
 
 export type ProjectSummary = Project;
 
-export const PROJECT_TITLE_MAX_LENGTH = 120;
-export const PROJECT_DESCRIPTION_MAX_LENGTH = 2_000;
+const PROJECT_TITLE_MAX_LENGTH = 120;
+const PROJECT_DESCRIPTION_MAX_LENGTH = 2_000;
 
 /** Runtime persistence limits mirror the portable project format so data that
  * can be recorded locally can always be backed up without unbounded memory or

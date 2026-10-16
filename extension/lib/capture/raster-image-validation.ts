@@ -3,7 +3,7 @@ export const RASTER_IMAGE_LIMITS = Object.freeze({
   maxPixels: 64 * 1024 * 1024,
 });
 
-export type SupportedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+type SupportedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 /** PNG and WebP headers sit at fixed offsets well inside this many bytes. */
 const HEADER_PREFIX_BYTES = 64;

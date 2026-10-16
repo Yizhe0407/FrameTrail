@@ -14,7 +14,7 @@ export interface StepHoverPreviewOptions {
   isRegionCaptureActive(): boolean;
 }
 
-export interface StepHoverPreviewHandlers {
+interface StepHoverPreviewHandlers {
   onPointerMove(event: PointerEvent): void;
   onPointerOut(event: PointerEvent): void;
   onPointerLeave(event: PointerEvent): void;

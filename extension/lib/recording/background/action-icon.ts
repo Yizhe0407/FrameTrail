@@ -4,7 +4,7 @@ import type { RecordingState } from '../../storage/recording-state';
 import { getRecordingState, onRecordingStateChange } from '../../storage/storage';
 
 /** The toolbar shows the recording dot exactly while a capture run is live. */
-export function showsRecordingIcon(state: Pick<RecordingState, 'isRecording'>): boolean {
+function showsRecordingIcon(state: Pick<RecordingState, 'isRecording'>): boolean {
   return state.isRecording;
 }
 

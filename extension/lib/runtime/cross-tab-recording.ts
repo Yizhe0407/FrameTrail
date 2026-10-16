@@ -5,7 +5,7 @@ import { createVersionedMarkerStore, type VersionedMarkerState } from './version
  * who previously declined should be asked once more. Each version gets its own
  * local-storage key, so an old decline never suppresses a newer ask.
  */
-export const CROSS_TAB_DECLINE_VERSION = 1 as const;
+const CROSS_TAB_DECLINE_VERSION = 1 as const;
 
 const store = createVersionedMarkerStore({
   name: 'cross-tab-decline',

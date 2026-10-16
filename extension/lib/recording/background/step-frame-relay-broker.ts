@@ -13,7 +13,7 @@ import type {
 const STEP_FRAME_RELAY_AUTH_TTL_MS = 10_000;
 const STEP_FRAME_RELAY_MAX_PENDING_PER_TAB = 32;
 
-export interface StepFrameRelaySender {
+interface StepFrameRelaySender {
   tabId: number | null;
   frameId: number | null;
 }

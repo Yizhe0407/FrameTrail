@@ -9,7 +9,7 @@ import type { ImageEdit } from '@/lib/storage/image-edit-model';
  * edit layer works with, so a new tool adds a kind here, a tool in
  * `image-edit-tools`, and geometry in `image-edit-item-geometry`.
  */
-export interface RedactionItem {
+interface RedactionItem {
   id: string;
   kind: 'redaction';
   bounds: Bounds;
@@ -19,7 +19,7 @@ export interface RedactionItem {
  * There is at most one, and it is stored in its own field rather than with the edits. */
 export const CROP_ITEM_ID = 'crop';
 
-export interface CropItem {
+interface CropItem {
   id: typeof CROP_ITEM_ID;
   kind: 'crop';
   bounds: Bounds;

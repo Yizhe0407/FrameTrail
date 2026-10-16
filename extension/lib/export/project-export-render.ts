@@ -38,7 +38,7 @@ function entryOwner(entry: StepEntry): Step {
   return entry.kind === 'single' ? entry.step : entry.anchor;
 }
 
-export type EntryImageBudgetViolation =
+type EntryImageBudgetViolation =
   | { kind: 'entry-count' }
   | { kind: 'image-bytes'; ordinal: number }
   | { kind: 'total-bytes'; ordinal: number };

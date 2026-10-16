@@ -21,8 +21,6 @@ import type { CaptureSender } from './capture-sender';
 import type { ContentRecordingSession } from './recording-session';
 import type { ToolbarChannel } from './toolbar-channel';
 
-export type SnapshotRecorder = ReturnType<typeof createSnapshotRecorder>;
-
 export interface SnapshotRecorderDeps {
   session: ContentRecordingSession;
   capture: CaptureSender;

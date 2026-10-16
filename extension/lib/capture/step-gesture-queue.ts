@@ -30,7 +30,7 @@ export interface StepGesture {
   release(): void;
 }
 
-export interface StepGestureQueueEntry {
+interface StepGestureQueueEntry {
   captureId: string;
   /** Re-checked synchronously right before `start` actually runs (immediately
    * if idle, or when this entry's turn comes if it had to wait). Returning

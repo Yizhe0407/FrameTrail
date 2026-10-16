@@ -3,7 +3,7 @@ export const SUPPORTED_LOCALES = ['zh-TW', 'en'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
 /** Used for any browser language Stepmark has no catalog for. */
-export const FALLBACK_LOCALE: Locale = 'en';
+const FALLBACK_LOCALE: Locale = 'en';
 
 /**
  * Maps a BCP 47 language tag to a shipped catalog. Every Chinese variant reads

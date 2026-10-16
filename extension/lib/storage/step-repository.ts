@@ -117,7 +117,7 @@ export interface StepUpdate {
   expectedCaptureRevision?: number;
 }
 
-export class StepUpdateConflictError extends Error {
+class StepUpdateConflictError extends Error {
   constructor(
     public readonly stepId: string,
     public readonly expectedCaptureRevision: number,

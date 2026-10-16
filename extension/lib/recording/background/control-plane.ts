@@ -5,7 +5,7 @@ import type { BackgroundMessage } from '../../runtime/messages';
 import type { RecordingState } from '../../storage/recording-state';
 
 /** How long a startup waits for the injected recorder's READY handshake. */
-export const RECORDER_READY_TIMEOUT_MS = 5_000;
+const RECORDER_READY_TIMEOUT_MS = 5_000;
 
 /** The viewport/url/timestamp context a snapshot recorder reports alongside
  * its READY handshake; the anchor capture consumes it during startup. */

@@ -3,7 +3,7 @@ import type { RecordingMode, StepRecaptureTarget, Viewport } from '../storage/re
 type CaptureIntent = 'click' | 'mark';
 
 /** Clicked element rect in CSS px, relative to the viewport at capture time. */
-export interface CaptureRect {
+interface CaptureRect {
   x: number;
   y: number;
   width: number;
@@ -52,7 +52,7 @@ export interface SourcePermissionPreflightSuccess {
   permissionPattern: string;
 }
 
-export interface StopRecordingMessage {
+interface StopRecordingMessage {
   type: 'STOP_RECORDING';
 }
 
@@ -69,7 +69,7 @@ export interface OpenEditorMessage {
   inPlace?: boolean;
 }
 
-export interface OpenLibraryMessage {
+interface OpenLibraryMessage {
   type: 'OPEN_LIBRARY';
 }
 
@@ -82,7 +82,7 @@ export type OpenLibraryResult = { ok: true } | { ok: false; error: string };
  * the page kind is derived from the authenticated sender URL, never from a
  * payload, so this message needs no fields.
  */
-export interface RegisterExtensionPageMessage {
+interface RegisterExtensionPageMessage {
   type: 'REGISTER_EXTENSION_PAGE';
 }
 

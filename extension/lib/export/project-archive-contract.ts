@@ -92,8 +92,8 @@ export type ProjectArchiveSource = string | Blob | ArrayBuffer | ArrayBufferView
 
 export type JsonRecord = Record<string, unknown>;
 
-export type ArchiveBounds = Bounds;
-export type ArchiveRedaction = Redaction;
+type ArchiveBounds = Bounds;
+type ArchiveRedaction = Redaction;
 
 export interface ArchiveStep {
   id: string;
@@ -126,7 +126,7 @@ export interface ArchiveBlob {
   data: string;
 }
 
-export interface ArchiveManifest {
+interface ArchiveManifest {
   format: typeof PROJECT_ARCHIVE_FORMAT;
   version: typeof PROJECT_ARCHIVE_VERSION;
   stepCount: number;

@@ -14,7 +14,7 @@ export type RecordingModeCopy = Messages['mode']['steps'];
 /** RecordingState carries a typed `mode`, but persisted state can predate a
  * member rename, so keep the historic "anything that is not steps renders as
  * snapshot" fold-down explicit and in one place. */
-export function normalizeRecordingMode(mode: RecordingMode): RecordingMode {
+function normalizeRecordingMode(mode: RecordingMode): RecordingMode {
   return mode === 'steps' ? 'steps' : 'snapshot';
 }
 

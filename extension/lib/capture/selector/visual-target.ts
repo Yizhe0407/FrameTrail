@@ -79,7 +79,7 @@ export interface VisualTargetPolicy {
   preserveHitSurface: boolean;
 }
 
-export const ANNOTATION_TARGETING_POLICY: Readonly<VisualTargetPolicy> = Object.freeze({
+const ANNOTATION_TARGETING_POLICY: Readonly<VisualTargetPolicy> = Object.freeze({
   pierceTransparentOccluders: true,
   preserveHitSurface: false,
 });

@@ -8,7 +8,7 @@ import { cn } from '@/lib/shared/utils';
 
 /** How many of the most recently updated Projects the popup offers. Browsing the
  * rest is the Library's job; the popup only needs the one just worked on. */
-export const RECORD_TARGET_RECENT_LIMIT = 5;
+const RECORD_TARGET_RECENT_LIMIT = 5;
 
 // Radix Select cannot hold an empty value, and a bare sentinel could collide
 // with a Project id, so every Project option carries its own prefix.

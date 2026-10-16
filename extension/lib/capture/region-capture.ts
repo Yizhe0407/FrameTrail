@@ -23,7 +23,7 @@ export interface RegionRect {
   height: number;
 }
 
-export type RegionCaptureCancelReason = 'user' | 'escape' | 'viewport' | 'removed';
+type RegionCaptureCancelReason = 'user' | 'escape' | 'viewport' | 'removed';
 
 export interface RegionCaptureOptions {
   onCapture(rect: RegionRect): void | Promise<void>;
@@ -45,7 +45,7 @@ export interface RegionCapture {
   remove(): void;
 }
 
-export function clipRegionPoint(point: RegionPoint, viewport: RegionViewport): RegionPoint {
+function clipRegionPoint(point: RegionPoint, viewport: RegionViewport): RegionPoint {
   const width = Number.isFinite(viewport.width) ? Math.max(0, viewport.width) : 0;
   const height = Number.isFinite(viewport.height) ? Math.max(0, viewport.height) : 0;
   const x = Number.isFinite(point.x) ? point.x : 0;
@@ -158,7 +158,7 @@ export function placeRegionActions(
   return { x, y: Math.max(rect.y + rect.height - size.height - ACTIONS_GAP, ACTIONS_GAP) };
 }
 
-export async function waitForRegionCapturePaint(frames = 2): Promise<void> {
+async function waitForRegionCapturePaint(frames = 2): Promise<void> {
   for (let index = 0; index < Math.max(0, frames); index += 1) {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   }
