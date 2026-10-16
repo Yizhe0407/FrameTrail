@@ -178,7 +178,7 @@ export default function RecordingToolbar({
   const handleSwitchMode = (target: RecordingMode) => {
     if (target === state.mode) return;
     // Leaving a snapshot keeps what was annotated, so there is nothing to ask about:
-    // discarding is its own, explicit action in the menu.
+    // discarding is its own, explicit action (the trash button).
     void run(target === 'snapshot' ? 'SWITCH_TO_SNAPSHOT_MODE' : 'SWITCH_TO_STEPS_MODE');
   };
 
