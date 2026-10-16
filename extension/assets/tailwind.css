@@ -233,10 +233,10 @@
 }
 
 @layer components {
-  /* Kept above media previews so the active state stays legible: a 2px ink
-   * outline plus the --selected wash, matching every other selection. */
+  /* Kept above media previews so the active state stays legible: a --selected
+   * band hugging the thumbnail's own ink border, which every step carries. */
   .stepmark-selected-step-outline {
-    border-color: var(--line);
+    border-color: var(--selected);
     box-shadow: inset 0 0 0 2px var(--selected);
   }
 }

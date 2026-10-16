@@ -36,6 +36,8 @@ export interface StartRecordingMessage {
   autoCreatedProject?: boolean;
   /** 從持久化來源接續；一律不信任呼叫端提供的來源 URL。 */
   continuation?: { preferredTabId?: number };
+  /** Editor runs only: insert the captured steps after this entry instead of appending. */
+  insertAfterEntryId?: string;
 }
 
 export type StartRecordingResult =
@@ -297,6 +299,8 @@ export type PreflightStepRecaptureSourcePermissionResult =
 export interface PreflightProjectContinuationSourcePermissionMessage {
   type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION';
   sessionId: string;
+  /** Entry the new steps go after; omitted to append at the end. */
+  afterEntryId?: string;
 }
 
 export const CONTINUATION_PREFLIGHT_ERROR_CODES = [

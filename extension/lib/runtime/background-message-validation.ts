@@ -101,7 +101,8 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
         isString(value.sessionId) &&
         (value.mode === 'steps' || value.mode === 'snapshot') &&
         (value.autoCreatedProject === undefined || typeof value.autoCreatedProject === 'boolean') &&
-        isContinuation(value.continuation)
+        isContinuation(value.continuation) &&
+        (value.insertAfterEntryId === undefined || typeof value.insertAfterEntryId === 'string')
       );
     case 'STOP_RECORDING':
       return true;
@@ -174,7 +175,7 @@ export function isBackgroundMessage(value: unknown): value is BackgroundMessage 
     case 'PREFLIGHT_STEP_RECAPTURE_SOURCE_PERMISSION':
       return isString(value.sessionId) && isTarget(value.target);
     case 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION':
-      return isString(value.sessionId);
+      return isString(value.sessionId) && (value.afterEntryId === undefined || isString(value.afterEntryId));
     case 'START_STEP_RECAPTURE':
       return isString(value.sessionId) && isTarget(value.target) &&
         (value.preferredTabId === undefined || isBrowserId(value.preferredTabId));

@@ -38,6 +38,7 @@ export function resetRunStateToIdle(current: RecordingState): RecordingState {
     runId: null,
     autoCreatedProjectId: null,
     targetProjectTitle: null,
+    insertAfterStepId: null,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
   };
@@ -248,6 +249,8 @@ export function normalizeRecordingState(stored: Partial<RecordingState> | undefi
         : null,
     targetProjectTitle:
       operation === 'recording' ? normalizeNullableString(raw.targetProjectTitle, MAX_STATE_VALUE_LENGTH) : null,
+    insertAfterStepId:
+      operation === 'recording' ? normalizeNullableString(raw.insertAfterStepId, MAX_STATE_ID_LENGTH) : null,
     snapshotViewport: operation === 'recording' && mode === 'snapshot' ? snapshotViewport : null,
     snapshotDevicePixelRatio: operation === 'recording' && mode === 'snapshot' ? snapshotDevicePixelRatio : null,
     recapture: operation === 'recapture' ? recapture : null,

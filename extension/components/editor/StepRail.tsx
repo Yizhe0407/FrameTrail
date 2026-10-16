@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Camera, GripVertical, Video } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Camera, GripVertical, Plus, Video } from 'lucide-react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -21,6 +21,35 @@ import EntryThumbnail from './EntryThumbnail';
 import SortableItem from './SortableItem';
 import ProjectSectionHeading from './ProjectSectionHeading';
 
+
+/**
+ * The seam between two steps. Invisible until hovered or focused, so the rail
+ * stays calm, then a dashed line with a pill says new steps go right here.
+ */
+function InsertSlot({ afterStep, disabled, onInsert }: { afterStep: number; disabled: boolean; onInsert: () => void }) {
+  return (
+    <li className="hidden h-[18px] shrink-0 lg:block">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onInsert}
+        aria-label={t().editor.rail.insertAfter(afterStep)}
+        className="group/slot relative flex size-full items-center justify-center outline-none disabled:pointer-events-none"
+      >
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-2 top-1/2 border-t-2 border-dashed border-border opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100"
+        />
+        <span
+          aria-hidden="true"
+          className="relative flex h-5 items-center gap-1 rounded-full border-2 border-border bg-card px-2.5 text-[11px] font-bold text-foreground opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100 group-focus-visible/slot:outline-2 group-focus-visible/slot:outline-offset-2 group-focus-visible/slot:outline-focus"
+        >
+          <Plus className="size-3" />{t().editor.rail.insertHere}
+        </span>
+      </button>
+    </li>
+  );
+}
 
 function LazyRailPreview({ eager, children }: { eager: boolean; children: ReactNode }) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -65,7 +94,8 @@ interface Props {
   onRenameSection?: (sectionId: string, title: string) => Promise<void>;
   onDeleteSection?: (sectionId: string) => Promise<void>;
   onReorder: (reordered: StepEntry[]) => Promise<void>;
-  onContinueRecording?: () => void;
+  /** Starts a continuation; `afterEntryId` inserts after that entry, omitted appends at the end. */
+  onContinueRecording?: (afterEntryId?: string) => void;
   reorderDisabled?: boolean;
 }
 
@@ -176,8 +206,8 @@ export default function StepRail({
               const active = id === selectedEntryId;
               const section = sectionByStartId.get(id);
               return (
+                <Fragment key={id}>
                 <SortableItem
-                  key={id}
                   id={id}
                   disabled={reorderDisabled}
                   className="w-32 shrink-0 [content-visibility:auto] [contain-intrinsic-size:128px_78px] lg:w-full lg:min-w-0"
@@ -219,7 +249,7 @@ export default function StepRail({
                             className="stepmark-selected-step-outline pointer-events-none absolute inset-0 z-10 rounded-md border-2"
                           />
                         )}
-                        <div className="pointer-events-none relative z-[1] aspect-[16/9] w-full overflow-hidden rounded-sm bg-secondary">
+                        <div className="pointer-events-none relative z-[1] aspect-[16/9] w-full overflow-hidden rounded-sm border-2 border-border bg-secondary">
                           <LazyRailPreview eager={active}>
                             <EntryThumbnail
                               entry={entry}
@@ -253,6 +283,14 @@ export default function StepRail({
                     </div>
                   )}
                 </SortableItem>
+                {onContinueRecording && (
+                  <InsertSlot
+                    afterStep={index + 1}
+                    disabled={reorderDisabled}
+                    onInsert={() => onContinueRecording(id)}
+                  />
+                )}
+                </Fragment>
               );
             })}
           </ul>
@@ -263,7 +301,7 @@ export default function StepRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={onContinueRecording}
+              onClick={() => onContinueRecording()}
               disabled={reorderDisabled}
               className="mx-2 mt-1 mb-2 hidden h-9 shrink-0 items-center justify-center gap-1.5 relative rounded-md border-2 border-transparent bg-transparent text-xs font-bold text-muted-foreground outline-none transition-colors focus-ring hover:bg-secondary hover:border-2 hover:border-border hover:text-foreground disabled:pointer-events-none disabled:opacity-40 lg:flex"
             >

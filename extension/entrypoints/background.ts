@@ -28,7 +28,7 @@ import {
   waitForCapturePresentationPaint,
   withCapturePresentation,
 } from '@/lib/capture/capture-presentation';
-import { addStep, addSteps, deleteStep, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
+import { addStepsAfter, deleteStep, deleteStepsForRun, getStep, getSteps } from '@/lib/storage/step-repository';
 import { getProject, resetProject } from '@/lib/storage/project-repository';
 import { stepRole, type Step } from '@/lib/storage/models';
 import {
@@ -56,7 +56,7 @@ import { createFollowMode } from '@/lib/recording/background/follow-mode';
 import {
   isEditorSenderForSession,
   resolveContinuationTab,
-  resolveProjectContinuationSourceUrl,
+  resolveProjectContinuationAnchor,
   sourcePermissionPreflightSuccess,
 } from '@/lib/recording/background/source-tab';
 import {
@@ -300,7 +300,7 @@ async function assertCaptureContext(
 
 async function persistRecordingSteps(state: RecordingState, steps: Step[]): Promise<void> {
   if (!state.sessionId || !state.runId) throw new StaleCaptureError('Recording is no longer active.');
-  await addSteps(steps);
+  await addStepsAfter(steps, state.insertAfterStepId);
 }
 
 /**
@@ -423,7 +423,8 @@ async function preflightProjectContinuationSourcePermission(
   ) {
     return continuationPreflightFailure('INVALID_EDITOR', t().background.editorOnlyContinuation);
   }
-  const sourceUrl = await resolveProjectContinuationSourceUrl(message.sessionId);
+  const anchor = await resolveProjectContinuationAnchor(message.sessionId, message.afterEntryId);
+  const sourceUrl = anchor?.sourceUrl;
   if (!sourceUrl) {
     return continuationPreflightFailure('SOURCE_NOT_FOUND', t().background.noContinuationSource);
   }
@@ -617,6 +618,10 @@ async function handleStartRecording(
   const targetProjectTitle = targetProject
     ? (targetProject.title.trim() || t().common.untitledProject).slice(0, 120)
     : null;
+  const insertAfterStepId = message.insertAfterEntryId === undefined
+    ? null
+    : (await resolveProjectContinuationAnchor(message.sessionId, message.insertAfterEntryId))?.afterStepId ?? null;
+  if (version !== control.controlVersion) return;
   const startedState = await control.writeStateForControl(version, (current) => ({
     operation: 'recording',
     isRecording: true,
@@ -634,6 +639,7 @@ async function handleStartRecording(
     // not forget that this run's Project is reclaimable when it ends empty.
     autoCreatedProjectId: message.autoCreatedProject === true ? message.sessionId : null,
     targetProjectTitle,
+    insertAfterStepId,
     snapshotViewport: null,
     snapshotDevicePixelRatio: null,
     recapture: null,
@@ -960,7 +966,7 @@ async function undoLastCapture(message: RecordingControlMessage): Promise<Record
       expectedControlVersion,
     );
     if (!updated) {
-      await addStep(last);
+      await addStepsAfter([last], state.insertAfterStepId);
       discardPendingUndo();
       return controlFailure(t().background.undoStateChanged);
     }
@@ -993,7 +999,7 @@ async function restoreLastCapture(message: RecordingControlMessage): Promise<Rec
       return controlFailure(t().background.cannotRestore);
     }
 
-    await addStep(undo.step);
+    await addStepsAfter([undo.step], state.insertAfterStepId);
     const updated = await updateRunState(
       message.runId,
       (current) => ({

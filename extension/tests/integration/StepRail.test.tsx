@@ -163,6 +163,36 @@ describe('StepRail keyboard navigation', () => {
     expect(onContinueRecording).toHaveBeenCalledOnce();
   });
 
+  it('每兩個步驟之間都能在該處接續錄製，並在其他操作進行時停用', () => {
+    const onContinueRecording = vi.fn();
+    const entries = [makeEntry('step-1', 0), makeEntry('step-2', 1)];
+    const { rerender } = render(
+      <StepRail
+        entries={entries}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+        onContinueRecording={onContinueRecording}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '在第 1 步後接續錄製' }));
+    expect(onContinueRecording).toHaveBeenCalledWith('step-1');
+
+    rerender(
+      <StepRail
+        entries={entries}
+        selectedEntryId="step-1"
+        onSelect={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+        onContinueRecording={onContinueRecording}
+        reorderDisabled
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '在第 2 步後接續錄製' }));
+    expect(onContinueRecording).toHaveBeenCalledOnce();
+  });
+
   it('每張步驟卡常駐顯示拖曳把手，不倚賴 hover 才浮現', () => {
     render(
       <StepRail

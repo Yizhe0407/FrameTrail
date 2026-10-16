@@ -69,11 +69,13 @@ export async function requestRecapturePreflight(
 
 export async function requestContinuationPreflight(
   sessionId: string,
+  afterEntryId?: string,
 ): Promise<PreparedCapturePermission> {
   const result = requireRuntimeMessageResult<PreflightProjectContinuationSourcePermissionResult>(
     await browser.runtime.sendMessage({
       type: 'PREFLIGHT_PROJECT_CONTINUATION_SOURCE_PERMISSION',
       sessionId,
+      afterEntryId,
     }),
     isPreflightProjectContinuationSourcePermissionResult,
   );

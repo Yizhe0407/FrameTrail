@@ -257,7 +257,9 @@ export const zhTW = {
       thumbnailPending: '縮圖尚未載入',
       openStep: (number: number) => `開啟步驟 ${number}`,
       continueRecording: '接續錄製',
-      continueRecordingTooltip: '回到最後一步的網頁繼續錄製，新步驟會加在最後',
+      continueRecordingTooltip: '接在最後一步後面錄',
+      insertHere: '在此接續錄製',
+      insertAfter: (step: number) => `在第 ${step} 步後接續錄製`,
     },
 
     imageEdit: {

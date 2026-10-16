@@ -259,7 +259,9 @@ export const en: Messages = {
       thumbnailPending: 'Thumbnail not loaded yet',
       openStep: (number: number) => `Open step ${number}`,
       continueRecording: 'Continue recording',
-      continueRecordingTooltip: 'Go back to the last step’s page and keep recording. New steps are added at the end',
+      continueRecordingTooltip: 'Record after the last step',
+      insertHere: 'Record here',
+      insertAfter: (step: number) => `Record after step ${step}`,
     },
 
     imageEdit: {

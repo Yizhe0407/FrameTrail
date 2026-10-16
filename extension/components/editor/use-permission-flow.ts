@@ -66,6 +66,8 @@ export function usePermissionFlow({
   const generation = useRef(0);
   const flowEntryId = useRef<string | null>(null);
   const flowSessionId = useRef<string | null>(null);
+  /** Entry a continuation inserts after; undefined appends at the end. */
+  const insertAfterEntryId = useRef<string | undefined>(undefined);
   const permissionFlowActive = preparedPermission !== null || permissionPending;
 
   const isPermissionFlowLocked = useCallback(() => lock.current, []);
@@ -197,6 +199,7 @@ export function usePermissionFlow({
           sessionId,
           mode: continuationMode,
           continuation: {},
+          insertAfterEntryId: insertAfterEntryId.current,
         });
         return;
       }
@@ -286,6 +289,7 @@ export function usePermissionFlow({
         type: 'START_RECORDING',
         sessionId: sessionId!,
         mode: continuationMode,
+        insertAfterEntryId: insertAfterEntryId.current,
       });
     } catch (continueError) {
       failFlow(flow, '[stepmark] failed to continue recording on another page', continueError, t().editor.permission.continueElsewhereFailed);
@@ -313,14 +317,15 @@ export function usePermissionFlow({
 
   // Resuming a recording reopens the Project's own source page and appends its captures, so the
   // editor never has to fabricate a step from an unrelated image.
-  async function handleContinueRecording(): Promise<void> {
+  async function handleContinueRecording(afterEntryId?: string): Promise<void> {
     if (!canBeginFlow()) return;
     const flow = beginPermissionPreflight(null);
     if (flow == null) return;
+    insertAfterEntryId.current = afterEntryId;
     setContinuationMode(lastEntryMode);
     let prepared: PreparedCapturePermission | null = null;
     try {
-      prepared = await requestContinuationPreflight(sessionId!);
+      prepared = await requestContinuationPreflight(sessionId!, afterEntryId);
     } catch (continuationError) {
       failFlow(flow, '[stepmark] failed to verify continuation source', continuationError, t().editor.permission.continuationSourceUnverified);
     } finally {

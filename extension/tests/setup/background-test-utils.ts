@@ -117,6 +117,9 @@ export async function mockStepRepositoryModule(
     addStep: mocks.addStep,
     // Background persists captures through the batched write; route it to the
     // same per-step mock so existing addStep assertions keep observing rows.
+    addStepsAfter: async (steps: readonly unknown[]) => {
+      for (const step of steps) await mocks.addStep(step);
+    },
     addSteps: async (steps: readonly unknown[]) => {
       for (const step of steps) await mocks.addStep(step);
     },

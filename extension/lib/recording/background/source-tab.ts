@@ -141,12 +141,23 @@ export async function withUncommittedSourceTab<T>(
   }
 }
 
-/** Where a continuation run resumes: the persisted URL of the Project's last
- * step. Editors never supply this — a caller-provided URL would let an editor
- * page nominate an arbitrary origin for the permission prompt. */
-export async function resolveProjectContinuationSourceUrl(sessionId: string): Promise<string | null> {
+/** Where a continuation run resumes and where its steps go: the persisted URL
+ * of the row the new steps follow (the Project's last row unless an entry is
+ * named). Editors never supply a URL — a caller-provided one would let an
+ * editor page nominate an arbitrary origin for the permission prompt. */
+export async function resolveProjectContinuationAnchor(
+  sessionId: string,
+  afterEntryId?: string,
+): Promise<{ sourceUrl: string; afterStepId: string | null } | null> {
   const steps = await getSteps(sessionId);
-  return steps.length > 0 ? steps[steps.length - 1].url : null;
+  if (afterEntryId === undefined) {
+    const last = steps[steps.length - 1];
+    return last ? { sourceUrl: last.url, afterStepId: null } : null;
+  }
+  // An entry is one row, or a snapshot group (anchor id = group id) whose last row ends it.
+  const rows = steps.filter((step) => step.id === afterEntryId || step.groupId === afterEntryId);
+  const last = rows[rows.length - 1];
+  return last ? { sourceUrl: last.url, afterStepId: last.id } : null;
 }
 
 /**
@@ -162,7 +173,8 @@ export async function resolveContinuationTab(
   if (!isEditorSenderForSession(sender, message.sessionId)) {
     return { ok: false, error: t().background.editorOnlyContinuation };
   }
-  const sourceUrl = await resolveProjectContinuationSourceUrl(message.sessionId);
+  const anchor = await resolveProjectContinuationAnchor(message.sessionId, message.insertAfterEntryId);
+  const sourceUrl = anchor?.sourceUrl;
   if (!sourceUrl) {
     return { ok: false, error: t().background.continuationSourceMissing };
   }

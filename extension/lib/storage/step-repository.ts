@@ -1,6 +1,7 @@
 import {
   assertMutationItems,
   getEffectiveBounds,
+  orderedSessionSteps,
   sanitizeStepForStorage,
   stepRole,
   type Bounds,
@@ -17,6 +18,36 @@ import {
 
 export async function addStep(step: Step): Promise<void> {
   await addSteps([step]);
+}
+
+/** Persists rows captured by one recording run. They follow the run's own last
+ * row, or `afterStepId` when the run has none yet (a continuation from the
+ * middle of a Project); with neither, or when that row is gone, they are
+ * appended. Order is re-densified in the same transaction. */
+export async function addStepsAfter(steps: readonly Step[], afterStepId: string | null): Promise<void> {
+  if (steps.length === 0) return;
+  assertMutationItems(steps, 'Added steps');
+  const { sessionId, runId } = steps[0];
+  let latestTimestamp = steps[0].timestamp;
+  await runProjectStepsWrite(async (tx) => {
+    const project = await requireWritableProject(tx, sessionId);
+    const existing = orderedSessionSteps(await tx.objectStore('steps').index('by-session').getAll(sessionId));
+    const stored = steps.map((step) => sanitizeStepForStorage(step));
+    for (const step of stored) {
+      if (step.sessionId !== sessionId) throw new Error(`Step ${step.id} belongs to another project.`);
+      latestTimestamp = Math.max(latestTimestamp, step.timestamp);
+      await tx.objectStore('steps').add(step);
+    }
+    const lastOfRun = runId ? existing.findLast((step) => step.runId === runId) : undefined;
+    const anchorId = lastOfRun?.id ?? afterStepId;
+    const at = anchorId === null ? -1 : existing.findIndex((step) => step.id === anchorId);
+    if (at !== -1 && at < existing.length - 1) {
+      const ordered = existing.map((step) => step.id);
+      ordered.splice(at + 1, 0, ...stored.map((step) => step.id));
+      await writeDenseOrder(tx, [...existing, ...stored], ordered);
+    }
+    await refreshProjectSummary(tx, project, latestTimestamp);
+  });
 }
 
 /** Persists freshly captured same-project rows in one transaction with a single

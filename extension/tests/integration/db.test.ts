@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { addStep as addStepToDatabase, addSteps, deleteStepsAndReorder, deleteStepsForRun, getSteps, reorderSteps, replaceStepCaptureAtomically, restoreStepsAndReorder, saveStepDescription, StepNotFoundError, updateStep, updateStepsAtomically } from '@/lib/storage/step-repository';
+import { addStep as addStepToDatabase, addSteps, addStepsAfter, deleteStepsAndReorder, deleteStepsForRun, getSteps, reorderSteps, replaceStepCaptureAtomically, restoreStepsAndReorder, saveStepDescription, StepNotFoundError, updateStep, updateStepsAtomically } from '@/lib/storage/step-repository';
 import { buildStepEntries, getEffectiveBounds, getOrderedAnnotations, STEP_STORAGE_LIMITS, StepStorageValidationError, type Step } from '@/lib/storage/models';
 import { closeDatabase } from '@/lib/storage/database';
 import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, ensureProject, getProject, getProjectSummaries, resetProject } from '@/lib/storage/project-repository';
@@ -219,6 +219,32 @@ describe('step persistence', () => {
     expect(updated?.stepCount).toBe(3);
     // One refresh for the whole batch — not one contentRevision per row.
     expect(updated?.contentRevision).toBe(project.contentRevision + 1);
+  });
+
+  it('inserts a run after the chosen row and keeps its rows together in capture order', async () => {
+    const sessionId = crypto.randomUUID();
+    await ensureProject(sessionId);
+    const old = [0, 1, 2].map((order) => makeStep({ id: `old-${order}`, sessionId, order, timestamp: 100 + order }));
+    await addSteps(old);
+    const runId = 'run-1';
+
+    await addStepsAfter([makeStep({ id: 'new-a', sessionId, runId, order: 3, timestamp: 200 })], 'old-0');
+    await addStepsAfter([makeStep({ id: 'new-b', sessionId, runId, order: 4, timestamp: 201 })], 'old-0');
+
+    const persisted = await getSteps(sessionId);
+    expect(persisted.map((step) => step.id)).toEqual(['old-0', 'new-a', 'new-b', 'old-1', 'old-2']);
+    expect(persisted.map((step) => step.order)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('appends when no row is named or the named row is gone', async () => {
+    const sessionId = crypto.randomUUID();
+    await ensureProject(sessionId);
+    await addSteps([makeStep({ id: 'solo-0', sessionId, order: 0 })]);
+
+    await addStepsAfter([makeStep({ id: 'solo-a', sessionId, runId: 'r', order: 1 })], null);
+    await addStepsAfter([makeStep({ id: 'solo-b', sessionId, runId: 'r2', order: 2 })], 'missing');
+
+    expect((await getSteps(sessionId)).map((step) => step.id)).toEqual(['solo-0', 'solo-a', 'solo-b']);
   });
 
   it('rejects a cross-project batch atomically', async () => {

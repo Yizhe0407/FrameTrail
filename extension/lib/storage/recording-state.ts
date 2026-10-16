@@ -104,6 +104,9 @@ export interface RecordingState {
    * toolbar so the user always knows where steps are going. null for a run
    * that created its own new Project. */
   targetProjectTitle: string | null;
+  /** Row this run's steps are inserted after (an editor continuation from the
+   * middle of a Project); null appends at the end. */
+  insertAfterStepId: string | null;
   /** Viewport used by the current snapshot anchor. Later annotations must
    * match it or their coordinates would be drawn onto the wrong pixels. */
   snapshotViewport: Viewport | null;
@@ -130,6 +133,7 @@ const DEFAULT_STATE: RecordingState = {
   runId: null,
   autoCreatedProjectId: null,
   targetProjectTitle: null,
+  insertAfterStepId: null,
   snapshotViewport: null,
   snapshotDevicePixelRatio: null,
   recapture: null,
