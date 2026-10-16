@@ -326,6 +326,12 @@ export function createRegionCapture(options: RegionCaptureOptions): RegionCaptur
   const pointOf = (event: PointerEvent): RegionPoint => clipRegionPoint({ x: event.clientX, y: event.clientY }, readViewport());
 
   const onPointerDown = (event: PointerEvent) => {
+    // The panel's own buttons are not part of the drawing surface: pressing one must not start a box
+    // (which would clear the one being adjusted and capture the pointer, so the click never arrives).
+    if (event.composedPath().includes(panel)) {
+      event.stopPropagation();
+      return;
+    }
     consume(event);
     if (capturing || event.button !== 0 || !event.isPrimary) return;
     const point = pointOf(event);

@@ -220,6 +220,25 @@ describe('createRegionCapture', () => {
     expect(onCapture).toHaveBeenCalledWith({ x: 30, y: 20, width: 50, height: 40 });
   });
 
+  it('does not treat a press on the panel buttons as a new box, so Cancel and the check mark work', () => {
+    const onCancel = vi.fn();
+    const controller = createRegionCapture({ onCapture: vi.fn(), onCancel, viewport: () => viewport });
+    const root = controller.host.shadowRoot!;
+    const blocker = root.querySelector<HTMLElement>('.ft-region-blocker')!;
+    const selection = root.querySelector<HTMLElement>('.ft-region-selection')!;
+    const confirm = root.querySelector<HTMLButtonElement>('.ft-region-confirm')!;
+
+    blocker.dispatchEvent(pointerEvent('pointerdown', 10, 10));
+    blocker.dispatchEvent(pointerEvent('pointerup', 50, 40));
+    const press = pointerEvent('pointerdown', 20, 5);
+    confirm.dispatchEvent(press);
+    confirm.dispatchEvent(pointerEvent('pointerup', 20, 5));
+
+    expect(selection.dataset.interactive).toBe('true');
+    expect(confirm.hidden).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it('starts a new box when the pointer goes down outside the adjustable one, and rejects a tiny box', () => {
     const controller = createRegionCapture({ onCapture: vi.fn(), viewport: () => viewport });
     const root = controller.host.shadowRoot!;
