@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Pencil, Plus, SquareDashedMousePointer, X, ZoomIn } from 'lucide-react';
+import { Loader2, Pencil, Plus, PencilRuler, X, ZoomIn } from 'lucide-react';
 import { entryId, getEntryPrivacyState, type Step, type StepEntry } from '@/lib/storage/models';
 import ImageEditWorkspace from './ImageEditWorkspace';
 import { Badge } from '@/components/ui/badge';
@@ -166,9 +166,9 @@ export default function StepStage({
             type="button"
             onClick={() => setImageEditorOpen(true)}
             disabled={editingDisabled}
-            className="flex h-9 items-center gap-1.5 rounded-md border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+            className="flex h-10 items-center gap-1.5 rounded-md border-2 border-border bg-card px-3 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
           >
-            <SquareDashedMousePointer className="size-4" />
+            <PencilRuler className="size-4" />
             {t().editor.imageEdit.open}
           </button>
         )}
