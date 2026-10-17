@@ -37,8 +37,9 @@ pnpm dev:firefox
 - `components/shared/`：跨入口共用元件；`components/ui/` 保留無領域狀態的 UI primitives。
 - `lib/capture/`：DOM 候選、座標、frame probe 與擷取流程。
 - `lib/editor/`、`lib/export/`、`lib/project/`：各功能領域的純邏輯與 hooks。
-- `lib/media/`：annotation layout、圖片標註與 screenshot 工具；`annotate.ts` 僅保留公開 facade。
+- `lib/media/`：annotation layout、圖片標註、裁切與 screenshot 工具。
 - `lib/recording/`、`lib/runtime/`：錄製生命週期、queue、frame targeting、注入頁面與 snapshot shield 使用的錄製 UI（`recording-toolbar*.tsx` 等），以及瀏覽器訊息／導覽邊界。
+- `lib/backup/`：自動備份到使用者選擇的資料夾（File System Access API 目錄 handle、排程與寫入）。
 - `lib/storage/`：`models.ts` 定義持久化模型，`database.ts` 管理 schema 與 transaction 基礎，`*-repository.ts` 與 `project-structure.ts` 承擔各類讀寫；`storage.ts` 與 `persistence-limits.ts` 分別處理 extension storage 和容量限制。
 - `lib/shared/`：僅放真正無領域狀態的工具。
 
@@ -75,7 +76,7 @@ pnpm build:firefox
 
 ## 模組結構
 
-- `lib/export/project-archive.ts` 是 archive 的穩定公開入口；contract、validation、serialization 與 import codec 已拆為獨立檔案。
+- `.stepmark` archive 拆為 `lib/export/project-archive-contract.ts`、`-validation.ts`、`-serialize.ts` 與 `-import.ts`，沒有聚合入口；使用端直接 import 需要的模組。
 - `lib/media/annotation-layout.ts` 是 annotation layout facade；純幾何、badge/callout collision placement、常數與型別分別位於相鄰的 `annotation-*.ts` 模組。
 - `lib/editor/use-editor-entry-workspace.ts` 封裝 Editor 的完整項目列表、單一目前項目與 view state；儲存、permission 與 undo transaction 仍由 `editor/App.tsx` 協調。
 - `lib/recording/background/recorder-runtime.ts` 提供 background state machine 使用的瀏覽器 capture/injection adapter，讓 retry 與 image scale 判定可獨立測試與重用。
