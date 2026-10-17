@@ -10,6 +10,8 @@ import { t } from '@/lib/shared/i18n';
 interface Props {
   hasSteps: boolean;
   sessionId: string | null;
+  /** Names the project in the confirmation so the target is never implicit. */
+  projectTitle?: string;
   className?: string;
   variant?: ComponentProps<typeof Button>['variant'];
   disabled?: boolean;
@@ -19,6 +21,7 @@ interface Props {
 export default function ResetButton({
   hasSteps,
   sessionId,
+  projectTitle,
   className,
   variant = 'ghost',
   disabled = false,
@@ -69,7 +72,7 @@ export default function ResetButton({
       </div>
       <ConfirmationDialog
         open={confirmationOpen}
-        title={t().reset.dialogTitle}
+        title={projectTitle === undefined ? t().reset.dialogTitle : t().reset.dialogTitleNamed(projectTitle)}
         description={t().reset.dialogDescription}
         confirmLabel={t().reset.label}
         pending={resetting}

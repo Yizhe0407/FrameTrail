@@ -134,6 +134,7 @@ describe('project archive', () => {
       crop: { x: 1, y: 2, width: 30, height: 20 },
       screenshotScale: 1.5,
       captureRevision: 3,
+      imageEditRevision: 4,
       lastCaptureRunId: 'capture-run-3',
     });
     const anchor = makeStep({ id: 'anchor', order: 1, bounds: null, groupId: 'anchor', numbered: true });
@@ -152,6 +153,18 @@ describe('project archive', () => {
 
     // A serializer that silently drops a STEP_KEYS field would fail here.
     expect([...serializedKeys].sort()).toEqual([...STEP_KEYS].sort());
+  });
+
+  it('keeps the image edit revision, and still imports archives written before it existed', async () => {
+    const edited = makeStep({ id: 'edited', imageEditRevision: 7 });
+    const older = makeStep({ id: 'older', order: 1 });
+    const { steps } = await importProjectArchive(await exportProjectArchive([edited, older]));
+    expect(steps[0].imageEditRevision).toBe(7);
+    expect(steps[1].imageEditRevision).toBeUndefined();
+
+    const malformed = await archiveObject([edited]);
+    malformed.manifest.steps[0].imageEditRevision = -1;
+    await expect(importProjectArchive(JSON.stringify(malformed))).rejects.toThrow(/imageEditRevision/);
   });
 
   it('produces deterministic canonical JSON regardless of input step order', async () => {

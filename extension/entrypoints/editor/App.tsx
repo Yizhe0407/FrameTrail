@@ -5,7 +5,8 @@ import { useRecordingSession } from '@/lib/recording/use-recording-session';
 import { useEditorProjectData } from '@/lib/editor/use-editor-project-data';
 import { EMPTY_STEP_ENTRIES } from '@/lib/editor/editor-app-model';
 import { entryId, type StepEntry } from '@/lib/storage/models';
-import { updateProject } from '@/lib/storage/project-repository';
+import { updateProject, type ProjectMetadataChanges } from '@/lib/storage/project-repository';
+import { ProjectNotFoundError } from '@/lib/storage/database';
 import { type ProjectStructureSnapshot } from '@/lib/storage/project-structure';
 import { DraftConfirmationRequiredError, EditorSaveProvider, useEditorSaveRegistry } from '@/lib/editor/editor-autosave';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -51,6 +52,8 @@ function EditorApp() {
     project,
     canonicalSnapshot,
     projectLoadState,
+    projectDeleted,
+    syncProjectRow,
     reload,
     adoptProject,
   } = useEditorProjectData(sessionId, steps);
@@ -142,7 +145,11 @@ function EditorApp() {
     if (!selectedEntry) setZoomOpen(false);
   }, [selectedEntry, setZoomOpen]);
 
-  const { undoAction, offerUndo, clearUndo } = useProjectUndo({ project, operationActive });
+  const { undoAction, offerUndo, takeUndo, returnUndo, finalizeUndo, clearUndo } = useProjectUndo({
+    project,
+    operationActive,
+    projectDeleted,
+  });
 
   useEffect(() => {
     const result = recording.recaptureResult;
@@ -172,10 +179,19 @@ function EditorApp() {
     })();
   }, [recording.recaptureResult, refresh, sessionId, setSelectedEntryId, setZoomOpen]);
 
+  /** A failed save may mean the Project was deleted elsewhere; re-reading its
+   * row flips the editor to the read-only deleted state when it was. */
+  function checkProjectStillExists(): void {
+    void syncProjectRow().catch((syncError) => {
+      console.warn('[stepmark] failed to re-read the project after a failed save', syncError);
+    });
+  }
+
   async function flushDescriptions(): Promise<void> {
     try {
       await flushAll();
     } catch (saveError) {
+      checkProjectStillExists();
       console.error('[stepmark] failed to save descriptions before an editor operation', saveError);
       // A pending draft confirmation carries its own user-facing message; only
       // genuine save failures get the generic retry wording.
@@ -191,6 +207,8 @@ function EditorApp() {
   /** Leaving the tab for another page is safe only once every description is
    * saved; a failure is already in the banner, so the editor just stays. */
   async function leaveEditor(): Promise<boolean> {
+    // Nothing can be saved into a deleted Project; its drafts stay journaled.
+    if (projectDeleted) return true;
     try {
       await flushDescriptions();
       return true;
@@ -200,7 +218,7 @@ function EditorApp() {
   }
 
   function beginDataOperation(label: string): boolean {
-    if (dataOperationLock.current || isPermissionFlowLocked() || operationActive) return false;
+    if (projectDeleted || dataOperationLock.current || isPermissionFlowLocked() || operationActive) return false;
     dataOperationLock.current = true;
     setDataOperation(label);
     return true;
@@ -260,6 +278,9 @@ function EditorApp() {
     setOperationError,
     undoAction,
     offerUndo,
+    takeUndo,
+    returnUndo,
+    finalizeUndo,
     clearUndo,
   });
 
@@ -316,36 +337,42 @@ function EditorApp() {
     await setEntriesNumbered([id], numbered);
   }
 
-  async function exportImages(signal: AbortSignal): Promise<void> {
+  async function exportImages(signal: AbortSignal) {
     const publication = await publicationEntries(signal);
     const stepsToExport = publication.entries.flatMap((entry) =>
       entry.kind === 'single' ? [entry.step] : [entry.anchor, ...entry.annotations],
     );
-    await exportImagesAsZip(stepsToExport, undefined, signal);
+    return exportImagesAsZip(stepsToExport, undefined, signal);
   }
 
   // Rejects instead of reporting through `operationError`: the caller's input
   // must roll back to the stored value, so it needs the failure directly.
-  async function updateProjectMetadata(changes: { title?: string; tags?: string[] }): Promise<void> {
-    if (!project) throw new Error(t().editor.editTargetMissing);
+  async function updateProjectMetadata(changes: ProjectMetadataChanges): Promise<void> {
+    if (!project || projectDeleted) throw new Error(t().editor.editTargetMissing);
     if (isPermissionFlowLocked() || dataOperationLock.current || operationActive) {
       throw new Error(t().editor.editBusy);
     }
-    const updated = await updateProject(project.id, changes);
-    adoptProject(updated);
+    try {
+      adoptProject(await updateProject(project.id, changes));
+    } catch (updateError) {
+      if (updateError instanceof ProjectNotFoundError) checkProjectStillExists();
+      throw updateError;
+    }
   }
+
+  const editingLocked = projectDeleted || dataOperation !== null || permissionFlowActive;
 
   return (
     <div className="flex h-screen flex-col">
       <AppToaster />
       <EditorHeader
         operationActive={operationActive}
-        editingDisabled={dataOperation !== null || permissionFlowActive}
+        editingDisabled={editingLocked}
         operation={recording.operation}
         steps={steps}
         sessionId={sessionId}
         projectTitle={project?.title ?? null}
-        projectActionsAvailable={projectLoadState !== 'missing'}
+        projectActionsAvailable={projectLoadState !== 'missing' && !projectDeleted}
         beforeNavigate={leaveEditor}
         onOpenPublish={() => { if (!isPermissionFlowLocked()) setPublishOpen(true); }}
         onReset={async () => { await refreshEditorData(); }}
@@ -384,6 +411,19 @@ function EditorApp() {
         onCancel={clearPreparedPermission}
         onConfirm={() => void confirmPreparedPermission()}
       />
+      {projectDeleted && projectLoadState !== 'missing' && (
+        <div className="border-b-2 border-border bg-card px-3 py-3 sm:px-7">
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>
+              <span>{t().editor.projectDeleted}</span>
+              <Button variant="outline" size="sm" className="mt-2 w-fit" onClick={() => void openLibrary()}>
+                <Library />{t().common.backToLibrary}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
       {(error || dataError || (operationError && !recaptureActive)) && (
         <div className="border-b-2 border-border bg-card px-3 py-3 sm:px-7">
           <Alert variant="destructive">
@@ -437,7 +477,7 @@ function EditorApp() {
               onDeleteSection={deleteSection}
               onReorder={handleReorderEntries}
               onContinueRecording={(afterEntryId) => void handleContinueRecording(afterEntryId)}
-              reorderDisabled={operationActive || dataOperation !== null || permissionFlowActive}
+              reorderDisabled={operationActive || editingLocked}
             />
             {selectedEntry ? (
               <StepStage
@@ -447,7 +487,8 @@ function EditorApp() {
                 projectTitle={project?.title}
                 projectTags={project?.tags}
                 onTitleChange={(title) => updateProjectMetadata({ title })}
-                onTagsChange={(tags) => updateProjectMetadata({ tags })}
+                onAddTag={(tag) => updateProjectMetadata({ addTags: [tag] })}
+                onRemoveTag={(tag) => updateProjectMetadata({ removeTags: [tag] })}
                 onChange={refresh}
                 onDelete={deleteEntry}
                 onDeleteAnnotation={handleDeleteAnnotation}
@@ -455,7 +496,7 @@ function EditorApp() {
                 onReorderAnnotations={(reordered) => handleReorderAnnotations(entryId(selectedEntry), reordered)}
                 onRecapture={handleRecapture}
                 onSetNumbered={setSelectedEntryNumbered}
-                editingDisabled={operationActive || dataOperation !== null || permissionFlowActive}
+                editingDisabled={operationActive || editingLocked}
               />
             ) : (
               <main className="flex min-w-0 flex-1 items-center justify-center p-8 pb-36 text-center lg:pb-8">
@@ -499,6 +540,7 @@ function EditorApp() {
         <UndoSnackbar
           key={undoAction.id}
           message={undoAction.message}
+          note={undoAction.supersedes ? t().editor.undo.previousFinal(undoAction.supersedes) : undefined}
           pending={dataOperation !== null}
           aboveMobileRail={entries.length > 0}
           onUndo={() => void handleUndo()}

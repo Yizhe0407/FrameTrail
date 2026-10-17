@@ -4,6 +4,8 @@ import { t } from '@/lib/shared/i18n';
 
 interface Props {
   message: string;
+  /** A second, quieter line, e.g. that the undo this one replaced is now final. */
+  note?: string;
   pending?: boolean;
   aboveMobileRail?: boolean;
   onUndo: () => void;
@@ -12,6 +14,7 @@ interface Props {
 
 export default function UndoSnackbar({
   message,
+  note,
   pending = false,
   aboveMobileRail = false,
   onUndo,
@@ -32,7 +35,10 @@ export default function UndoSnackbar({
       role="status"
       className={`fixed right-4 bottom-4 z-50 flex min-h-12 max-w-[calc(100vw-32px)] items-center gap-2 rounded-full border-2 border-border bg-card py-1.5 pr-1.5 pl-4 text-sm font-bold text-foreground ${aboveMobileRail ? 'max-lg:bottom-36' : ''}`}
     >
-      <span className="min-w-0 truncate">{message}</span>
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate">{message}</span>
+        {note && <span className="truncate text-xs font-normal text-muted-foreground">{note}</span>}
+      </span>
       <button
         type="button"
         onClick={onUndo}

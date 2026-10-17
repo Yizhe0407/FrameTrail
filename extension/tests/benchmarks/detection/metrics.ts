@@ -1,3 +1,5 @@
+import { HIGHLIGHT_PADDING } from '../../../lib/media/annotation-contract';
+
 export interface Rect {
   x: number;
   y: number;
@@ -84,7 +86,7 @@ export function intersectionOverUnion(first: Rect, second: Rect): number {
   return union > 0 ? intersection / union : 0;
 }
 
-export function fitPreviewFrame(bounds: Rect, viewport: { width: number; height: number }, padding = 6): Rect {
+export function fitPreviewFrame(bounds: Rect, viewport: { width: number; height: number }, padding = HIGHLIGHT_PADDING): Rect {
   const left = Math.min(Math.max(bounds.x - padding, 0), viewport.width);
   const top = Math.min(Math.max(bounds.y - padding, 0), viewport.height);
   const right = Math.min(Math.max(bounds.x + bounds.width + padding, left), viewport.width);

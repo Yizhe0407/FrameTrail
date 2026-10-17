@@ -37,6 +37,14 @@ function FlushButton() {
   return <button onClick={() => void flushAll()}>匯出前儲存</button>;
 }
 
+/** saveStepDescription resolves with the stored value; these mocks store exactly what they get. */
+const storeAsSent = async (_id: string, description: string) => description;
+
+/** A save that stores what it was sent once `gate` resolves. */
+function storeAfter(gate: { promise: Promise<void> }) {
+  return (_id: string, description: string) => gate.promise.then(() => description);
+}
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -49,7 +57,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
   mocks.saveStepDescription.mockReset();
-  mocks.saveStepDescription.mockResolvedValue(undefined);
+  mocks.saveStepDescription.mockImplementation(storeAsSent);
 });
 
 afterEach(() => {
@@ -60,7 +68,7 @@ afterEach(() => {
 describe('editor description autosave', () => {
   it('debounces writes while keeping save state out of the description UI', async () => {
     const pending = deferred();
-    mocks.saveStepDescription.mockReturnValueOnce(pending.promise);
+    mocks.saveStepDescription.mockImplementationOnce(storeAfter(pending));
     render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -88,7 +96,7 @@ describe('editor description autosave', () => {
 
   it('serializes text entered during a pending write so the latest draft wins', async () => {
     const firstWrite = deferred();
-    mocks.saveStepDescription.mockReturnValueOnce(firstWrite.promise).mockResolvedValue(undefined);
+    mocks.saveStepDescription.mockImplementationOnce(storeAfter(firstWrite)).mockImplementation(storeAsSent);
     render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -140,7 +148,7 @@ describe('editor description autosave', () => {
   it('retains a failed draft and saves it when the user retries', async () => {
     const saveError = new Error('temporary write failure');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    mocks.saveStepDescription.mockRejectedValueOnce(saveError).mockResolvedValue(undefined);
+    mocks.saveStepDescription.mockRejectedValueOnce(saveError).mockImplementation(storeAsSent);
     render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -172,7 +180,7 @@ describe('editor description autosave', () => {
 
   it('restores a synchronously journaled draft after an interrupted close and commits it on reopen', async () => {
     const interruptedWrite = deferred();
-    mocks.saveStepDescription.mockReturnValueOnce(interruptedWrite.promise).mockResolvedValue(undefined);
+    mocks.saveStepDescription.mockImplementationOnce(storeAfter(interruptedWrite)).mockImplementation(storeAsSent);
     const first = render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -257,7 +265,7 @@ describe('editor description autosave', () => {
 
   it('keeps a newer journal entry while an older IndexedDB write is pending', async () => {
     const firstWrite = deferred();
-    mocks.saveStepDescription.mockReturnValueOnce(firstWrite.promise).mockResolvedValue(undefined);
+    mocks.saveStepDescription.mockImplementationOnce(storeAfter(firstWrite)).mockImplementation(storeAsSent);
     render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -309,7 +317,7 @@ describe('editor description autosave', () => {
   it('rebases on a cross-tab description commit and blocks saving until confirmed', async () => {
     mocks.saveStepDescription
       .mockRejectedValueOnce(new StepDescriptionConflictError('step-1', '', '另一分頁版本'))
-      .mockResolvedValue(undefined);
+      .mockImplementation(storeAsSent);
     render(
       <EditorSaveProvider>
         <DescriptionField step={makeStep()} onChange={vi.fn()} />
@@ -379,4 +387,120 @@ describe('editor description autosave', () => {
     warning.mockRestore();
   });
 
+  async function settle(ms = 650) {
+    await act(async () => {
+      vi.advanceTimersByTime(ms);
+      for (let index = 0; index < 4; index += 1) await Promise.resolve();
+    });
+  }
+
+  // Storage drops control characters such as \v; comparing the next save against the
+  // unnormalized text would look like a conflict and silently stop every later save.
+  it('saves text containing control characters and keeps saving what is typed afterwards', async () => {
+    render(
+      <EditorSaveProvider>
+        <DescriptionField step={makeStep()} onChange={vi.fn()} />
+      </EditorSaveProvider>,
+    );
+    const field = screen.getByLabelText('說明');
+
+    fireEvent.change(field, { target: { value: 'a\vb\fc\u0007d\u0085e' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', 'abcde', '');
+    expect(screen.getByDisplayValue('abcde')).toBeTruthy();
+
+    fireEvent.change(field, { target: { value: 'abcde 之後' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', 'abcde 之後', 'abcde');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('compares the next save against the value storage returned, not the one it sent', async () => {
+    mocks.saveStepDescription.mockImplementationOnce(async () => '儲存後的值');
+    render(
+      <EditorSaveProvider>
+        <DescriptionField step={makeStep()} onChange={vi.fn()} />
+      </EditorSaveProvider>,
+    );
+    const field = screen.getByLabelText('說明');
+
+    fireEvent.change(field, { target: { value: '送出的值' } });
+    await settle();
+    expect(screen.getByDisplayValue('儲存後的值')).toBeTruthy();
+
+    fireEvent.change(field, { target: { value: '下一版' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', '下一版', '儲存後的值');
+  });
+
+  it('shows a conflict with another tab on the field and lets the user overwrite it', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.saveStepDescription
+      .mockRejectedValueOnce(new StepDescriptionConflictError('step-1', '', '分頁 A 的版本'))
+      .mockImplementation(storeAsSent);
+    render(
+      <EditorSaveProvider>
+        <DescriptionField step={makeStep()} onChange={vi.fn()} />
+      </EditorSaveProvider>,
+    );
+    const field = screen.getByLabelText('說明');
+
+    fireEvent.change(field, { target: { value: '分頁 B 的版本' } });
+    await settle();
+    expect(screen.getByText('尚未儲存：與其他分頁衝突')).toBeTruthy();
+    expect(screen.getByText('已儲存的版本：分頁 A 的版本')).toBeTruthy();
+
+    // Typing on is journaled but never saved behind the user's back.
+    fireEvent.change(field, { target: { value: '分頁 B 的版本，續寫' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '用我的版本覆寫' }));
+    await settle(0);
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', '分頁 B 的版本，續寫', '分頁 A 的版本');
+    expect(screen.queryByText('尚未儲存：與其他分頁衝突')).toBeNull();
+
+    fireEvent.change(field, { target: { value: '覆寫後繼續' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', '覆寫後繼續', '分頁 B 的版本，續寫');
+  });
+
+  it('lets the user resolve a conflict by taking the saved version', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.saveStepDescription.mockRejectedValueOnce(new StepDescriptionConflictError('step-1', '', '分頁 A 的版本'));
+    render(
+      <EditorSaveProvider>
+        <DescriptionField step={makeStep()} onChange={vi.fn()} />
+      </EditorSaveProvider>,
+    );
+    const field = screen.getByLabelText('說明');
+
+    fireEvent.change(field, { target: { value: '分頁 B 的版本' } });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: '改用已儲存的版本' }));
+
+    expect(screen.getByDisplayValue('分頁 A 的版本')).toBeTruthy();
+    expect(screen.queryByText('尚未儲存：與其他分頁衝突')).toBeNull();
+    expect(readDescriptionDrafts({ ...makeStep(), description: '分頁 A 的版本' }, 'observer')).toEqual([]);
+
+    fireEvent.change(field, { target: { value: '分頁 A 的版本＋補充' } });
+    await settle();
+    expect(mocks.saveStepDescription).toHaveBeenLastCalledWith('step-1', '分頁 A 的版本＋補充', '分頁 A 的版本');
+  });
+
+  it('says on the field that nothing is saved once the step is gone', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.saveStepDescription.mockRejectedValue(new StepNotFoundError('step-1'));
+    render(
+      <EditorSaveProvider>
+        <DescriptionField step={makeStep()} onChange={vi.fn()} />
+      </EditorSaveProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('說明'), { target: { value: '寫給已刪除的步驟' } });
+    await settle();
+
+    expect(screen.getByRole('alert').textContent).toContain('尚未儲存：這個步驟已被刪除。');
+    expect(screen.getByDisplayValue('寫給已刪除的步驟')).toBeTruthy();
+  });
 });

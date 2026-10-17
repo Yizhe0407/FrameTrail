@@ -1,5 +1,6 @@
 import type { Bounds, Redaction } from '@/lib/storage/models';
 import type { ImageEdit } from '@/lib/storage/image-edit-model';
+import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
 
 /**
  * Everything the image editor can place on a screenshot, as one list. Privacy
@@ -92,4 +93,44 @@ export function reorderItem(items: readonly ImageEditItem[], id: string, to: 'fr
   const anchor = to === 'front' ? members[members.length - 1] : members[0];
   const at = others.indexOf(anchor);
   return [...others.slice(0, to === 'front' ? at + 1 : at), item, ...others.slice(to === 'front' ? at + 1 : at)];
+}
+
+/** What storage keeps per image: masks and drawn edits are limited separately, and there is only ever one crop. */
+export const IMAGE_ITEM_LIMITS = Object.freeze({
+  maxMasks: PERSISTED_STEP_LIMITS.maxRedactionsPerStep,
+  maxEdits: PERSISTED_STEP_LIMITS.maxImageEditsPerStep,
+});
+
+export interface ItemRoom {
+  /** More masks can be added. */
+  masks: boolean;
+  /** More text, arrows, boxes, ellipses or markers can be added. */
+  edits: boolean;
+}
+
+/** Whether there is room for one more mask and one more drawn edit. */
+export function itemRoom(items: readonly ImageEditItem[]): ItemRoom {
+  let masks = 0;
+  let edits = 0;
+  for (const item of items) {
+    if (item.kind === 'redaction') masks += 1;
+    else if (item.kind !== 'crop') edits += 1;
+  }
+  return { masks: masks < IMAGE_ITEM_LIMITS.maxMasks, edits: edits < IMAGE_ITEM_LIMITS.maxEdits };
+}
+
+/** Whether `added` fit next to `items` without going past a storage limit. A crop always fits: it replaces the old one. */
+export function hasRoomFor(items: readonly ImageEditItem[], added: readonly ImageEditItem[]): boolean {
+  const masks = items.filter((item) => item.kind === 'redaction').length
+    + added.filter((item) => item.kind === 'redaction').length;
+  const edits = items.filter((item) => item.kind !== 'redaction' && item.kind !== 'crop').length
+    + added.filter((item) => item.kind !== 'redaction' && item.kind !== 'crop').length;
+  return masks <= IMAGE_ITEM_LIMITS.maxMasks && edits <= IMAGE_ITEM_LIMITS.maxEdits;
+}
+
+/** Whether one more item of `kind` fits. */
+export function roomForKind(kind: ImageEditItemKind, room: ItemRoom): boolean {
+  if (kind === 'redaction') return room.masks;
+  if (kind === 'crop') return true;
+  return room.edits;
 }

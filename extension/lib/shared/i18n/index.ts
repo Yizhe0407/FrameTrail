@@ -16,7 +16,17 @@ const CATALOGS: Record<Locale, Messages> = {
   en,
 };
 
-let activeLocale: Locale = resolveLocale(detectBrowserLanguage());
+/**
+ * The preference in force. 'auto' is deliberately kept as-is rather than
+ * resolved once at module load: a long-lived context (the background service
+ * worker above all) must follow the browser UI language as it is when copy is
+ * produced, not whatever it read while the module was first evaluated.
+ */
+let activePreference: LocalePreference = 'auto';
+
+function resolvePreference(preference: LocalePreference): Locale {
+  return preference === 'auto' ? resolveLocale(detectBrowserLanguage()) : preference;
+}
 
 /**
  * The active UI copy. Read it at the moment text is rendered or produced —
@@ -24,7 +34,7 @@ let activeLocale: Locale = resolveLocale(detectBrowserLanguage());
  * locale, including a locale set after the module loaded.
  */
 export function t(): Messages {
-  return CATALOGS[activeLocale];
+  return CATALOGS[getLocale()];
 }
 
 /** The copy for an explicit locale, for code that must recognize text produced
@@ -33,23 +43,30 @@ export function messagesFor(locale: Locale): Messages {
   return CATALOGS[locale];
 }
 
+/** The locale in force right now; 'auto' resolves against the browser at call time. */
 export function getLocale(): Locale {
-  return activeLocale;
+  return resolvePreference(activePreference);
 }
 
 const listeners = new Set<() => void>();
 
-/** Switches the active locale and tells every subscriber, so mounted UI
- * re-renders in the new language. */
-export function setLocale(locale: Locale): void {
-  if (locale === activeLocale) return;
-  activeLocale = locale;
+/** Applies a preference and tells every subscriber when the effective locale
+ * changed, so mounted UI re-renders in the new language. */
+function applyPreference(preference: LocalePreference): void {
+  const before = getLocale();
+  activePreference = preference;
+  if (getLocale() === before) return;
   for (const listener of listeners) listener();
 }
 
-/** Resolves a stored preference ('auto' follows the browser) and applies it. */
+/** Switches to a fixed locale. */
+export function setLocale(locale: Locale): void {
+  applyPreference(locale);
+}
+
+/** Applies a stored preference; 'auto' keeps following the browser language. */
 export function applyLocalePreference(preference: LocalePreference): void {
-  setLocale(preference === 'auto' ? resolveLocale(detectBrowserLanguage()) : preference);
+  applyPreference(preference);
 }
 
 export function onLocaleChange(listener: () => void): () => void {
@@ -68,12 +85,12 @@ export function useActiveLocale(): Locale {
 
 /** BCP 47 tag for Intl formatting, sorting and case folding in the active locale. */
 export function intlLocale(): string {
-  return activeLocale;
+  return getLocale();
 }
 
 /** `lang` attribute for documents rendered in the active locale. */
 export function documentLang(): string {
-  return documentLanguage(activeLocale);
+  return documentLanguage(getLocale());
 }
 
 /** Points an extension page's <html lang> and <title> at the active locale. */

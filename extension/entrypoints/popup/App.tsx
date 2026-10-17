@@ -14,6 +14,7 @@ import type { OpenEditorResult } from '@/lib/runtime/messages';
 import { openLibrary, openSettings } from '@/lib/runtime/actions';
 import { ensureSelectedProject } from '@/lib/project/project-actions';
 import { getProject } from '@/lib/storage/project-repository';
+import { subscribeProjectsChanged } from '@/lib/storage/change-notifier';
 import { reportError } from '@/components/shared/report-error';
 import { isOpenEditorResult, requireRuntimeMessageResult } from '@/lib/runtime/runtime-message-result';
 import { t } from '@/lib/shared/i18n';
@@ -26,32 +27,47 @@ function App() {
     useRecordingSession(undefined, { withSteps: false });
   const [openingEditor, setOpeningEditor] = useState(false);
   const [editorOpenError, setEditorOpenError] = useState<string | null>(null);
-  // Whether the reset target holds any content. `recording.itemCount` cannot answer
-  // this since it's per-run and zeroed on finish; the project row's counts are metadata-only.
-  const [hasProjectContent, setHasProjectContent] = useState(false);
+  // The 「錄到哪裡」 selection (null = 新專案). Reset acts on exactly this project,
+  // never on the last recording's, so what the user picked is what gets cleared.
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
+  // The reset target's title and whether it holds any content. `recording.itemCount`
+  // cannot answer this since it's per-run and zeroed on finish; the counts live on the project row.
+  const [resetTarget, setResetTarget] = useState<{ title: string; hasContent: boolean } | null>(null);
   const editorRecovery = needsEditorRecovery(recoverableError);
 
   useEffect(() => {
-    if (!sessionId) {
-      setHasProjectContent(false);
+    if (!targetProjectId) {
+      setResetTarget(null);
       return;
     }
     let active = true;
-    void getProject(sessionId)
-      .then((project) => {
-        if (active) setHasProjectContent(Boolean(project) && (project!.entryCount > 0 || project!.stepCount > 0));
-      })
-      .catch((readError) => {
-        // Fail open: the confirm dialog and background guard still protect the
-        // action, while failing closed would strand a real reset need.
-        console.error('[stepmark] failed to read project summary', readError);
-        if (active) setHasProjectContent(true);
-      });
+    const refresh = () => {
+      void getProject(targetProjectId)
+        .then((project) => {
+          if (!active) return;
+          setResetTarget(project
+            ? {
+                title: project.title.trim() || t().common.untitledProject,
+                hasContent: project.entryCount > 0 || project.stepCount > 0,
+              }
+            : null);
+        })
+        .catch((readError) => {
+          // Fail open: the confirm dialog and background guard still protect the
+          // action, while failing closed would strand a real reset need.
+          console.error('[stepmark] failed to read project summary', readError);
+          if (active) setResetTarget({ title: t().common.untitledProject, hasContent: true });
+        });
+    };
+    refresh();
+    // phase re-runs the read after a run finishes and bumps the counts; project
+    // changes cover resets, deletions and edits made from other pages.
+    const unsubscribe = subscribeProjectsChanged(refresh);
     return () => {
       active = false;
+      unsubscribe();
     };
-    // phase re-runs the read after a run finishes and bumps the counts.
-  }, [sessionId, recording.phase]);
+  }, [targetProjectId, recording.phase]);
 
   async function openSettingsPage() {
     setEditorOpenError(null);
@@ -112,9 +128,9 @@ function App() {
   }
 
   return (
-    <div className="flex w-[320px] flex-col gap-4 bg-card p-5">
+    <main className="flex w-[320px] flex-col gap-4 bg-card p-5">
       <div className="flex items-center justify-between gap-3">
-        <BrandMark />
+        <BrandMark heading />
         <div className="flex shrink-0 items-center">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -145,6 +161,8 @@ function App() {
         onStarted={handleStarted}
         onOpenEditor={openEditor}
         openingEditor={openingEditor}
+        targetProjectId={targetProjectId}
+        onTargetProjectChange={setTargetProjectId}
       />
 
       {/* Hidden while a run is live: RecordControls already offers the editor as
@@ -163,12 +181,18 @@ function App() {
             <Button variant="outline" size="sm" onClick={() => void openLibraryView()} className="w-full">
               <Library />{t().common.library}
             </Button>
-            <ResetButton hasSteps={hasProjectContent} sessionId={sessionId} variant="outline" className="h-8 w-full px-3 text-[13px]" />
+            <ResetButton
+              hasSteps={resetTarget?.hasContent ?? false}
+              sessionId={resetTarget ? targetProjectId : null}
+              projectTitle={resetTarget?.title}
+              onReset={() => setResetTarget((current) => (current ? { ...current, hasContent: false } : current))}
+              variant="outline" className="h-8 w-full px-3 text-[13px]"
+            />
           </div>
         </div>
       )}
 
-    </div>
+    </main>
   );
 }
 

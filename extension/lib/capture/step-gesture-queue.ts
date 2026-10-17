@@ -68,6 +68,10 @@ export interface StepGestureQueue {
   purgePending(): void;
   /** cancelActive() + purgePending(). */
   cancelAll(): void;
+  /** Resolves once nothing is running or waiting — every gesture accepted so
+   * far has fully settled, replay included. Toolbar commands wait on this so
+   * they apply after the clicks the user already made, never between. */
+  whenIdle(): Promise<void>;
 }
 
 function createGesture(captureId: string, onRelease: () => void): StepGesture {
@@ -93,11 +97,23 @@ export function createStepGestureQueue(): StepGestureQueue {
   let blocking: StepGesture | null = null;
   let running = false;
   const pending: StepGestureQueueEntry[] = [];
+  let idleWaiters: Array<() => void> = [];
+
+  const isIdle = () => !running && pending.length === 0;
+  const notifyIdle = (): void => {
+    if (!isIdle() || idleWaiters.length === 0) return;
+    const waiters = idleWaiters;
+    idleWaiters = [];
+    for (const resolve of waiters) resolve();
+  };
 
   const drainNext = (): void => {
     if (running) return;
     const next = pending.shift();
-    if (!next) return;
+    if (!next) {
+      notifyIdle();
+      return;
+    }
     runEntry(next);
   };
 
@@ -143,11 +159,19 @@ export function createStepGestureQueue(): StepGestureQueue {
     purgePending() {
       const dropped = pending.splice(0, pending.length);
       for (const entry of dropped) entry.onSkipped?.();
+      notifyIdle();
     },
     cancelAll() {
       blocking?.cancel();
       const dropped = pending.splice(0, pending.length);
       for (const entry of dropped) entry.onSkipped?.();
+      notifyIdle();
+    },
+    whenIdle() {
+      if (isIdle()) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        idleWaiters.push(resolve);
+      });
     },
   };
 }

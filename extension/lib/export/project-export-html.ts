@@ -3,6 +3,7 @@ import type { ProjectSection } from '../project/project-sections';
 import { type StepEntry } from '../storage/models';
 import {
   DEFAULT_TITLE,
+  IMAGE_MIME_TYPE,
   PROJECT_EXPORT_THEME,
   escapeProjectHtml,
   formatProjectCreatedAt,
@@ -12,33 +13,33 @@ import {
   type ProjectExportMetadata,
   type ProjectExportOptions,
 } from './project-export-contract';
-import { renderEntries, type RenderedEntry } from './project-export-render';
+import { encodeBase64Parts } from './base64';
+import { renderEntryImages, type RenderedEntryContent } from './project-export-render';
 import { documentLang, t } from '@/lib/shared/i18n';
 
 /**
  * Generates a self-contained HTML publication. It uses only fixed template
  * markup and data-URI images; all metadata and descriptions pass through
  * text escaping before interpolation.
+ *
+ * The document is returned as a Blob assembled from parts: each screenshot's
+ * base64 goes straight into its own Blob as soon as it is encoded, so neither
+ * one document-sized string nor every image's base64 text is ever held in the
+ * JS heap at once. Peak memory stays near the size of the output itself.
  */
 export async function generateProjectHtml(
   entries: readonly StepEntry[],
   metadata: ProjectExportMetadata = {},
   options: ProjectExportOptions = {},
-): Promise<string> {
-  return generateProjectHtmlDocument(entries, metadata, options.signal);
-}
-
-async function generateProjectHtmlDocument(
-  entries: readonly StepEntry[],
-  metadata: ProjectExportMetadata,
-  signal?: AbortSignal,
-): Promise<string> {
-  const renderedEntries = await renderEntries(entries, signal);
+): Promise<Blob> {
+  const { signal } = options;
   throwIfAborted(signal);
 
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
   const description = textValue(metadata.description);
-  const metaParts = [t().export.stepCount(renderedEntries.length)];
+  // renderEntryImages yields every entry or throws, so the count is known
+  // before the first image is rendered.
+  const metaParts = [t().export.stepCount(entries.length)];
   const createdAt = formatProjectCreatedAt(metadata.createdAt);
   if (createdAt) metaParts.push(t().export.createdAt(createdAt));
   const header = [
@@ -50,19 +51,9 @@ async function generateProjectHtmlDocument(
     .filter(Boolean)
     .join('\n');
 
-  const sections = sectionsByStartEntry(metadata.sections, entries);
-  const stepChunks: string[] = [];
-  for (const entry of renderedEntries) {
-    const section = sections.get(entry.entryId);
-    if (section) {
-      stepChunks.push(renderHtmlSectionHeading(section));
-    }
-    stepChunks.push(renderHtmlEntry(entry));
-  }
-  const steps = stepChunks.join('\n');
-  throwIfAborted(signal);
-
-  return `<!doctype html>
+  const parts: BlobPart[] = [];
+  // Text not yet pushed: consecutive fragments are joined before becoming a part.
+  let pending = `<!doctype html>
 <html lang="${documentLang()}">
 <head>
 <meta charset="utf-8">
@@ -79,13 +70,36 @@ ${BASE_STYLE}
 ${header}
 </header>
 <div class="project-content">
-${steps}
+`;
+
+  const sections = sectionsByStartEntry(metadata.sections, entries);
+  let separator = '';
+  for await (const rendered of renderEntryImages(entries, signal)) {
+    const section = sections.get(rendered.content.entryId);
+    if (section) {
+      pending += separator + renderHtmlSectionHeading(section);
+      separator = '\n';
+    }
+    const [before, after] = renderHtmlEntry(rendered.content, IMAGE_SRC_TOKEN).split(IMAGE_SRC_TOKEN);
+    parts.push(`${pending}${separator}${before}data:${IMAGE_MIME_TYPE};base64,`);
+    parts.push(new Blob(encodeBase64Parts(rendered.imageBytes, signal)));
+    pending = after;
+    separator = '\n';
+  }
+  throwIfAborted(signal);
+
+  parts.push(`${pending}
 </div>
 </main>
 </body>
 </html>
-`;
+`);
+  return new Blob(parts, { type: 'text/html;charset=utf-8' });
 }
+
+/** Marks where an image's data URI goes. It contains `<`, which escaped user
+ * text can never produce, so it occurs exactly once per rendered entry. */
+const IMAGE_SRC_TOKEN = '<image-src>';
 
 function renderHtmlSectionHeading(section: ProjectSection): string {
   return `<section class="project-section-heading">
@@ -94,7 +108,7 @@ function renderHtmlSectionHeading(section: ProjectSection): string {
 </section>`;
 }
 
-function renderHtmlEntry(entry: RenderedEntry): string {
+function renderHtmlEntry(entry: RenderedEntryContent, imageSrc: string): string {
   const heading = htmlText(textOrDefault(entry.description, t().export.missingDescription));
   const alt = escapeProjectHtml(textOrDefault(entry.description, t().export.imageAlt));
   const annotations = entry.annotations.length > 0 ? renderHtmlAnnotations(entry) : '';
@@ -106,7 +120,7 @@ function renderHtmlEntry(entry: RenderedEntry): string {
     `<h3 class="step-title">${heading}</h3>`,
     `</div>`,
     `<figure>`,
-    `<img src="${entry.imageDataUri}" alt="${alt}">`,
+    `<img src="${imageSrc}" alt="${alt}">`,
     `</figure>`,
     annotations,
     `</section>`,
@@ -115,7 +129,7 @@ function renderHtmlEntry(entry: RenderedEntry): string {
     .join('\n');
 }
 
-function renderHtmlAnnotations(entry: RenderedEntry): string {
+function renderHtmlAnnotations(entry: RenderedEntryContent): string {
   const items = entry.annotations
     .map((annotation) => `<li>${htmlText(textOrDefault(annotation.description, t().export.missingDescription))}</li>`)
     .join('\n');
@@ -192,6 +206,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 p { margin: 0; }
+h1, h2, h3, p, li { overflow-wrap: anywhere; }
 .project { width: min(100% - 40px, 760px); margin: 0 auto; padding: 48px 0 72px; }
 .project-header {
   margin-bottom: 32px;
@@ -273,6 +288,7 @@ h1 {
   line-height: 1;
 }
 .step-title {
+  min-width: 0;
   margin: 0;
   max-width: 66ch;
   color: var(--text);

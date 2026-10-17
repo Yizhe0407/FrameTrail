@@ -59,6 +59,9 @@ function renderMutations(overrides: Record<string, unknown> = {}) {
     setOperationError: vi.fn(),
     undoAction: null,
     offerUndo: vi.fn(),
+    takeUndo: vi.fn(() => null),
+    returnUndo: vi.fn(),
+    finalizeUndo: vi.fn(),
     clearUndo: vi.fn(),
     ...overrides,
   };
@@ -129,5 +132,40 @@ describe('runProjectMutation (via handleReorderEntries)', () => {
     expect(options.refreshEditorData).toHaveBeenCalledTimes(1);
     expect(options.offerUndo).not.toHaveBeenCalled();
     expect(options.endDataOperation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a pending undo when another mutation runs (single-level undo)', () => {
+  const earlier = { id: 1, message: '已刪除步驟 3', projectId: 'g1', expectedRevision: 1, restore: vi.fn() };
+
+  it('hands the earlier undo to the new one, which says it is now final', async () => {
+    const { result, options } = renderMutations({ takeUndo: vi.fn(() => earlier) });
+
+    await act(() => result.current.handleReorderEntries(reordered));
+
+    expect(options.offerUndo).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 2 }), 'g1', earlier);
+    expect(options.finalizeUndo).not.toHaveBeenCalled();
+    expect(options.returnUndo).not.toHaveBeenCalled();
+  });
+
+  it('announces the earlier undo as final when the new mutation offers none', async () => {
+    const renameProjectSectionAtomically = (await import('@/lib/storage/project-structure')).renameProjectSectionAtomically as ReturnType<typeof vi.fn>;
+    renameProjectSectionAtomically.mockResolvedValue({ project: { contentRevision: 2 } });
+    const { result, options } = renderMutations({ takeUndo: vi.fn(() => earlier) });
+
+    await act(() => result.current.renameSection('section-1', '新名稱'));
+
+    expect(options.offerUndo).not.toHaveBeenCalled();
+    expect(options.finalizeUndo).toHaveBeenCalledWith(earlier);
+  });
+
+  it('hands the earlier undo back when the new mutation failed', async () => {
+    mocks.reorderProjectEntriesAtomically.mockRejectedValue(new Error('cas boom'));
+    const { result, options } = renderMutations({ takeUndo: vi.fn(() => earlier) });
+
+    await act(() => result.current.handleReorderEntries(reordered));
+
+    expect(options.returnUndo).toHaveBeenCalledWith(earlier);
+    expect(options.finalizeUndo).not.toHaveBeenCalled();
   });
 });

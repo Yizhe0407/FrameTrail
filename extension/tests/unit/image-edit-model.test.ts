@@ -22,6 +22,7 @@ describe('image edit validation', () => {
     ['NaN coordinate', { ...arrow, to: { x: Number.NaN, y: 1 } }],
     ['empty text', { ...text, text: '' }],
     ['oversized text', { ...text, text: 'x'.repeat(5_000) }],
+    ['C1 control character in text', { ...text, text: 'a\u0085b' }],
     ['tiny font', { ...text, fontSize: 2 }],
     ['wild stroke', { ...rect, width: 500 }],
     ['control characters in id', { ...rect, id: 'a\u0000b' }],

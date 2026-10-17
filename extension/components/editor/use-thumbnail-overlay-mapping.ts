@@ -89,6 +89,13 @@ interface UseThumbnailOverlayMappingOptions {
   redactions: Redaction[];
   privacyReviewRequired: boolean;
   /**
+   * The image's pixels already have every mask burned in (usePreviewImage).
+   * The overlay masks then only keep drawings beneath them covered, as in an
+   * export, and a mask whose position is not yet known exposes nothing, so the
+   * image is never hidden for it.
+   */
+  masksBurnedIn: boolean;
+  /**
    * The image element is exactly the image's own box: it has the image's aspect
    * ratio, so nothing is letterboxed or cropped. Masks and the content frame are
    * then plain percentages of that box and cannot drift from the pixels they
@@ -155,6 +162,7 @@ export function useThumbnailOverlayMapping({
   screenshotScale,
   redactions,
   privacyReviewRequired,
+  masksBurnedIn,
   exactBox = false,
   measure,
   mapOverlays,
@@ -169,8 +177,10 @@ export function useThumbnailOverlayMapping({
 
   // The observer and frame callbacks outlive renders, so they read the latest
   // measure/redaction state through a ref instead of being re-subscribed.
-  const latest = useRef({ measure, hasRedactions: redactions.length > 0, exactBox });
-  latest.current = { measure, hasRedactions: redactions.length > 0, exactBox };
+  // Only live masks over stored pixels gate what may be shown.
+  const gatesPixels = !masksBurnedIn && redactions.length > 0;
+  const latest = useRef({ measure, gatesPixels, exactBox });
+  latest.current = { measure, gatesPixels, exactBox };
 
   const remap = useCallback(() => {
     const img = imgRef.current;
@@ -183,7 +193,7 @@ export function useThumbnailOverlayMapping({
     // so a resize can never show it next to a mask still at its old position.
     // An exact box has nothing to go stale: masks are percentages of the box itself.
     if (!latest.current.exactBox) {
-      if (latest.current.hasRedactions && imgRef.current) imgRef.current.style.visibility = 'hidden';
+      if (latest.current.gatesPixels && imgRef.current) imgRef.current.style.visibility = 'hidden';
       setStale(true);
     }
     if (mapFrameRef.current !== null) return;
@@ -228,7 +238,7 @@ export function useThumbnailOverlayMapping({
     () => (geometry ? mapRedactionBoxes(redactions, geometry, exactBox) : []),
     [geometry, redactions, exactBox],
   );
-  const showPixels = !privacyReviewRequired && (redactions.length === 0 || (geometry !== null && (exactBox || !stale)));
+  const showPixels = !privacyReviewRequired && (!gatesPixels || (geometry !== null && (exactBox || !stale)));
   const contentFrame = geometry ? (exactBox ? EXACT_CONTENT_FRAME : geometry.contentFrame) : null;
 
   const imageCssSize = useMemo(

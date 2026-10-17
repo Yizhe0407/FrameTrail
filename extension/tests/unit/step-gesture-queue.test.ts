@@ -181,3 +181,42 @@ describe('createStepGestureQueue', () => {
     expect(queue.pendingCount()).toBe(0);
   });
 });
+
+describe('whenIdle', () => {
+  it('resolves immediately when nothing is queued', async () => {
+    await expect(createStepGestureQueue().whenIdle()).resolves.toBeUndefined();
+  });
+
+  it('waits for every accepted gesture to settle, replay included, before a toolbar command runs', async () => {
+    const queue = createStepGestureQueue();
+    const log: string[] = [];
+    const a = createControlledEntry('a', log);
+    const b = createControlledEntry('b', log);
+    queue.enqueue(a.entry);
+    queue.enqueue(b.entry);
+    void queue.whenIdle().then(() => log.push('idle'));
+
+    a.release();
+    a.finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(log).not.toContain('idle');
+
+    b.finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(log[log.length - 1]).toBe('idle');
+  });
+
+  it('resolves once purged entries are skipped', async () => {
+    const queue = createStepGestureQueue();
+    const log: string[] = [];
+    const a = createControlledEntry('a', log);
+    queue.enqueue(a.entry);
+    queue.enqueue(createControlledEntry('b', log).entry);
+    const idle = queue.whenIdle();
+    queue.purgePending();
+    a.finish();
+    await idle;
+    expect(log).toContain('b:skipped');
+  });
+});

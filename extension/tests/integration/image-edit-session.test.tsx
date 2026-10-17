@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { historyReducer, initialHistory, useImageEditSession } from '@/lib/editor/image-edit-session';
+import {
+  historyReducer,
+  ImageEditSessionConflict,
+  initialHistory,
+  useImageEditSession,
+} from '@/lib/editor/image-edit-session';
 import type { ImageEditItem } from '@/lib/editor/image-edit-items';
 
 const item = (id: string, x = 0): ImageEditItem => ({ id, kind: 'redaction', bounds: { x, y: 0, width: 10, height: 10 } });
@@ -82,6 +87,54 @@ describe('useImageEditSession', () => {
     await act(async () => { await result.current.flush(); });
     expect(result.current.saveFailed).toBe(false);
     expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('on a conflict, refuses its own write and shows what storage holds instead, with no way to undo back over it', async () => {
+    const stored = [item('theirs')];
+    const persist = vi.fn()
+      .mockRejectedValueOnce(new ImageEditSessionConflict(stored))
+      .mockResolvedValue(undefined);
+    const { result } = renderHook(() => useImageEditSession({ initialItems: [], persist }));
+
+    act(() => result.current.commit([item('mine')]));
+    await act(async () => {
+      await expect(result.current.flush()).rejects.toBeInstanceOf(ImageEditSessionConflict);
+    });
+    expect(result.current.items).toBe(stored);
+    expect(result.current.conflicted).toBe(true);
+    expect(result.current.saveFailed).toBe(false);
+    expect(result.current.canUndo).toBe(false);
+
+    // What was adopted is already stored: nothing is written back.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); await result.current.flush(); });
+    expect(persist).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.commit([item('theirs'), item('again')]));
+    await act(async () => { await result.current.flush(); });
+    expect(result.current.conflicted).toBe(false);
+  });
+
+  it('takes items saved elsewhere only while nothing here is waiting to be saved', async () => {
+    const persist = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useImageEditSession({ initialItems: [], persist, debounceMs: 10_000 }));
+
+    const elsewhere = [item('elsewhere')];
+    act(() => { expect(result.current.adoptIfSettled(elsewhere)).toBe(true); });
+    expect(result.current.items).toBe(elsewhere);
+
+    act(() => result.current.commit([item('local')]));
+    act(() => { expect(result.current.adoptIfSettled([item('later')])).toBe(false); });
+    expect(result.current.items.map((entry) => entry.id)).toEqual(['local']);
+  });
+
+  it('a forced flush writes once even when nothing changed', async () => {
+    const persist = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useImageEditSession({ initialItems: [item('a')], persist }));
+
+    await act(async () => { await result.current.flush(); });
+    expect(persist).not.toHaveBeenCalled();
+    await act(async () => { await result.current.flush({ force: true }); });
+    expect(persist).toHaveBeenCalledTimes(1);
   });
 
   it('writes pending edits when the editor closes', async () => {

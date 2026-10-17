@@ -6,6 +6,7 @@ import {
 import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from './project-tag-model';
 import { isRecord } from '../shared/validation';
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
+import { normalizeStoredText } from './stored-text';
 import { cloneImageEdit, IMAGE_EDIT_LIMITS, readImageEdits, type ImageEdit } from './image-edit-model';
 export type { ImageEdit } from './image-edit-model';
 import { getLocale, messagesFor, SUPPORTED_LOCALES, type Locale } from '../shared/i18n';
@@ -83,6 +84,10 @@ export interface Step {
   timestamp: number;
   /** Incremented whenever a recapture replaces the screenshot Blob. */
   captureRevision?: number;
+  /** Incremented on every write of `redactions`, `imageEdits` or `crop`, so an
+   * image editor saving over a stale copy (another tab saved meanwhile) is
+   * refused instead of silently dropping that tab's masks. Absent means 0. */
+  imageEditRevision?: number;
   /** Durable marker used to recover a recapture after service-worker restart. */
   lastCaptureRunId?: string;
   /** 快照 anchor id；anchor 自我引用並擁有群組共用圖片。 */
@@ -152,7 +157,7 @@ function sanitizeStepText(value: unknown, maximum: number, field: string): strin
   if (typeof value !== 'string' || value.length > maximum) {
     return storageError(`${field} exceeds its storage limit.`);
   }
-  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  return normalizeStoredText(value);
 }
 
 function sanitizeStepUrl(value: unknown): string {
@@ -200,7 +205,7 @@ export function assertMutationItems(
 
 function sanitizeProjectText(value: unknown, maximum: number): string {
   return typeof value === 'string'
-    ? value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, maximum)
+    ? normalizeStoredText(value).trim().slice(0, maximum)
     : '';
 }
 
@@ -312,7 +317,7 @@ export function getEntryImageOwner(entry: StepEntry): ScreenshotStep {
   return entry.kind === 'single' ? entry.step : entry.anchor;
 }
 
-function isValidRedaction(value: unknown): value is Redaction {
+export function isValidRedaction(value: unknown): value is Redaction {
   if (!isRecord(value)) return false;
   const redaction = value as Partial<Redaction>;
   return (
@@ -456,6 +461,9 @@ export function sanitizeStepForStorage(step: Step): Step {
   }
   if (step.captureRevision !== undefined) {
     sanitized.captureRevision = sanitizeNonNegativeSafeInteger(step.captureRevision, 'Step capture revision');
+  }
+  if (!isSnapshotAnnotation && step.imageEditRevision !== undefined) {
+    sanitized.imageEditRevision = sanitizeNonNegativeSafeInteger(step.imageEditRevision, 'Step image edit revision');
   }
   if (step.lastCaptureRunId !== undefined) {
     sanitized.lastCaptureRunId = requireStorageIdentifier(step.lastCaptureRunId, 'Step last capture run id');

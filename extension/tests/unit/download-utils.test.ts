@@ -25,6 +25,7 @@ vi.mock('wxt/browser', () => ({
 }));
 
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
+import { DownloadFailedError } from '@/lib/export/export-errors';
 
 beforeEach(() => {
   mocks.listeners.length = 0;
@@ -41,6 +42,21 @@ afterEach(() => {
 
 describe('download utilities', () => {
   describe('downloadBlobViaBrowser', () => {
+    it('wraps a rejected or id-less download as DownloadFailedError and releases the URL', async () => {
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:publication');
+      const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      const rejection = new Error('Invalid filename');
+      mocks.download.mockRejectedValueOnce(rejection);
+
+      const failure = await downloadBlobViaBrowser(new Blob(['x']), 'con.pdf').catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(DownloadFailedError);
+      expect((failure as Error).cause).toBe(rejection);
+
+      mocks.download.mockResolvedValueOnce(undefined);
+      await expect(downloadBlobViaBrowser(new Blob(['x']), 'a.pdf')).rejects.toBeInstanceOf(DownloadFailedError);
+      expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+    });
+
     it('queues through the downloads API and holds the URL until the transfer settles', async () => {
       vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:publication');
       const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});

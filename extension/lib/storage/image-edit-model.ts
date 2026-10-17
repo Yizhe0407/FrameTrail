@@ -1,4 +1,5 @@
 import { PERSISTED_STEP_LIMITS } from './persistence-limits';
+import { isStoredText } from './stored-text';
 
 /**
  * Things a person draws onto a screenshot in the image editor: text, arrows,
@@ -164,6 +165,7 @@ export function isValidImageEdit(value: unknown): value is ImageEdit {
         && typeof value.text === 'string'
         && value.text.length > 0
         && value.text.length <= IMAGE_EDIT_LIMITS.maxTextLength
+        && isStoredText(value.text)
         && isFontSize(value.fontSize)
         && isTextLook(value.look);
     case 'arrow':

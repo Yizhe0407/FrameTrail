@@ -7,12 +7,28 @@ import type { ImageCssSize } from './image-edit-geometry';
 
 /** Zoom is relative to the fitted size: 1 shows the whole image. */
 export const MIN_ZOOM = 1;
+/** How far past the fit any image can be zoomed. */
 export const MAX_ZOOM = 8;
+/** How far past its own size an image can always be zoomed, however small the fit
+ * (a long page fitted into the window can be a tiny fraction of its real size). */
+export const MAX_NATIVE_ZOOM = 2;
 /** One step of the zoom buttons and keys. */
 export const ZOOM_STEP = 1.25;
 
-export function clampZoom(zoom: number): number {
-  return Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM);
+/** The largest zoom for an image shown at `fit`: 8x the fit, or twice the image's own size, whichever is larger. */
+export function maxZoomFor(fit: ImageCssSize | null, image: ImageCssSize | null): number {
+  if (!fit || !image || fit.width <= 0 || image.width <= 0) return MAX_ZOOM;
+  return Math.max(MAX_ZOOM, (MAX_NATIVE_ZOOM * image.width) / fit.width);
+}
+
+/** The zoom as a share of the image's own size, which is what a percentage readout should mean. */
+export function nativeZoom(zoom: number, fit: ImageCssSize | null, image: ImageCssSize | null): number {
+  if (!fit || !image || fit.width <= 0 || image.width <= 0) return zoom;
+  return (zoom * fit.width) / image.width;
+}
+
+export function clampZoom(zoom: number, maxZoom: number = MAX_ZOOM): number {
+  return Math.min(Math.max(zoom, MIN_ZOOM), Math.max(maxZoom, MIN_ZOOM));
 }
 
 /** The largest size that shows the whole image inside the viewport, keeping its aspect ratio. */

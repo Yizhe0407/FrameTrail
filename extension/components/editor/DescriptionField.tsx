@@ -3,6 +3,7 @@ import { type Step } from '@/lib/storage/models';
 import { useStepDescriptionAutosave } from '@/lib/editor/editor-autosave';
 import { Textarea } from '@/components/ui/textarea';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
+import DescriptionSaveIssue from './DescriptionSaveIssue';
 import { t } from '@/lib/shared/i18n';
 
 interface Props {
@@ -15,6 +16,9 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
   const {
     description,
     setDescription,
+    saveIssue,
+    savedDescription,
+    keepSaved,
     recoveries,
     restoreRecovery,
     discardRecovery,
@@ -38,6 +42,13 @@ export default function DescriptionField({ step, onChange, disabled = false }: P
         disabled={disabled}
         placeholder={t().editor.description.placeholder}
         className="min-h-16 resize-none px-3.5 py-3 text-sm leading-relaxed"
+      />
+      <DescriptionSaveIssue
+        issue={saveIssue}
+        savedDescription={savedDescription}
+        onOverwrite={confirmOverwrite}
+        onKeepSaved={keepSaved}
+        disabled={disabled}
       />
       <DescriptionDraftRecoveries
         recoveries={recoveries}

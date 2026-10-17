@@ -12,6 +12,33 @@ import { getBackupAvailability, runFolderBackup, type BackupAvailability } from 
 
 /** Wait for edits to settle (typing a description writes on every pause) before backing up. */
 const BACKUP_DEBOUNCE_MS = 3_000;
+/** Edits that never pause (a recording adds a step every few hundred ms) must not postpone the backup forever. */
+const BACKUP_MAX_WAIT_MS = 30_000;
+
+/** Debounce with a ceiling: each call restarts the quiet period, but the callback
+ * runs no later than `maxWaitMs` after the first call it is still waiting on. */
+export function createBackupScheduler(
+  callback: () => void,
+  debounceMs = BACKUP_DEBOUNCE_MS,
+  maxWaitMs = BACKUP_MAX_WAIT_MS,
+): { schedule: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let firstAt = 0;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  const schedule = () => {
+    const now = Date.now();
+    if (timer === undefined) firstAt = now;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      callback();
+    }, Math.max(0, Math.min(debounceMs, firstAt + maxWaitMs - now)));
+  };
+  return { schedule, cancel };
+}
 
 /** Mount this on any long-lived page. It backs up when the page opens, a few
  * seconds after any project write anywhere in the extension, and when the tab
@@ -20,22 +47,18 @@ const BACKUP_DEBOUNCE_MS = 3_000;
 export function useAutoFolderBackup(): void {
   useEffect(() => {
     const run = () => void runFolderBackup().catch((error) => console.warn('[stepmark] folder backup failed', error));
-    let timer: number | undefined;
-    const schedule = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(run, BACKUP_DEBOUNCE_MS);
-    };
+    const { schedule, cancel } = createBackupScheduler(run);
     run();
     const unsubscribe = subscribeProjectsChanged(schedule);
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        window.clearTimeout(timer);
+        cancel();
         run();
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      window.clearTimeout(timer);
+      cancel();
       unsubscribe();
       document.removeEventListener('visibilitychange', onVisibility);
     };

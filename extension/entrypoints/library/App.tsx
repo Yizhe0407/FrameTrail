@@ -15,6 +15,7 @@ import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, get
 import { getSteps } from '@/lib/storage/step-repository';
 import { type ProjectSummary } from '@/lib/storage/models';
 import { clearSelectedProject, createAndSelectProject, openSelectedProjectInEditor } from '@/lib/project/project-actions';
+import { subscribeProjectsChanged } from '@/lib/storage/change-notifier';
 import { getRecordingState, onRecordingStateChange } from '@/lib/storage/storage';
 import { cn } from '@/lib/shared/utils';
 import { tagHueClass } from '@/lib/shared/tag-hue';
@@ -36,7 +37,7 @@ import { usePendingAction } from '@/components/shared/use-pending-action';
 import { intlLocale, t } from '@/lib/shared/i18n';
 import { exportProjectArchive } from '@/lib/export/project-archive-serialize';
 import { importProjectArchive } from '@/lib/export/project-archive-import';
-import { PROJECT_ARCHIVE_LIMITS } from '@/lib/export/project-archive-contract';
+import { PROJECT_ARCHIVE_LIMITS, ProjectArchiveError } from '@/lib/export/project-archive-contract';
 import { projectExportFilename } from '@/lib/export/project-export-contract';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
@@ -83,13 +84,15 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    // Projects change from other surfaces (editor edits, popup resets, another library
-    // tab); storage has no projects-changed signal, so returning to this tab is the trigger.
+    // Projects change from other surfaces (editor edits, recording, popup resets, another
+    // library tab): the change broadcast keeps a visible library live, and focus/visibility
+    // cover a tab that missed it while hidden.
     const refreshIfVisible = () => {
       if (document.visibilityState === 'visible') void refresh({ showLoading: false });
     };
     window.addEventListener('focus', refreshIfVisible);
     document.addEventListener('visibilitychange', refreshIfVisible);
+    const unsubscribeProjects = subscribeProjectsChanged(refreshIfVisible);
     const unsubscribe = onRecordingStateChange((state) => {
       setOperationLocked(state.operation !== null || state.isRecording);
     });
@@ -97,6 +100,7 @@ export default function App() {
       window.removeEventListener('focus', refreshIfVisible);
       document.removeEventListener('visibilitychange', refreshIfVisible);
       unsubscribe();
+      unsubscribeProjects();
     };
   }, []);
 
@@ -124,7 +128,9 @@ export default function App() {
         if (options.refreshAfter !== false) await refresh({ showLoading: false });
         return true;
       } catch (operationError) {
-        setError(reportError('[stepmark] library operation failed', operationError, t().library.operationFailed));
+        const reason = reportError('[stepmark] library operation failed', operationError, t().library.operationFailed);
+        // Archive diagnostics are English; show the localized copy for their code.
+        setError(operationError instanceof ProjectArchiveError ? t().library.archiveErrors[operationError.code] : reason);
         return false;
       }
     });
@@ -201,6 +207,10 @@ export default function App() {
               ref={importInput}
               type="file"
               className="sr-only"
+              // Triggered by the visible Import button; left in the tab order and
+              // the accessibility tree it would be an unlabeled first stop.
+              tabIndex={-1}
+              aria-hidden="true"
               accept=".stepmark,application/vnd.stepmark.project+json"
               onChange={(event) => {
                 const file = event.target.files?.[0];

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { constrainToSquare, snapToAngle } from '@/lib/editor/image-edit-geometry';
 import { isCopyable, pasteItems } from '@/lib/editor/image-edit-clipboard';
-import { nextStepNumber, reorderItem, type ImageEditItem } from '@/lib/editor/image-edit-items';
+import { hasRoomFor, IMAGE_ITEM_LIMITS, itemRoom, nextStepNumber, reorderItem, roomForKind, type ImageEditItem } from '@/lib/editor/image-edit-items';
 import { applyStylePatch, DEFAULT_IMAGE_EDIT_STYLE, STYLE_FIELDS, styleOfItem } from '@/lib/editor/image-edit-style';
 import { constrainDragEnd, imageEditTool, IMAGE_EDIT_TOOLS, toolForShortcut } from '@/lib/editor/image-edit-tools';
 import { isValidImageEdit } from '@/lib/storage/image-edit-model';
@@ -116,5 +116,33 @@ describe('clipboard and layer order', () => {
   it('numbers the next marker after the highest in use', () => {
     expect(nextStepNumber([])).toBe(1);
     expect(nextStepNumber([marker('a', 1), marker('b', 5), rect])).toBe(6);
+  });
+});
+
+describe('storage limits', () => {
+  const masks = (count: number): ImageEditItem[] =>
+    Array.from({ length: count }, (_, index) => ({ ...mask, id: `m${index}` }));
+  const rects = (count: number): ImageEditItem[] =>
+    Array.from({ length: count }, (_, index) => ({ ...rect, id: `r${index}` }));
+  const crop: ImageEditItem = { id: 'crop', kind: 'crop', bounds: { x: 0, y: 0, width: 10, height: 10 } };
+
+  it('counts masks and drawings against their own limits; the crop never counts', () => {
+    const fullEdits = [...rects(IMAGE_ITEM_LIMITS.maxEdits), crop];
+    expect(itemRoom(fullEdits)).toEqual({ masks: true, edits: false });
+    expect(hasRoomFor(fullEdits, [text])).toBe(false);
+    expect(hasRoomFor(fullEdits, [mask])).toBe(true);
+    expect(hasRoomFor(fullEdits, [crop])).toBe(true);
+    expect(roomForKind('crop', itemRoom(fullEdits))).toBe(true);
+    expect(roomForKind('arrow', itemRoom(fullEdits))).toBe(false);
+
+    const fullMasks = masks(IMAGE_ITEM_LIMITS.maxMasks);
+    expect(itemRoom(fullMasks)).toEqual({ masks: false, edits: true });
+    expect(hasRoomFor(fullMasks, [mask])).toBe(false);
+  });
+
+  it('refuses a paste that would go past a limit as a whole', () => {
+    const almost = rects(IMAGE_ITEM_LIMITS.maxEdits - 1);
+    expect(hasRoomFor(almost, [rect])).toBe(true);
+    expect(hasRoomFor(almost, [rect, text])).toBe(false);
   });
 });

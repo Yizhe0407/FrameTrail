@@ -1,4 +1,4 @@
-import { test, expect } from '../support/fixture';
+import { test, expect, FIXTURE_URL } from '../support/fixture';
 import {
   captureNavLinkClickStep,
   captureNavigatedHeadingStep,
@@ -24,7 +24,7 @@ test.describe('frames and recording lifecycle', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    await appPage.goto(`${FIXTURE_URL}frames-host.html`);
     await startRecording(appPage, popupPage, 'snapshot');
     const outer = appPage.frameLocator('#cross-origin-frame');
     const outerBox = await outer.locator('#frame-text').boundingBox();
@@ -77,7 +77,7 @@ test.describe('frames and recording lifecycle', () => {
     extensionId,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    await appPage.goto(`${FIXTURE_URL}frames-host.html`);
     const outer = appPage.frameLocator('#cross-origin-frame');
     const button = outer.locator('#frame-button');
     await expect(button).toBeVisible();
@@ -114,7 +114,7 @@ test.describe('frames and recording lifecycle', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    await appPage.goto(`${FIXTURE_URL}frames-host.html`);
     const button = appPage.frameLocator('#cross-origin-frame').locator('#frame-button');
     await expect(button).toBeVisible();
     await button.evaluate((element) => {
@@ -165,7 +165,7 @@ test.describe('frames and recording lifecycle', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    await appPage.goto(`${FIXTURE_URL}frames-host.html`);
     const outer = appPage.frameLocator('#cross-origin-frame');
     const outerButton = outer.locator('#frame-button');
     const nestedText = outer.frameLocator('#nested-frame').locator('#nested-text');
@@ -215,7 +215,7 @@ test.describe('frames and recording lifecycle', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/frames-host.html');
+    await appPage.goto(`${FIXTURE_URL}frames-host.html`);
     const outer = appPage.frameLocator('#cross-origin-frame');
     const outerButton = outer.locator('#frame-button');
     const nestedText = outer.frameLocator('#nested-frame').locator('#nested-text');
@@ -268,7 +268,7 @@ test.describe('frames and recording lifecycle', () => {
     popupPage,
     browserErrors: _browserErrors,
   }) => {
-    await appPage.goto('http://127.0.0.1:4175/sandbox-host.html');
+    await appPage.goto(`${FIXTURE_URL}sandbox-host.html`);
     await startRecording(appPage, popupPage, 'snapshot');
     await appPage.locator('#sandbox-frame').evaluate((element) => {
       element.replaceWith(element.cloneNode(true));
@@ -294,7 +294,7 @@ test.describe('frames and recording lifecycle', () => {
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'snapshot');
-    await appPage.goto('http://127.0.0.1:4175/navigated.html');
+    await appPage.goto(`${FIXTURE_URL}navigated.html`);
 
     await expect.poll(async () => (await readRecordingState(popupPage)).isRecording).toBe(false);
     expect((await readRecordingState(popupPage)).error).toBe('錄製已停止，因為快照頁面已變更。');
@@ -307,7 +307,7 @@ test.describe('frames and recording lifecycle', () => {
     browserErrors: _browserErrors,
   }) => {
     await startRecording(appPage, popupPage, 'steps');
-    await appPage.goto('http://127.0.0.1:4175/navigated.html');
+    await appPage.goto(`${FIXTURE_URL}navigated.html`);
 
     await captureNavigatedHeadingStep(appPage, popupPage);
     await expectStepCount(popupPage, 1);

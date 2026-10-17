@@ -3,6 +3,7 @@ import type { Bounds, ImageEdit, Redaction, Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { PROJECT_SECTION_LIMITS, type ProjectSection } from '../storage/project-section-model';
 import { PROJECT_TAG_LIMITS } from '../storage/project-tag-model';
+import { SCREENSHOT_MEDIA_TYPES } from '../storage/screenshot-rules';
 
 export const PROJECT_ARCHIVE_FORMAT = 'stepmark-project';
 /** Version 3 adds `imageEdits` (text, arrows, rectangles) and `crop` to steps. Version 2 files stay importable. */
@@ -113,6 +114,7 @@ export interface ArchiveStep {
   url: string;
   timestamp: number;
   captureRevision?: number;
+  imageEditRevision?: number;
   lastCaptureRunId?: string;
   groupId?: string;
   numbered?: boolean;
@@ -180,12 +182,14 @@ export const STEP_KEYS = [
   'url',
   'timestamp',
   'captureRevision',
+  'imageEditRevision',
   'lastCaptureRunId',
   'groupId',
   'numbered',
 ] as const;
 export const RUNTIME_STEP_KEYS = STEP_KEYS.map((key) => (key === 'screenshotBlobId' ? 'screenshotBlob' : key));
-export const SAFE_SCREENSHOT_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+/** The storage screenshot rule's media types: archives carry exactly what storage accepts. */
+export const SAFE_SCREENSHOT_MEDIA_TYPES = SCREENSHOT_MEDIA_TYPES;
 export const BASE64_VALUES = new Int16Array(128).fill(-1);
 for (let index = 0; index < BASE64_ALPHABET.length; index += 1) {
   BASE64_VALUES[BASE64_ALPHABET.charCodeAt(index)] = index;

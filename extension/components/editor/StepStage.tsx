@@ -23,7 +23,9 @@ interface Props {
   projectTitle?: string;
   projectTags?: readonly string[];
   onTitleChange?: (title: string) => Promise<void>;
-  onTagsChange?: (tags: string[]) => Promise<void>;
+  /** Tag edits are single add/remove operations, merged into the stored list. */
+  onAddTag?: (tag: string) => Promise<void>;
+  onRemoveTag?: (tag: string) => Promise<void>;
   onChange: () => void | Promise<void>;
   onDelete: () => Promise<void>;
   onDeleteAnnotation: (step: Step) => Promise<void>;
@@ -40,7 +42,8 @@ export default function StepStage({
   projectTitle,
   projectTags = [],
   onTitleChange,
-  onTagsChange,
+  onAddTag,
+  onRemoveTag,
   onChange,
   onDelete,
   onDeleteAnnotation,
@@ -55,21 +58,22 @@ export default function StepStage({
   const [stageError, setStageError] = useState<string | null>(null);
   const privacy = getEntryPrivacyState(entry);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
-  const canEditImage = !privacy.reviewRequired;
 
   const displayTags = projectTags;
 
-  // Rethrows so each surface owns its own reporting: the tag dialog shows the failure inline
-  // while open (a stage banner would sit behind the modal), and the chip row uses `stageError`.
-  async function commitTags(tags: string[]): Promise<void> {
-    if (!onTagsChange) return;
+  // Adding rethrows so the tag dialog shows the failure inline while open (a stage banner
+  // would sit behind the modal); removing happens on the chip row, which uses `stageError`.
+  async function addTag(tag: string): Promise<void> {
+    if (!onAddTag) return;
     setStageError(null);
-    await onTagsChange(tags);
+    await onAddTag(tag);
   }
 
-  async function commitTagsInline(tags: string[]): Promise<void> {
+  async function removeTag(tag: string): Promise<void> {
+    if (!onRemoveTag) return;
+    setStageError(null);
     try {
-      await commitTags(tags);
+      await onRemoveTag(tag);
     } catch (tagError) {
       setStageError(reportError('[stepmark] failed to update project tags', tagError, t().editor.stage.tagSaveFailed));
     }
@@ -98,7 +102,7 @@ export default function StepStage({
               <span className="min-w-0 truncate">{tag}</span>
               <button
                 type="button"
-                onClick={() => void commitTagsInline(projectTags.filter((t) => t !== tag))}
+                onClick={() => void removeTag(tag)}
                 aria-label={t().editor.stage.removeTag(tag)}
                 disabled={editingDisabled}
                 className="flex size-5 shrink-0 items-center justify-center rounded-full text-on-accent outline-none transition-colors focus-ring hover:bg-on-accent hover:text-card disabled:cursor-not-allowed disabled:opacity-50"
@@ -125,7 +129,7 @@ export default function StepStage({
         open={tagDialogOpen}
         selectedTags={projectTags}
         onOpenChange={setTagDialogOpen}
-        onSave={commitTags}
+        onAddTag={addTag}
       />
     </>
   );
@@ -155,17 +159,16 @@ export default function StepStage({
       </div>
       <div className="flex items-center gap-3">
         {numberingPending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-label={t().editor.stage.savingNumbering} />}
-        {canEditImage && (
-          <button
-            type="button"
-            onClick={() => setImageEditorOpen(true)}
-            disabled={editingDisabled}
-            className="flex h-10 items-center gap-1.5 rounded-md border-2 border-border bg-card px-3 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
-          >
-            <PencilRuler className="size-4" />
-            {t().editor.imageEdit.open}
-          </button>
-        )}
+        {/* Also the way out of a pending mask review: the editor is where masks are checked and confirmed. */}
+        <button
+          type="button"
+          onClick={() => setImageEditorOpen(true)}
+          disabled={editingDisabled}
+          className="flex h-10 items-center gap-1.5 rounded-md border-2 border-border bg-card px-3 text-xs font-bold text-foreground outline-none transition-colors focus-ring hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+        >
+          <PencilRuler className="size-4" />
+          {privacy.reviewRequired ? t().editor.imageEdit.openReview : t().editor.imageEdit.open}
+        </button>
         <StepActions
           entry={entry}
           onDelete={onDelete}

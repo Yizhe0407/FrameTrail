@@ -8,13 +8,18 @@ export const REAPPEAR_TRANSITION = 'opacity 160ms ease';
 
 export const CAPTURE_PRESENTATION_CSS = `
 /* Stepmark's interaction layers are capture-only UI. Keep their hosts in
- * the document so layout and viewport coordinates remain unchanged, but make
- * them fully transparent while captureVisibleTab samples the page. */
+ * the document so layout and viewport coordinates remain unchanged, and make
+ * them fully transparent while captureVisibleTab samples the page.
+ *
+ * Transparent, never visibility:hidden: a hidden layer stops being hit-tested,
+ * so a press aimed at the toolbar (or the snapshot shield, or the region
+ * selector) during a capture would fall through to the page element beneath
+ * it and be executed and recorded there. Opacity on the host also hides the
+ * whole subtree — no descendant can opt back into being painted. */
 [data-stepmark-snapshot-shield],
 [data-stepmark-step-preview],
 [data-stepmark-recording-toolbar],
 [data-stepmark-region-capture] {
-  visibility: hidden !important;
   opacity: 0 !important;
   /* Hiding must be instant or the overlay would still be partly visible in the
    * screenshot. Restoring is not: the toolbar and shield declare an opacity

@@ -19,6 +19,7 @@ import {
   type StepEntry,
 } from './models';
 import {
+  ProjectNotFoundError,
   requireWritableProject,
   runProjectStepsWrite,
   runWithDatabase,
@@ -262,7 +263,7 @@ export async function getProjectStructureSnapshot(sessionId: string): Promise<Pr
     const rawProject = await tx.objectStore('projects').get(sessionId);
     if (!rawProject) {
       await tx.done;
-      throw new Error('Project not found.');
+      throw new ProjectNotFoundError(sessionId);
     }
     const project = sanitizeProject(rawProject);
     const steps = await tx.objectStore('steps').index('by-session').getAll(sessionId);

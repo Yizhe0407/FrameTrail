@@ -52,7 +52,7 @@ interface StageOptions {
   onSetNumbered?: (entryId: string, next: boolean) => Promise<void>;
   onZoom?: () => void;
   projectTags?: readonly string[];
-  onTagsChange?: (tags: string[]) => Promise<void>;
+  onRemoveTag?: (tag: string) => Promise<void>;
 }
 
 function makeStep(changes: Partial<Step> = {}): Step {
@@ -110,14 +110,14 @@ function stage({
   onSetNumbered = vi.fn().mockResolvedValue(undefined),
   onZoom = vi.fn(),
   projectTags,
-  onTagsChange,
+  onRemoveTag,
 }: StageOptions = {}) {
   return (
     <StepStage
       entry={entry}
       index={0}
       projectTags={projectTags}
-      onTagsChange={onTagsChange}
+      onRemoveTag={onRemoveTag}
       onChange={vi.fn()}
       onDelete={vi.fn().mockResolvedValue(undefined)}
       onDeleteAnnotation={vi.fn().mockResolvedValue(undefined)}
@@ -146,12 +146,13 @@ afterEach(() => {
 describe('StepStage tags', () => {
   // Adding happens via the ＋標籤 dialog; removing happens on the inline chips only.
   it('keeps the inline chip as the only way to remove a tag', async () => {
-    const onTagsChange = vi.fn().mockResolvedValue(undefined);
-    renderStage({ projectTags: ['驗收', '交付'], onTagsChange });
+    const onRemoveTag = vi.fn().mockResolvedValue(undefined);
+    renderStage({ projectTags: ['驗收', '交付'], onRemoveTag });
 
     fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
 
-    await waitFor(() => expect(onTagsChange).toHaveBeenCalledWith(['交付']));
+    // A single remove operation, never a whole list another tab's tags could be missing from.
+    await waitFor(() => expect(onRemoveTag).toHaveBeenCalledWith('驗收'));
 
     // The dialog behind that chip adds only; it must not offer its own remove.
     fireEvent.click(screen.getByRole('button', { name: '標籤' }));
@@ -161,8 +162,8 @@ describe('StepStage tags', () => {
 
   it('reports a refused tag write on the stage rather than losing it', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const onTagsChange = vi.fn().mockRejectedValue(new Error('目前有其他操作進行中，請稍後再修改。'));
-    renderStage({ projectTags: ['驗收'], onTagsChange });
+    const onRemoveTag = vi.fn().mockRejectedValue(new Error('目前有其他操作進行中，請稍後再修改。'));
+    renderStage({ projectTags: ['驗收'], onRemoveTag });
 
     fireEvent.click(screen.getByRole('button', { name: '移除 驗收 標籤' }));
 
@@ -233,5 +234,19 @@ describe('StepStage numbered snapshots', () => {
     fireEvent.click(toggle);
 
     expect(onSetNumbered).not.toHaveBeenCalled();
+  });
+});
+
+describe('StepStage image editing', () => {
+  it('opens the image editor normally, and as the way to check masks while a review is pending', () => {
+    const { unmount } = renderStage({ entry: singleEntry() });
+    expect(screen.getByRole('button', { name: '編輯圖片' })).toBeTruthy();
+    unmount();
+
+    // After a retake of a masked image the review must be reachable, not a dead end.
+    renderStage({ entry: singleEntry({ redactionReviewRequired: true }) });
+    expect(screen.getByText(/請按「檢查遮罩」確認遮罩/)).toBeTruthy();
+    const check = screen.getByRole('button', { name: '檢查遮罩' }) as HTMLButtonElement;
+    expect(check.disabled).toBe(false);
   });
 });

@@ -69,6 +69,7 @@ export function reconcileSteps(previous: Step[], next: Step[]): Step[] {
       previousStep.groupId === step.groupId &&
       previousStep.numbered === step.numbered &&
       (previousStep.captureRevision ?? 0) === (step.captureRevision ?? 0) &&
+      (previousStep.imageEditRevision ?? 0) === (step.imageEditRevision ?? 0) &&
       previousStep.lastCaptureRunId === step.lastCaptureRunId &&
       Boolean(previousStep.screenshotBlob) === Boolean(step.screenshotBlob);
     if (metadataMatch) return previousStep;

@@ -12,6 +12,11 @@ import { generateProjectPdf } from '@/lib/export/project-export-pdf';
 import { projectExportFilename, type ProjectExportMetadata } from '@/lib/export/project-export-contract';
 import { type StepEntry } from '@/lib/storage/models';
 import { downloadBlobViaBrowser } from '@/lib/export/download-utils';
+import {
+  DownloadFailedError,
+  RedactionReviewRequiredError,
+  StepImageError,
+} from '@/lib/export/export-errors';
 import InlineAlert from '@/components/shared/InlineAlert';
 import { t } from '@/lib/shared/i18n';
 import { isAbortError, throwIfAborted } from '@/lib/shared/abort';
@@ -34,7 +39,8 @@ type PublishProjectDialogProps = {
   /** Resolves the entries (and optionally fresher metadata) to publish. */
   getProjectEntries: ProjectEntriesProvider;
   metadata?: ProjectExportMetadata;
-  onExportImages?: (signal: AbortSignal) => void | Promise<void>;
+  /** Resolves `null` when there was nothing to export (so nothing was downloaded). */
+  onExportImages?: (signal: AbortSignal) => unknown | Promise<unknown>;
 };
 
 type DownloadPublicationAction = Extract<PublicationAction, 'markdown' | 'html' | 'pdf'>;
@@ -93,6 +99,22 @@ function PublicationOptionCard({ option, pending }: { option: PublicationOption;
   );
 }
 
+/** Step numbers beyond this many are summarised so the message stays short. */
+const MAX_LISTED_STEPS = 6;
+
+/** The message for a failed export: what actually went wrong, not a blanket
+ * "check the masks" for failures that have nothing to do with masks. */
+function failureMessage(action: PublicationAction, error: unknown): string {
+  const copy = t().editor.publish;
+  if (error instanceof StepImageError) return copy.stepImageFailed(error.ordinal);
+  if (error instanceof RedactionReviewRequiredError && error.ordinals.length > 0) {
+    const listed = error.ordinals.slice(0, MAX_LISTED_STEPS).join(', ');
+    return copy.reviewRequired(error.ordinals.length > MAX_LISTED_STEPS ? `${listed}…` : listed);
+  }
+  if (error instanceof DownloadFailedError) return copy.downloadFailed;
+  return copy[action].failed;
+}
+
 function isProjectEntriesSnapshot(
   value: readonly StepEntry[] | ProjectEntriesSnapshot,
 ): value is ProjectEntriesSnapshot {
@@ -133,7 +155,7 @@ export default function PublishProjectDialog(props: PublishProjectDialogProps) {
 
   async function runAction(
     action: PublicationAction,
-    task: (signal: AbortSignal) => Promise<void>,
+    task: (signal: AbortSignal) => Promise<'nothing' | void>,
   ) {
     if (activeController.current) return;
 
@@ -144,15 +166,15 @@ export default function PublishProjectDialog(props: PublishProjectDialogProps) {
     setNotice(null);
 
     try {
-      await task(controller.signal);
+      const outcome = await task(controller.signal);
       throwIfAborted(controller.signal);
-      setNotice(publicationCopy(action).started);
+      setNotice(outcome === 'nothing' ? t().editor.publish.nothingExported : publicationCopy(action).started);
     } catch (actionError) {
       if (isAbortError(actionError) || controller.signal.aborted) {
         setNotice(t().editor.publish.cancelled);
       } else {
         console.error(`[stepmark] project export failed: ${action}`, actionError);
-        setError(publicationCopy(action).failed);
+        setError(failureMessage(action, actionError));
       }
     } finally {
       if (activeController.current === controller) activeController.current = null;
@@ -183,7 +205,7 @@ export default function PublishProjectDialog(props: PublishProjectDialogProps) {
             const html = await generateProjectHtml(snapshot.entries, snapshot.metadata, { signal });
             throwIfAborted(signal);
             await downloadBlobViaBrowser(
-              new Blob([html], { type: 'text/html;charset=utf-8' }),
+              html,
               projectExportFilename(snapshot.metadata, 'html'),
               { signal },
             );
@@ -206,7 +228,8 @@ export default function PublishProjectDialog(props: PublishProjectDialogProps) {
     void runAction(
       'images',
       async (signal) => {
-        await onExportImages(signal);
+        // exportImagesAsZip resolves null when no image could be exported.
+        return (await onExportImages(signal)) === null ? 'nothing' : undefined;
       },
     );
   }

@@ -750,9 +750,10 @@ describe('handleRecaptureTarget', () => {
     expect(mocks.replaceStepCaptureAtomically).not.toHaveBeenCalled();
   });
 
-  it('surfaces a repository refusal with its own code and settles the run as failed', async () => {
+  it('surfaces a repository refusal with its own code and localized copy, and settles the run as failed', async () => {
+    // The repository's message is an English diagnostic; the user sees the localized copy for its code.
     mocks.replaceStepCaptureAtomically.mockRejectedValue(
-      new StepRecaptureError('TARGET_CHANGED', '此步驟已變更。'),
+      new StepRecaptureError('TARGET_CHANGED', 'The step is no longer an ordinary step.'),
     );
 
     silenceIntentionalErrorLogs();
@@ -762,10 +763,29 @@ describe('handleRecaptureTarget', () => {
       harness.control.controlVersion,
     );
 
-    expect(result).toEqual({ ok: false, status: 'failed', error: '此步驟已變更。' });
+    expect(result).toEqual({ ok: false, status: 'failed', error: '此步驟已變更，請重新整理編輯器後再試一次。' });
     expect(harness.getState().recaptureResult).toMatchObject({
       status: 'failed',
       errorCode: 'TARGET_CHANGED',
+    });
+  });
+
+  it('translates a raw browser failure instead of handing it to the editor', async () => {
+    harness.captureScreenshotWithGuard.mockRejectedValue(
+      new Error("Either the '<all_urls>' or 'activeTab' permission is required."),
+    );
+
+    silenceIntentionalErrorLogs();
+    const result = await harness.flow.handleRecaptureTarget(
+      targetMessage(),
+      sourceSender(),
+      harness.control.controlVersion,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 'failed',
+      error: 'Stepmark 已失去這個頁面的存取權限。請允許存取此網站後再試一次。',
     });
   });
 

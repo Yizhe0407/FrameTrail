@@ -47,6 +47,8 @@ beforeEach(() => {
   mocks.messageListener = null;
   mocks.tabActivatedListener = null;
   mocks.windowFocusListener = null;
+  mocks.tabRemovedListener = null;
+  mocks.tabUpdatedListener = null;
   storedState = recordingState();
   mocks.getRecordingState.mockImplementation(async () => storedState);
   mocks.setRecordingState.mockImplementation(async (next: RecordingState) => {
@@ -245,5 +247,177 @@ describe('follow-the-active-tab recording (steps mode)', () => {
     expect(mocks.setRecordingState).not.toHaveBeenCalled();
     expect(mocks.executeScript).not.toHaveBeenCalled();
     expect(mocks.tabsSendMessage).not.toHaveBeenCalled();
+  });
+});
+
+/** Closes a tab and lets the removal settle through the lifecycle queue. */
+async function closeTab(tabId: number): Promise<void> {
+  mocks.tabRemovedListener?.(tabId);
+  await flushAsyncWork();
+  await vi.advanceTimersByTimeAsync(0);
+  await flushAsyncWork();
+}
+
+describe('closing the tab a recording followed into', () => {
+  const NEW_TAB_PAGE = { id: 20, windowId: 2, active: true, url: 'chrome://newtab/' };
+
+  /** Follows from the recorded tab (4) into tab 9, then makes 9 a closed tab. */
+  async function followIntoOtherTabThenClose(focusedAfterClose: { id: number; url?: string; active?: boolean }) {
+    await importBackground();
+    await flushAsyncWork();
+    await activateTab(9);
+    expect(storedState.tabId).toBe(9);
+    vi.clearAllMocks();
+    mocks.executeScript.mockResolvedValue([]);
+    mocks.tabsSendMessage.mockResolvedValue(undefined);
+    mocks.permissionsContains.mockResolvedValue(true);
+    mocks.getRecordingState.mockImplementation(async () => storedState);
+    mocks.setRecordingState.mockImplementation(async (next: RecordingState) => {
+      storedState = next;
+    });
+    mocks.tabsQuery.mockResolvedValue([focusedAfterClose]);
+    mocks.tabsGet.mockImplementation(async (tabId: number) => {
+      if (tabId === RECORDED_TAB.id) return { ...RECORDED_TAB, active: focusedAfterClose.id === RECORDED_TAB.id };
+      if (tabId === NEW_TAB_PAGE.id) return NEW_TAB_PAGE;
+      throw new Error(`No tab with id: ${tabId}.`);
+    });
+    await closeTab(9);
+  }
+
+  it('hands the run back to the original tab that is active again, instead of ending it', async () => {
+    await followIntoOtherTabThenClose({ ...RECORDED_TAB, active: true });
+
+    expect(mocks.tabsQuery).toHaveBeenCalledWith({ active: true, lastFocusedWindow: true });
+    expect(storedState).toMatchObject({ isRecording: true, phase: 'recording', runId: 'run-1', tabId: 4 });
+    expect(storedState.recoverableError).toBeNull();
+    expect(mocks.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { tabId: 4, allFrames: true } }),
+    );
+  });
+
+  it('returns to the tab it came from when the now-active tab cannot be recorded', async () => {
+    await followIntoOtherTabThenClose(NEW_TAB_PAGE);
+
+    expect(storedState).toMatchObject({ isRecording: true, runId: 'run-1', tabId: 4 });
+    expect(mocks.executeScript).toHaveBeenCalledTimes(1);
+    expect(mocks.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { tabId: 4, allFrames: true } }),
+    );
+  });
+
+  it('ends the run only when there is nowhere to continue', async () => {
+    await importBackground();
+    await flushAsyncWork();
+    mocks.tabsQuery.mockResolvedValue([NEW_TAB_PAGE]);
+    mocks.tabsGet.mockImplementation(async (tabId: number) => {
+      if (tabId === NEW_TAB_PAGE.id) return NEW_TAB_PAGE;
+      throw new Error(`No tab with id: ${tabId}.`);
+    });
+
+    await closeTab(4);
+
+    expect(storedState).toMatchObject({ isRecording: false, phase: 'error', tabId: null });
+    expect(storedState.recoverableError?.code).toBe('RECORDED_TAB_CLOSED');
+    expect(mocks.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('ends a single-tab run (no <all_urls> grant) when its tab closes', async () => {
+    mocks.permissionsContains.mockResolvedValue(false);
+    mocks.tabsQuery.mockResolvedValue([OTHER_TAB]);
+    await importBackground();
+    await flushAsyncWork();
+
+    await closeTab(4);
+
+    expect(storedState.isRecording).toBe(false);
+    expect(storedState.recoverableError?.code).toBe('RECORDED_TAB_CLOSED');
+    expect(mocks.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('ends a captured snapshot run when its tab closes, even with somewhere to go', async () => {
+    storedState = recordingState({ mode: 'snapshot', groupAnchorId: 'anchor-1' });
+    mocks.getStep.mockResolvedValue({
+      id: 'anchor-1',
+      sessionId: 'project-a',
+      groupId: 'anchor-1',
+      url: 'https://example.com/flow',
+      screenshotBlob: new Blob(['image']),
+    });
+    mocks.tabsQuery.mockResolvedValue([OTHER_TAB]);
+    await importBackground();
+    await flushAsyncWork();
+
+    await closeTab(4);
+
+    expect(storedState.isRecording).toBe(false);
+    expect(storedState.recoverableError?.code).toBe('RECORDED_TAB_CLOSED');
+  });
+
+  it('ignores the closing of a tab the run does not live in', async () => {
+    await importBackground();
+    await flushAsyncWork();
+
+    await closeTab(9);
+
+    expect(storedState).toMatchObject({ isRecording: true, tabId: 4 });
+    expect(mocks.setRecordingState).not.toHaveBeenCalled();
+  });
+});
+
+describe('following a blank tab once it loads a page', () => {
+  const LOADED_TAB = { id: 9, windowId: 2, active: true, url: 'https://typed.example/' };
+
+  it('follows the focused window\'s active tab when it finishes loading a recordable URL', async () => {
+    mocks.tabsQuery.mockResolvedValue([LOADED_TAB]);
+    mocks.tabsGet.mockImplementation(async (tabId: number) => (tabId === 9 ? LOADED_TAB : RECORDED_TAB));
+    await importBackground();
+    await flushAsyncWork();
+
+    // Ctrl+T: the blank tab is activated first, which cannot be followed.
+    mocks.tabsGet.mockImplementationOnce(async () => ({ ...LOADED_TAB, url: 'chrome://newtab/' }));
+    await activateTab(9);
+    expect(storedState.tabId).toBe(4);
+
+    // The user types a URL and it loads.
+    mocks.tabUpdatedListener?.(9, { status: 'complete' }, LOADED_TAB);
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(300);
+    await flushAsyncWork();
+
+    expect(mocks.tabsQuery).toHaveBeenCalledWith({ active: true, lastFocusedWindow: true });
+    expect(storedState.tabId).toBe(9);
+    expect(mocks.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { tabId: 9, allFrames: true } }),
+    );
+    expect(mocks.tabsSendMessage).toHaveBeenCalledWith(4, { type: 'STEPMARK_STOP' });
+  });
+
+  it('never follows a page loading in a window the user is not in', async () => {
+    // Tab 9 is active in its own window, but another window holds focus.
+    mocks.tabsQuery.mockResolvedValue([{ id: 30, windowId: 3, active: true, url: 'https://focused.example/' }]);
+    mocks.tabsGet.mockImplementation(async (tabId: number) => (tabId === 9 ? LOADED_TAB : RECORDED_TAB));
+    await importBackground();
+    await flushAsyncWork();
+
+    mocks.tabUpdatedListener?.(9, { status: 'complete' }, LOADED_TAB);
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(300);
+    await flushAsyncWork();
+
+    expect(storedState.tabId).toBe(4);
+    expect(mocks.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('ignores a background tab finishing its load', async () => {
+    await importBackground();
+    await flushAsyncWork();
+
+    mocks.tabUpdatedListener?.(9, { status: 'complete' }, { ...LOADED_TAB, active: false });
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(300);
+    await flushAsyncWork();
+
+    expect(mocks.tabsQuery).not.toHaveBeenCalled();
+    expect(storedState.tabId).toBe(4);
   });
 });

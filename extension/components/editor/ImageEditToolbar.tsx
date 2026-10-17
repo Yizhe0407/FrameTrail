@@ -1,5 +1,6 @@
 import { Check, Loader2, Maximize, Redo2, Undo2, ZoomIn, ZoomOut } from 'lucide-react';
 import { IMAGE_EDIT_TOOLS, type ImageEditToolId } from '@/lib/editor/image-edit-tools';
+import { roomForKind, type ItemRoom } from '@/lib/editor/image-edit-items';
 import { cn } from '@/lib/shared/utils';
 import { t } from '@/lib/shared/i18n';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -7,6 +8,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 interface RailProps {
   tool: ImageEditToolId;
   onToolChange: (tool: ImageEditToolId) => void;
+  /** Tools whose items are at their storage limit are disabled. */
+  room?: ItemRoom;
 }
 
 interface HeaderProps {
@@ -16,6 +19,8 @@ interface HeaderProps {
   onRedo: () => void;
   /** Current zoom relative to the fitted size, 1 = whole image. */
   zoom: number;
+  /** The same zoom relative to the image's own size, for the percentage readout. */
+  nativeZoom: number;
   canZoomIn: boolean;
   canZoomOut: boolean;
   onZoomIn: () => void;
@@ -24,6 +29,8 @@ interface HeaderProps {
   itemCount: number;
   saving: boolean;
   onDone: () => void;
+  /** Replaces "Done" when finishing also confirms something (the masks under review). */
+  doneLabel?: string;
   doneDisabled?: boolean;
 }
 
@@ -53,7 +60,7 @@ function IconButton({ label, onClick, disabled, tooltip = true, children }: {
 }
 
 /** Vertical tool picker. Tools come from the registry, so a new tool appears here without touching this file. */
-export default function ImageEditToolbar({ tool, onToolChange }: RailProps) {
+export default function ImageEditToolbar({ tool, onToolChange, room = { masks: true, edits: true } }: RailProps) {
   const copy = t().editor.imageEdit;
   return (
     <div
@@ -65,6 +72,7 @@ export default function ImageEditToolbar({ tool, onToolChange }: RailProps) {
       {IMAGE_EDIT_TOOLS.map((entry) => {
         const Icon = entry.icon;
         const active = entry.id === tool;
+        const full = entry.creates !== null && !roomForKind(entry.creates, room);
         return (
           <Tooltip key={entry.id}>
             <TooltipTrigger asChild>
@@ -74,8 +82,9 @@ export default function ImageEditToolbar({ tool, onToolChange }: RailProps) {
                 aria-label={entry.label()}
                 aria-keyshortcuts={entry.shortcut.toUpperCase()}
                 onClick={() => onToolChange(entry.id)}
+                disabled={full}
                 className={cn(
-                  'flex size-10 items-center justify-center rounded-sm outline-none transition-colors focus-ring',
+                  'flex size-10 items-center justify-center rounded-sm outline-none transition-colors focus-ring disabled:pointer-events-none disabled:opacity-40',
                   active ? 'bg-selected text-on-accent' : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
                 )}
               >
@@ -106,7 +115,7 @@ export function ImageEditHeaderActions(props: HeaderProps) {
       <div className="flex items-center gap-0.5 rounded-md border-2 border-border bg-card p-0.5">
         <IconButton tooltip={false} label={copy.zoomOut} onClick={props.onZoomOut} disabled={!props.canZoomOut}><ZoomOut className="size-4" /></IconButton>
         <span className="min-w-12 text-center text-xs font-bold text-foreground tabular-nums" aria-live="polite">
-          {copy.zoomLevel(Math.round(props.zoom * 100))}
+          {copy.zoomLevel(Math.round(props.nativeZoom * 100))}
         </span>
         <IconButton tooltip={false} label={copy.zoomIn} onClick={props.onZoomIn} disabled={!props.canZoomIn}><ZoomIn className="size-4" /></IconButton>
         <IconButton tooltip={false} label={copy.zoomFit} onClick={props.onZoomFit} disabled={props.zoom === 1}><Maximize className="size-4" /></IconButton>
@@ -127,7 +136,7 @@ export function ImageEditHeaderActions(props: HeaderProps) {
           className="flex h-9 items-center gap-1.5 rounded-md border-2 border-border bg-primary px-3 text-xs font-bold text-primary-foreground outline-none transition-colors focus-ring hover:opacity-90 disabled:opacity-50"
         >
           <Check className="size-4" />
-          {copy.done}
+          {props.doneLabel ?? copy.done}
         </button>
       </div>
     </div>

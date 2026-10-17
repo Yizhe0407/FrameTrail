@@ -58,6 +58,9 @@ interface Props {
   onRestoreApplied?: () => void;
   onStartRegionCapture?: () => void;
   regionCaptureActive?: boolean;
+  /** A problem the page side detected on its own (a click that could not be
+   * recorded, a page that cannot be recorded), shown like a command error. */
+  notice?: string | null;
   /** Overrides the OS preference, for a mount point (the shield frame) where that preference cannot be read. */
   theme?: ToolbarTheme;
 }
@@ -69,6 +72,7 @@ export default function RecordingToolbar({
   onRestoreApplied,
   onStartRegionCapture,
   regionCaptureActive = false,
+  notice = null,
   theme,
 }: Props) {
   useActiveLocale();
@@ -272,15 +276,15 @@ export default function RecordingToolbar({
           data-vertical={corner.startsWith('top') ? 'top' : 'bottom'}
           style={position ? { transform: `translate3d(${position.x}px, ${position.y}px, 0)` } : undefined}
         >
-          {(message || (state.error && !invalidated)) && (
+          {(message || (state.error && !invalidated) || notice) && (
             <div className="ft-message" data-kind="error" role="alert">
-              {message ?? state.error}
+              {message ?? ((state.error && !invalidated) ? state.error : notice)}
             </div>
           )}
-          {!message && !state.error && showSuccess && (
+          {!message && !state.error && !notice && showSuccess && (
             <div className="ft-message" role="status"><Check className="ft-success" />{t().toolbar.recorded}</div>
           )}
-          {hint && !collapsed && !message && !state.error && !showSuccess && !undo && !confirmDiscard && (
+          {hint && !collapsed && !message && !state.error && !notice && !showSuccess && !undo && !confirmDiscard && (
             <div className="ft-hint">{hint}</div>
           )}
           {undo && (

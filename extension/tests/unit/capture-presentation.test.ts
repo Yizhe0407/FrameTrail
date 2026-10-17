@@ -78,8 +78,15 @@ describe('CAPTURE_PRESENTATION_CSS', () => {
     expect(CAPTURE_PRESENTATION_CSS).toContain('[data-stepmark-snapshot-shield]');
     expect(CAPTURE_PRESENTATION_CSS).toContain('[data-stepmark-step-preview]');
     expect(CAPTURE_PRESENTATION_CSS).toContain('[data-stepmark-region-capture]');
-    expect(CAPTURE_PRESENTATION_CSS).toContain('visibility: hidden !important');
+    expect(CAPTURE_PRESENTATION_CSS).toContain('[data-stepmark-recording-toolbar]');
     expect(CAPTURE_PRESENTATION_CSS).toContain('opacity: 0 !important');
+  });
+
+  it('keeps the hidden hosts hit-testable so input aimed at them never falls through to the page', () => {
+    // visibility:hidden would stop hit-testing: a toolbar press during a
+    // capture would land on (and be recorded against) the page underneath.
+    expect(CAPTURE_PRESENTATION_CSS).not.toMatch(/visibility\s*:\s*hidden\s*!important/);
+    expect(CAPTURE_PRESENTATION_CSS).not.toMatch(/pointer-events\s*:\s*none/);
   });
 
   it('only makes root scrollbar paint transparent without changing layout properties', () => {

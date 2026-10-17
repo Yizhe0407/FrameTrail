@@ -24,22 +24,32 @@ const nativeToBase64: ((this: Uint8Array) => string) | undefined = (
  * abort signal. Falls back to the chunked JS encoder on runtimes without it.
  */
 export function encodeBase64(bytes: Uint8Array, signal?: AbortSignal): string {
+  return encodeBase64Parts(bytes, signal).join('');
+}
+
+/**
+ * Same encoding as {@link encodeBase64}, returned as consecutive pieces whose
+ * concatenation is the full base64 text. Lets a caller hand each piece to a
+ * Blob instead of ever materialising one multi-MB string.
+ */
+export function encodeBase64Parts(bytes: Uint8Array, signal?: AbortSignal): string[] {
   throwIfAborted(signal);
-  if (nativeToBase64) {
-    if (bytes.length <= NATIVE_INPUT_CHUNK_BYTES) return nativeToBase64.call(bytes);
-    const chunks: string[] = [];
-    for (let index = 0; index < bytes.length; index += NATIVE_INPUT_CHUNK_BYTES) {
-      throwIfAborted(signal);
-      chunks.push(nativeToBase64.call(bytes.subarray(index, index + NATIVE_INPUT_CHUNK_BYTES)));
-    }
-    return chunks.join('');
+  if (!nativeToBase64) return encodeBase64FallbackParts(bytes, signal);
+  const parts: string[] = [];
+  for (let index = 0; index < bytes.length; index += NATIVE_INPUT_CHUNK_BYTES) {
+    throwIfAborted(signal);
+    parts.push(nativeToBase64.call(bytes.subarray(index, index + NATIVE_INPUT_CHUNK_BYTES)));
   }
-  return encodeBase64Fallback(bytes, signal);
+  return parts;
 }
 
 /** Pure-JS path for runtimes without `toBase64`, avoiding one array entry per
  * output character. Exported so tests cover it on runtimes that never take it. */
 export function encodeBase64Fallback(bytes: Uint8Array, signal?: AbortSignal): string {
+  return encodeBase64FallbackParts(bytes, signal).join('');
+}
+
+function encodeBase64FallbackParts(bytes: Uint8Array, signal?: AbortSignal): string[] {
   const chunks: string[] = [];
   let chunk = '';
 
@@ -62,5 +72,5 @@ export function encodeBase64Fallback(bytes: Uint8Array, signal?: AbortSignal): s
 
   if (chunk) chunks.push(chunk);
   throwIfAborted(signal);
-  return chunks.join('');
+  return chunks;
 }

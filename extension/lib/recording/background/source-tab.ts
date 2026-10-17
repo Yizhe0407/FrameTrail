@@ -3,7 +3,8 @@ import { isTrustedEditorSenderForSession } from '../../capture/recapture-guards'
 import { getSteps } from '../../storage/step-repository';
 import { isRestrictedUrl } from '../../shared/restricted-urls';
 import { waitForTabComplete } from '../../runtime/tab-loading';
-import type { SourcePermissionPreflightSuccess, StartRecordingMessage } from '../../runtime/messages';
+import { isErrorPageError } from '../../runtime/browser-errors';
+import type { SourcePermissionPreflightSuccess, StartRecordingMessage, StartRecordingResult } from '../../runtime/messages';
 import { t } from '@/lib/shared/i18n';
 
 export type SourceTabAcquisition = { tab: Browser.tabs.Tab; reused: boolean };
@@ -94,9 +95,28 @@ async function discardUncommittedSourceTab(source: SourceTabAcquisition): Promis
 }
 
 /**
+ * Whether a loaded tab is showing the browser's own error page (offline, DNS
+ * failure, refused connection…). Chrome keeps the failed URL in tab.url, so the
+ * only reliable signal without the webNavigation permission is the scripting
+ * API refusing the frame because it "is showing error page". Any other probe
+ * failure is not evidence of a failed load and is left for injection to report.
+ */
+async function isShowingErrorPage(tab: Browser.tabs.Tab): Promise<boolean> {
+  if (tab.url?.startsWith('chrome-error://')) return true;
+  if (tab.id == null) return false;
+  try {
+    await browser.scripting.executeScript({ target: { tabId: tab.id }, func: () => true });
+    return false;
+  } catch (error) {
+    return isErrorPageError(error);
+  }
+}
+
+/**
  * Opens (or reuses) the exact-URL source tab and verifies it still shows that
- * URL after loading. On 'redirected' any tab this call created has already
- * been closed; 'open-failed' has already been logged under `logLabel`.
+ * URL after loading. On 'redirected' or 'unreachable' (the page failed to load
+ * and the tab shows the browser's error page) any tab this call created has
+ * already been closed; 'open-failed' has already been logged under `logLabel`.
  */
 export async function openVerifiedSourceTab(
   sourceUrl: string,
@@ -104,7 +124,7 @@ export async function openVerifiedSourceTab(
   logLabel: string,
 ): Promise<
   | { ok: true; source: SourceTabAcquisition }
-  | { ok: false; reason: 'open-failed' | 'redirected' }
+  | { ok: false; reason: 'open-failed' | 'redirected' | 'unreachable' }
 > {
   let source: SourceTabAcquisition;
   try {
@@ -112,6 +132,10 @@ export async function openVerifiedSourceTab(
   } catch (error) {
     console.error(`[stepmark] ${logLabel}`, error);
     return { ok: false, reason: 'open-failed' };
+  }
+  if (await isShowingErrorPage(source.tab)) {
+    await discardUncommittedSourceTab(source);
+    return { ok: false, reason: 'unreachable' };
   }
   if (source.tab.id == null || source.tab.url !== sourceUrl) {
     await discardUncommittedSourceTab(source);
@@ -169,7 +193,7 @@ export async function resolveProjectContinuationAnchor(
 export async function resolveContinuationTab(
   message: StartRecordingMessage,
   sender: Browser.runtime.MessageSender,
-): Promise<{ ok: true; tab: Browser.tabs.Tab } | { ok: false; error: string }> {
+): Promise<{ ok: true; tab: Browser.tabs.Tab } | Extract<StartRecordingResult, { ok: false }>> {
   if (!isEditorSenderForSession(sender, message.sessionId)) {
     return { ok: false, error: t().background.editorOnlyContinuation };
   }
@@ -191,6 +215,9 @@ export async function resolveContinuationTab(
     'failed to open continuation source tab',
   );
   if (!opened.ok) {
+    if (opened.reason === 'unreachable') {
+      return { ok: false, code: 'SOURCE_PAGE_UNREACHABLE', error: t().background.continuationSourceUnreachable };
+    }
     return {
       ok: false,
       error: opened.reason === 'open-failed' ? t().background.sourceTabOpenFailed : t().background.continuationSourceRedirected,

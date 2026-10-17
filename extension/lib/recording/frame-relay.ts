@@ -10,12 +10,10 @@ import {
   createFrameProbeRateLimiter,
   type FrameProbeRateLimiter,
 } from '../capture/frame-probe';
-import {
-  createLateClickSuppressor,
-  createStepFollowupHandler,
-} from '../capture/step-capture';
+import { createLateClickSuppressor } from '../capture/step-capture';
 import { createStepGestureQueue, type StepGesture } from '../capture/step-gesture-queue';
-import { describeElement, replayClickWithSuppression } from '../capture/element-description';
+import { STEP_PRESS_GATE_EVENTS, createStepPressGate, type StepPress } from '../capture/step-press-gate';
+import { describeElement } from '../capture/element-description';
 import {
   isInScrollbarGutter,
   isPointInAnyScrollGutter,
@@ -25,7 +23,6 @@ import {
   CAPTURE_FAILSAFE_MS,
   CLEANUP_EVENT,
   SNAPSHOT_FREEZE_EVENTS,
-  STEP_FOLLOWUP_EVENTS,
   STEP_LATE_CLICK_SUPPRESS_MS,
 } from './content-script-constants';
 import { isFiniteRect } from '../shared/validation';
@@ -248,8 +245,7 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   const lateClicks = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
   const relayLimiter = createStepFrameRelayLimiter();
   const gestureQueue = createStepGestureQueue();
-
-  const replayInto = (el: Element) => replayClickWithSuppression(el, lateClicks);
+  const pressGate = createStepPressGate({ lateClicks, isBusy: () => gestureQueue.isBusy() });
 
   const abortRelay = (captureId: string) => {
     void browser.runtime.sendMessage({
@@ -263,12 +259,21 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
    * Resolves once settled, by whichever of three paths gets there first: the
    * background/top-frame answering over browser.runtime, this frame's own
    * failsafe giving up, or the relay attempt failing outright. */
-  const runChildGesture = (gesture: StepGesture, el: Element, clientX: number, clientY: number): Promise<void> => {
-    const rect = getVisibleHighlightBounds(el, clientX, clientY);
+  const runChildGesture = async (gesture: StepGesture, press: StepPress): Promise<void> => {
+    const kind = await Promise.race([press.outcome, gesture.cancelled.then(() => 'cancel' as const)]);
+    if (kind !== 'click') {
+      // Drags, selections and browser-taken gestures already reached the
+      // page natively; nothing is relayed or replayed.
+      pressGate.abandon(press);
+      gesture.release();
+      return;
+    }
+    const el = press.target;
+    const rect = getVisibleHighlightBounds(el, press.clientX, press.clientY);
     if (!rect) {
       gesture.release();
-      replayInto(el);
-      return Promise.resolve();
+      pressGate.replay(press);
+      return;
     }
 
     return new Promise<void>((resolveGesture) => {
@@ -284,7 +289,7 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
         settleActiveRelay = null;
         activeCaptureId = null;
         gesture.release();
-        if (!removed && !gesture.isCancelled() && replay) replayInto(el);
+        if (!removed && !gesture.isCancelled() && replay) pressGate.replay(press);
         resolveGesture();
       };
       settleActiveRelay = settle;
@@ -336,10 +341,13 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   };
 
   const onPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || !event.isPrimary || !event.isTrusted) return;
-    // Trusted events are ordered: this press ends the previous gesture's
-    // trailing-click era, so a real rapid second click remains deliverable.
+    if (!event.isTrusted) return;
+    // Trusted events are ordered: this press ends the previous press and the
+    // previous gesture's trailing-click era, so a real rapid second click
+    // remains deliverable.
+    pressGate.onTrustedPointerDown();
     lateClicks.onTrustedPointerDown();
+    if (event.button !== 0 || !event.isPrimary) return;
     if (paused) return;
     if (isInScrollbarGutter(event.clientX, event.clientY, document.documentElement)) return;
     if (isPointInAnyScrollGutter(event.clientX, event.clientY)) return;
@@ -350,23 +358,22 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     )?.element ?? null;
     if (!el) return;
 
-    event.preventDefault();
-    event.stopImmediatePropagation();
-
-    const clientX = event.clientX;
-    const clientY = event.clientY;
+    // Same contract as the top frame: page scripts stop seeing the press,
+    // the browser's default actions still run, and release decides whether
+    // it is a click to relay or a drag to leave alone.
+    const begun = pressGate.begin(event, el);
+    if (begun.kind === 'continuation') return;
+    const { press } = begun;
     gestureQueue.enqueue({
       captureId: crypto.randomUUID(),
       validate: () => el.isConnected,
-      onSkipped: () => replayInto(el),
-      start: (gesture) => runChildGesture(gesture, el, clientX, clientY),
+      onSkipped: () => pressGate.abandon(press),
+      start: (gesture) => runChildGesture(gesture, press),
     });
   };
 
-  const onFollowup = createStepFollowupHandler(lateClicks, {
-    isActive: () => gestureQueue.isBusy(),
-    cancel: () => gestureQueue.cancelActive(),
-  });
+  const onFollowup = (event: Event) => pressGate.handleEvent(event);
+  const onBlur = () => pressGate.handleBlur();
 
   const rejectRelay = (payload: StepFrameHopPayload) => {
     void browser.runtime.sendMessage({
@@ -419,9 +426,12 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
     // pointerdown time) without recording it, instead of leaving it to hang.
     settleActiveRelay = null;
     activeCaptureId = null;
+    gestureQueue.cancelActive();
     gestureQueue.purgePending();
+    pressGate.clear();
     document.removeEventListener('pointerdown', onPointerDown, { capture: true });
-    for (const type of STEP_FOLLOWUP_EVENTS) document.removeEventListener(type, onFollowup, { capture: true });
+    for (const type of STEP_PRESS_GATE_EVENTS) document.removeEventListener(type, onFollowup, { capture: true });
+    window.removeEventListener('blur', onBlur);
     window.removeEventListener('message', onRelayMessage);
     document.removeEventListener(CLEANUP_EVENT, cleanup);
     browser.runtime.onMessage.removeListener(onRuntimeMessage);
@@ -437,7 +447,8 @@ export function installStepFrameRecorder(runId: string, initiallyPaused: boolean
   });
 
   document.addEventListener('pointerdown', onPointerDown, { capture: true });
-  for (const type of STEP_FOLLOWUP_EVENTS) document.addEventListener(type, onFollowup, { capture: true });
+  for (const type of STEP_PRESS_GATE_EVENTS) document.addEventListener(type, onFollowup, { capture: true });
+  window.addEventListener('blur', onBlur);
   window.addEventListener('message', onRelayMessage);
   document.addEventListener(CLEANUP_EVENT, cleanup);
   browser.runtime.onMessage.addListener(onRuntimeMessage);

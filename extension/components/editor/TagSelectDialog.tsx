@@ -22,8 +22,10 @@ interface Props {
   open: boolean;
   selectedTags: readonly string[];
   onOpenChange: (open: boolean) => void;
-  /** Applied immediately, matching the inline tag chips behind this dialog. */
-  onSave: (tags: string[]) => void | Promise<void>;
+  /** Adds one tag, applied immediately like the inline tag chips behind this
+   * dialog. An operation rather than a whole list, so a tag another tab added
+   * meanwhile is never dropped by this dialog's older copy of the list. */
+  onAddTag: (tag: string) => void | Promise<void>;
 }
 
 /** Add-only: removing a tag belongs to the inline chips on the stage behind this dialog, avoiding two paths to the same write. */
@@ -31,7 +33,7 @@ export default function TagSelectDialog({
   open,
   selectedTags,
   onOpenChange,
-  onSave,
+  onAddTag,
 }: Props) {
   const [customInput, setCustomInput] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function TagSelectDialog({
     if (selectedTags.includes(tag) || selectedTags.length >= PROJECT_TAG_LIMITS.maxTags) return;
     setSaveError(null);
     try {
-      await onSave([...selectedTags, tag]);
+      await onAddTag(tag);
     } catch (saveFailure) {
       setSaveError(reportError('[stepmark] failed to update project tags', saveFailure, t().editor.tags.saveFailed));
     }

@@ -24,6 +24,7 @@ import { createProject, discardPristineProject, getProject, updateProject } from
 import { addStep } from '@/lib/storage/step-repository';
 import { type Step } from '@/lib/storage/models';
 import { ACTIVE_PROJECT_ID_KEY, getActiveProjectId, setActiveProjectId } from '@/lib/storage/storage';
+import { pngBlob } from '../setup/raster-fixtures';
 
 afterAll(closeDatabase);
 
@@ -36,7 +37,7 @@ function makeStep(sessionId: string, overrides: Partial<Step> = {}): Step {
     id: crypto.randomUUID(),
     sessionId,
     order: 0,
-    screenshotBlob: new Blob(['image'], { type: 'image/jpeg' }),
+    screenshotBlob: pngBlob(),
     bounds: { x: 1, y: 2, width: 3, height: 4 },
     devicePixelRatio: 1,
     description: '',
@@ -99,6 +100,13 @@ describe('discardPristineProject', () => {
 
     await expect(getProject(project.id)).resolves.toMatchObject({ id: project.id, title: '我的教學' });
     await expect(getActiveProjectId()).resolves.toBe(project.id);
+  });
+
+  it('bumps contentRevision on a metadata edit so backups notice it', async () => {
+    const project = await createProject();
+    const renamed = await updateProject(project.id, { title: '我的教學' });
+    expect(renamed.contentRevision).toBe(project.contentRevision + 1);
+    expect((await updateProject(project.id, { description: 'x' })).contentRevision).toBe(renamed.contentRevision + 1);
   });
 
   it('treats an already-deleted project as a no-op', async () => {

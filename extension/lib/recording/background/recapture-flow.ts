@@ -39,6 +39,7 @@ import type {
 } from '../../runtime/messages';
 import type { RecordingState, StepRecaptureResult } from '../../storage/recording-state';
 import { t } from '@/lib/shared/i18n';
+import { UserFacingError, userFacingErrorMessage } from '../../runtime/user-facing-errors';
 
 type ValidatedRecaptureTarget = {
   target: DbStepRecaptureTarget;
@@ -66,6 +67,18 @@ function recaptureFailure(
   error: string,
 ): StartStepRecaptureResult {
   return { ok: false, code, error };
+}
+
+/** Localized copy for a replacement the repository refused; its own messages
+ * are English diagnostics for the console. */
+function recaptureTargetErrorMessage(
+  code: StepRecaptureError['code'],
+  kind: DbStepRecaptureTarget['kind'],
+): string {
+  const single = kind === 'single';
+  if (code === 'TARGET_NOT_FOUND') return single ? t().recaptureFlow.stepNotFound : t().recaptureFlow.snapshotNotFound;
+  if (code === 'TARGET_CHANGED') return single ? t().recaptureFlow.stepChanged : t().recaptureFlow.snapshotChanged;
+  return t().recaptureFlow.multiAnnotation;
 }
 
 function isRecaptureSourceSender(
@@ -437,7 +450,11 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     if (!opened.ok) {
       return recaptureFailure(
         'SOURCE_TAB_FAILED',
-        opened.reason === 'open-failed' ? t().background.sourceTabOpenFailed : t().recaptureFlow.sourceRedirected,
+        opened.reason === 'open-failed'
+          ? t().background.sourceTabOpenFailed
+          : opened.reason === 'unreachable'
+            ? t().recaptureFlow.sourceUnreachable
+            : t().recaptureFlow.sourceRedirected,
       );
     }
     const source = opened.source;
@@ -629,8 +646,8 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     ) {
       throw new StaleCaptureError('Recapture changed before the screenshot could be taken.');
     }
-    if (activeTab?.id !== tabId) throw new Error(t().recaptureFlow.sourceNotActive);
-    if (activeTab.url !== expectedUrl) throw new Error(t().recaptureFlow.sourceChanged);
+    if (activeTab?.id !== tabId) throw new UserFacingError(t().recaptureFlow.sourceNotActive);
+    if (activeTab.url !== expectedUrl) throw new UserFacingError(t().recaptureFlow.sourceChanged);
   }
 
   async function handleRecaptureTarget(
@@ -721,13 +738,13 @@ export function createRecaptureFlow(deps: RecaptureFlowDeps) {
     } catch (error) {
       if (error instanceof StaleCaptureError) return reject('cancelled');
       const errorCode = error instanceof StepRecaptureError ? error.code : 'CAPTURE_FAILED';
+      // The editor shows this text verbatim: localized copy only, never a raw
+      // repository or browser diagnostic.
       const errorMessage =
         error instanceof StepRecaptureError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            // 原本內容 (not 原內容) matches the editor's own recapture wording.
-            : t().recaptureFlow.failedUnchanged;
+          ? recaptureTargetErrorMessage(error.code, context.target.kind)
+          // 原本內容 (not 原內容) matches the editor's own recapture wording.
+          : userFacingErrorMessage(error, t().recaptureFlow.failedUnchanged);
       console.error('[stepmark] failed to replace step capture', error);
       if (expectedControlVersion === control.controlVersion) {
         const version = control.bumpVersion();

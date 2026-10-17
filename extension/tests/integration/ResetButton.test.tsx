@@ -60,3 +60,11 @@ describe('ResetButton', () => {
     consoleError.mockRestore();
   });
 });
+
+describe('ResetButton dialog target', () => {
+  it('names the project in the confirmation when given its title', async () => {
+    render(<ResetButton hasSteps sessionId="project-1" projectTitle="安全教學" />);
+    fireEvent.click(screen.getByRole('button', { name: '重置目前錄製' }));
+    expect(await screen.findByRole('dialog', { name: '重置「安全教學」？' })).toBeTruthy();
+  });
+});

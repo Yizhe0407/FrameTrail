@@ -26,6 +26,16 @@ interface Props {
   crop?: Bounds | null;
   /** The image element is exactly the image's box, so masks can be placed in percentages. */
   exactBox?: boolean;
+  /**
+   * Image editor only: show the stored pixels with the masks drawn live on top,
+   * so they can be edited. Every other preview shows the masks burned in.
+   */
+  liveMasks?: boolean;
+  /**
+   * Image editor only: the masks are being reviewed right here, so the pixels
+   * are shown even while that review is pending (everywhere else they stay hidden).
+   */
+  reviewing?: boolean;
   alt: string;
   className?: string;
   imgClassName?: string;
@@ -43,8 +53,9 @@ interface Props {
  * shifted by the crop's origin, so the thumbnails below only ever see an
  * ordinary, uncropped image.
  */
-export default function EntryThumbnail({ entry, redactions, imageEdits, crop, ...presentation }: Props) {
+export default function EntryThumbnail({ entry, redactions, imageEdits, crop, reviewing = false, ...presentation }: Props) {
   const privacy = getEntryPrivacyState(entry);
+  const privacyReviewRequired = privacy.reviewRequired && !reviewing;
   const owner = getEntryImageOwner(entry);
   const screenshotScale = owner.screenshotScale ?? owner.devicePixelRatio;
   const view = useCroppedImage(owner.screenshotBlob, crop === undefined ? getEntryCrop(entry) : crop, screenshotScale);
@@ -73,7 +84,7 @@ export default function EntryThumbnail({ entry, redactions, imageEdits, crop, ..
         bounds={shown.bounds}
         redactions={shown.redactions}
         imageEdits={shown.imageEdits}
-        privacyReviewRequired={privacy.reviewRequired}
+        privacyReviewRequired={privacyReviewRequired}
         screenshotScale={screenshotScale}
         {...presentation}
       />
@@ -85,7 +96,7 @@ export default function EntryThumbnail({ entry, redactions, imageEdits, crop, ..
       annotations={shown.annotations}
       redactions={shown.redactions}
       imageEdits={shown.imageEdits}
-      privacyReviewRequired={privacy.reviewRequired}
+      privacyReviewRequired={privacyReviewRequired}
       screenshotScale={screenshotScale}
       numbered={owner.numbered ?? false}
       {...presentation}

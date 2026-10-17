@@ -70,9 +70,11 @@ export interface BackgroundBrowserMockHandles {
   onMessage?: (listener: (message: unknown, sender: unknown) => unknown) => void;
   onTabActivated?: (listener: (info: { tabId: number; windowId: number }) => void) => void;
   onTabUpdated?: (
-    listener: (tabId: number, changeInfo: { status?: string; url?: string }, tab: { id?: number; url?: string }) => void,
+    listener: (tabId: number, changeInfo: { status?: string; url?: string }, tab: { id?: number; url?: string; active?: boolean }) => void,
   ) => void;
   onWindowFocusChanged?: (listener: (windowId: number) => void) => void;
+  /** Captures the background's tabs.onRemoved listener. */
+  onTabRemoved?: (listener: (tabId: number) => void) => void;
   permissionsContains?: Mock;
   permissionsRequest?: Mock;
   tabsCreate?: Mock;
@@ -128,8 +130,8 @@ export function makeBackgroundBrowserMock(handles: BackgroundBrowserMockHandles 
       create: handles.tabsCreate ?? vi.fn(),
       get: handles.tabsGet ?? vi.fn(),
       onActivated: { addListener: handles.onTabActivated ?? vi.fn() },
-      onRemoved: { addListener: vi.fn() },
-      onUpdated: { addListener: handles.onTabUpdated ?? vi.fn() },
+      onRemoved: { addListener: handles.onTabRemoved ?? vi.fn(), removeListener: vi.fn() },
+      onUpdated: { addListener: handles.onTabUpdated ?? vi.fn(), removeListener: vi.fn() },
       query: handles.tabsQuery ?? vi.fn(),
       remove: handles.tabsRemove ?? vi.fn(),
       sendMessage: handles.tabsSendMessage ?? vi.fn(),

@@ -4,6 +4,8 @@ import {
   clampZoom,
   fitSize,
   MAX_ZOOM,
+  maxZoomFor,
+  nativeZoom,
   MIN_ZOOM,
   scrollDeltaForAnchor,
   wheelZoomFactor,
@@ -27,6 +29,29 @@ describe('zoom', () => {
     expect(clampZoom(0.2)).toBe(MIN_ZOOM);
     expect(clampZoom(100)).toBe(MAX_ZOOM);
     expect(clampZoom(2)).toBe(2);
+  });
+
+  it('lets a long screenshot zoom to at least twice its own size, not just 8x its tiny fit', () => {
+    const image = { width: 1280, height: 16_000 };
+    const fit = fitSize({ width: 1400, height: 848 }, image, 24);
+    const max = maxZoomFor(fit, image);
+    // At the max zoom the image is laid out at twice its native width.
+    expect((fit.width * max) / image.width).toBeCloseTo(2);
+    expect(clampZoom(1_000, max)).toBe(max);
+    expect(clampZoom(1_000, max)).toBeGreaterThan(MAX_ZOOM);
+  });
+
+  it('reads zoom out as a share of the image’s own size', () => {
+    const image = { width: 1280, height: 16_000 };
+    const fit = fitSize({ width: 1400, height: 848 }, image, 24);
+    expect(nativeZoom(maxZoomFor(fit, image), fit, image)).toBeCloseTo(2);
+    expect(nativeZoom(1, { width: 640, height: 400 }, { width: 1280, height: 800 })).toBe(0.5);
+    expect(nativeZoom(3, null, null)).toBe(3);
+  });
+
+  it('keeps 8x the fit for ordinary images and before anything is measured', () => {
+    expect(maxZoomFor({ width: 960, height: 480 }, { width: 800, height: 400 })).toBe(MAX_ZOOM);
+    expect(maxZoomFor(null, null)).toBe(MAX_ZOOM);
   });
 
   it('turns wheel deltas into zoom factors: up zooms in, down zooms out, lines count like pixels', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE64_ALPHABET, encodeBase64, encodeBase64Fallback } from '@/lib/export/base64';
+import { BASE64_ALPHABET, encodeBase64, encodeBase64Fallback, encodeBase64Parts } from '@/lib/export/base64';
 import { BASE64_VALUES } from '@/lib/export/project-archive-contract';
 
 describe('chunked base64 encoding', () => {
@@ -20,6 +20,15 @@ describe('chunked base64 encoding', () => {
       // the native Uint8Array.prototype.toBase64 fast path.
       expect(encodeBase64Fallback(bytes)).toBe(expected);
     }
+  });
+
+  it('splits large inputs into parts whose concatenation is the whole encoding', () => {
+    const bytes = Uint8Array.from({ length: 7 * 1024 * 1024 + 1 }, (_, index) => (index * 13 + 5) & 255);
+    const parts = encodeBase64Parts(bytes);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(Math.max(...parts.map((part) => part.length))).toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(parts.join('')).toBe(Buffer.from(bytes).toString('base64'));
+    expect(encodeBase64Parts(new Uint8Array(0)).join('')).toBe('');
   });
 
   it('matches the platform encoder across the native input chunk boundary', () => {

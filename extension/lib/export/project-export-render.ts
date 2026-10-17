@@ -1,7 +1,7 @@
-import { throwIfAborted } from '../shared/abort';
-import { encodeBase64 } from './base64';
+import { isAbortError, throwIfAborted } from '../shared/abort';
 import { compositeStepEntry } from './entry-render';
-import { type Step, type StepEntry } from '../storage/models';
+import { RedactionReviewRequiredError, StepImageError } from './export-errors';
+import { getEntryPrivacyState, type Step, type StepEntry } from '../storage/models';
 import {
   PROJECT_EXPORT_LIMITS,
   ProjectExportLimitError,
@@ -14,10 +14,6 @@ export type RenderedEntryContent = {
   ordinal: number;
   description: string;
   annotations: readonly Step[];
-};
-
-export type RenderedEntry = RenderedEntryContent & {
-  imageDataUri: string;
 };
 
 export type RenderedEntryImage = {
@@ -94,6 +90,17 @@ export async function* renderEntryImages(
     throw budget.createLimitError({ kind: 'entry-count' });
   }
 
+  // Refuse up front, for every format alike, naming every step that needs a
+  // mask review. Rendering such an entry would only yield a fully black image.
+  const reviewOrdinals = entries.flatMap((entry, index) => (getEntryPrivacyState(entry).reviewRequired ? [index + 1] : []));
+  if (reviewOrdinals.length > 0) throw new RedactionReviewRequiredError(reviewOrdinals);
+
+  // A corrupt screenshot must say which step it is, not just fail the export.
+  const composite = (index: number): Promise<Blob> =>
+    compositeStepEntry(entries[index], IMAGE_MIME_TYPE).catch((error: unknown) => {
+      throw isAbortError(error) ? error : new StepImageError(index + 1, error);
+    });
+
   let declaredImageBytes = 0;
   let actualImageBytes = 0;
 
@@ -106,9 +113,7 @@ export async function* renderEntryImages(
   // is one encoded image blob, already bounded by the per-image budget.
   throwIfAborted(signal);
   let index = 0;
-  // This is the single rasterization path used by previews/image exports.
-  // In particular, it refuses redaction-review-required entries fail-closed.
-  let pending = entries.length > 0 ? compositeStepEntry(entries[0], IMAGE_MIME_TYPE) : undefined;
+  let pending = entries.length > 0 ? composite(0) : undefined;
   try {
     while (pending) {
       const image = await pending;
@@ -117,7 +122,7 @@ export async function* renderEntryImages(
       const entry = entries[index];
       const ordinal = index + 1;
       index += 1;
-      if (index < entries.length) pending = compositeStepEntry(entries[index], IMAGE_MIME_TYPE);
+      if (index < entries.length) pending = composite(index);
 
       // Blob.size is available without allocating another full copy, so reject
       // oversized output before arrayBuffer() and base64's ~4/3 expansion.
@@ -147,14 +152,4 @@ export async function* renderEntryImages(
     // failure racing a cancellation) is never reported as unhandled.
     pending?.catch(() => {});
   }
-}
-
-export async function renderEntries(entries: readonly StepEntry[], signal?: AbortSignal): Promise<RenderedEntry[]> {
-  const rendered: RenderedEntry[] = [];
-  for await (const entry of renderEntryImages(entries, signal)) {
-    const imageDataUri = `data:${IMAGE_MIME_TYPE};base64,${encodeBase64(entry.imageBytes, signal)}`;
-    throwIfAborted(signal);
-    rendered.push({ ...entry.content, imageDataUri });
-  }
-  return rendered;
 }

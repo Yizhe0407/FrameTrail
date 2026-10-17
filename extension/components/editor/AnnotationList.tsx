@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import InlineAlert from '@/components/shared/InlineAlert';
 import { reportError } from '@/components/shared/report-error';
 import DescriptionDraftRecoveries from './DescriptionDraftRecoveries';
+import DescriptionSaveIssue from './DescriptionSaveIssue';
 import SortableItem from './SortableItem';
 import { t } from '@/lib/shared/i18n';
 import { DashedOutline } from '@/components/ui/dashed-outline';
@@ -28,6 +29,9 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
   const {
     description,
     setDescription,
+    saveIssue,
+    savedDescription,
+    keepSaved,
     recoveries,
     restoreRecovery,
     discardRecovery,
@@ -86,6 +90,14 @@ function AnnotationRow({ step, index, onChange, onDelete, deleteDisabled, dragHa
           {dragHandle}
         </div>
       </div>
+      <DescriptionSaveIssue
+        issue={saveIssue}
+        savedDescription={savedDescription}
+        onOverwrite={confirmOverwrite}
+        onKeepSaved={keepSaved}
+        disabled={deleteDisabled || deleting}
+        className="mt-2 ml-9"
+      />
       <DescriptionDraftRecoveries
         recoveries={recoveries}
         onRestore={restoreRecovery}

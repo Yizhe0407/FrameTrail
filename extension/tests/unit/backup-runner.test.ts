@@ -30,8 +30,9 @@ function fakeDirectory(failOn?: string, asciiOnly = false) {
   return { directory, files };
 }
 
-function project(id: string, title: string, updatedAt: number): ProjectSummary {
-  return { id, title, description: '', sections: [], tags: [], createdAt: 0, updatedAt, contentRevision: 0, stepCount: 0, entryCount: 0, storageBytes: 0 };
+/** updatedAt is deliberately constant: the backup must follow contentRevision, not the clock. */
+function project(id: string, title: string, contentRevision: number): ProjectSummary {
+  return { id, title, description: '', sections: [], tags: [], createdAt: 0, updatedAt: 0, contentRevision, stepCount: 0, entryCount: 0, storageBytes: 0 };
 }
 
 function setup(projects: ProjectSummary[], failOn?: string, asciiOnly = false) {
@@ -40,7 +41,7 @@ function setup(projects: ProjectSummary[], failOn?: string, asciiOnly = false) {
   const deps: BackupRunDeps = {
     directory,
     listProjects: async () => projects,
-    buildArchive: vi.fn(async (p: ProjectSummary) => new Blob([`archive:${p.id}:${p.updatedAt}`])),
+    buildArchive: vi.fn(async (p: ProjectSummary) => new Blob([`archive:${p.id}:${p.contentRevision}`])),
     getManifest: async () => new Map(manifest),
     putManifestEntry: async (id, entry) => void manifest.set(id, entry),
     now: () => 1_000,
@@ -59,7 +60,40 @@ describe('backupFilename', () => {
   });
 });
 
+describe('backupFilename length', () => {
+  it('stays within 255 UTF-8 bytes for long CJK and emoji titles', () => {
+    for (const title of ['中'.repeat(120), '😀'.repeat(120), 'a'.repeat(300)]) {
+      const name = backupFilename({ id: 'aaaaaaaa-1111', title });
+      expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(255);
+      expect(name.endsWith('-aaaaaaaa.stepmark')).toBe(true);
+      expect(name).not.toContain('\uFFFD');
+    }
+  });
+});
+
 describe('runBackup', () => {
+  it('rewrites an edit even when updatedAt did not move (clock went backwards)', async () => {
+    const projects = [project('aaaaaaaa-1', 'One', 4)];
+    const { deps } = setup(projects);
+    await runBackup(deps);
+    projects[0] = project('aaaaaaaa-1', 'One', 5);
+    expect(await runBackup(deps)).toMatchObject({ written: 1, skipped: 0 });
+  });
+
+  it('rewrites a project whose manifest entry predates revisions', async () => {
+    const { deps, manifest } = setup([project('aaaaaaaa-1', 'One', 0)]);
+    await runBackup(deps);
+    const entry = manifest.get('aaaaaaaa-1')!;
+    manifest.set('aaaaaaaa-1', { updatedAt: 0, filename: entry.filename, backedUpAt: 1 } as unknown as BackupManifestEntry);
+    expect(await runBackup(deps)).toMatchObject({ written: 1, skipped: 0 });
+    expect(manifest.get('aaaaaaaa-1')).toMatchObject({ contentRevision: 0 });
+  });
+
+  it('names the projects that failed', async () => {
+    const { deps } = setup([project('aaaaaaaa-1', 'Broken', 1), project('bbbbbbbb-2', 'Fine', 1)], 'aaaaaaaa');
+    expect(await runBackup(deps)).toMatchObject({ failed: 1, failedTitles: ['Broken'] });
+  });
+
   it('writes new projects, then skips them until they change', async () => {
     const projects = [project('aaaaaaaa-1', 'One', 10), project('bbbbbbbb-2', 'Two', 20)];
     const { deps, files } = setup(projects);

@@ -24,11 +24,15 @@ import {
   type StepEntry,
 } from "@/lib/storage/models";
 import type { TextEdit } from "@/lib/storage/image-edit-model";
+import { normalizeStoredText } from "@/lib/storage/stored-text";
 import {
   appendItem,
   CROP_ITEM_ID,
- 
+  hasRoomFor,
+  IMAGE_ITEM_LIMITS,
+  itemRoom,
   reorderItem,
+  roomForKind,
   splitItems,
   toItems,
   type ImageEditItem,
@@ -54,15 +58,28 @@ import {
   toolForShortcut,
   type ImageEditToolId,
 } from "@/lib/editor/image-edit-tools";
-import { useImageEditSession } from "@/lib/editor/image-edit-session";
-import { saveEntryImageEdits } from "@/lib/editor/save-entry-image-edits";
+import {
+  ImageEditSessionConflict,
+  useImageEditSession,
+} from "@/lib/editor/image-edit-session";
+import {
+  isEntryImageStale,
+  loadLatestEntry,
+  saveEntryImageEdits,
+} from "@/lib/editor/save-entry-image-edits";
+import {
+  StepImageEditConflictError,
+  StepUpdateConflictError,
+} from "@/lib/storage/step-repository";
+import { subscribeProjectsChanged } from "@/lib/storage/change-notifier";
 import { useImageCssSize } from "@/lib/editor/use-image-css-size";
 import type { ImageCssSize } from "@/lib/editor/image-edit-geometry";
 import {
   anchorAt,
   clampZoom,
   fitSize,
-  MAX_ZOOM,
+  maxZoomFor,
+  nativeZoom,
   MIN_ZOOM,
   scrollDeltaForAnchor,
   wheelZoomFactor,
@@ -81,6 +98,20 @@ import ImageEditToolbar, { ImageEditHeaderActions } from "./ImageEditToolbar";
 /** Breathing room kept around the fitted image so edge masks are easy to reach. */
 const FIT_MARGIN = 24;
 
+/** Everything stored on an entry's image, as the editor's item list. */
+function itemsOf(entry: StepEntry): ImageEditItem[] {
+  return toItems(
+    getEntryPrivacyState(entry).redactions,
+    getEntryImageEdits(entry),
+    getEntryCrop(entry),
+  );
+}
+
+const imageEditRevisionOf = (entry: StepEntry): number =>
+  getEntryImageOwner(entry).imageEditRevision ?? 0;
+const captureRevisionOf = (entry: StepEntry): number =>
+  getEntryImageOwner(entry).captureRevision ?? 0;
+
 interface Props {
   entry: StepEntry;
   /** 1-based position of the entry, for the title. */
@@ -95,22 +126,103 @@ interface Props {
  * the pointer, and outlines and handles keep their on-screen size at any zoom.
  * Edits live in a session draft (instant, with undo/redo) and are saved behind it.
  */
-export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
+export default function ImageEditWorkspace({
+  entry: openedEntry,
+  number,
+  onClose,
+}: Props) {
+  /** The entry as last read from storage: replaced when another tab changes this image. */
+  const [entry, setEntry] = useState(openedEntry);
   const entryRef = useRef(entry);
-  entryRef.current = entry;
+  /** The stored image edit revision the draft builds on; every save must replace exactly it. */
+  const revisionRef = useRef(imageEditRevisionOf(openedEntry));
   const owner = getEntryImageOwner(entry);
-  const [initialItems] = useState(() =>
-    toItems(
-      getEntryPrivacyState(entry).redactions,
-      getEntryImageEdits(entry),
-      getEntryCrop(entry),
-    ),
+  const [initialItems] = useState(() => itemsOf(openedEntry));
+  /** The masks still wait for the person to confirm them (after a retake, or repaired metadata). */
+  const [reviewRequired, setReviewRequired] = useState(
+    () => getEntryPrivacyState(openedEntry).reviewRequired,
   );
+  /** Set only while Done is saving: that save also confirms the masks. */
+  const confirmReviewRef = useRef(false);
+  /** Another tab's saved edits were loaded into an untouched editor. */
+  const [updatedElsewhere, setUpdatedElsewhere] = useState(false);
+
+  const adoptEntry = useCallback((next: StepEntry) => {
+    entryRef.current = next;
+    revisionRef.current = imageEditRevisionOf(next);
+    setEntry(next);
+    setReviewRequired(getEntryPrivacyState(next).reviewRequired);
+  }, []);
+
   const session = useImageEditSession({
     initialItems,
-    persist: (items) =>
-      saveEntryImageEdits(entryRef.current, splitItems(items)),
+    persist: async (items) => {
+      const confirmReview = confirmReviewRef.current;
+      try {
+        revisionRef.current = await saveEntryImageEdits(
+          entryRef.current,
+          splitItems(items),
+          { imageEditRevision: revisionRef.current, confirmReview },
+        );
+        if (confirmReview) setReviewRequired(false);
+      } catch (error) {
+        if (
+          !(error instanceof StepImageEditConflictError) &&
+          !(error instanceof StepUpdateConflictError)
+        )
+          throw error;
+        // Saving over what another tab stored would delete its masks: show that instead.
+        const latest = await loadLatestEntry(entryRef.current);
+        if (!latest) throw error;
+        adoptEntry(latest);
+        throw new ImageEditSessionConflict(itemsOf(latest), { cause: error });
+      }
+    },
   });
+
+  // Follow saves made in other tabs, so an untouched editor never shows (and later
+  // saves over) stale masks. Edits made here meanwhile are checked when they are written.
+  const { adoptIfSettled } = session;
+  useEffect(() => {
+    let disposed = false;
+    let running: Promise<void> | null = null;
+    let again = false;
+    const check = async () => {
+      do {
+        again = false;
+        const current = entryRef.current;
+        if (!(await isEntryImageStale(current, revisionRef.current))) continue;
+        const latest = await loadLatestEntry(current).catch(() => null);
+        if (disposed || !latest) continue;
+        // Revisions only move forward: an older read never replaces what this editor saved since.
+        const newer =
+          imageEditRevisionOf(latest) > revisionRef.current ||
+          captureRevisionOf(latest) !== captureRevisionOf(entryRef.current);
+        if (newer && adoptIfSettled(itemsOf(latest))) {
+          adoptEntry(latest);
+          setSelectedId(null);
+          setUpdatedElsewhere(true);
+        }
+      } while (again && !disposed);
+    };
+    const unsubscribe = subscribeProjectsChanged(() => {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = check()
+        .catch((error) => {
+          console.warn("[stepmark] failed to check for image edits made elsewhere", error);
+        })
+        .finally(() => {
+          running = null;
+        });
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [adoptEntry, adoptIfSettled]);
   const imageSize = useImageCssSize(
     owner.screenshotBlob,
     owner.screenshotScale ?? owner.devicePixelRatio,
@@ -153,10 +265,13 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
 
   const fit =
     imageSize && frameSize ? fitSize(frameSize, imageSize, FIT_MARGIN) : null;
+  const maxZoom = maxZoomFor(fit, imageSize);
+  const maxZoomRef = useRef(maxZoom);
+  maxZoomRef.current = maxZoom;
 
   const zoomTo = useCallback(
     (nextZoom: number, client: { x: number; y: number } | null) => {
-      const clamped = clampZoom(nextZoom);
+      const clamped = clampZoom(nextZoom, maxZoomRef.current);
       if (clamped === zoomRef.current) return;
       const canvas = canvasRef.current?.getBoundingClientRect();
       anchorRef.current = client && canvas ? anchorAt(client, canvas) : null;
@@ -246,7 +361,13 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   }, []);
 
   // --- editing ----------------------------------------------------------------
-  const { items, commit } = session;
+  const { items } = session;
+  const commit = (next: ImageEditItem[]) => {
+    setUpdatedElsewhere(false);
+    session.commit(next);
+  };
+  /** Storage keeps a limited number of masks and edits per image: past that, nothing new is added. */
+  const room = itemRoom(items);
   const selectedItem = items.find((item) => item.id === selectedId) ?? null;
   const activeTool = imageEditTool(tool);
 
@@ -269,6 +390,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   /** Picking a drawing tool means "draw something new": nothing stays selected, so the style
    * controls set how the next thing looks instead of restyling the last thing drawn. */
   const changeTool = (next: ImageEditToolId) => {
+    const creates = imageEditTool(next).creates;
+    if (creates && !roomForKind(creates, room)) return;
     setTool(next);
     if (imageEditTool(next).create) setSelectedId(null);
   };
@@ -292,6 +415,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
     commit(items.filter((item) => item.id !== id));
   };
   const createItem = (item: ImageEditItem) => {
+    if (!hasRoomFor(items, [item])) return;
     if (item.kind === "text") {
       setEditing({ item, isNew: true });
       return;
@@ -313,12 +437,14 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
     setEditing(null);
     if (text === null) return;
     // Trailing blank space is never wanted; an emptied text box is removed.
-    const value = text.replace(/\s+$/u, "");
+    // Stored text follows the one rule storage and export share.
+    const value = normalizeStoredText(text).replace(/\s+$/u, "");
     if (value === "") {
       if (!isNew) deleteItem(item.id);
       return;
     }
     const next = fitTextHeight({ ...item, text: value });
+    if (isNew && !hasRoomFor(items, [next])) return;
     setSelectedId(next.id);
     commit(
       isNew
@@ -370,6 +496,7 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   const pasteClipboard = () => {
     const clipboard = clipboardRef.current;
     if (!imageSize || clipboard.items.length === 0) return;
+    if (!hasRoomFor(items, clipboard.items)) return;
     clipboard.pastes += 1;
     const { items: next, pasted } = pasteItems(
       items,
@@ -391,15 +518,19 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
   };
   const canActOnSelection = selectedItem !== null && isCopyable(selectedItem);
 
-  const requestClose = async () => {
+  /** Done (`confirm`) also confirms masks awaiting review; Escape only closes, leaving the review pending. */
+  const requestClose = async (confirm = false) => {
     if (closing) return;
     setClosing(true);
+    const confirming = confirm && reviewRequired;
+    confirmReviewRef.current = confirming;
     try {
-      await session.flush();
+      await session.flush({ force: confirming });
       onClose();
     } catch {
       // The failed save is reported in the header; the editor stays open with the draft intact.
     } finally {
+      confirmReviewRef.current = false;
       setClosing(false);
     }
   };
@@ -445,7 +576,18 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
     }
   };
 
+  // A tool that cannot add anything more gives way to the pointer, which can still select and delete.
+  const toolIsFull =
+    activeTool.creates !== null && !roomForKind(activeTool.creates, room);
+  useEffect(() => {
+    if (toolIsFull) setTool("select");
+  }, [toolIsFull]);
+
   const copy = t().editor.imageEdit;
+  const limitNotices = [
+    !room.masks && copy.maskLimitReached(IMAGE_ITEM_LIMITS.maxMasks),
+    !room.edits && copy.editLimitReached(IMAGE_ITEM_LIMITS.maxEdits),
+  ].filter((notice): notice is string => Boolean(notice));
   const canvasStyle = fit
     ? { width: fit.width * zoom, height: fit.height * zoom }
     : undefined;
@@ -479,7 +621,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                 onUndo={session.undo}
                 onRedo={session.redo}
                 zoom={zoom}
-                canZoomIn={zoom < MAX_ZOOM}
+                nativeZoom={nativeZoom(zoom, fit, imageSize)}
+                canZoomIn={zoom < maxZoom}
                 canZoomOut={zoom > MIN_ZOOM}
                 onZoomIn={() =>
                   zoomTo(zoomRef.current * ZOOM_STEP, frameCenter())
@@ -490,7 +633,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                 onZoomFit={() => zoomTo(MIN_ZOOM, frameCenter())}
                 itemCount={items.length}
                 saving={session.saving}
-                onDone={() => void requestClose()}
+                onDone={() => void requestClose(true)}
+                doneLabel={reviewRequired ? copy.confirmReview : undefined}
                 doneDisabled={closing}
               />
             </div>
@@ -527,6 +671,25 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
               </>
             )}
           </div>
+          {reviewRequired && (
+            <div
+              role="alert"
+              className="rounded-md border-2 border-border bg-warning-soft px-3.5 py-2.5 text-sm text-foreground"
+            >
+              {copy.reviewNotice}
+            </div>
+          )}
+          {session.conflicted && <InlineAlert>{copy.conflictReloaded}</InlineAlert>}
+          {updatedElsewhere && !session.conflicted && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {copy.updatedElsewhere}
+            </p>
+          )}
+          {limitNotices.map((notice) => (
+            <p key={notice} role="status" className="text-sm font-bold text-foreground">
+              {notice}
+            </p>
+          ))}
           {session.saveFailed && (
             <InlineAlert>
               <span className="flex flex-wrap items-center gap-3">
@@ -545,7 +708,11 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
 
         <div className="flex min-h-0 flex-1">
           <div className="shrink-0 p-3">
-            <ImageEditToolbar tool={tool} onToolChange={changeTool} />
+            <ImageEditToolbar
+              tool={tool}
+              onToolChange={changeTool}
+              room={room}
+            />
           </div>
           <div ref={setFrame} className="relative min-h-0 min-w-0 flex-1">
             <div
@@ -594,6 +761,8 @@ export default function ImageEditWorkspace({ entry, number, onClose }: Props) {
                       alt={copy.title(number)}
                       fit="contain"
                       exactBox
+                      liveMasks
+                      reviewing
                       className="h-full w-full"
                       imgClassName="h-full w-full rounded-md object-contain outline-2 outline-border"
                       overlay={

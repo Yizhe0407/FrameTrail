@@ -48,6 +48,15 @@ async function mount(ui: ReactElement) {
 }
 
 describe('recording toolbar', () => {
+  it('shows a page-side notice as an alert, behind any run error', async () => {
+    const { rerender } = await mount(<RecordingToolbar state={state} onCommand={vi.fn()} notice="剛才的點擊沒有記錄" />);
+    expect(screen.getByRole('alert').textContent).toBe('剛才的點擊沒有記錄');
+    rerender(<RecordingToolbar state={{ ...state, error: '擷取失敗' }} onCommand={vi.fn()} notice="剛才的點擊沒有記錄" />);
+    expect(screen.getByRole('alert').textContent).toBe('擷取失敗');
+    rerender(<RecordingToolbar state={state} onCommand={vi.fn()} notice={null} />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('keeps the target project out of the bar, naming it only in the status label and tooltip', async () => {
     const { rerender } = await mount(<RecordingToolbar state={{ ...state, projectTitle: '既有教學' }} onCommand={vi.fn()} />);
     expect(screen.queryByText('既有教學')).toBeNull();

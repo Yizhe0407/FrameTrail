@@ -1,4 +1,5 @@
 import {
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -8,20 +9,23 @@ import {
   type ScreenReaderInstructions,
   type UniqueIdentifier,
 } from '@dnd-kit/core';
-import { arrayMove } from '@dnd-kit/sortable';
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { t } from '@/lib/shared/i18n';
 
-/** Pointer-only on purpose: reordering is a drag, and there is no keyboard variant to keep in step with it. */
+/** The drag handle is a focusable button, so reordering must work without a
+ * pointer: Space/Enter lifts, arrows move through the sortable neighbours. */
 function useSortableSensors() {
-  return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  return useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 }
 
 /**
  * dnd-kit's built-in announcements are English and describe raw ids, so a drag
  * is announced in the active language with the item's name and position;
- * callers supply a 1-based position lookup. The built-in instructions describe
- * keyboard pick-up, which this list does not offer, so they are emptied rather
- * than left to say something untrue.
+ * callers supply a 1-based position lookup. The instructions that explain the
+ * keyboard pick-up are localized the same way.
  *
  * @param itemNoun what one row is called, from the i18n `sortable` nouns
  * @param positionOf 1-based display position of an id, or 0 when it is unknown
@@ -33,7 +37,7 @@ function createSortableAccessibility(
   const copy = () => t().sortable;
   const describe = (id: UniqueIdentifier) => copy().item(itemNoun, positionOf(id));
   return {
-    screenReaderInstructions: { draggable: '' },
+    screenReaderInstructions: { draggable: copy().keyboardInstructions },
     announcements: {
       onDragStart: ({ active }) => copy().dragStart(describe(active.id)),
       onDragOver: ({ active, over }) => (

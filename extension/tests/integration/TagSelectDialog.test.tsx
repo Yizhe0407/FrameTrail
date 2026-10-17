@@ -22,16 +22,16 @@ function summary(tags: string[]): ProjectSummary {
   return { tags } as ProjectSummary;
 }
 
-function renderDialog(selectedTags: readonly string[] = [], onSave = vi.fn()) {
+function renderDialog(selectedTags: readonly string[] = [], onAddTag = vi.fn()) {
   render(
     <TagSelectDialog
       open
       selectedTags={selectedTags}
       onOpenChange={vi.fn()}
-      onSave={onSave}
+      onAddTag={onAddTag}
     />,
   );
-  return onSave;
+  return onAddTag;
 }
 
 beforeEach(() => {
@@ -59,11 +59,11 @@ describe('TagSelectDialog', () => {
 
     fireEvent.change(input, { target: { value: '  流程  ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(['既有', '流程']));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('流程'));
 
     fireEvent.change(input, { target: { value: '驗收' } });
     fireEvent.click(screen.getByRole('button', { name: '新增標籤' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(['既有', '驗收']));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('驗收'));
   });
 
   // Tags the user already applied elsewhere are a real signal, and project
@@ -77,7 +77,7 @@ describe('TagSelectDialog', () => {
 
     fireEvent.click(suggestion);
 
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(['驗收', '交付']));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('交付'));
   });
 
   it('still accepts free text when the suggestion read fails', async () => {
@@ -89,7 +89,7 @@ describe('TagSelectDialog', () => {
     fireEvent.change(input, { target: { value: '流程' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(['流程']));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('流程'));
     expect(screen.queryByRole('alert')).toBeNull();
     await waitFor(() => expect(warn).toHaveBeenCalled());
   });

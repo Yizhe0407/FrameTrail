@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS } from '@/lib/media/annotation-contract';
 import { fitHighlightFrame } from '@/lib/media/annotation-geometry';
-import { useObjectUrl } from '@/lib/editor/use-object-url';
+import { usePreviewImage } from '@/lib/editor/use-preview-image';
 import { type Bounds, type ImageEdit, type Redaction } from '@/lib/storage/models';
 import ThumbnailSurface from './ThumbnailSurface';
 import HighlightFrame from './HighlightFrame';
@@ -26,6 +26,9 @@ interface Props {
   exactBox?: boolean;
   /** Text, arrows and rectangles drawn on the image. */
   imageEdits?: ImageEdit[];
+  /** Image editor only: show the stored pixels with masks drawn live on top
+   * instead of burned in (see usePreviewImage). */
+  liveMasks?: boolean;
   screenshotScale: number;
   alt: string;
   className?: string;
@@ -49,7 +52,8 @@ interface BoxStyle {
 }
 
 /**
- * Renders a raw screenshot with the highlight box drawn as a CSS overlay (not baked into the image).
+ * Renders a screenshot, with its masks burned into the pixels (see usePreviewImage), and the
+ * highlight box drawn as a CSS overlay (not baked into the image).
  * Border width is scaled by (rendered width / natural width) so it matches the exported image's border proportionally.
  */
 export default function HighlightThumbnail({
@@ -59,6 +63,7 @@ export default function HighlightThumbnail({
   privacyReviewRequired = false,
   exactBox = false,
   imageEdits = NO_EDITS,
+  liveMasks = false,
   screenshotScale,
   alt,
   className,
@@ -68,7 +73,7 @@ export default function HighlightThumbnail({
   loading = 'eager',
   decoding = 'async',
 }: Props) {
-  const url = useObjectUrl(blob);
+  const { url, masksBurnedIn } = usePreviewImage(blob, { redactions, screenshotScale, privacyReviewRequired, liveMasks });
   const [box, setBox] = useState<BoxStyle | null>(null);
 
   const measure = useCallback((img: HTMLImageElement) => (
@@ -106,6 +111,7 @@ export default function HighlightThumbnail({
     screenshotScale,
     redactions,
     privacyReviewRequired,
+    masksBurnedIn,
     exactBox,
     measure,
     mapOverlays,
@@ -118,6 +124,7 @@ export default function HighlightThumbnail({
       imgRef={imgRef}
       showPixels={showPixels}
       privacyReviewRequired={privacyReviewRequired}
+      masksBurnedIn={masksBurnedIn}
       alt={alt}
       fit={fit}
       loading={loading}

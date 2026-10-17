@@ -13,6 +13,7 @@ import {
 import {
   assertProjectStorageLimits,
   isPristineProject,
+  ProjectNotFoundError,
   newProject,
   requireWritableProject,
   runProjectStepsWrite,
@@ -22,8 +23,10 @@ import {
   type ProjectStepsTransaction,
 } from './database';
 import { clearActiveProjectId } from './storage';
+import { assertStorableScreenshots } from './screenshot-rules';
 import { notifyProjectsChanged } from './change-notifier';
 import { t } from '../shared/i18n';
+import { PROJECT_TAG_LIMITS, sanitizeProjectTag } from './project-tag-model';
 
 export async function createProject(initial?: Partial<Pick<Project, 'title' | 'description' | 'tags'>>): Promise<Project> {
   const project = newProject(crypto.randomUUID(), Date.now(), initial);
@@ -71,23 +74,63 @@ async function requireProjectInTx(tx: ProjectOnlyTransaction, id: string): Promi
   if (!existing) {
     tx.abort();
     await tx.done.catch(() => undefined);
-    throw new Error('Project not found.');
+    throw new ProjectNotFoundError(id);
   }
   return existing;
 }
 
-export async function updateProject(
-  id: string,
-  changes: Partial<Pick<Project, 'title' | 'description' | 'tags'>>,
-): Promise<Project> {
+/** A metadata edit. Tags are changed by operations, never by writing a whole
+ * list: each one is applied to the tags stored at commit time, inside the
+ * transaction, so two tabs adding or removing different tags both keep their
+ * change instead of the later write replacing the earlier one's list. */
+export interface ProjectMetadataChanges {
+  title?: string;
+  description?: string;
+  addTags?: readonly string[];
+  removeTags?: readonly string[];
+}
+
+/** Adding a tag beyond PROJECT_TAG_LIMITS.maxTags is refused, not truncated. */
+export class ProjectTagLimitError extends Error {
+  constructor() {
+    super(`A project can have at most ${PROJECT_TAG_LIMITS.maxTags} tags.`);
+    this.name = 'ProjectTagLimitError';
+  }
+}
+
+function applyTagOperations(
+  stored: readonly string[],
+  addTags: readonly string[] = [],
+  removeTags: readonly string[] = [],
+): string[] {
+  const removed = new Set(removeTags.map(sanitizeProjectTag));
+  const tags = stored.filter((tag) => !removed.has(tag));
+  for (const raw of addTags) {
+    const tag = sanitizeProjectTag(raw);
+    if (!tag || tags.includes(tag)) continue;
+    if (tags.length >= PROJECT_TAG_LIMITS.maxTags) throw new ProjectTagLimitError();
+    tags.push(tag);
+  }
+  return tags;
+}
+
+export async function updateProject(id: string, changes: ProjectMetadataChanges): Promise<Project> {
   return runWithDatabase(async (db) => {
     const tx = db.transaction('projects', 'readwrite');
-    const existing = await requireProjectInTx(tx, id);
+    const existing = sanitizeProject(await requireProjectInTx(tx, id));
     const patch: Partial<Project> = {};
     if (changes.title !== undefined) patch.title = changes.title;
     if (changes.description !== undefined) patch.description = changes.description;
-    if (changes.tags !== undefined) patch.tags = changes.tags;
-    const updated = sanitizeProject({ ...existing, ...patch, updatedAt: Math.max(existing.updatedAt, Date.now()) });
+    if (changes.addTags?.length || changes.removeTags?.length) {
+      try {
+        patch.tags = applyTagOperations(existing.tags, changes.addTags, changes.removeTags);
+      } catch (error) {
+        tx.abort();
+        await tx.done.catch(() => undefined);
+        throw error;
+      }
+    }
+    const updated = sanitizeProject({ ...existing, ...patch, updatedAt: Math.max(existing.updatedAt, Date.now()), contentRevision: existing.contentRevision + 1 });
     await tx.store.put(updated);
     await tx.done;
     notifyProjectsChanged();
@@ -166,6 +209,7 @@ export async function createProjectFromSteps(
   options: CreateProjectFromStepsOptions = {},
 ): Promise<Project> {
   const prepared = prepareProjectClone(sourceSteps, initial, options);
+  await assertStorableScreenshots(prepared.steps.map((step) => step.screenshotBlob));
   return runProjectStepsWrite(async (tx) => {
     await storePreparedProject(tx, prepared);
     return prepared.project;
@@ -176,7 +220,7 @@ export async function createProjectFromSteps(
 export async function duplicateProject(sourceId: string, title?: string): Promise<Project> {
   return runProjectStepsWrite(async (tx) => {
     const source = await tx.objectStore('projects').get(sourceId);
-    if (!source) throw new Error('Project not found.');
+    if (!source) throw new ProjectNotFoundError(sourceId);
     const sourceSteps = await tx.objectStore('steps').index('by-session').getAll(sourceId);
     const sanitizedSource = sanitizeProject(source);
     const prepared = prepareProjectClone(sourceSteps, {

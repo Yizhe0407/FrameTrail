@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { Camera, ExternalLink, ListOrdered, Loader2, TriangleAlert } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import {
 } from '@/lib/recording/recording-mode-copy';
 import { needsEditorRecovery } from '@/lib/recording/recording-recovery';
 import { focusTab } from '@/lib/runtime/navigation';
-import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import { isRecordableTabUrl } from '@/lib/shared/restricted-urls';
 import {
   clearCrossTabRecordingDecline,
   hasDeclinedCrossTabRecording,
@@ -30,6 +30,9 @@ interface Props {
   onStarted?: () => void;
   onOpenEditor?: () => void | Promise<void>;
   openingEditor?: boolean;
+  /** The 「錄到哪裡」 selection (null = 新專案). Pass both to let the parent act on the same target (e.g. reset). */
+  targetProjectId?: string | null;
+  onTargetProjectChange?: (projectId: string | null) => void;
   className?: string;
 }
 
@@ -69,8 +72,8 @@ function useStartPreflight(onProbeError: (message: string) => void) {
     void browser.tabs.query({ active: true, currentWindow: true })
       .then(([tab]) => {
         if (disposed) return;
-        setRestrictedPage(isRestrictedUrl(tab?.url));
-        setActiveTabId(tab?.id != null && !isRestrictedUrl(tab.url) ? tab.id : null);
+        setRestrictedPage(!isRecordableTabUrl(tab?.url));
+        setActiveTabId(tab?.id != null && isRecordableTabUrl(tab.url) ? tab.id : null);
       })
       .catch((error) => {
         console.error('[stepmark] failed to inspect the active tab', error);
@@ -108,11 +111,18 @@ export default function RecordControls({
   onStarted,
   onOpenEditor,
   openingEditor = false,
+  targetProjectId: controlledTargetProjectId,
+  onTargetProjectChange,
   className,
 }: Props) {
   const [mode, setMode] = useState<RecordingMode>('steps');
   // null = brand-new project. Never persisted: every popup open starts at 新專案.
-  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
+  const [localTargetProjectId, setLocalTargetProjectId] = useState<string | null>(null);
+  const targetProjectId = controlledTargetProjectId === undefined ? localTargetProjectId : controlledTargetProjectId;
+  const setTargetProjectId = useCallback((projectId: string | null) => {
+    setLocalTargetProjectId(projectId);
+    onTargetProjectChange?.(projectId);
+  }, [onTargetProjectChange]);
   const [pending, setPending] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const { crossTab, setCrossTab, restrictedPage, setRestrictedPage, activeTabId } = useStartPreflight(setControlError);
@@ -167,7 +177,7 @@ export default function RecordControls({
         if (!granted) await discardPendingStart();
       }
       const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
-      if (isRestrictedUrl(activeTab?.url)) {
+      if (!isRecordableTabUrl(activeTab?.url)) {
         setRestrictedPage(true);
         throw new Error(t().popup.restrictedPageError);
       }

@@ -371,6 +371,18 @@ describe('reconcileSteps', () => {
     expect(reconciled.description).toBe('after');
   });
 
+  it('takes a new image edit revision even when the edits read back identical', () => {
+    const blob = new Blob(['same'], { type: 'image/jpeg' });
+    const previous = [{ id: 'step', screenshotBlob: blob, imageEditRevision: 1, redactions: [] }] as any[];
+    const next = [{ id: 'step', screenshotBlob: new Blob(['same'], { type: 'image/jpeg' }), imageEditRevision: 2, redactions: [] }] as any[];
+
+    const [reconciled] = reconcileSteps(previous, next);
+
+    // An image editor opened from a stale row would be refused on its first save.
+    expect(reconciled.imageEditRevision).toBe(2);
+    expect(reconciled.screenshotBlob).toBe(blob);
+  });
+
   it('returns the previous objects and array when a poll contains no changes', () => {
     const previousBlob = new Blob(['same screenshot'], { type: 'image/jpeg' });
     const refreshedBlob = new Blob(['same screenshot'], { type: 'image/jpeg' });

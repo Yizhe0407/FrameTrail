@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { BADGE_RADIUS, BADGE_TEXT_COLOR, HIGHLIGHT_COLOR, HIGHLIGHT_LINE_WIDTH, HIGHLIGHT_RADIUS, LEADER_LINE_WIDTH, MARKER_INNER_RADIUS, MARKER_RADIUS, MARKER_RING_WIDTH, type Annotation } from '@/lib/media/annotation-contract';
 import { getBadgeFontSize } from '@/lib/media/annotation-geometry';
 import { layoutAnnotations } from '@/lib/media/annotation-layout';
-import { useObjectUrl } from '@/lib/editor/use-object-url';
+import { usePreviewImage } from '@/lib/editor/use-preview-image';
 import { type ImageEdit, type Redaction } from '@/lib/storage/models';
 import { getValidScreenshotScale } from '@/lib/media/image-utils';
 import ThumbnailSurface from './ThumbnailSurface';
@@ -28,6 +28,9 @@ interface Props {
   exactBox?: boolean;
   /** Text, arrows and rectangles drawn on the image. */
   imageEdits?: ImageEdit[];
+  /** Image editor only: show the stored pixels with masks drawn live on top
+   * instead of burned in (see usePreviewImage). */
+  liveMasks?: boolean;
   screenshotScale: number;
   numbered: boolean;
   alt: string;
@@ -76,6 +79,7 @@ export default function MultiHighlightThumbnail({
   privacyReviewRequired = false,
   exactBox = false,
   imageEdits = NO_EDITS,
+  liveMasks = false,
   screenshotScale,
   numbered,
   alt,
@@ -86,7 +90,7 @@ export default function MultiHighlightThumbnail({
   loading = 'eager',
   decoding = 'async',
 }: Props) {
-  const url = useObjectUrl(blob);
+  const { url, masksBurnedIn } = usePreviewImage(blob, { redactions, screenshotScale, privacyReviewRequired, liveMasks });
   const [boxes, setBoxes] = useState<BoxStyle[]>([]);
   const [imageSize, setImageSize] = useState<{ url: string; width: number; height: number } | null>(null);
   const annotationSignature = useMemo(
@@ -190,6 +194,7 @@ export default function MultiHighlightThumbnail({
     screenshotScale,
     redactions,
     privacyReviewRequired,
+    masksBurnedIn,
     exactBox,
     measure,
     mapOverlays,
@@ -213,6 +218,7 @@ export default function MultiHighlightThumbnail({
       imgRef={imgRef}
       showPixels={showPixels}
       privacyReviewRequired={privacyReviewRequired}
+      masksBurnedIn={masksBurnedIn}
       alt={alt}
       fit={fit}
       loading={loading}

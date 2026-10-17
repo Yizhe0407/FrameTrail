@@ -7,7 +7,24 @@ import type { BackupManifestEntry } from './backup-store';
  * name stable across runs; a rename of the project renames the file. */
 export function backupFilename(project: Pick<ProjectSummary, 'id' | 'title'>): string {
   const stem = projectExportFilename({ title: project.title }, 'html').replace(/\.html$/, '');
-  return `${stem}-${project.id.slice(0, 8)}.stepmark`;
+  return `${boundUtf8(stem, MAX_STEM_BYTES)}-${project.id.slice(0, 8)}.stepmark`;
+}
+
+/** File systems limit a name to 255 bytes, not characters, and one CJK
+ * character is three UTF-8 bytes. The stem leaves room for the id suffix and extension. */
+const MAX_STEM_BYTES = 200;
+
+function boundUtf8(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let bounded = '';
+  // Iterating by code point never splits a surrogate pair.
+  for (const character of text) {
+    bytes += encoder.encode(character).length;
+    if (bytes > maxBytes) break;
+    bounded += character;
+  }
+  return bounded.replace(/-+$/, '') || 'stepmark';
 }
 
 /** Plain-ASCII name used when the folder's file system rejects the readable
@@ -25,6 +42,8 @@ export interface BackupResult {
   skipped: number;
   failed: number;
   error: string | null;
+  /** Titles of the projects that failed, so the UI can say which. */
+  failedTitles: string[];
 }
 
 export interface BackupRunDeps {
@@ -69,7 +88,7 @@ export async function runBackup(deps: BackupRunDeps): Promise<BackupResult> {
   const { directory } = deps;
   const now = deps.now ?? Date.now;
   const [projects, manifest] = await Promise.all([deps.listProjects(), deps.getManifest()]);
-  const result: BackupResult = { written: 0, skipped: 0, failed: 0, error: null };
+  const result: BackupResult = { written: 0, skipped: 0, failed: 0, error: null, failedTitles: [] };
 
   for (const project of projects) {
     const preferred = backupFilename(project);
@@ -78,7 +97,10 @@ export async function runBackup(deps: BackupRunDeps): Promise<BackupResult> {
     let filename = preferred;
     try {
       // A file the user removed by hand counts as "not backed up", not as up to date.
-      if (previous && previous.updatedAt === project.updatedAt
+      // contentRevision only ever grows (updatedAt can stand still when the clock
+      // moves back or two edits share a millisecond). A manifest entry from before
+      // revisions existed has none, so it never matches and the project is rewritten.
+      if (previous && previous.contentRevision === project.contentRevision
         && (previous.filename === preferred || previous.filename === fallback)
         && await fileExists(directory, previous.filename)) {
         result.skipped += 1;
@@ -95,10 +117,11 @@ export async function runBackup(deps: BackupRunDeps): Promise<BackupResult> {
       if (previous && previous.filename !== filename) {
         await directory.removeEntry(previous.filename).catch(() => undefined);
       }
-      await deps.putManifestEntry(project.id, { updatedAt: project.updatedAt, filename, backedUpAt: now() });
+      await deps.putManifestEntry(project.id, { contentRevision: project.contentRevision, filename, backedUpAt: now() });
       result.written += 1;
     } catch (error) {
       result.failed += 1;
+      result.failedTitles.push(project.title);
       result.error = error instanceof Error ? error.message : String(error);
       console.warn('[stepmark] backup of a project failed', project.id, filename, error);
     }

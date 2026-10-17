@@ -41,6 +41,7 @@ export async function generateProjectPdf(
   throwIfAborted(signal);
   const document = await PDFDocument.create();
   const title = textOrDefault(metadata.title, DEFAULT_TITLE);
+  document.setTitle(title);
   // 分頁器會先驗證頁數與位元組預算，再呼叫此純嵌入 callback。
   const paginator = new ProjectPdfPaginator(async (jpegBytes, screenshots) => {
     throwIfAborted(signal);

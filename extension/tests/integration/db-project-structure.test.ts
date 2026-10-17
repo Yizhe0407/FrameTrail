@@ -5,13 +5,14 @@ import { ProjectStructureIntegrityError, type ProjectSection, type Step } from '
 import { closeDatabase, runWithDatabase } from '@/lib/storage/database';
 import { createProjectFromSteps, deleteProjectPermanently, duplicateProject, getProjectSummaries, resetProject } from '@/lib/storage/project-repository';
 import { getSteps } from '@/lib/storage/step-repository';
+import { pngBlob } from '../setup/raster-fixtures';
 
 const createdProjectIds = new Set<string>();
 
 function makeStep(overrides: Partial<Step> = {}): Step {
   return {
     id: crypto.randomUUID(), sessionId: 'source-project', order: 0,
-    screenshotBlob: new Blob(['pixels'], { type: 'image/png' }),
+    screenshotBlob: pngBlob(),
     bounds: { x: 1, y: 2, width: 30, height: 40 }, devicePixelRatio: 1,
     description: '', url: 'https://example.com/path', timestamp: Date.now(), ...overrides,
   };

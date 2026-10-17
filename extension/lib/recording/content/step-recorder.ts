@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { describeElement, replayClickWithSuppression } from '../../capture/element-description';
+import { describeElement } from '../../capture/element-description';
 import { createRegionCapture } from '../../capture/region-capture';
 import { isOutOfViewport, readRegionScrollSnapshot, readScrollSnapshot } from '../../capture/scroll-snapshot';
 import { getHighlightBounds, getVisibleHighlightBounds } from '../../capture/selector/highlight-bounds';
@@ -7,14 +7,14 @@ import { isInteractiveElement } from '../../capture/selector/interactive-element
 import {
   type ScrollSnapshot,
   type StepCaptureHandlers,
+  type StepCaptureOutcome,
   createLateClickSuppressor,
-  createStepFollowupHandler,
   orchestrateStepCapture,
 } from '../../capture/step-capture';
 import { type StepGesture, createStepGestureQueue } from '../../capture/step-gesture-queue';
+import { STEP_PRESS_GATE_EVENTS, createStepPressGate, isExtensionOverlayEvent } from '../../capture/step-press-gate';
 import {
   CAPTURE_FAILSAFE_MS,
-  STEP_FOLLOWUP_EVENTS,
   STEP_LATE_CLICK_SUPPRESS_MS,
 } from '../content-script-constants';
 import {
@@ -35,7 +35,8 @@ import type {
   StepFrameRelayClaimMessage,
   StepFrameRelaySettleMessage,
 } from '../../runtime/messages';
-import type { CaptureSender } from './capture-sender';
+import { t } from '@/lib/shared/i18n';
+import type { CaptureDelivery, CaptureSender } from './capture-sender';
 import type { ContentRecordingSession } from './recording-session';
 import type { ToolbarChannel } from './toolbar-channel';
 
@@ -46,6 +47,29 @@ export interface StepRecorderDeps {
   /** Toolbar view of the run at mount time; later updates arrive through the
    * entrypoint's recording-state subscription. */
   initialToolbarState: Parameters<MountedRecordingToolbar['update']>[0];
+}
+
+/** A step capture attempt's result; `skipped` means it never reached the
+ * background (no visible target, gesture cancelled) and is not a loss. */
+type StepDelivery = CaptureDelivery | 'skipped';
+
+/** How long a timed-out capture's late answer is awaited before its click is
+ * reported as unrecorded anyway. */
+const LATE_DELIVERY_GRACE_MS = 5_000;
+
+/** Upper bound on how long a toolbar command waits for earlier clicks. */
+const COMMAND_QUEUE_WAIT_MS = 10_000;
+
+function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | 'pending'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise.catch(() => 'pending' as const),
+    new Promise<'pending'>((resolve) => {
+      timer = setTimeout(() => resolve('pending'), ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 /**
@@ -59,7 +83,41 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
 
   const gestureQueue = createStepGestureQueue();
   session.gestureQueue = gestureQueue;
+  let removed = false;
   const lateClickSuppressor = createLateClickSuppressor<Element>(STEP_LATE_CLICK_SUPPRESS_MS);
+  // Click-vs-drag classification and follow-up event ownership for every
+  // recorded press (see step-press-gate.ts).
+  const pressGate = createStepPressGate({
+    lateClicks: lateClickSuppressor,
+    isBusy: () => gestureQueue.isBusy(),
+  });
+
+  /** The page already ran a click whose step was lost: say so on the toolbar
+   * instead of letting the step vanish without a trace. */
+  const reportUnrecordedClick = () => session.toolbar?.showNotice(t().toolbar.stepNotRecorded);
+
+  /** Decides, once a capture attempt has finished, whether its click went
+   * unrecorded in a way nobody else reports. A background that answered with
+   * a rejection explains itself (run error, paused run); a lost answer or an
+   * attempt cut off by the failsafe does not. */
+  const reportStepDelivery = (outcome: StepCaptureOutcome, delivery: Promise<StepDelivery> | null): void => {
+    if (outcome === 'captured' || outcome === 'cancelled') return;
+    if (outcome === 'failed') {
+      void delivery?.then((result) => {
+        if (result === 'lost') reportUnrecordedClick();
+      });
+      return;
+    }
+    // Timed out: the capture was cancelled, unless the background had already
+    // begun committing it. Its late answer (bounded) tells which.
+    if (!delivery) {
+      reportUnrecordedClick();
+      return;
+    }
+    void settleWithin(delivery, LATE_DELIVERY_GRACE_MS).then((result) => {
+      if (result !== 'saved' && result !== 'skipped') reportUnrecordedClick();
+    });
+  };
   // While a capture is in flight the stored rect is pinned to this scroll
   // position, so the screenshot pixels always match it. Null when idle.
   let captureScrollLock: ScrollSnapshot | null = null;
@@ -139,7 +197,21 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     resumePreview: () => preview.schedule(),
   });
 
+  /** The crop button can be pressed while an earlier click is still being
+   * captured; the region selector opens once that click has fully settled
+   * instead of the press being dropped. */
+  let regionCaptureRequested = false;
   const startStepRegionCapture = () => {
+    if (regionCaptureRequested) return;
+    regionCaptureRequested = true;
+    void gestureQueue.whenIdle().then(() => {
+      regionCaptureRequested = false;
+      if (removed) return;
+      openStepRegionCapture();
+    });
+  };
+
+  const openStepRegionCapture = () => {
     if (session.paused || gestureQueue.isBusy() || session.regionCapture?.isActive()) return;
     preview.suspend();
     const captureId = crypto.randomUUID();
@@ -156,24 +228,34 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         // the screenshot is in flight.
         setCaptureScrollLock({ ...readRegionScrollSnapshot(rect), x: origin.x, y: origin.y });
         let timeout: ReturnType<typeof setTimeout> | undefined;
+        const delivery = capture.deliverStepCapture(
+          rect,
+          { text: '', tagName: 'region' },
+          'mark',
+          Date.now(),
+          captureId,
+          'region',
+        );
         const outcome = await Promise.race([
-          capture.sendCapture(
-            rect,
-            { text: '', tagName: 'region' },
-            'mark',
-            Date.now(),
-            captureId,
-            'region',
-          ).then((saved) => ({ kind: 'settled' as const, saved })),
-          new Promise<{ kind: 'timeout'; saved: false }>((resolve) => {
-            timeout = setTimeout(() => resolve({ kind: 'timeout', saved: false }), CAPTURE_FAILSAFE_MS);
+          delivery.then((result) => ({ kind: 'settled' as const, result })),
+          new Promise<{ kind: 'timeout' }>((resolve) => {
+            timeout = setTimeout(() => resolve({ kind: 'timeout' }), CAPTURE_FAILSAFE_MS);
           }),
         ]);
         if (timeout) clearTimeout(timeout);
-        if (outcome.kind === 'timeout') {
-          await browser.runtime.sendMessage({ type: 'STEPMARK_CANCEL_CAPTURE', runId: session.runId, captureId });
-          console.warn('[stepmark] region capture exceeded its failsafe budget and was cancelled');
+        if (outcome.kind === 'settled') {
+          if (outcome.result === 'lost') session.toolbar?.showNotice(t().toolbar.regionNotRecorded);
+          return;
         }
+        console.warn('[stepmark] region capture exceeded its failsafe budget and was cancelled');
+        try {
+          await browser.runtime.sendMessage({ type: 'STEPMARK_CANCEL_CAPTURE', runId: session.runId, captureId });
+        } catch {
+          // A dead background cannot store the region either.
+        }
+        void settleWithin(delivery, LATE_DELIVERY_GRACE_MS).then((result) => {
+          if (result !== 'saved') session.toolbar?.showNotice(t().toolbar.regionNotRecorded);
+        });
       },
       onCancel: async () => {
         if (!captureSent) return;
@@ -198,32 +280,32 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     now: number,
     captureId: string,
     shouldCancel: () => boolean,
-  ): Promise<boolean> => {
+  ): Promise<StepDelivery> => {
     try {
       let clientX = initialClientX;
       let clientY = initialClientY;
       let rect = getHighlightBounds(el, clientX, clientY);
-      if (!rect) return false;
+      if (!rect) return 'skipped';
 
       if (isOutOfViewport(rect)) {
         const before = el.getBoundingClientRect();
         el.scrollIntoView({ block: 'center', behavior: 'instant' });
         await waitForNextFrame();
-        if (shouldCancel()) return false;
+        if (shouldCancel()) return 'skipped';
         const after = el.getBoundingClientRect();
         clientX += after.left - before.left;
         clientY += after.top - before.top;
         rect = getHighlightBounds(el, clientX, clientY);
-        if (!rect) return false;
+        if (!rect) return 'skipped';
       }
       rect = getVisibleHighlightBounds(el, clientX, clientY);
-      if (!rect) return false;
-      if (shouldCancel()) return false;
+      if (!rect) return 'skipped';
+      if (shouldCancel()) return 'skipped';
 
       // Pin scrolling from here until the screenshot actually lands so nothing
       // shifts the pixels out from under this rect (auto-scroll included).
       setCaptureScrollLock(readScrollSnapshot(el));
-      return capture.sendCapture(
+      return await capture.deliverStepCapture(
         rect,
         { text: describeElement(el), tagName: el.tagName.toLowerCase() },
         intent,
@@ -231,21 +313,25 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         captureId,
       );
     } catch (err) {
-      console.error('[stepmark] sendMessage failed', err);
-      return false;
+      console.error('[stepmark] step capture failed', err);
+      return 'skipped';
     }
   };
 
   const onPointerDown = (event: Event) => {
     const pe = event as PointerEvent;
-    if (!pe.isTrusted || pe.button !== 0 || !pe.isPrimary) return;
-    // Trusted events are ordered: the previous gesture's trailing click (if
-    // any) has already been dispatched before a new trusted press arrives.
-    // Disarming here keeps a rapid second click on the same element from
-    // being swallowed after the dedup window declines to capture it.
-    if (pe.isTrusted) lateClickSuppressor.onTrustedPointerDown();
+    if (!pe.isTrusted) return;
+    // Trusted events are ordered: any earlier press is over, and the previous
+    // gesture's trailing click (if any) has already been dispatched. Disarming
+    // here keeps a rapid second click on the same element from being
+    // swallowed after the dedup window declines to capture it.
+    pressGate.onTrustedPointerDown();
+    lateClickSuppressor.onTrustedPointerDown();
+    if (pe.button !== 0 || !pe.isPrimary) return;
     if (session.paused || session.regionCapture?.isActive()) return;
-    if (pe.target instanceof Element && pe.target.closest('[data-stepmark-recording-toolbar]')) return;
+    // Stepmark's own UI (the toolbar, even while it is see-through during a
+    // capture) is never a step; its input reaches it untouched.
+    if (isExtensionOverlayEvent(pe)) return;
 
     // A pointerdown in a native scrollbar gutter is a scroll gesture, not a
     // step: leave it untouched so the drag scrolls and no bogus step lands.
@@ -257,41 +343,56 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     const el = preview.resolveTargetAt(pe.clientX, pe.clientY);
     if (!el) return;
 
+    // Event dispatch never waits for an async listener, so the gate takes the
+    // press over synchronously: page scripts stop seeing it while the
+    // browser's own default actions (caret, selection, native drag, slider)
+    // still run. Whether it becomes a step is decided on release.
+    const begun = pressGate.begin(pe, el);
+    if (begun.kind === 'continuation') return;
+    const { press } = begun;
     const now = Date.now();
-    const clientX = pe.clientX;
-    const clientY = pe.clientY;
-
-    // Event dispatch never waits for an async listener. Stop the original
-    // gesture synchronously regardless of whether it can start right away
-    // or has to wait its turn behind an earlier one still capturing; it is
-    // replayed once that turn comes either way.
-    pe.preventDefault();
-    pe.stopImmediatePropagation();
 
     gestureQueue.enqueue({
       captureId: crypto.randomUUID(),
       validate: () => el.isConnected,
-      onSkipped: () => replayClickWithSuppression(el, lateClickSuppressor),
+      onSkipped: () => pressGate.abandon(press),
       start: async (gesture) => {
         preview.suspend();
+        const kind = await Promise.race([
+          press.outcome,
+          gesture.cancelled.then(() => 'cancel' as const),
+        ]);
+        if (kind !== 'click') {
+          // A drag, selection or browser-taken gesture already went to the
+          // page natively; nothing is recorded or replayed.
+          pressGate.abandon(press);
+          gesture.release();
+          preview.schedule();
+          return;
+        }
+        let delivery: Promise<StepDelivery> | null = null;
         const outcome = await orchestrateStepCapture(
           makeStepOrchestrationHandlers(gesture, el, {
-            capture: () =>
-              captureElement(
+            capture: () => {
+              delivery = captureElement(
                 el,
-                clientX,
-                clientY,
+                press.clientX,
+                press.clientY,
                 isInteractiveElement(el) ? 'click' : 'mark',
                 now,
                 gesture.captureId,
                 gesture.isCancelled,
-              ),
-            replay: () => replayClickWithSuppression(el, lateClickSuppressor),
+              );
+              return delivery.then((result) => result === 'saved');
+            },
+            replay: () => pressGate.replay(press),
           }),
         );
+        if (outcome === 'cancelled') pressGate.abandon(press);
         if (outcome === 'timeout') {
           console.warn('[stepmark] capture exceeded its failsafe budget; invalidated it before replaying the click');
         }
+        reportStepDelivery(outcome, delivery);
       },
     });
   };
@@ -320,7 +421,10 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
         relayToken: relayed.payload.relayToken,
       } satisfies StepFrameRelayClaimMessage);
     } catch {
+      // The background is gone: the child frame's failsafe replays the click,
+      // but no step can be stored for it.
       gesture.release();
+      reportUnrecordedClick();
       return;
     }
     if (!isStepFrameRelayClaimResult(claimResult) || !claimResult.ok) {
@@ -359,19 +463,21 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
       const now = Date.now();
       preview.suspend();
       let replayConfirmed = false;
+      let delivery: Promise<StepDelivery> | null = null;
       const outcome = await orchestrateStepCapture(
         makeStepOrchestrationHandlers(gesture, relayed.frame, {
           capture: () => {
             // Pin the iframe's scrollable ancestor chain exactly like the
             // element path so the screenshot pixels match the relayed rect.
             setCaptureScrollLock(readScrollSnapshot(relayed.frame));
-            return capture.sendCapture(
+            delivery = capture.deliverStepCapture(
               rect,
               { text: claimResult.target.text, tagName: claimResult.target.tagName },
               claimResult.target.interactive ? 'click' : 'mark',
               now,
               gesture.captureId,
             );
+            return delivery.then((result) => result === 'saved');
           },
           replay: () => {
             // Settlement returns over extension runtime directly to the
@@ -385,6 +491,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
       if (outcome === 'timeout') {
         console.warn('[stepmark] child-frame capture exceeded its failsafe budget; invalidated it before replaying the click');
       }
+      reportStepDelivery(outcome, delivery);
     } catch (error) {
       gesture.release();
       await settleRelay(false);
@@ -416,10 +523,17 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     });
   };
 
-  const onStepFollowup = createStepFollowupHandler(lateClickSuppressor, {
-    isActive: () => gestureQueue.isBusy(),
-    cancel: () => gestureQueue.cancelActive(),
-  });
+  const onPressGateEvent = (event: Event) => pressGate.handleEvent(event);
+  const onWindowBlur = () => pressGate.handleBlur();
+
+  /** Toolbar commands apply after the clicks the user already made: an undo
+   * pressed right after a click must remove that click's step, and a pause
+   * must not reject a capture that is still in flight. Bounded so a stuck
+   * backlog can never swallow a command. */
+  const sendCommandAfterPendingSteps: typeof toolbar.sendCommand = async (action, undoToken) => {
+    await settleWithin(gestureQueue.whenIdle(), COMMAND_QUEUE_WAIT_MS);
+    return toolbar.sendCommand(action, undoToken);
+  };
 
   window.addEventListener('pointermove', preview.handlers.onPointerMove, { capture: true, passive: true });
   window.addEventListener('pointerout', preview.handlers.onPointerOut, { capture: true, passive: true });
@@ -430,12 +544,13 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
   window.addEventListener('message', onStepFrameClickMessage);
   document.addEventListener('visibilitychange', preview.handlers.onVisibilityChange);
   document.addEventListener('pointerdown', onPointerDown, { capture: true });
-  for (const type of STEP_FOLLOWUP_EVENTS) {
-    document.addEventListener(type, onStepFollowup, { capture: true });
+  for (const type of STEP_PRESS_GATE_EVENTS) {
+    document.addEventListener(type, onPressGateEvent, { capture: true });
   }
+  window.addEventListener('blur', onWindowBlur);
 
   session.toolbar = mountRecordingToolbar(initialToolbarState, {
-    onCommand: toolbar.sendCommand,
+    onCommand: sendCommandAfterPendingSteps,
     onStartRegionCapture: startStepRegionCapture,
   });
 
@@ -443,6 +558,7 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
   // resources: the entrypoint's cleanup owns their removal; this
   // uninstaller only detaches listeners.
   return () => {
+    removed = true;
     document.removeEventListener('pointerdown', onPointerDown, { capture: true });
     window.removeEventListener('pointermove', preview.handlers.onPointerMove, { capture: true });
     window.removeEventListener('pointerout', preview.handlers.onPointerOut, { capture: true });
@@ -452,17 +568,17 @@ export function installStepRecorder(deps: StepRecorderDeps): () => void {
     window.removeEventListener('resize', preview.schedule);
     window.removeEventListener('message', onStepFrameClickMessage);
     document.removeEventListener('visibilitychange', preview.handlers.onVisibilityChange);
-    for (const type of STEP_FOLLOWUP_EVENTS) {
-      document.removeEventListener(type, onStepFollowup, { capture: true });
+    for (const type of STEP_PRESS_GATE_EVENTS) {
+      document.removeEventListener(type, onPressGateEvent, { capture: true });
     }
-    // Matches the pre-queue behavior for whatever is actively capturing:
-    // just cancel it (its own settle path decides what that means) rather
-    // than forcing an early resolution. purgePending() is the actual fix
-    // here — it replays every queued-but-not-started press (already
-    // preventDefault()'d at pointerdown time) without recording it,
-    // instead of leaving it to hang.
+    window.removeEventListener('blur', onWindowBlur);
+    // Whatever is actively capturing is cancelled (its own settle path
+    // decides what that means); every queued-but-not-started press is handed
+    // back to the page without being recorded instead of left to hang, and a
+    // press still held gets its withheld pointerdown back.
     gestureQueue.cancelActive();
     gestureQueue.purgePending();
+    pressGate.clear();
     if (session.gestureQueue === gestureQueue) session.gestureQueue = null;
     lateClickSuppressor.clear();
     setCaptureScrollLock(null);

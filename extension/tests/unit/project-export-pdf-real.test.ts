@@ -116,6 +116,7 @@ describe('generateProjectPdf with the real pdf-lib', () => {
     // pdf-lib must be able to parse its own save() output.
     const loaded = await PDFDocument.load(bytes);
     expect(loaded.getPageCount()).toBe(entries.length);
+    expect(loaded.getTitle()).toBe('安裝指南 Setup Project 🚀');
     for (let index = 0; index < loaded.getPageCount(); index++) {
       const { width, height } = loaded.getPage(index).getSize();
       expect(width).toBeCloseTo(595.28, 2);

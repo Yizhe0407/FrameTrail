@@ -35,6 +35,7 @@ const storage = vi.hoisted(() => {
     emit(state: any) { listener?.(state); },
   };
 });
+const changes = vi.hoisted(() => ({ listeners: new Set<() => void>() }));
 const downloads = vi.hoisted(() => ({ download: vi.fn() }));
 const archive = vi.hoisted(() => ({
   exportProjectArchive: vi.fn(),
@@ -54,7 +55,16 @@ vi.mock('@/lib/project/project-actions', () => projectActions);
 vi.mock('@/lib/storage/storage', () => storage);
 vi.mock('@/lib/export/project-archive-serialize', () => ({ exportProjectArchive: archive.exportProjectArchive }));
 vi.mock('@/lib/export/project-archive-import', () => ({ importProjectArchive: archive.importProjectArchive }));
-vi.mock('@/lib/export/project-archive-contract', () => ({ PROJECT_ARCHIVE_LIMITS: archive.PROJECT_ARCHIVE_LIMITS }));
+vi.mock('@/lib/export/project-archive-contract', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/export/project-archive-contract')>()),
+  PROJECT_ARCHIVE_LIMITS: archive.PROJECT_ARCHIVE_LIMITS,
+}));
+vi.mock('@/lib/storage/change-notifier', () => ({
+  subscribeProjectsChanged: (listener: () => void) => {
+    changes.listeners.add(listener);
+    return () => changes.listeners.delete(listener);
+  },
+}));
 vi.mock('wxt/browser', async () => {
   const { makeExtensionPageRuntimeMock } = await import('../setup/browser-mocks');
   return {
@@ -63,6 +73,7 @@ vi.mock('wxt/browser', async () => {
 });
 
 import LibraryApp from '@/entrypoints/library/App';
+import { ProjectArchiveError } from '@/lib/export/project-archive-contract';
 
 const project = {
   id: 'project-1',
@@ -330,6 +341,43 @@ describe('專案庫', () => {
     expect(screen.getByDisplayValue(project.title)).toBeTruthy();
     expect(database.createProjectFromSteps).not.toHaveBeenCalled();
     expect(database.getProjectSummaries).toHaveBeenCalledOnce();
+  });
+
+  it('匯入的 .stepmark 錯誤依 code 顯示在地化訊息，而不是英文原文', async () => {
+    silenceIntentionalErrorLogs();
+    archive.importProjectArchive.mockRejectedValue(
+      new ProjectArchiveError('INVALID_JSON', 'The project archive is not valid JSON.'),
+    );
+    render(<LibraryApp />);
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    await waitFor(() => expect((screen.getByRole('button', { name: '匯入' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(input!, { target: { files: [new File(['broken'], 'broken.stepmark')] } });
+
+    const alert = (await screen.findByRole('alert')).textContent ?? '';
+    expect(alert).toContain('專案檔案的內容無法讀取');
+    expect(alert).not.toContain('not valid JSON');
+  });
+
+  it('隱藏的檔案輸入不在 Tab 順序也不在無障礙樹中', async () => {
+    render(<LibraryApp />);
+    await screen.findByDisplayValue(project.title);
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.tabIndex).toBe(-1);
+    expect(input.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('其他頁面寫入專案後即時更新專案庫（例如錄製後的畫面數）', async () => {
+    render(<LibraryApp />);
+    await screen.findByDisplayValue(project.title);
+    expect(screen.getByText('2 個畫面', { exact: false })).toBeTruthy();
+    expect(changes.listeners.size).toBeGreaterThan(0);
+
+    database.getProjectSummaries.mockResolvedValue([{ ...project, entryCount: 5, stepCount: 5 }]);
+    act(() => changes.listeners.forEach((listener) => listener()));
+
+    await waitFor(() => expect(screen.getByText('5 個畫面', { exact: false })).toBeTruthy());
   });
 
   it('同一事件迴圈內不會啟動兩個重疊的專案庫寫入', async () => {

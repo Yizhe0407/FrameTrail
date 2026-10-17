@@ -4,7 +4,8 @@ import path from 'node:path';
 import { chromium, expect, test as base, type BrowserContext, type Page, type Worker } from '@playwright/test';
 import { preparedExtensionPath } from './paths';
 
-export const FIXTURE_URL = 'http://127.0.0.1:4175/';
+export const FIXTURE_PORT = Number(process.env.E2E_PORT ?? 4175);
+export const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_PORT}/`;
 
 const isWelcomePage = (page: Page) => page.url().endsWith('/welcome.html');
 

@@ -253,6 +253,54 @@ describe('continuation recording start', () => {
   });
 });
 
+describe('continuation from a source page that no longer loads', () => {
+  const SOURCE_URL = 'https://persisted.example/path?fresh=1#target';
+
+  it('closes the tab it opened and reports a dedicated code instead of a failed recording', async () => {
+    mocks.permissionsContains.mockResolvedValue(true);
+    mocks.tabsQuery.mockResolvedValue([]);
+    mocks.tabsCreate.mockResolvedValue({ id: 12, windowId: 5, url: SOURCE_URL, status: 'loading' });
+    // Chrome keeps the failed URL in tab.url; only scripting reveals the error page.
+    mocks.tabsGet.mockResolvedValue({ id: 12, windowId: 5, url: SOURCE_URL, status: 'complete' });
+    mocks.tabsRemove.mockResolvedValue(undefined);
+    mocks.executeScript.mockRejectedValue(new Error('Frame with ID 0 is showing error page'));
+
+    const result = await send<StartRecordingResult>({
+      type: 'START_RECORDING',
+      sessionId: 'project-a',
+      mode: 'steps',
+      continuation: {},
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'SOURCE_PAGE_UNREACHABLE',
+      error: '無法載入原本的頁面，未開始錄製。請確認網路連線，或改在其他頁面接續錄製。',
+    });
+    expect(mocks.tabsRemove).toHaveBeenCalledWith(12);
+    expect(mocks.tabsUpdate).not.toHaveBeenCalled();
+    expect(mocks.setRecordingState).not.toHaveBeenCalled();
+  });
+
+  it('recognizes a tab already showing chrome-error:// and leaves a reused tab open', async () => {
+    const errorTab = { id: 11, windowId: 5, url: SOURCE_URL, status: 'complete' };
+    mocks.permissionsContains.mockResolvedValue(true);
+    mocks.tabsQuery.mockResolvedValue([errorTab]);
+    mocks.tabsGet.mockResolvedValue({ ...errorTab, url: 'chrome-error://chromewebdata/' });
+
+    const result = await send<StartRecordingResult>({
+      type: 'START_RECORDING',
+      sessionId: 'project-a',
+      mode: 'steps',
+      continuation: {},
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'SOURCE_PAGE_UNREACHABLE' });
+    expect(mocks.tabsRemove).not.toHaveBeenCalled();
+    expect(mocks.setRecordingState).not.toHaveBeenCalled();
+  });
+});
+
 describe('background source-permission preflight', () => {
   it('rejects a forged editor/session before reading a recapture target', async () => {
     const result = await send<PreflightStepRecaptureSourcePermissionResult>({

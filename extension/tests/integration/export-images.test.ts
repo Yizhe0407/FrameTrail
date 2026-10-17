@@ -116,11 +116,21 @@ describe('image export', () => {
     pending.redactions = [{ id: 'mask', kind: 'solid', bounds: { x: 1, y: 2, width: 3, height: 4 } }];
     pending.redactionReviewRequired = true;
 
+    await expect(exportImagesAsZip([step(1), pending])).rejects.toMatchObject({
+      name: 'RedactionReviewRequiredError',
+      ordinals: [2],
+    });
     await expect(exportImagesAsZip([pending])).rejects.toBeInstanceOf(RedactionReviewRequiredError);
     expect(mocks.composite).not.toHaveBeenCalled();
     expect(mocks.download).not.toHaveBeenCalled();
   });
 
+
+  it('resolves null without downloading when no entry can be exported', async () => {
+    await expect(exportImagesAsZip([])).resolves.toBeNull();
+    await expect(exportImagesAsZip([{ ...step(0), screenshotBlob: undefined }])).resolves.toBeNull();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
 
   it('rejects an excessive image count before compositing or creating a download', async () => {
     const steps = Array.from({ length: IMAGE_ZIP_EXPORT_LIMITS.maxEntries + 1 }, (_, index) => step(index));

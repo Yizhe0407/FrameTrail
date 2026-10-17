@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { cn } from '@/lib/shared/utils';
 import { t } from '@/lib/shared/i18n';
-import type { TextEdit } from '@/lib/storage/image-edit-model';
+import { IMAGE_EDIT_LIMITS, type TextEdit } from '@/lib/storage/image-edit-model';
 import {
   clientToImagePoint,
   type ImageCssSize,
@@ -130,6 +130,8 @@ function TextEditor({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const finished = useRef(false);
+  // Storage keeps text up to a limit; the box refuses more instead of the save dropping the whole item.
+  const [atLimit, setAtLimit] = useState(item.text.length >= IMAGE_EDIT_LIMITS.maxTextLength);
   const finish = (text: string | null) => {
     if (finished.current) return;
     finished.current = true;
@@ -151,14 +153,21 @@ function TextEditor({
   };
   useLayoutEffect(grow, [scale, item.fontSize, item.bounds.width]);
 
+  const left = percent(item.bounds.x, size.width);
+  const top = percent(item.bounds.y, size.height);
   return (
+    <>
     <textarea
       ref={ref}
       data-stepmark-text-editor
       defaultValue={item.text}
+      maxLength={IMAGE_EDIT_LIMITS.maxTextLength}
       aria-label={t().editor.imageEdit.textInput}
       rows={1}
-      onInput={grow}
+      onInput={(event) => {
+        grow();
+        setAtLimit(event.currentTarget.value.length >= IMAGE_EDIT_LIMITS.maxTextLength);
+      }}
       onBlur={(event) => finish(event.currentTarget.value)}
       onKeyDown={(event) => {
         if (event.nativeEvent.isComposing) return;
@@ -173,8 +182,8 @@ function TextEditor({
       }}
       className="absolute m-0 box-border resize-none overflow-hidden rounded-sm border-2 border-dashed border-focus bg-black/25 p-0 outline-none"
       style={{
-        left: percent(item.bounds.x, size.width),
-        top: percent(item.bounds.y, size.height),
+        left,
+        top,
         width: percent(item.bounds.width, size.width),
         fontFamily: IMAGE_EDIT_FONT_FAMILY,
         fontWeight: IMAGE_EDIT_FONT_WEIGHT,
@@ -183,6 +192,17 @@ function TextEditor({
         color: item.color,
       }}
     />
+    {atLimit && (
+      <span
+        role="status"
+        data-stepmark-text-limit
+        className="pointer-events-none absolute -translate-y-full rounded-sm bg-card px-1.5 py-0.5 text-xs font-bold text-foreground shadow"
+        style={{ left, top }}
+      >
+        {t().editor.imageEdit.textLimitReached(IMAGE_EDIT_LIMITS.maxTextLength)}
+      </span>
+    )}
+    </>
   );
 }
 
@@ -219,6 +239,9 @@ export default function ImageEditLayer({
   const [scale, setScale] = useState(1);
   const lastDownRef = useRef<{ id: string; time: number } | null>(null);
   const activeTool = imageEditTool(tool);
+  /** A drawing tool draws, even when the press lands on something already there: only the
+   * pointer moves items. (The crop tool is the exception: it works on the one crop.) */
+  const drawsOverItems = activeTool.create !== undefined && tool !== 'crop';
 
   // Screen pixels per screenshot CSS pixel: the text editor needs it to match the on-screen text size.
   useLayoutEffect(() => {
@@ -253,8 +276,18 @@ export default function ImageEditLayer({
     chrome.find((element) => element.dataset.stepmarkEditItem === id)?.focus({ preventScroll: true });
   }
 
+  function beginCreate(event: PointerEvent) {
+    onSelect(null);
+    begin(event, { mode: 'create', tool: activeTool, origin: pointFromEvent(event) });
+  }
+
   function beginMove(event: PointerEvent, item: ImageEditItem) {
     if (disabled) return;
+    if (drawsOverItems) {
+      // Items let presses through to the image while drawing; should one still land here, it draws too.
+      beginCreate(event);
+      return;
+    }
     onSelect(item.id);
     focusItem(item.id);
     // The layer captures the pointer, which retargets click events to itself, so a
@@ -273,12 +306,12 @@ export default function ImageEditLayer({
 
   function handleLayerPointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
-    onSelect(null);
     if (!activeTool.create) {
+      onSelect(null);
       onPanStart?.(event);
       return;
     }
-    begin(event, { mode: 'create', tool: activeTool, origin: pointFromEvent(event) });
+    beginCreate(event);
   }
 
   /** What the gesture produces with the pointer at `point`; Shift reshapes it. */
@@ -378,6 +411,8 @@ export default function ImageEditLayer({
     const isCrop = item.kind === 'crop';
     // The crop tool is modal: only the crop can be touched, and the crop can only be touched in it.
     const inert = tool === 'crop' ? !isCrop : isCrop;
+    // Drawing tools reach through items to the image beneath (the selected item's handles stay usable).
+    const passThrough = inert || drawsOverItems;
     const selected = isCrop ? tool === 'crop' : item.id === selectedId;
     const isNew = isNewDraft && draft?.id === item.id;
     const strokeOnly = isStrokeHit(item);
@@ -394,7 +429,7 @@ export default function ImageEditLayer({
         data-stepmark-edit-kind={item.kind}
         className={cn(
           'absolute box-border outline-none',
-          (strokeOnly || inert) && 'pointer-events-none',
+          (strokeOnly || passThrough) && 'pointer-events-none',
           round && 'rounded-full',
           item.kind === 'arrow'
             ? ''
@@ -403,7 +438,7 @@ export default function ImageEditLayer({
               : selected || isNew
                 ? 'border-2 border-focus'
                 : 'border-2 border-transparent hover:border-dashed hover:border-focus/70',
-          !disabled && !strokeOnly && !inert && 'cursor-move',
+          !disabled && !strokeOnly && !passThrough && 'cursor-move',
         )}
         style={boxStyle(item, size)}
         onPointerDown={(event) => beginMove(event, item)}
@@ -454,7 +489,7 @@ export default function ImageEditLayer({
         preserveAspectRatio="none"
         aria-hidden="true"
       >
-        {hitSvgItems.filter(() => tool !== 'crop').map((item) => {
+        {hitSvgItems.filter(() => tool !== 'crop' && !drawsOverItems).map((item) => {
           const hit = {
             fill: 'none',
             stroke: 'transparent',

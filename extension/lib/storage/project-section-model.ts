@@ -1,3 +1,5 @@
+import { normalizeStoredLine } from './stored-text';
+
 export interface ProjectSection {
   id: string;
   title: string;
@@ -11,14 +13,12 @@ export const PROJECT_SECTION_LIMITS = Object.freeze({
   maxTitleLength: 200,
 });
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
-
 /**
  * Section titles are display-only text. Remove all control characters (including
  * newlines/tabs), trim surrounding whitespace, and cap storage/rendering cost.
  */
 export function sanitizeProjectSectionTitle(value: unknown): string {
   return typeof value === 'string'
-    ? value.replace(CONTROL_CHARACTERS, '').trim().slice(0, PROJECT_SECTION_LIMITS.maxTitleLength)
+    ? normalizeStoredLine(value).trim().slice(0, PROJECT_SECTION_LIMITS.maxTitleLength)
     : '';
 }

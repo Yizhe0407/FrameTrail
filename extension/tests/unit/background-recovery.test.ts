@@ -100,8 +100,29 @@ describe('service-worker startup recovery for recording runs', () => {
     });
   });
 
-  it('settles a persisted run whose tab id now names a restricted page', async () => {
+  it('keeps a steps run waiting when the worker restarts while its tab shows a restricted page', async () => {
+    // The worker idles out while the run waits on a browser page (no recorder there keeps it alive); waking up must not end the run.
     mocks.getRecordingState.mockResolvedValue(recordingState());
+    mocks.permissionsContains.mockResolvedValue(true);
+    mocks.tabsGet.mockResolvedValue({ id: 4, url: 'chrome://newtab/' });
+
+    await importBackground();
+
+    await vi.waitFor(() => {
+      expect(mocks.setRecordingState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isRecording: true,
+          phase: 'recording',
+          tabId: 4,
+          recoverableError: expect.objectContaining({ code: 'RECORDING_WAITING_RESTRICTED_PAGE' }),
+        }),
+      );
+    });
+    expect(mocks.setRecordingState).not.toHaveBeenCalledWith(expect.objectContaining({ isRecording: false }));
+  });
+
+  it('settles a snapshot run whose tab id now names a restricted page', async () => {
+    mocks.getRecordingState.mockResolvedValue(recordingState({ mode: 'snapshot', phase: 'preparing-next' }));
     mocks.tabsGet.mockResolvedValue({ id: 4, url: 'chrome://newtab/' });
 
     await importBackground();
@@ -114,6 +135,28 @@ describe('service-worker startup recovery for recording runs', () => {
         }),
       );
     });
+  });
+
+  it('hands a following run to the active tab when its tab closed while the worker was down', async () => {
+    let stored = recordingState();
+    mocks.getRecordingState.mockImplementation(async () => stored);
+    mocks.setRecordingState.mockImplementation(async (next: RecordingState) => {
+      stored = next;
+    });
+    mocks.permissionsContains.mockResolvedValue(true);
+    mocks.executeScript.mockResolvedValue([]);
+    const activeTab = { id: 9, windowId: 1, active: true, url: 'https://example.com/other' };
+    mocks.tabsQuery.mockResolvedValue([activeTab]);
+    mocks.tabsGet.mockImplementation(async (tabId: number) => {
+      if (tabId === 9) return activeTab;
+      throw new Error(`No tab with id: ${tabId}.`);
+    });
+
+    await importBackground();
+
+    await vi.waitFor(() => expect(stored.tabId).toBe(9));
+    expect(stored).toMatchObject({ isRecording: true, runId: 'run-1', phase: 'recording' });
+    expect(mocks.executeScript).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 9, allFrames: true } }));
   });
 
   it('keeps a run whose recorded tab is still intact', async () => {

@@ -6,8 +6,9 @@ import type { BackupDirectory } from './directory-handle';
  * device-local state, and keeping it out of the main schema means turning
  * backup on never needs a project-database migration. */
 export interface BackupManifestEntry {
-  /** Project.updatedAt that the file on disk reflects. */
-  updatedAt: number;
+  /** Project.contentRevision that the file on disk reflects. Entries written
+   * before revisions were tracked carry only `updatedAt` and so never match. */
+  contentRevision: number;
   filename: string;
   backedUpAt: number;
 }
@@ -17,6 +18,8 @@ export interface BackupLastRun {
   written: number;
   failed: number;
   error: string | null;
+  /** Absent in runs saved before failures were named. */
+  failedTitles?: string[];
 }
 
 export interface BackupConfig {

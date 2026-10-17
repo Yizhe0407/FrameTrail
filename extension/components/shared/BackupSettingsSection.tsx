@@ -5,6 +5,15 @@ import { Button } from '@/components/ui/button';
 import { useFolderBackup } from '@/lib/backup/use-folder-backup';
 import { intlLocale, t } from '@/lib/shared/i18n';
 
+const MAX_NAMED_FAILURES = 3;
+
+/** The failed projects' titles, capped so one broken folder cannot fill the card. */
+function failedNames(run: { failedTitles?: string[] }): string {
+  const titles = run.failedTitles ?? [];
+  const shown = titles.slice(0, MAX_NAMED_FAILURES).map((title) => `“${title}”`).join(', ');
+  return titles.length > MAX_NAMED_FAILURES ? `${shown}…` : shown;
+}
+
 /** Settings card for automatic folder backup: choose a folder once, then every
  * change is saved there as a .stepmark file. */
 export default function BackupSettingsSection() {
@@ -65,7 +74,7 @@ export default function BackupSettingsSection() {
 
       {backup.error && <p role="alert" className="text-sm text-danger">{copy.failed}</p>}
       {backup.lastRun && backup.lastRun.failed > 0 && !backup.error && (
-        <p role="alert" className="text-sm text-danger">{copy.someFailed(backup.lastRun.failed)}</p>
+        <p role="alert" className="text-sm text-danger">{copy.someFailed(backup.lastRun.failed, failedNames(backup.lastRun))}</p>
       )}
       <p className="text-xs leading-relaxed text-muted-foreground">{copy.privacy}</p>
       <ConfirmationDialog

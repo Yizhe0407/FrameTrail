@@ -129,6 +129,7 @@ vi.mock('@/components/editor/UndoSnackbar', () => ({ default: () => null }));
 vi.mock('@/components/editor/PublishProjectDialog', () => ({ default: () => null }));
 
 import EditorApp from '@/entrypoints/editor/App';
+import { notifyProjectsChanged } from '@/lib/storage/change-notifier';
 // Resolves to the mocked module above, so `instanceof` in the handoff matches.
 import { DraftConfirmationRequiredError } from '@/lib/editor/editor-autosave';
 
@@ -188,6 +189,7 @@ const project = {
     { id: 'section-1', title: '準備', startEntryId: 'entry-1' },
     { id: 'section-2', title: '完成', startEntryId: 'entry-3' },
   ],
+  tags: [],
   createdAt: 1,
   updatedAt: 2,
   contentRevision: 7,
@@ -389,6 +391,43 @@ describe('Editor App structure wiring', () => {
     expect(recordingSession.useRecordingSession).not.toHaveBeenCalledWith(undefined);
     expect(database.getProject).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('StepRail test double')).toBeNull();
+  });
+});
+
+describe('Editor App and changes from other tabs', () => {
+  it('locks editing and says so when the Project is deleted in another tab', async () => {
+    render(<EditorApp />);
+    await waitFor(() => expect(screen.getByLabelText('StepStage test double').getAttribute('data-editing-disabled')).toBe('false'));
+
+    database.getProject.mockResolvedValue(undefined);
+    notifyProjectsChanged();
+
+    expect(await screen.findByText(/專案已被刪除/)).toBeTruthy();
+    expect(screen.getByLabelText('StepStage test double').getAttribute('data-editing-disabled')).toBe('true');
+    await expect(rendered.stepStageProps.onAddTag('新標籤')).rejects.toThrow();
+    expect(database.updateProject).not.toHaveBeenCalled();
+  });
+
+  it('shows a title another tab saved', async () => {
+    render(<EditorApp />);
+    await waitFor(() => expect(rendered.stepStageProps?.projectTitle).toBe('結構測試教學'));
+
+    database.getProject.mockResolvedValue({ ...project, title: '別的分頁改的標題', contentRevision: 99 });
+    notifyProjectsChanged();
+
+    await waitFor(() => expect(rendered.stepStageProps.projectTitle).toBe('別的分頁改的標題'));
+  });
+
+  it('sends tag edits as single add/remove operations', async () => {
+    database.updateProject.mockResolvedValue({ ...project, tags: ['新標籤'], contentRevision: 8 });
+    render(<EditorApp />);
+    await waitFor(() => expect(rendered.stepStageProps).not.toBeNull());
+
+    await act(() => rendered.stepStageProps.onAddTag('新標籤'));
+    await act(() => rendered.stepStageProps.onRemoveTag('舊標籤'));
+
+    expect(database.updateProject).toHaveBeenNthCalledWith(1, 'project-1', { addTags: ['新標籤'] });
+    expect(database.updateProject).toHaveBeenNthCalledWith(2, 'project-1', { removeTags: ['舊標籤'] });
   });
 });
 

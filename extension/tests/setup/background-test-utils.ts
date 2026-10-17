@@ -17,8 +17,9 @@ export function makeBackgroundMocks() {
     tabActivatedListener: null as null | ((info: { tabId: number; windowId: number }) => void),
     tabUpdatedListener: null as
       | null
-      | ((tabId: number, changeInfo: { status?: string; url?: string }, tab: { id?: number; url?: string }) => void),
+      | ((tabId: number, changeInfo: { status?: string; url?: string }, tab: { id?: number; url?: string; active?: boolean }) => void),
     windowFocusListener: null as null | ((windowId: number) => void),
+    tabRemovedListener: null as null | ((tabId: number) => void),
     getProject: vi.fn(),
     getStep: vi.fn(),
     getSteps: vi.fn(),
@@ -84,6 +85,9 @@ export async function mockWxtBrowserModule(
       },
       onWindowFocusChanged: (listener) => {
         mocks.windowFocusListener = listener;
+      },
+      onTabRemoved: (listener) => {
+        mocks.tabRemovedListener = listener;
       },
       permissionsContains: mocks.permissionsContains,
       permissionsRequest: mocks.permissionsRequest,

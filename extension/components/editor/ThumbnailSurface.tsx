@@ -11,6 +11,10 @@ interface Props {
    * (privacy review pending, or redaction positions not yet remapped). */
   showPixels: boolean;
   privacyReviewRequired: boolean;
+  /** False only in the image editor, where `url` is the stored screenshot with
+   * masks drawn on top: the image then refuses to be dragged out or opened
+   * from the context menu, which would bypass those masks. */
+  masksBurnedIn: boolean;
   alt: string;
   fit: 'cover' | 'contain';
   loading: 'lazy' | 'eager';
@@ -41,6 +45,7 @@ export default function ThumbnailSurface({
   imgRef,
   showPixels,
   privacyReviewRequired,
+  masksBurnedIn,
   alt,
   fit,
   loading,
@@ -68,6 +73,8 @@ export default function ThumbnailSurface({
           alt={privacyReviewRequired ? '' : alt}
           aria-hidden={privacyReviewRequired || undefined}
           onLoad={onImageLoad}
+          draggable={false}
+          onContextMenu={masksBurnedIn ? undefined : (event) => event.preventDefault()}
           className={cn('block', imgClassName ?? defaultImgClass)}
           style={{
             ...(imgClassName ? { objectFit: fit } : fit === 'cover' ? { objectFit: 'cover' } : {}),

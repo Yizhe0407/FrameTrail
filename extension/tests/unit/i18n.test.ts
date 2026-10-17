@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { en } from '@/lib/shared/i18n/messages/en';
 import { zhTW } from '@/lib/shared/i18n/messages/zh-TW';
-import { getLocale, intlLocale, messagesFor, resolveLocale, setLocale, t } from '@/lib/shared/i18n';
+import { applyLocalePreference, getLocale, intlLocale, messagesFor, resolveLocale, setLocale, t } from '@/lib/shared/i18n';
 import { defaultProjectTitle, isDefaultProjectTitle } from '@/lib/storage/models';
 
 const CJK = /[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]/;
@@ -69,6 +69,24 @@ describe('active locale', () => {
     setLocale('zh-TW');
     expect(t().common.startRecording).toBe('開始錄製');
     expect(messagesFor('en').common.startRecording).toBe('Start recording');
+  });
+
+  it("resolves 'auto' against the browser language when copy is produced, not once at load", () => {
+    // A long-lived service worker must not keep whatever language it saw first.
+    const getUILanguage = vi.fn(() => 'zh-TW');
+    vi.stubGlobal('chrome', { i18n: { getUILanguage } });
+    try {
+      applyLocalePreference('auto');
+      expect(getLocale()).toBe('zh-TW');
+      getUILanguage.mockReturnValue('en-US');
+      expect(getLocale()).toBe('en');
+      expect(t().common.startRecording).toBe('Start recording');
+      // A fixed choice still wins over the browser language.
+      applyLocalePreference('zh-TW');
+      expect(t().common.startRecording).toBe('開始錄製');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('recognizes an untitled placeholder written under any locale', () => {

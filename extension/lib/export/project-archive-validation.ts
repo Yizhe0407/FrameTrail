@@ -11,13 +11,14 @@ import {
   type ShapeFill,
   type TextLook,
 } from '../storage/image-edit-model';
-import { RasterImageValidationError, validateRasterImageBlob } from '../capture/raster-image-validation';
+import { screenshotBlobProblem, screenshotProblem } from '../storage/screenshot-rules';
 import {
   repairProjectSections,
   sanitizeProjectSectionTitle,
   type ProjectSection,
 } from '../project/project-sections';
 import { sanitizeProjectTag } from '../storage/project-tag-model';
+import { isStoredText } from '../storage/stored-text';
 import {
   BASE64_VALUES,
   BOUNDS_KEYS,
@@ -27,7 +28,6 @@ import {
   PROJECT_ARCHIVE_LIMITS,
   REDACTION_KEYS,
   RUNTIME_STEP_KEYS,
-  SAFE_SCREENSHOT_MEDIA_TYPES,
   SECTION_KEYS,
   ProjectArchiveError,
   type ArchiveMetadata,
@@ -117,8 +117,8 @@ export function expectIdentifier(value: unknown, path: string): string {
 
 function expectText(value: unknown, path: string, maximumLength: number): string {
   const text = expectString(value, path, maximumLength);
-  // Keep ordinary editing whitespace while rejecting NUL and non-text controls.
-  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(text)) {
+  // The same rule storage normalizes with, so every stored text is exportable.
+  if (!isStoredText(text)) {
     fail('INVALID_ARCHIVE', `${path} contains invalid control characters.`);
   }
   return text;
@@ -522,6 +522,9 @@ export function validateRuntimeStep(stepValue: unknown, path: string): Step {
   if (hasOwn(record, 'captureRevision') && record.captureRevision !== undefined) {
     step.captureRevision = expectSafeInteger(record.captureRevision, `${path}.captureRevision`);
   }
+  if (hasOwn(record, 'imageEditRevision') && record.imageEditRevision !== undefined) {
+    step.imageEditRevision = expectSafeInteger(record.imageEditRevision, `${path}.imageEditRevision`);
+  }
   const lastCaptureRunId = expectOptionalString(record, 'lastCaptureRunId', path);
   if (lastCaptureRunId !== undefined) step.lastCaptureRunId = lastCaptureRunId;
   const groupId = expectOptionalString(record, 'groupId', path);
@@ -531,22 +534,16 @@ export function validateRuntimeStep(stepValue: unknown, path: string): Step {
   return step;
 }
 
+// Screenshots follow the same rule storage enforces on write (screenshot-rules),
+// so a stored project is always exportable.
 function validateScreenshotBlob(blob: Blob, path: string): void {
-  if (blob.size <= 0 || blob.size > PROJECT_ARCHIVE_LIMITS.maxScreenshotBytes) {
-    fail('INVALID_BLOB', `${path} must contain between 1 and ${PROJECT_ARCHIVE_LIMITS.maxScreenshotBytes} bytes.`);
-  }
-  if (!SAFE_SCREENSHOT_MEDIA_TYPES.has(blob.type)) {
-    fail('INVALID_BLOB', `${path} has unsupported media type ${JSON.stringify(blob.type)}.`);
-  }
+  const problem = screenshotBlobProblem(blob);
+  if (problem) fail('INVALID_BLOB', `${path} ${problem}.`);
 }
 
 export async function validateScreenshotRaster(blob: Blob, path: string): Promise<void> {
-  try {
-    await validateRasterImageBlob(blob);
-  } catch (error) {
-    if (error instanceof RasterImageValidationError) fail('INVALID_BLOB', `${path}: ${error.message}`);
-    throw error;
-  }
+  const problem = await screenshotProblem(blob);
+  if (problem) fail('INVALID_BLOB', `${path}: ${problem}`);
 }
 
 function decodedBase64Size(data: string, path: string): number {

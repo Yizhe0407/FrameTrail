@@ -30,10 +30,13 @@ const server = createServer(async (request, response) => {
 
   try {
     if (!(await stat(filePath)).isFile()) throw new Error('Not a file');
-    const body = await readFile(filePath);
+    const extension = path.extname(filePath);
+    const file = await readFile(filePath);
+    // Pages embed the server's own port in cross-origin frame URLs, so it has to follow E2E_PORT.
+    const body = extension === '.html' ? file.toString('utf8').replaceAll('__FIXTURE_PORT__', String(port)) : file;
     response.writeHead(200, {
       'cache-control': 'no-store',
-      'content-type': contentTypes.get(path.extname(filePath)) ?? 'application/octet-stream',
+      'content-type': contentTypes.get(extension) ?? 'application/octet-stream',
     });
     response.end(body);
   } catch {

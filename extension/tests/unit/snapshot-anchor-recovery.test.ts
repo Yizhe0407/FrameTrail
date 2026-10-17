@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RecordingState } from '@/lib/storage/recording-state';
 import { makeRecordingState } from '../setup/recording-state';
 import { flushAsyncWork, importBackground } from '../setup/background-test-utils';
+import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import { type Step } from '@/lib/storage/models';
 
 const mocks = await vi.hoisted(async () => (await import('../setup/background-test-utils')).makeBackgroundMocks());
@@ -282,5 +283,28 @@ describe('empty-anchor cleanup ordering in finishRecording', () => {
     const stopOrder = mocks.setRecordingState.mock.invocationCallOrder[stopWriteIndex];
     const deleteOrder = mocks.deleteStep.mock.invocationCallOrder[0];
     expect(stopOrder).toBeLessThan(deleteOrder);
+  });
+});
+
+describe('annotation failures shown to the user', () => {
+  it('stores the localized reason verbatim, never as "Error: …"', async () => {
+    const { zhTW } = await import('@/lib/shared/i18n/messages/zh-TW');
+    let stored = snapshotState();
+    mocks.getRecordingState.mockImplementation(async () => stored);
+    mocks.setRecordingState.mockImplementation(async (next: RecordingState) => {
+      stored = next;
+    });
+    // The anchor was taken on another page than the one the click comes from.
+    mocks.getStep.mockResolvedValue(anchorStep());
+    mocks.getSteps.mockResolvedValue([anchorStep({ url: 'https://site.example/other' })]);
+    silenceIntentionalErrorLogs();
+
+    await importBackground();
+    await flushAsyncWork();
+    const result = await mocks.messageListener?.(clickMessage(), recordedPageSender);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(stored.error).toBe(zhTW.background.annotationSkippedPageChanged);
+    expect(stored.recoverableError?.message).toBe(zhTW.background.annotationSkippedPageChanged);
   });
 });

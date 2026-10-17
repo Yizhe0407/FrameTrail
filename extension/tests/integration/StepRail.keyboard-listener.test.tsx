@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { useState } from 'react';
-import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installStepRailDomStubs, removeStepRailDomStubs } from '../setup/step-rail-dom';
 import StepRail from '@/components/editor/StepRail';
@@ -84,5 +84,30 @@ describe('StepRail arrow-key listener stability', () => {
     fireEvent.keyDown(window, { key: 'ArrowUp' });
 
     expect(selected).toEqual(['step-2', 'step-3', 'step-2']);
+  });
+
+  it('reorders a step from the keyboard without the rail arrow handler also changing the selection', async () => {
+    // jsdom has no layout; give each row a distinct vertical slot so the
+    // sortable keyboard coordinates can tell which neighbour is "below".
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const row = this.closest('li');
+      const index = row ? Array.from(row.parentElement?.children ?? []).indexOf(row) : 0;
+      const top = index * 100;
+      return { x: 0, y: top, top, bottom: top + 90, left: 0, right: 200, width: 200, height: 90, toJSON: () => ({}) } as DOMRect;
+    });
+    const onSelect = vi.fn();
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    render(<StepRail entries={ENTRIES} selectedEntryId="step-1" onSelect={onSelect} onReorder={onReorder} />);
+
+    const handle = screen.getAllByRole('button', { name: '拖曳排序' })[0];
+    handle.focus();
+    fireEvent.keyDown(handle, { code: 'Space', key: ' ' });
+    await waitFor(() => expect(handle.getAttribute('aria-pressed')).toBe('true'));
+    fireEvent.keyDown(document, { code: 'ArrowDown', key: 'ArrowDown' });
+    fireEvent.keyDown(document, { code: 'Space', key: ' ' });
+
+    await waitFor(() => expect(onReorder).toHaveBeenCalledOnce());
+    expect(onReorder.mock.calls[0][0].map((entry: { step: { id: string } }) => entry.step.id)).toEqual(['step-2', 'step-1', 'step-3']);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

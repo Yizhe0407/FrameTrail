@@ -66,7 +66,7 @@ export const en: Messages = {
       paused: 'Automatic backup is paused: allow access to the backup folder again.',
       unsupported: 'This browser doesn’t support automatic backup. Use Export in the library to back up by hand.',
       failed: 'That didn’t work. Please try again.',
-      someFailed: (count: number) => `${count} project(s) failed to back up and will be retried. Check that the folder still exists and can be written to.`,
+      someFailed: (count: number, names: string) => `${count} project(s) failed to back up and will be retried${names ? `: ${names}` : ''}. Check that the folder still exists and can be written to.`,
       privacy: 'Backup files contain unmasked original screenshots, so keep the folder somewhere only you can access. To restore, use Import in the library and choose a file from the backup folder. Deleting a project keeps its backup file.',
     },
   },
@@ -151,6 +151,19 @@ export const en: Messages = {
     exportStarted: (title: string) => `Downloading the editable file for “${title}”.`,
     importTooLarge: 'This file is over the 128 MB import limit.',
     importedFallbackTitle: 'Imported project',
+    archiveErrors: {
+      ARCHIVE_TOO_LARGE: 'This project file is over the 128 MB safety limit.',
+      BROKEN_GROUP_REFERENCE: 'The project file’s step groups are damaged.',
+      DUPLICATE_ID: 'The project file contains duplicate steps and can’t be processed.',
+      INVALID_ARCHIVE: 'This isn’t a valid Stepmark project file, or it’s damaged.',
+      INVALID_BLOB: 'A screenshot in the project file is missing or in an unsupported format.',
+      INVALID_JSON: 'The project file can’t be read. It may be damaged.',
+      INVALID_IMAGE_EDIT: 'The project file contains invalid image edits.',
+      INVALID_REDACTION: 'The project file contains invalid redaction areas.',
+      LIMIT_EXCEEDED: 'The project is over the safety limits (too many steps, screenshots or edits).',
+      UNSAFE_URL: 'The project file contains an unsafe URL and was rejected.',
+      UNSUPPORTED_VERSION: 'This project file comes from an unsupported Stepmark version.',
+    },
     import: 'Import',
     create: 'New',
     lockedNotice: 'A recording or retake is in progress. The library is read-only until it finishes.',
@@ -208,6 +221,7 @@ export const en: Messages = {
     failedWithReason: (reason: string) => `Reset failed: ${reason}`,
     failed: 'Reset failed. Please try again.',
     dialogTitle: 'Reset this recording?',
+    dialogTitleNamed: (title: string) => `Reset “${title}”?`,
     dialogDescription: 'All steps and markers will be permanently deleted. This can’t be undone.',
   },
 
@@ -234,6 +248,7 @@ export const en: Messages = {
     preparingPublication: 'Preparing export…',
     publishBusy: 'Another change is still being saved. Try exporting again in a moment.',
     editTargetMissing: 'Couldn’t find the project to edit.',
+    projectDeleted: 'This project was deleted. Nothing in this tab can be saved anymore, so editing is locked.',
     editBusy: 'Another action is in progress. Try again in a moment.',
     continuationAction: 'Continue recording',
     recaptureAction: 'Retake',
@@ -242,11 +257,11 @@ export const en: Messages = {
     multiAnnotationRecaptureBlocked:
       'This snapshot has several markers. A new base image would misplace the others, so record the whole snapshot again.',
     privacyReviewRequiredNotice:
-      'The sensitive-information masks on this older image haven’t been confirmed, so its preview stays black and copying and exporting are blocked. Retake the image to replace it.',
+      'The sensitive-information masks on this image haven’t been confirmed, so its preview stays black and copying and exporting are blocked. Choose “Check masks” to confirm them.',
     privacyReviewRequiredHidden:
-      'The sensitive-information masks on this older image haven’t been confirmed, so it’s hidden for now. Retake the image to replace it.',
+      'The sensitive-information masks on this image haven’t been confirmed, so it’s hidden for now. Choose “Check masks” on the step to confirm them.',
     privacyReviewRequiredActionBlocked:
-      'The sensitive-information masks on this older image haven’t been confirmed. Retake the image first.',
+      'The sensitive-information masks on this image haven’t been confirmed. Choose “Check masks” first.',
     privacyReviewTooltip: 'Confirm the sensitive-information masks first',
 
     rail: {
@@ -314,6 +329,16 @@ export const en: Messages = {
       saving: 'Saving…',
       saveFailed: 'Couldn’t save the image edits.',
       retry: 'Try again',
+      conflictReloaded:
+        'This image was just changed in another tab. To avoid overwriting its masks and edits, this save was cancelled and the latest version loaded. Please redo the changes you hadn’t saved yet.',
+      updatedElsewhere: 'Loaded the latest image edits saved in another tab.',
+      maskLimitReached: (max: number) => `This image already has the maximum of ${max} masks. Delete some before adding more.`,
+      editLimitReached: (max: number) => `This image already has the maximum of ${max} edits. Delete some before adding more.`,
+      textLimitReached: (max: number) => `Text is limited to ${max} characters`,
+      openReview: 'Check masks',
+      reviewNotice:
+        'This image’s masks need to be confirmed. Check that nothing sensitive is left uncovered, then choose “Confirm masks”. Until then, previewing, copying and exporting are blocked.',
+      confirmReview: 'Confirm masks',
     },
 
     stage: {
@@ -344,6 +369,17 @@ export const en: Messages = {
     description: {
       label: 'Description',
       placeholder: 'Describe this step…',
+    },
+
+    saveIssue: {
+      conflict: 'Not saved: conflicts with another tab',
+      conflictBody: 'Another tab saved a different description. Nothing you type here is saved until you choose which version to keep.',
+      savedVersion: (excerpt: string) => `Saved version: ${excerpt}`,
+      savedEmpty: '(empty)',
+      overwrite: 'Overwrite with mine',
+      keepSaved: 'Use the saved version',
+      missing: 'Not saved: this step was deleted.',
+      failed: 'Not saved: the description couldn’t be saved. It will retry as you keep editing.',
     },
 
     annotations: {
@@ -410,6 +446,10 @@ export const en: Messages = {
     publish: {
       title: 'Export',
       cancelled: 'Export cancelled.',
+      stepImageFailed: (step: number) => `The image in step ${step} couldn’t be read, so the export was stopped. Retake or delete that step in the editor, then try again.`,
+      reviewRequired: (steps: string) => `The export was stopped because the masks in these steps still need review: ${steps}. Review them in the editor first.`,
+      downloadFailed: 'The browser couldn’t start the download. Check your download settings or the file name, then try again.',
+      nothingExported: 'There are no images to export, so nothing was downloaded.',
       markdown: {
         title: 'Markdown',
         label: 'Download Markdown',
@@ -479,6 +519,8 @@ export const en: Messages = {
       inProgress: 'Undoing…',
       conflict: 'The project has changed since then, so the undo wasn’t applied.',
       failed: 'Couldn’t undo. Please try again.',
+      nowFinal: (action: string) => `“${action}” can no longer be undone.`,
+      previousFinal: (action: string) => `“${action}” can no longer be undone`,
     },
 
     mutations: {
@@ -536,6 +578,7 @@ export const en: Messages = {
     dragEnd: (item: string, position: number) => `${item} dropped at position ${position}.`,
     dragEndInPlace: (item: string) => `${item} returned to its original position.`,
     dragCancel: (item: string) => `Reordering cancelled. ${item} returned to its original position.`,
+    keyboardInstructions: 'Press Space or Enter to pick up the item, use the arrow keys to move it, then press Space or Enter to drop it. Press Escape to cancel.',
   },
 
   continuationTabs: {
@@ -548,6 +591,10 @@ export const en: Messages = {
     regionCaptureStarted: 'Region capture started. Drag on the page to select an area',
     restored: 'Restored',
     recorded: 'Recorded',
+    stepNotRecorded: 'Stepmark lost its connection: your last click ran on the page but wasn’t recorded as a step.',
+    regionNotRecorded: 'Stepmark lost its connection: the region you selected wasn’t recorded as a step. Select it again.',
+    pageNotRecordablePdf: 'The browser’s PDF viewer can’t be recorded, so clicks here won’t be captured. Switch to a regular web page to keep recording.',
+    pageNotRecordableLocal: 'Only http and https web pages can be recorded, so clicks on this page (such as a local file) won’t be captured. Switch to a regular web page to keep recording.',
     discardTitle: 'Discard this recording?',
     discardBody: 'Everything added in this run will be removed. Earlier content isn’t affected.',
     discard: 'Discard recording',
@@ -677,7 +724,7 @@ export const en: Messages = {
     recordTargetMissing: 'Couldn’t find the project to record into. Choose it again from the library.',
     cannotStartHere: 'Recording can’t start on this page.',
     noActiveTab: 'Couldn’t find a tab to record. Open a regular website and try again.',
-    restrictedBrowserPage: 'This browser page can’t be recorded.',
+    restrictedBrowserPage: 'This page can’t be recorded. Use an ordinary website (http or https).',
     sourceTabSwitchFailed: 'Couldn’t switch to the original page. Recording didn’t start.',
     injectFailed: 'Recording can’t start on this page. Try a regular website instead.',
     shieldInterrupted:
@@ -719,7 +766,9 @@ export const en: Messages = {
     snapshotUnavailableHere: 'Snapshots can’t be created on this page. Go back to a regular website or finish recording.',
     controlsUnavailableHere: 'Recording controls can’t be shown on this page. Reload a regular website and try again.',
     stoppedSnapshotPageChanged: 'Recording stopped because the snapshot page changed.',
-    stoppedRestrictedPage: 'Recording stopped because the newly opened page can’t be recorded.',
+    waitingRestrictedPage: 'This page can’t be recorded. Recording picks up again when you go back to a regular website.',
+    waitingSiteAccess:
+      'Stepmark doesn’t have access to this site, so nothing here is recorded. Allow access to all sites in the Stepmark popup, or go back to a site you allowed.',
     stoppedRecorderUnavailable: 'Recording stopped because it couldn’t carry on after the page changed.',
     sourceTabOpenFailed: 'Couldn’t open the original page.',
     restrictedContinuationSource: 'The source page can’t be recorded.',
@@ -727,12 +776,19 @@ export const en: Messages = {
     continuationSourceRedirected: 'The original page redirected, so recording didn’t start.',
     continuationSourceMissing: 'This project has no source page to continue from yet. Start a new recording from the popup.',
     continuationAccessRequired: 'Allow Stepmark to access this site before continuing the recording.',
+    continuationSourceUnreachable:
+      'The original page couldn’t be loaded, so recording didn’t start. Check the connection, or continue the recording from another page.',
+    errorSiteAccessLost: 'Stepmark lost access to this page. Allow access to the site, then try again.',
+    errorCaptureTooFast: 'Screenshots were requested too quickly. Wait a moment, then try again.',
+    errorBrowserBusy: 'The browser was busy (for example, a tab was being dragged). Please try again.',
+    errorPageFailedToLoad: 'This page didn’t load, so it can’t be recorded.',
   },
 
   recaptureFlow: {
     activeOperation: 'A recording or retake is already in progress.',
     operationChanged: 'Something changed in the meantime. Please try again.',
     sourceRedirected: 'The original page redirected, so the retake didn’t start.',
+    sourceUnreachable: 'The original page couldn’t be loaded, so the retake didn’t start. Check the connection and try again.',
     restrictedSource: 'The source page can’t be retaken.',
     editorOnlyPreflight: 'To retake a step, open this project in the Stepmark editor and choose Retake.',
     editorOnlyStart: 'Retakes can only be started from the Stepmark editor. Open the project there and try again.',

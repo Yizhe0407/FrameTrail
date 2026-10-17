@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import ImageEditLayer from '@/components/editor/ImageEditLayer';
 import type { ImageEditItem } from '@/lib/editor/image-edit-items';
 import { DEFAULT_IMAGE_EDIT_STYLE } from '@/lib/editor/image-edit-style';
+import { IMAGE_EDIT_LIMITS } from '@/lib/storage/image-edit-model';
 
 const size = { width: 400, height: 200 };
 const mask: ImageEditItem = { id: 'mask-1', kind: 'redaction', bounds: { x: 100, y: 50, width: 80, height: 40 } };
@@ -94,9 +95,44 @@ describe('ImageEditLayer creating', () => {
   });
 });
 
+describe('ImageEditLayer drawing over existing items', () => {
+  it('draws a new box over a mask with the box tool instead of moving the mask', () => {
+    const { layer, container, onCreate, onUpdate, onSelect } = setup({ tool: 'rect' });
+    // Items let presses through to the image while a drawing tool is active.
+    expect(chrome(container, 'mask-1').className).toContain('pointer-events-none');
+    // Even a press that lands on the mask itself draws.
+    fireEvent.pointerDown(chrome(container, 'mask-1'), { clientX: 120, clientY: 60, button: 0 });
+    fireEvent.pointerMove(layer, { clientX: 170, clientY: 85 });
+    fireEvent.pointerUp(layer, { clientX: 170, clientY: 85 });
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalledWith('mask-1');
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'rect', bounds: { x: 120, y: 60, width: 50, height: 25 } }));
+  });
+
+  it('draws a new mask over a mask, and does not grab outlines while drawing', () => {
+    const masking = setup({ items: [mask, rect] });
+    expect(masking.container.querySelector('svg rect')).toBeNull();
+    fireEvent.pointerDown(chrome(masking.container, 'mask-1'), { clientX: 110, clientY: 55, button: 0 });
+    fireEvent.pointerMove(masking.layer, { clientX: 150, clientY: 75 });
+    fireEvent.pointerUp(masking.layer, { clientX: 150, clientY: 75 });
+    expect(masking.onUpdate).not.toHaveBeenCalled();
+    expect(masking.onCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'redaction', bounds: { x: 110, y: 55, width: 40, height: 20 } }));
+  });
+
+  it('keeps the handles of the selected item usable while drawing', () => {
+    const { layer, container, onUpdate, onCreate } = setup({ tool: 'redact', selectedId: 'mask-1' });
+    const handle = container.querySelector('[data-stepmark-edit-handle="se"]') as HTMLElement;
+    fireEvent.pointerDown(handle, { clientX: 180, clientY: 90, button: 0 });
+    fireEvent.pointerMove(layer, { clientX: 200, clientY: 100 });
+    fireEvent.pointerUp(layer, { clientX: 200, clientY: 100 });
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ id: 'mask-1', bounds: { x: 100, y: 50, width: 100, height: 50 } }));
+  });
+});
+
 describe('ImageEditLayer moving and resizing', () => {
   it('moves a mask by dragging it and reports the final item once', () => {
-    const { layer, container, onUpdate, onSelect } = setup();
+    const { layer, container, onUpdate, onSelect } = setup({ tool: 'select' });
     fireEvent.pointerDown(chrome(container, 'mask-1'), { clientX: 120, clientY: 60, button: 0 });
     fireEvent.pointerMove(layer, { clientX: 150, clientY: 80 });
     fireEvent.pointerUp(layer, { clientX: 150, clientY: 80 });
@@ -171,6 +207,16 @@ describe('ImageEditLayer text', () => {
     const second = setup({ items: [], editingText: editing, tool: 'select' });
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     expect(second.onFinishTextEdit).toHaveBeenCalledWith(null);
+  });
+
+  it('limits text to what storage keeps and says so at the limit', () => {
+    const editing = { ...(text as Extract<ImageEditItem, { kind: 'text' }>), text: 'Hi' };
+    const { container } = setup({ items: [], editingText: editing, tool: 'select' });
+    const area = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(area.maxLength).toBe(IMAGE_EDIT_LIMITS.maxTextLength);
+    expect(container.querySelector('[data-stepmark-text-limit]')).toBeNull();
+    fireEvent.input(area, { target: { value: 'x'.repeat(IMAGE_EDIT_LIMITS.maxTextLength) } });
+    expect(container.querySelector('[data-stepmark-text-limit]')).toBeTruthy();
   });
 
   it('keeps Shift+Enter for a new line', () => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FilePlus2, FolderOpen } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getProjectSummaries } from '@/lib/storage/project-repository';
+import { subscribeProjectsChanged } from '@/lib/storage/change-notifier';
 import type { ProjectSummary } from '@/lib/storage/models';
 import { t } from '@/lib/shared/i18n';
 import { cn } from '@/lib/shared/utils';
@@ -34,18 +35,31 @@ export default function RecordTargetPicker({ value, onChange, disabled = false, 
 
   useEffect(() => {
     let active = true;
-    void getProjectSummaries()
-      .then((all) => {
-        if (active) setProjects(all.slice(0, RECORD_TARGET_RECENT_LIMIT));
-      })
-      .catch((error) => {
-        // Fail closed to "new project only": a missing list must never block recording.
-        console.warn('[stepmark] failed to read projects for the record target', error);
-      });
+    const load = () => {
+      void getProjectSummaries()
+        .then((all) => {
+          if (!active) return;
+          // A Project deleted while the popup is open must not stay selected:
+          // starting would fail with 找不到這個專案 and the picker would still show it.
+          const selected = value === null ? undefined : all.find((project) => project.id === value);
+          if (value !== null && !selected) onChange(null);
+          // A selection that fell out of the recent window stays listed so the trigger never renders blank.
+          const recent = all.slice(0, RECORD_TARGET_RECENT_LIMIT);
+          setProjects(selected && !recent.includes(selected) ? [...recent, selected] : recent);
+        })
+        .catch((error) => {
+          // Fail closed to "new project only": a missing list must never block recording.
+          console.warn('[stepmark] failed to read projects for the record target', error);
+        });
+    };
+    load();
+    const unsubscribe = subscribeProjectsChanged(load);
     return () => {
       active = false;
+      unsubscribe();
     };
-  }, []);
+    // `onChange` is a setState in the caller; the list re-reads when the selection changes.
+  }, [value, onChange]);
 
   if (projects.length === 0) return null;
 

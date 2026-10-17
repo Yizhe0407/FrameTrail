@@ -28,7 +28,10 @@ interface UseProjectMutationsOptions {
   setZoomOpen: (open: boolean) => void;
   setOperationError: (message: string | null) => void;
   undoAction: UndoAction | null;
-  offerUndo: (pending: PendingUndoAction, projectId: string) => void;
+  offerUndo: (pending: PendingUndoAction, projectId: string, superseded?: UndoAction | null) => void;
+  takeUndo: () => UndoAction | null;
+  returnUndo: (taken: UndoAction | null) => void;
+  finalizeUndo: (taken: UndoAction | null) => void;
   clearUndo: () => void;
 }
 
@@ -54,6 +57,9 @@ export function useProjectMutations({
   setOperationError,
   undoAction,
   offerUndo,
+  takeUndo,
+  returnUndo,
+  finalizeUndo,
   clearUndo,
 }: UseProjectMutationsOptions) {
   function showStructureMutationError(operation: ProjectMutationOperation, mutationError: unknown): void {
@@ -83,7 +89,9 @@ export function useProjectMutations({
     mutate: (snapshot: ProjectStructureSnapshot, projectId: string) => Promise<PendingUndoAction | void>;
   }): Promise<void> {
     if (!sessionId || !beginDataOperation(t().editor.mutations[operation].pending)) return;
-    clearUndo();
+    // Only one undo is offered at a time: this mutation either replaces the pending one
+    // (and says it is now final), makes it final without a replacement, or hands it back on failure.
+    const takenUndo = takeUndo();
     setOperationError(null);
     if (optimistic) setOptimisticEntries(optimistic.next);
     try {
@@ -102,6 +110,7 @@ export function useProjectMutations({
         } finally {
           if (!optimistic) setOptimisticEntries(null);
         }
+        returnUndo(takenUndo);
         if (rethrow) throw mutationError;
         return;
       }
@@ -113,7 +122,8 @@ export function useProjectMutations({
         console.error(`[stepmark] reload after ${operation} failed`, reloadError);
         setOperationError(t().editor.mutations.reloadFailed);
       }
-      if (undo) offerUndo(undo, sessionId);
+      if (undo) offerUndo(undo, sessionId, takenUndo);
+      else finalizeUndo(takenUndo);
     } finally {
       endDataOperation();
     }
@@ -393,11 +403,12 @@ export function useProjectMutations({
         );
       }
       await undoAction.restore();
+      // Cleared before the reload moves the revision, so the spent undo isn't announced as "now final".
+      clearUndo();
       await refreshEditorData();
       if (undoAction.restoreSelectionId) {
         setSelectedEntryId(undoAction.restoreSelectionId);
       }
-      clearUndo();
     } catch (undoError) {
       console.error('[stepmark] failed to undo editor operation', undoError);
       clearUndo();

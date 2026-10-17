@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { throwIfAborted } from '../shared/abort';
 import { t } from '@/lib/shared/i18n';
+import { DownloadFailedError } from './export-errors';
 
 type DownloadChangeListener = Parameters<typeof browser.downloads.onChanged.addListener>[0];
 
@@ -62,8 +63,13 @@ export async function downloadBlobViaBrowser(
   const url = URL.createObjectURL(blob);
   try {
     throwIfAborted(signal);
-    const downloadId = await browser.downloads.download({ url, filename, saveAs });
-    if (typeof downloadId !== 'number') throw new Error(t().export.downloadNotStarted);
+    let downloadId: number | undefined;
+    try {
+      downloadId = await browser.downloads.download({ url, filename, saveAs });
+    } catch (rejection) {
+      throw new DownloadFailedError(rejection);
+    }
+    if (typeof downloadId !== 'number') throw new DownloadFailedError(new Error(t().export.downloadNotStarted));
     revokeWhenDownloadSettles(downloadId, url);
   } catch (downloadError) {
     // Nothing was queued, so no consumer is left holding the URL.

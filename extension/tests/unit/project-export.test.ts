@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   pdfAddPage: vi.fn(),
   pdfDrawImage: vi.fn(),
   pdfSave: vi.fn(),
+  pdfSetTitle: vi.fn(),
 }));
 
 vi.mock('@/lib/export/entry-render', () => ({
@@ -20,12 +21,18 @@ vi.mock('pdf-lib', () => ({
 }));
 
 import { PROJECT_EXPORT_LIMITS, ProjectExportLimitError, projectExportFilename, type ProjectExportMetadata } from '@/lib/export/project-export-contract';
-import { generateProjectHtml } from '@/lib/export/project-export-html';
+import { generateProjectHtml as generateProjectHtmlBlob } from '@/lib/export/project-export-html';
 import { generateProjectMarkdownArchive } from '@/lib/export/project-export-markdown';
 import { generateProjectPdf } from '@/lib/export/project-export-pdf';
+import { RedactionReviewRequiredError, StepImageError } from '@/lib/export/export-errors';
 import { renderEntryImages } from '@/lib/export/project-export-render';
 import { stubPdfCanvas } from '../setup/pdf-canvas';
 import { PERSISTED_STEP_LIMITS } from '@/lib/storage/persistence-limits';
+
+/** The document as text; the generator itself returns a Blob. */
+async function generateProjectHtml(...args: Parameters<typeof generateProjectHtmlBlob>): Promise<string> {
+  return (await generateProjectHtmlBlob(...args)).text();
+}
 
 function entry(overrides: Record<string, unknown> = {}): StepEntry {
   return {
@@ -103,11 +110,13 @@ beforeEach(() => {
   mocks.pdfDrawImage.mockReset();
   mocks.pdfEmbedJpg.mockReset().mockResolvedValue({ width: 1, height: 1 });
   mocks.pdfAddPage.mockReset().mockReturnValue({ drawImage: mocks.pdfDrawImage });
+  mocks.pdfSetTitle.mockReset();
   mocks.pdfSave.mockReset().mockResolvedValue(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
   mocks.pdfCreate.mockReset().mockResolvedValue({
     embedJpg: mocks.pdfEmbedJpg,
     addPage: mocks.pdfAddPage,
     save: mocks.pdfSave,
+    setTitle: mocks.pdfSetTitle,
   });
 });
 
@@ -147,6 +156,35 @@ describe('project export', () => {
     expect(projectExportFilename({}, 'pdf')).toBe('stepmark-project.pdf');
   });
 
+  it('never produces a Windows reserved device name', () => {
+    for (const title of ['CON', 'nul', 'Aux', 'PRN', 'com1', 'COM9', 'LPT5', 'ＣＯＮ']) {
+      const name = projectExportFilename({ title }, 'html');
+      expect(name).toMatch(/^[a-z0-9]+-stepmark-project\.html$/);
+    }
+    expect(projectExportFilename({ title: 'console' }, 'html')).toBe('console.html');
+    expect(projectExportFilename({ title: 'CON.' }, 'pdf')).toBe('con-stepmark-project.pdf');
+  });
+
+  it('keeps voiced kana, Hangul and Indic marks composed in filenames', () => {
+    expect(projectExportFilename({ title: 'ガイドブック' }, 'html')).toBe('ガイドブック.html');
+    expect(projectExportFilename({ title: 'ﾊﾟｿｺﾝ入門' }, 'html')).toBe('パソコン入門.html');
+    expect(projectExportFilename({ title: '한국어 가이드' }, 'html')).toBe('한국어-가이드.html');
+    expect(projectExportFilename({ title: 'हिन्दी' }, 'html')).toBe('हिन्दी.html');
+    // Latin accents are still folded away on purpose.
+    expect(projectExportFilename({ title: 'Café Déjà Vu' }, 'html')).toBe('cafe-deja-vu.html');
+  });
+
+  it('bounds the filename stem by UTF-8 bytes without splitting a code point', () => {
+    const encoder = new TextEncoder();
+    for (const title of ['漢'.repeat(300), 'a'.repeat(300), '😀'.repeat(300), 'é'.repeat(10) + '가'.repeat(300)]) {
+      const stem = projectExportFilename({ title }, 'html').replace(/\.html$/, '');
+      expect(encoder.encode(stem).length).toBeLessThanOrEqual(200);
+      expect(stem.length).toBeGreaterThan(0);
+      expect(stem.isWellFormed()).toBe(true);
+    }
+    expect([...projectExportFilename({ title: '漢'.repeat(300) }, 'html')].length).toBe(66 + '.html'.length);
+  });
+
   it('generates a raster PDF without Source, Step, or Annotations labels', async () => {
     const { fillText, bitmapClose } = stubPdfCanvas();
 
@@ -154,6 +192,7 @@ describe('project export', () => {
     const drawnText = fillText.mock.calls.map(([text]) => String(text));
 
     expect(pdf.type).toBe('application/pdf');
+    expect(mocks.pdfSetTitle).toHaveBeenCalledWith('PDF project');
     expect(Array.from(new Uint8Array(await pdf.arrayBuffer()))).toEqual([0x25, 0x50, 0x44, 0x46]);
     expect(mocks.composite).toHaveBeenCalledOnce();
     // Hybrid raster: the page background JPEG plus the screenshot embedded as
@@ -311,6 +350,40 @@ describe('project export', () => {
     expect(markdown).not.toContain('\n====');
   });
 
+  it('keeps URLs and addresses in Markdown descriptions from becoming GFM autolinks with stray backslashes', async () => {
+    const markdown = await archiveMarkdown([
+      entry({ description: 'See https://cdn.example.com/a_b/track.png) and www.example.com/x_y or me@example.com' }),
+    ]);
+
+    // Each autolink trigger is neutralised, so no renderer can create a link
+    // whose target swallows an escaping backslash (`track.png%5C`).
+    expect(markdown).toContain('https\\://cdn.example.com/a\\_b/track.png\\)');
+    expect(markdown).toContain('www\\.example.com/x\\_y');
+    expect(markdown).toContain('me\\@example.com');
+    expect(markdown).not.toMatch(/(?<!\\)https?:\/\//);
+    expect(markdown).not.toMatch(/(?<!\\)www\./);
+  });
+
+  it('lets long unbreakable strings wrap in the HTML export', async () => {
+    const html = await generateProjectHtml([entry({ description: 'x'.repeat(5_000) })], { title: 'y'.repeat(5_000) });
+
+    expect(html).toMatch(/h1, h2, h3, p, li \{ overflow-wrap: anywhere; \}/);
+    expect(html).toMatch(/\.step-title \{\s*min-width: 0;/);
+  });
+
+  it('builds the HTML as Blob parts so no document-sized string is ever assembled', async () => {
+    mocks.composite.mockImplementation(async () => new Blob([new Uint8Array(4_000_000).fill(7)], { type: 'image/jpeg' }));
+    const blob = await generateProjectHtmlBlob([entry(), entry({ id: 'step-2', order: 2 })], { title: 'Big' });
+
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    // Two 4 MB images -> ~10.7 MB of base64 in the output, still valid and complete.
+    expect(blob.size).toBeGreaterThan(10_600_000);
+    const text = await blob.text();
+    expect(text.startsWith('<!doctype html>')).toBe(true);
+    expect(text.endsWith('</html>\n')).toBe(true);
+    expect(text.match(/<img src="data:image\/jpeg;base64,[A-Za-z0-9+/=]+" alt=/g)).toHaveLength(2);
+  });
+
   it('renders repaired section headings in timeline order and escapes Markdown text', async () => {
     const markdown = await archiveMarkdown(
       [entry({ id: 'first', order: 1 }), groupEntry()],
@@ -394,12 +467,34 @@ describe('project export', () => {
     expect(withoutDate).not.toContain('建立於');
   });
 
-  it('propagates shared compositing failures so redaction review remains fail-closed', async () => {
-    const privacyError = new Error('Sensitive-information masks must be reviewed before export.');
-    mocks.composite.mockRejectedValueOnce(privacyError);
+  it('wraps a compositing failure with the failing step ordinal and stays fail-closed', async () => {
+    const decodeError = new Error('InvalidStateError');
+    mocks.composite.mockResolvedValueOnce(new Blob(['ok'])).mockRejectedValueOnce(decodeError);
 
-    await expect(generateProjectMarkdownArchive([entry()])).rejects.toBe(privacyError);
-    expect(mocks.composite).toHaveBeenCalledTimes(1);
+    const failure = await generateProjectMarkdownArchive([entry(), entry({ id: 'step-2', order: 2 })]).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(StepImageError);
+    expect(failure).toMatchObject({ ordinal: 2, cause: decodeError });
+    await expect(generateProjectHtml([entry()])).resolves.toContain('<!doctype html>');
+  });
+
+  it.each([
+    ['markdown', (entries: StepEntry[]) => generateProjectMarkdownArchive(entries)],
+    ['html', (entries: StepEntry[]) => generateProjectHtml(entries)],
+    ['pdf', (entries: StepEntry[]) => generateProjectPdf(entries)],
+  ])('refuses %s export naming every step whose masks still need review', async (_format, generate) => {
+    stubPdfCanvas();
+    const entries = [
+      entry({ redactionReviewRequired: true }),
+      entry({ id: 'step-2', order: 2 }),
+      entry({ id: 'step-3', order: 3, redactions: 'corrupt' }),
+    ];
+
+    const failure = await generate(entries).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(RedactionReviewRequiredError);
+    expect((failure as RedactionReviewRequiredError).ordinals).toEqual([1, 3]);
+    expect(mocks.composite).not.toHaveBeenCalled();
   });
 
   it('stops after a cancellation between sequential composites', async () => {

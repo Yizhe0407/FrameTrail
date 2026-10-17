@@ -39,6 +39,9 @@ import { initLocalePreference } from '@/lib/runtime/locale-preference';
 
 const SHIELD_HOVER_TIMEOUT_MS = 4_000;
 const SHIELD_CAPTURE_TIMEOUT_MS = 30_000;
+/** Clicks held while the shield is not ready to annotate yet (before its first
+ * recording state) or busy with the previous annotation. */
+const MAX_QUEUED_POINTS = 16;
 function shieldChannelFailure(): RecordingControlResult {
   return { ok: false, error: t().runtime.recordingChannelLost };
 }
@@ -112,6 +115,10 @@ function tryInitialize(event: MessageEvent): void {
   let lastCommitWasRegion = false;
   let captureTimeout: ReturnType<typeof setTimeout> | null = null;
   let toolbarState: import('@/lib/recording/recording-toolbar').RecordingToolbarState | null = null;
+  // A click is never dropped for arriving too early or too fast: it waits
+  // here until the recording state arrives or the previous annotation is done,
+  // then commits at the point the user actually clicked.
+  const queuedPoints: Array<{ clientX: number; clientY: number }> = [];
 
   const safePostToParent = (message: SnapshotShieldPortMessage): boolean => {
     if (channelFailed) return false;
@@ -156,6 +163,7 @@ function tryInitialize(event: MessageEvent): void {
       hover.invalidateSentRevision();
       announce(t().shield.captureTimedOut);
       if (interactionsEnabled && !regionCapture?.isActive()) hover.schedule();
+      drainQueuedPoints();
     }, SHIELD_CAPTURE_TIMEOUT_MS);
   };
 
@@ -170,6 +178,7 @@ function tryInitialize(event: MessageEvent): void {
   const failShieldChannel = () => {
     if (channelFailed) return;
     channelFailed = true;
+    queuedPoints.length = 0;
     for (const requestId of pendingControls.keys()) settlePendingControl(requestId, shieldChannelFailure());
     pendingRegionCompletion?.();
     pendingRegionCompletion = null;
@@ -220,6 +229,19 @@ function tryInitialize(event: MessageEvent): void {
     if (!posted) clearCaptureTimeout();
   };
 
+  /** Whether a click arriving now can still become an annotation later: the
+   * shield has not heard its first recording state yet (phase unknown or still
+   * starting), or an annotation is in flight. */
+  const canQueuePoint = () =>
+    !channelFailed &&
+    (toolbarState === null || toolbarState.phase === 'starting' || (interactionsEnabled && capturing));
+
+  const drainQueuedPoints = () => {
+    if (!interactionsEnabled || capturing || regionCapture?.isActive()) return;
+    const next = queuedPoints.shift();
+    if (next) commitAt(next.clientX, next.clientY, false);
+  };
+
   const onPointerDown = (event: PointerEvent) => {
     if (regionCapture?.isActive()) return;
     if (
@@ -230,8 +252,14 @@ function tryInitialize(event: MessageEvent): void {
     }
     consume(event);
     ensureKeyboardFocus();
-    if (!interactionsEnabled || capturing || event.button !== 0 || !event.isPrimary) return;
-    commitAt(event.clientX, event.clientY, false);
+    if (event.button !== 0 || !event.isPrimary) return;
+    if (interactionsEnabled && !capturing) {
+      commitAt(event.clientX, event.clientY, false);
+      return;
+    }
+    if (canQueuePoint() && queuedPoints.length < MAX_QUEUED_POINTS) {
+      queuedPoints.push({ clientX: event.clientX, clientY: event.clientY });
+    }
   };
 
   const onScrollKeyDown = (event: KeyboardEvent) => {
@@ -327,6 +355,7 @@ function tryInitialize(event: MessageEvent): void {
         document.body.classList.remove('has-region-capture');
         renderToolbar();
         if (interactionsEnabled && !capturing) hover.schedule();
+        drainQueuedPoints();
       },
     });
     regionCapture = controller;
@@ -441,6 +470,10 @@ function tryInitialize(event: MessageEvent): void {
       const state = event.data.state;
       toolbarState = state;
       interactionsEnabled = state.phase === 'recording';
+      // Clicks queued before the run could take annotations only survive a
+      // run that is still starting up; any other non-recording phase means
+      // they were made on a snapshot that will never accept them.
+      if (!interactionsEnabled && state.phase !== 'starting') queuedPoints.length = 0;
       if (!interactionsEnabled) {
         regionCapture?.cancel(state.phase === 'invalidated' ? 'viewport' : 'removed');
         capturing = false;
@@ -455,6 +488,7 @@ function tryInitialize(event: MessageEvent): void {
         focusInitialized = true;
         ensureKeyboardFocus();
       }
+      drainQueuedPoints();
       return;
     }
     if (event.data.type === SNAPSHOT_SHIELD_CONTROL_RESULT) {
@@ -491,6 +525,7 @@ function tryInitialize(event: MessageEvent): void {
       pendingRegionCompletion = null;
       hover.invalidateSentRevision();
       if (interactionsEnabled && !regionCapture?.isActive()) hover.schedule();
+      drainQueuedPoints();
     }
   };
 

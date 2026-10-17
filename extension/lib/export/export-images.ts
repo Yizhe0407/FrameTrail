@@ -1,6 +1,7 @@
 import { downloadBlobViaBrowser } from './download-utils';
+import { RedactionReviewRequiredError } from './export-errors';
 import { throwIfAborted } from '../shared/abort';
-import { buildStepEntries, getEntryPrivacyState, type Step } from '../storage/models';
+import { buildStepEntries, type Step } from '../storage/models';
 import { PERSISTED_STEP_LIMITS } from '../storage/persistence-limits';
 import { renderEntryImages, type EntryImageBudget } from './project-export-render';
 import { buildZipBlob, paddedZipOrdinal } from './streaming-zip';
@@ -14,17 +15,12 @@ export const IMAGE_ZIP_EXPORT_LIMITS = Object.freeze({
   maxTotalImageBytes: PERSISTED_STEP_LIMITS.maxTotalScreenshotBytes * 2,
 });
 
+export { RedactionReviewRequiredError };
+
 export class ImageZipExportLimitError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ImageZipExportLimitError';
-  }
-}
-
-export class RedactionReviewRequiredError extends Error {
-  constructor() {
-    super('Sensitive-information masks must be reviewed before export.');
-    this.name = 'RedactionReviewRequiredError';
   }
 }
 
@@ -69,9 +65,6 @@ export async function exportImagesAsZip(
 
   const entries = buildStepEntries(steps);
   if (entries.length === 0) return null;
-  if (entries.some((entry) => getEntryPrivacyState(entry).reviewRequired)) {
-    throw new RedactionReviewRequiredError();
-  }
   let done = 0;
 
   // renderEntryImages pipelines with a lookahead of one but still holds at

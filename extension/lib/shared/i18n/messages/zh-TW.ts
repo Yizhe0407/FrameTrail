@@ -69,7 +69,7 @@ export const zhTW = {
       paused: '自動備份已暫停：需要重新允許存取備份資料夾。',
       unsupported: '這個瀏覽器不支援自動備份，請改用專案庫的匯出功能手動備份。',
       failed: '無法完成操作，請再試一次。',
-      someFailed: (count: number) => `有 ${count} 個專案備份失敗，下次會自動重試。請確認資料夾仍存在且可寫入。`,
+      someFailed: (count: number, names: string) => `有 ${count} 個專案備份失敗${names ? `（${names}）` : ''}，下次會自動重試。請確認資料夾仍存在且可寫入。`,
       privacy: '備份檔含未遮罩的原始截圖，請放在只有你能存取的位置。要還原時，到專案庫按「匯入」選擇備份資料夾裡的檔案。專案刪除後，備份檔會保留。',
     },
   },
@@ -155,6 +155,21 @@ export const zhTW = {
     exportStarted: (title: string) => `「${title}」的可編輯檔案已開始下載。`,
     importTooLarge: '匯入檔案超過 128 MB 安全上限。',
     importedFallbackTitle: '匯入的專案',
+    // Keyed by ProjectArchiveError.code, so the archive layer keeps its English
+    // diagnostics for logs while the UI speaks the active language.
+    archiveErrors: {
+      ARCHIVE_TOO_LARGE: '專案檔案太大，超過 128 MB 安全上限。',
+      BROKEN_GROUP_REFERENCE: '專案檔案的步驟群組關聯已損毀。',
+      DUPLICATE_ID: '專案檔案裡有重複的步驟，無法處理。',
+      INVALID_ARCHIVE: '這不是有效的 Stepmark 專案檔案，或內容已損毀。',
+      INVALID_BLOB: '專案檔案裡的截圖遺失或格式不支援。',
+      INVALID_JSON: '專案檔案的內容無法讀取，檔案可能已損毀。',
+      INVALID_IMAGE_EDIT: '專案檔案裡的圖片編輯資料無效。',
+      INVALID_REDACTION: '專案檔案裡的遮蓋區域資料無效。',
+      LIMIT_EXCEEDED: '專案內容超過安全上限（步驟、截圖或編輯數量過多）。',
+      UNSAFE_URL: '專案檔案含有不安全的網址，已拒絕處理。',
+      UNSUPPORTED_VERSION: '這個專案檔案來自不支援的 Stepmark 版本。',
+    },
     import: '匯入',
     create: '新增',
     lockedNotice: '錄製或補拍進行中；為避免資料寫入錯誤，目前只能瀏覽專案庫。',
@@ -211,6 +226,7 @@ export const zhTW = {
     failedWithReason: (reason: string) => `重置失敗：${reason}`,
     failed: '重置失敗，請再試一次。',
     dialogTitle: '重置目前錄製？',
+    dialogTitleNamed: (title: string) => `重置「${title}」？`,
     dialogDescription: '所有步驟與標註都會永久刪除，這項操作無法復原。',
   },
 
@@ -235,6 +251,7 @@ export const zhTW = {
     preparingPublication: '正在準備發佈內容…',
     publishBusy: '目前有其他資料操作進行中，請稍後再發佈。',
     editTargetMissing: '找不到要編輯的專案。',
+    projectDeleted: '專案已被刪除。這個分頁的內容無法再儲存，已停止編輯。',
     editBusy: '目前有其他操作進行中，請稍後再修改。',
     continuationAction: '接續錄製',
     recaptureAction: '補拍',
@@ -242,9 +259,9 @@ export const zhTW = {
     draftConfirmationRequired: '覆寫已儲存的說明前，需要先確認要保留哪一份草稿。',
     multiAnnotationRecaptureBlocked: '此快照包含多個標註；只補拍其中一處會讓其他標註對不上畫面，請重新製作整張快照。',
     privacyReviewRequiredNotice:
-      '此舊圖片的敏感資訊遮罩尚未確認，因此預覽會保持全黑，複製與匯出也會被阻擋。請使用補拍取代這張圖片。',
-    privacyReviewRequiredHidden: '此舊圖片的敏感資訊遮罩尚未確認，因此暫時隱藏。請使用補拍取代這張圖片。',
-    privacyReviewRequiredActionBlocked: '此舊圖片的敏感資訊遮罩尚未確認，請先使用補拍取代圖片。',
+      '這張圖片的敏感資訊遮罩尚未確認，因此預覽會保持全黑，複製與匯出也會被阻擋。請按「檢查遮罩」確認遮罩。',
+    privacyReviewRequiredHidden: '這張圖片的敏感資訊遮罩尚未確認，因此暫時隱藏。請在步驟上按「檢查遮罩」確認遮罩。',
+    privacyReviewRequiredActionBlocked: '這張圖片的敏感資訊遮罩尚未確認，請先按「檢查遮罩」確認。',
     privacyReviewTooltip: '請先重新確認敏感資訊遮罩',
 
     rail: {
@@ -312,6 +329,14 @@ export const zhTW = {
       saving: '儲存中…',
       saveFailed: '無法儲存圖片編輯。',
       retry: '再試一次',
+      conflictReloaded: '另一個分頁剛修改了這張圖片。為了不覆蓋那邊的遮罩與編輯，這次的儲存已取消，並載入最新內容；剛才尚未儲存的變更請重新套用。',
+      updatedElsewhere: '已載入另一個分頁儲存的最新圖片編輯。',
+      maskLimitReached: (max: number) => `已達每張圖片 ${max} 個遮罩的上限，請先刪除部分遮罩再新增。`,
+      editLimitReached: (max: number) => `已達每張圖片 ${max} 個編輯項目的上限，請先刪除部分項目再新增。`,
+      textLimitReached: (max: number) => `文字最多 ${max} 字`,
+      openReview: '檢查遮罩',
+      reviewNotice: '這張圖片的遮罩需要重新確認：請檢查是否仍有敏感資訊需要遮住，確認後按「確認遮罩」。在確認前，預覽、複製與匯出都會被阻擋。',
+      confirmReview: '確認遮罩',
     },
 
     stage: {
@@ -342,6 +367,17 @@ export const zhTW = {
     description: {
       label: '說明',
       placeholder: '輸入步驟說明…',
+    },
+
+    saveIssue: {
+      conflict: '尚未儲存：與其他分頁衝突',
+      conflictBody: '其他分頁已儲存了不同的說明。之後輸入的內容不會儲存，直到你選擇要保留哪一份。',
+      savedVersion: (excerpt: string) => `已儲存的版本：${excerpt}`,
+      savedEmpty: '（空白）',
+      overwrite: '用我的版本覆寫',
+      keepSaved: '改用已儲存的版本',
+      missing: '尚未儲存：這個步驟已被刪除。',
+      failed: '尚未儲存：說明儲存失敗，繼續編輯時會再試一次。',
     },
 
     annotations: {
@@ -406,6 +442,10 @@ export const zhTW = {
     publish: {
       title: '匯出',
       cancelled: '已取消匯出操作。',
+      stepImageFailed: (step: number) => `第 ${step} 步的圖片無法讀取，匯出已中止。請在編輯器重新擷取或刪除該步驟後再試一次。`,
+      reviewRequired: (steps: string) => `以下步驟的敏感資訊遮罩尚待檢查，匯出已中止：${steps}。請先在編輯器檢查這些步驟的遮罩。`,
+      downloadFailed: '瀏覽器無法開始下載檔案。請檢查下載設定或檔案名稱後再試一次。',
+      nothingExported: '沒有可匯出的圖片，未下載任何檔案。',
       markdown: {
         title: 'Markdown',
         label: '下載 Markdown',
@@ -473,6 +513,8 @@ export const zhTW = {
       inProgress: '正在還原…',
       conflict: '專案已被其他操作修改，為避免覆蓋最新內容，無法還原。',
       failed: '無法還原，請再試一次。',
+      nowFinal: (action: string) => `「${action}」已無法還原。`,
+      previousFinal: (action: string) => `先前的「${action}」已無法還原`,
     },
 
     mutations: {
@@ -530,6 +572,7 @@ export const zhTW = {
     dragEnd: (item: string, position: number) => `${item} 已放在 第 ${position} 個位置。`,
     dragEndInPlace: (item: string) => `${item} 已放回原位。`,
     dragCancel: (item: string) => `已取消排序，${item} 回到原位。`,
+    keyboardInstructions: '按空白鍵或 Enter 提起項目，用方向鍵移動位置，再按空白鍵或 Enter 放下；按 Esc 取消。',
   },
 
   continuationTabs: {
@@ -542,6 +585,10 @@ export const zhTW = {
     regionCaptureStarted: '區域擷取已啟動，請在畫面上拖曳選取範圍',
     restored: '已還原',
     recorded: '已記錄',
+    stepNotRecorded: '與 Stepmark 的連線中斷：剛才的點擊已在頁面上執行，但沒有記錄成步驟。',
+    regionNotRecorded: '與 Stepmark 的連線中斷：剛才選取的區域沒有記錄成步驟，請再選取一次。',
+    pageNotRecordablePdf: '無法錄製瀏覽器內建的 PDF 檢視器，這裡的點擊不會被記錄。請切換到一般網頁繼續錄製。',
+    pageNotRecordableLocal: '只能錄製 http 或 https 網頁，這個頁面（例如本機檔案）的點擊不會被記錄。請切換到一般網頁繼續錄製。',
     discardTitle: '放棄這次錄製？',
     discardBody: '這次新增的內容會被移除，先前已完成的內容不受影響。',
     discard: '放棄錄製',
@@ -673,7 +720,7 @@ export const zhTW = {
     recordTargetMissing: '找不到要錄製的專案。請回專案庫重新選擇。',
     cannotStartHere: '無法在這個頁面開始錄製。',
     noActiveTab: '找不到可錄製的分頁。請開啟一般網站後再試一次。',
-    restrictedBrowserPage: '此瀏覽器頁面不允許錄製。',
+    restrictedBrowserPage: '此頁面不允許錄製，請改用一般網站（http 或 https）。',
     sourceTabSwitchFailed: '無法切換到原始頁面，未開始錄製。',
     injectFailed: '無法在這個頁面開始錄製，請改用一般網站再試一次。',
     shieldInterrupted: '標註操作意外中斷；為避免頁面持續被鎖定，這次錄製已停止。',
@@ -714,7 +761,8 @@ export const zhTW = {
     snapshotUnavailableHere: '此頁面無法建立快照；請返回一般網站或完成錄製。',
     controlsUnavailableHere: '無法在這個頁面顯示錄製控制；請重新載入一般網站後再試一次。',
     stoppedSnapshotPageChanged: '錄製已停止，因為快照頁面已變更。',
-    stoppedRestrictedPage: '錄製已停止，因為新開啟的頁面不允許錄製。',
+    waitingRestrictedPage: '這個頁面無法錄製。回到一般網站後會繼續錄製。',
+    waitingSiteAccess: 'Stepmark 沒有這個網站的存取權限，這裡的操作不會被錄下。請在 Stepmark 彈出視窗允許存取所有網站，或回到已允許的網站。',
     stoppedRecorderUnavailable: '錄製已停止，因為頁面切換後無法繼續錄製。',
     sourceTabOpenFailed: '無法開啟原始頁面。',
     restrictedContinuationSource: '此來源頁面不允許錄製。',
@@ -722,12 +770,18 @@ export const zhTW = {
     continuationSourceRedirected: '原始頁面已重新導向，未開始錄製。',
     continuationSourceMissing: '這個專案還沒有可接續的來源頁面，請從彈出視窗開始新的錄製。',
     continuationAccessRequired: '需要先允許 Stepmark 存取此網站，才能接續錄製。',
+    continuationSourceUnreachable: '無法載入原本的頁面，未開始錄製。請確認網路連線，或改在其他頁面接續錄製。',
+    errorSiteAccessLost: 'Stepmark 已失去這個頁面的存取權限。請允許存取此網站後再試一次。',
+    errorCaptureTooFast: '截圖要求過於頻繁。請稍候再試一次。',
+    errorBrowserBusy: '瀏覽器忙碌中（例如正在拖曳分頁）。請再試一次。',
+    errorPageFailedToLoad: '這個頁面未能載入，因此無法錄製。',
   },
 
   recaptureFlow: {
     activeOperation: '目前已有錄製或補拍正在進行。',
     operationChanged: '操作狀態已改變，請再試一次。',
     sourceRedirected: '原始頁面已重新導向，未開始補拍。',
+    sourceUnreachable: '無法載入原始頁面，未開始補拍。請確認網路連線後再試一次。',
     restrictedSource: '此來源頁面不允許補拍。',
     editorOnlyPreflight: '請從目前專案的 Stepmark 編輯器開始補拍。',
     editorOnlyStart: '請從 Stepmark 編輯器開始補拍。',

@@ -40,9 +40,16 @@ export interface StartRecordingMessage {
   insertAfterEntryId?: string;
 }
 
+/** Machine-readable reason a start failed, for callers that offer a specific
+ * recovery. Optional: most failures carry only their localized `error`. */
+export type StartRecordingErrorCode =
+  /** Continuation: the source page failed to load (browser error page); the
+   * tab opened for it was closed. Continue from another page instead. */
+  | 'SOURCE_PAGE_UNREACHABLE';
+
 export type StartRecordingResult =
   | { ok: true; sessionId: string; runId: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: StartRecordingErrorCode };
 
 export interface SourcePermissionPreflightSuccess {
   ok: true;

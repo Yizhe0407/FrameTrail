@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getProject } from '../storage/project-repository';
+import { subscribeProjectsChanged } from '../storage/change-notifier';
 import { getProjectStructureSnapshot, repairEmptySnapshotAnchors, type ProjectStructureSnapshot } from '../storage/project-structure';
 import { getRecordingState } from '../storage/storage';
 import { type Project } from '../storage/models';
@@ -28,8 +29,19 @@ async function sweepEmptySnapshotAnchors(sessionId: string): Promise<void> {
   });
 }
 
+/** The metadata another tab can change without touching the entry structure. */
+function sameMetadata(first: Project, second: Project): boolean {
+  return first.title === second.title
+    && first.description === second.description
+    && first.tags.length === second.tags.length
+    && first.tags.every((tag, index) => tag === second.tags[index]);
+}
+
 export function useEditorProjectData(sessionId: string | null, steps: readonly unknown[]) {
   const [project, setProject] = useState<Project | null>(null);
+  /** Set once the open Project's row is gone (deleted in another tab): the
+   * editor keeps showing what it has, read-only, since nothing can be saved. */
+  const [projectDeleted, setProjectDeleted] = useState(false);
   const [canonicalSnapshot, setCanonicalSnapshot] = useState<ProjectStructureSnapshot | null>(null);
   const [projectLoadState, setProjectLoadState] = useState<EditorProjectLoadState>(
     sessionId ? 'loading' : 'missing',
@@ -91,6 +103,35 @@ export function useEditorProjectData(sessionId: string | null, steps: readonly u
     }
   }, [adoptSnapshot, applyLoadFailure, clear, sessionId]);
 
+  /** Re-reads the Project row after a write anywhere in the extension. A
+   * missing row means it was deleted; otherwise metadata other tabs changed
+   * (title, description, tags) is merged in. Structure and its revision stay
+   * with the canonical snapshot, so a structural compare-and-swap is never
+   * rebased onto entries this tab hasn't loaded. */
+  const syncProjectRow = useCallback(async (): Promise<void> => {
+    if (!sessionId) return;
+    const stored = await getProject(sessionId);
+    if (!stored) {
+      setProjectDeleted(true);
+      return;
+    }
+    setProject((current) => (
+      current && current.id === stored.id && !sameMetadata(current, stored)
+        ? { ...current, title: stored.title, description: stored.description, tags: stored.tags }
+        : current
+    ));
+  }, [sessionId]);
+
+  useEffect(() => {
+    setProjectDeleted(false);
+    if (!sessionId) return;
+    return subscribeProjectsChanged(() => {
+      void syncProjectRow().catch((syncError) => {
+        console.warn('[stepmark] failed to re-read the project after a change', syncError);
+      });
+    });
+  }, [sessionId, syncProjectRow]);
+
   useEffect(() => {
     let disposed = false;
     if (!sessionId) {
@@ -113,6 +154,8 @@ export function useEditorProjectData(sessionId: string | null, steps: readonly u
     project,
     canonicalSnapshot,
     projectLoadState,
+    projectDeleted,
+    syncProjectRow,
     reload,
     adoptProject,
   };

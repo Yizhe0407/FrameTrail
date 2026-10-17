@@ -153,9 +153,18 @@ export function isPristineProject(project: Project): boolean {
   );
 }
 
+/** The Project row is gone (usually deleted from the Library in another tab).
+ * Typed so an editor can tell "deleted" apart from an ordinary write failure. */
+export class ProjectNotFoundError extends Error {
+  constructor(public readonly projectId: string) {
+    super('Project not found.');
+    this.name = 'ProjectNotFoundError';
+  }
+}
+
 export async function requireWritableProject(tx: ProjectStepsTransaction, id: string): Promise<Project> {
   const project = await tx.objectStore('projects').get(id);
-  if (!project) throw new Error('Project not found.');
+  if (!project) throw new ProjectNotFoundError(id);
   return sanitizeProject(project);
 }
 

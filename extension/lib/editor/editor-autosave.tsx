@@ -7,8 +7,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { saveStepDescription, StepDescriptionConflictError } from '../storage/step-repository';
+import { saveStepDescription, StepDescriptionConflictError, StepNotFoundError } from '../storage/step-repository';
 import { type Step } from '../storage/models';
+import { normalizeStoredText } from '../storage/stored-text';
 import {
   clearMatchingCommittedDescriptionDrafts,
   DESCRIPTION_DRAFT_KEY_PREFIX,
@@ -67,9 +68,22 @@ export function useEditorSaveRegistry(): EditorSaveRegistry {
   return registry;
 }
 
+/** Why the text in the field is not (yet) the stored description:
+ * - `conflict`: the stored description changed elsewhere (another tab) after
+ *   this field loaded it; nothing is saved until the user picks a version.
+ * - `missing`: the step no longer exists, so nothing can be saved.
+ * - `failed`: the last save failed for another reason; the next edit retries.
+ * The typed text stays journaled in every case. */
+export type DescriptionSaveIssue = 'conflict' | 'missing' | 'failed';
+
 export interface DescriptionAutosaveResult {
   description: string;
   setDescription: (description: string) => void;
+  saveIssue: DescriptionSaveIssue | null;
+  /** The stored description the field conflicts with (meaningful while `saveIssue` is `conflict`). */
+  savedDescription: string;
+  /** Resolves a conflict by dropping this field's text for the stored description. */
+  keepSaved: () => void;
   recoveries: RestoredDescriptionDraft[];
   /** Returns false when the journal rejected the copy (quota); the field then
    * keeps its current text so the UI can surface the failure. */
@@ -115,13 +129,18 @@ export function useStepDescriptionAutosave(
     const candidates = readDescriptionDrafts(step, writerId.current);
     const restored = candidates.find((candidate) => candidate.belongsToCurrentWriter) ?? null;
     return {
-      description: restored?.description ?? step.description,
+      // A journal record can predate the stored-text rule; normalize it like typed text.
+      description: restored ? normalizeStoredText(restored.description) : step.description,
       recoveries: candidates.filter((candidate) => !candidate.belongsToCurrentWriter),
       confirmationRequired: Boolean(restored?.conflictsWithPersistedValue),
     };
   });
   const [description, setDescriptionState] = useState(initial.description);
   const [recoveries, setRecoveries] = useState<RestoredDescriptionDraft[]>(initial.recoveries);
+  const [saveIssue, setSaveIssue] = useState<DescriptionSaveIssue | null>(
+    initial.confirmationRequired ? 'conflict' : null,
+  );
+  const [savedDescription, setSavedDescription] = useState(step.description);
   const draft = useRef(initial.description);
   const persisted = useRef(step.description);
   const lastExternalValue = useRef(step.description);
@@ -146,6 +165,16 @@ export function useStepDescriptionAutosave(
     timer.current = null;
   }, []);
 
+  /** Gates saving on an explicit choice. `conflict` is also shown on the field;
+   * a draft loaded from another tab (`restored`) is confirmed on its own card. */
+  const requireConfirmation = useCallback((reason: 'conflict' | 'restored' | null) => {
+    confirmationRequired.current = reason !== null;
+    if (reason === 'conflict') setSavedDescription(persisted.current);
+    setSaveIssue((current) => (
+      reason === 'conflict' ? 'conflict' : current === 'conflict' ? null : current
+    ));
+  }, []);
+
   const refreshRecoveries = useCallback(() => {
     const candidates = readDescriptionDrafts(
       { id: stepId.current, sessionId: sessionId.current, description: persisted.current },
@@ -159,7 +188,7 @@ export function useStepDescriptionAutosave(
     if (confirmationRequired.current && !confirmed) {
       throw new DraftConfirmationRequiredError();
     }
-    if (confirmed) confirmationRequired.current = false;
+    if (confirmed) requireConfirmation(null);
     if (activeSave.current) return activeSave.current;
     if (draft.current === persisted.current) {
       // clearMatching covers every writer's record for this step — including
@@ -174,15 +203,20 @@ export function useStepDescriptionAutosave(
 
     const operation = (async () => {
       while (draft.current !== persisted.current) {
+        // A conflict observed while an earlier iteration was saving (the
+        // stored value changed under this field) must stop the loop too.
+        if (confirmationRequired.current) throw new DraftConfirmationRequiredError();
         const nextDescription = draft.current;
+        let storedDescription: string;
         try {
-          await saveStepDescription(stepId.current, nextDescription, persisted.current);
+          storedDescription = await saveStepDescription(stepId.current, nextDescription, persisted.current);
         } catch (saveError) {
           if (
             saveError instanceof StepDescriptionConflictError &&
             saveError.actualDescription === nextDescription
           ) {
             // Another tab already committed exactly this text; adopt it as saved.
+            storedDescription = nextDescription;
           } else if (saveError instanceof StepDescriptionConflictError) {
             // Another tab committed a different description while this one was
             // typing. Rebase on the committed value, keep this tab's text
@@ -194,7 +228,7 @@ export function useStepDescriptionAutosave(
               draft.current,
               writerId.current,
             );
-            confirmationRequired.current = true;
+            requireConfirmation('conflict');
             refreshRecoveries();
             throw new DraftConfirmationRequiredError();
           } else {
@@ -202,15 +236,25 @@ export function useStepDescriptionAutosave(
             // locally with an undo pending). Nothing was committed, so the
             // journal record must survive as the only durable copy of the
             // typed text — an undo that restores the step resurfaces it as a
-            // recoverable draft. Every other failure propagates unchanged too.
+            // recoverable draft. Every other failure propagates unchanged too,
+            // and the field says the text is not saved.
+            if (mounted.current) setSaveIssue(saveError instanceof StepNotFoundError ? 'missing' : 'failed');
             throw saveError;
           }
         }
-        persisted.current = nextDescription;
+        if (mounted.current) setSaveIssue((current) => (current === 'conflict' ? current : null));
+        // Compare against what storage kept from now on, never against what was
+        // sent: a value that differs only by stored-text normalization would
+        // otherwise look like a conflict on the next save.
+        persisted.current = storedDescription;
+        if (draft.current === nextDescription && storedDescription !== nextDescription) {
+          draft.current = storedDescription;
+          if (mounted.current) setDescriptionState(storedDescription);
+        }
         // See above: clearMatching is a superset of the targeted clear.
         clearMatchingCommittedDescriptionDrafts(
           { id: stepId.current, sessionId: sessionId.current },
-          nextDescription,
+          storedDescription,
         );
         refreshRecoveries();
         try {
@@ -229,13 +273,15 @@ export function useStepDescriptionAutosave(
     } finally {
       if (activeSave.current === operation) activeSave.current = null;
     }
-  }, [clearTimer, refreshRecoveries]);
+  }, [clearTimer, refreshRecoveries, requireConfirmation]);
 
   const flush = useCallback(() => performFlush(false), [performFlush]);
   const confirmOverwrite = useCallback(() => performFlush(true), [performFlush]);
 
   const setDescription = useCallback(
-    (nextDescription: string) => {
+    (typedDescription: string) => {
+      // Normalize as the user types, so the draft is exactly what storage will keep.
+      const nextDescription = normalizeStoredText(typedDescription);
       const journaled = writeDescriptionDraft(
         {
           id: stepId.current,
@@ -266,20 +312,31 @@ export function useStepDescriptionAutosave(
     const recovery = recoveries.find((candidate) => candidate.writerId === recoveryWriterId);
     if (!recovery) return false;
     clearTimer();
+    const recovered = normalizeStoredText(recovery.description);
     const journaled = writeDescriptionDraft(
       { id: stepId.current, sessionId: sessionId.current, description: persisted.current },
-      recovery.description,
+      recovered,
       writerId.current,
     );
     // The journal write's integrity pass may have cleaned records that are
     // still on screen; re-read so the visible list matches storage.
     refreshRecoveries();
     if (!journaled) return false;
-    draft.current = recovery.description;
-    setDescriptionState(recovery.description);
-    confirmationRequired.current = true;
+    draft.current = recovered;
+    setDescriptionState(recovered);
+    requireConfirmation('restored');
     return true;
-  }, [clearTimer, recoveries, refreshRecoveries]);
+  }, [clearTimer, recoveries, refreshRecoveries, requireConfirmation]);
+
+  const keepSaved = useCallback(() => {
+    if (activeSave.current) return;
+    clearTimer();
+    discardDescriptionDraft({ id: stepId.current, sessionId: sessionId.current }, writerId.current);
+    draft.current = persisted.current;
+    setDescriptionState(persisted.current);
+    requireConfirmation(null);
+    refreshRecoveries();
+  }, [clearTimer, refreshRecoveries, requireConfirmation]);
 
   const discardRecovery = useCallback((recoveryWriterId: string) => {
     discardDescriptionDraft(
@@ -303,16 +360,16 @@ export function useStepDescriptionAutosave(
     if (draft.current === previousExternalValue || draft.current === external.description) {
       draft.current = external.description;
       setDescriptionState(external.description);
-      confirmationRequired.current = false;
+      requireConfirmation(null);
       // clearMatching covers this writer's record too; see performFlush.
       clearMatchingCommittedDescriptionDrafts(external, external.description);
     } else if (external.description !== previousExternalValue) {
       clearTimer();
       writeDescriptionDraft(external, draft.current, writerId.current);
-      confirmationRequired.current = true;
+      requireConfirmation('conflict');
     }
     refreshRecoveries();
-  }, [clearTimer, refreshRecoveries, step.description, step.id, step.sessionId]);
+  }, [clearTimer, refreshRecoveries, requireConfirmation, step.description, step.id, step.sessionId]);
 
   useEffect(() => register(`description:${step.id}`, flush), [flush, register, step.id]);
 
@@ -345,6 +402,9 @@ export function useStepDescriptionAutosave(
   return {
     description,
     setDescription,
+    saveIssue,
+    savedDescription,
+    keepSaved,
     recoveries,
     restoreRecovery,
     discardRecovery,

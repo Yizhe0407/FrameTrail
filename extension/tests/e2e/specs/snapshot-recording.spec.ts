@@ -1,4 +1,4 @@
-import { test, expect } from '../support/fixture';
+import { test, expect, FIXTURE_URL } from '../support/fixture';
 import {
   clickSnapshotTarget,
   expectSteady,
@@ -238,7 +238,7 @@ test.describe('snapshot recording', () => {
     await expect.poll(() => appPage.locator('[data-stepmark-snapshot-shield]').count()).toBe(0);
     await expect(appPage.locator('[data-stepmark-recording-toolbar]')).toHaveCount(1);
 
-    await appPage.goto('http://127.0.0.1:4175/navigated.html');
+    await appPage.goto(`${FIXTURE_URL}navigated.html`);
     await expect.poll(async () => (await readRecordingState(popupPage)).phase).toBe('preparing-next');
     await expect.poll(() => appPage.locator('[data-stepmark-recording-toolbar]').count()).toBe(1);
 

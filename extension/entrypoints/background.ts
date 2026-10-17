@@ -8,7 +8,7 @@ import {
   waitForQueuedClicks,
 } from '@/lib/recording/background-queues';
 import { generateActionDescription } from '@/lib/capture/action-description';
-import { isRestrictedUrl } from '@/lib/shared/restricted-urls';
+import { isRecordableTabUrl } from '@/lib/shared/restricted-urls';
 import { openWelcomePage, opensWelcomeOnInstall } from '@/lib/runtime/welcome';
 import { syncActionIconWithRecordingState } from '@/lib/recording/background/action-icon';
 import { focusTab } from '@/lib/runtime/navigation';
@@ -54,6 +54,15 @@ import { createStepFrameRelayBroker } from '@/lib/recording/background/step-fram
 import { createRecaptureFlow } from '@/lib/recording/background/recapture-flow';
 import { createFollowMode } from '@/lib/recording/background/follow-mode';
 import {
+  clearRecordingWait,
+  isRecordingWaitError,
+  isWaitingForSiteAccess,
+  markRecordingWait,
+  recordingWaitError,
+  unrecordableReason,
+  type RecordingWaitReason,
+} from '@/lib/recording/background/recording-wait';
+import {
   isEditorSenderForSession,
   resolveContinuationTab,
   resolveProjectContinuationAnchor,
@@ -74,7 +83,8 @@ import {
   registerExtensionPage,
 } from '@/lib/recording/background/extension-page-tabs';
 import { t } from '@/lib/shared/i18n';
-import { describeBrowserError, isMissingTabError } from '@/lib/runtime/browser-errors';
+import { describeBrowserError, isErrorPageError, isMissingTabError } from '@/lib/runtime/browser-errors';
+import { UserFacingError, userFacingErrorMessage } from '@/lib/runtime/user-facing-errors';
 import { withMessageFailureFallback } from '@/lib/runtime/background-message-fallback';
 import { getRecordingState, resetRunStateToIdle, setRecordingState } from '@/lib/storage/storage';
 import { markEditorOpenFailed, recordedTabClosedError } from '@/lib/recording/recording-recovery';
@@ -233,6 +243,37 @@ function stopRunWithError(
   return handleStopRunWithError(runId, error, version, recoverableError);
 }
 
+/**
+ * The tab the run lives in is gone (closed, or found missing mid-operation).
+ * A run that could follow the user continues in another tab; only a run with
+ * nowhere to go ends with RECORDED_TAB_CLOSED. Serialized with START/STOP and
+ * follow moves through the lifecycle queue — callers already inside the click
+ * queue must not await it (START/STOP wait for queued clicks).
+ */
+function handleRecordedTabGone(tabId: number): Promise<void> {
+  const expectedControlVersion = control.controlVersion;
+  return queueLifecycle(async () => {
+    const state = await getRecordingState();
+    if (
+      expectedControlVersion !== control.controlVersion ||
+      !state.isRecording ||
+      state.operation !== 'recording' ||
+      state.tabId !== tabId ||
+      !state.runId
+    ) {
+      return;
+    }
+    const outcome = await followMode.continueAfterRecordedTabClosed(tabId, expectedControlVersion);
+    if (outcome !== 'nowhere') return;
+    await stopRunWithError(
+      state.runId,
+      recordedTabClosedError().message,
+      expectedControlVersion,
+      recordedTabClosedError(),
+    );
+  });
+}
+
 async function handleStopRunWithError(
   runId: string,
   error: string,
@@ -294,8 +335,8 @@ async function assertCaptureContext(
   });
   if (failure === 'stale-run') throw new StaleCaptureError('Recording changed before the screenshot could be taken.');
   // These two surface to the user through setRunError, so they are localized.
-  if (failure === 'inactive-tab') throw new Error(t().background.stepSkippedInactiveTab);
-  if (failure === 'changed-url') throw new Error(t().background.stepSkippedPageChanged);
+  if (failure === 'inactive-tab') throw new UserFacingError(t().background.stepSkippedInactiveTab);
+  if (failure === 'changed-url') throw new UserFacingError(t().background.stepSkippedPageChanged);
 }
 
 async function persistRecordingSteps(state: RecordingState, steps: Step[]): Promise<void> {
@@ -443,8 +484,27 @@ async function recoverInterruptedRecording(): Promise<void> {
   if (state.operation !== 'recording' || !state.isRecording || !state.runId) return;
   const expectedControlVersion = control.controlVersion;
   const assessment = await assessInterruptedRecording(state);
-  if (assessment === 'intact') return;
-  const recoverableError = assessment === 'anchor-missing'
+  if (assessment.kind === 'intact') return;
+  if (assessment.kind === 'tab-missing' && state.tabId != null) {
+    // Same path as a live tabs.onRemoved (which may be the very event that woke
+    // this worker): the run can still continue in another tab. Not awaited —
+    // clicks wait for this recovery, and the lifecycle queue can wait for clicks.
+    void handleRecordedTabGone(state.tabId).catch((error) => {
+      console.error('[stepmark] failed to settle the recording whose tab is gone', error);
+    });
+    return;
+  }
+  if (assessment.kind === 'unrecordable') {
+    // The worker idled out while the run waited in a page it cannot record
+    // (no recorder there keeps it alive): keep waiting, never end the run.
+    await updateRunState(
+      state.runId,
+      (current) => markRecordingWait(current, assessment.reason),
+      expectedControlVersion,
+    );
+    return;
+  }
+  const recoverableError = assessment.kind === 'anchor-missing'
     ? snapshotAnchorMissingError()
     : recordedTabClosedError();
   await stopRunWithError(
@@ -455,31 +515,35 @@ async function recoverInterruptedRecording(): Promise<void> {
   );
 }
 
-type InterruptedRecordingAssessment = 'intact' | 'tab-gone' | 'anchor-missing';
+type InterruptedRecordingAssessment =
+  | { kind: 'intact' | 'tab-missing' | 'tab-gone' | 'anchor-missing' }
+  | { kind: 'unrecordable'; reason: RecordingWaitReason };
 
 async function assessInterruptedRecording(state: RecordingState): Promise<InterruptedRecordingAssessment> {
-  if (state.tabId == null) return 'tab-gone';
+  if (state.tabId == null) return { kind: 'tab-gone' };
   let tab: Browser.tabs.Tab;
   try {
     tab = await browser.tabs.get(state.tabId);
   } catch {
-    return 'tab-gone';
+    return { kind: 'tab-missing' };
   }
-  // 步驟模式允許導頁；只有無法讀取或受限 URL 才能證明流程已失效。
-  if (isRestrictedUrl(tab.url)) return 'tab-gone';
-  if (state.mode === 'snapshot') {
-    // 恢復的快照流程必須先有持久化底圖，才能接受點擊。
-    const acceptsAnnotations = state.phase === 'recording' || state.phase === 'finishing';
-    if (acceptsAnnotations && !state.groupAnchorId) return 'anchor-missing';
-    if (state.groupAnchorId) {
-      const anchor = await getStep(state.groupAnchorId);
-      if (acceptsAnnotations && !anchor?.screenshotBlob) return 'anchor-missing';
-      // Snapshot coordinates belong to one immutable document; a restart that
-      // left the tab on any other URL invalidates every further annotation.
-      if (anchor && tab.url !== anchor.url) return 'tab-gone';
-    }
+  if (state.mode === 'steps') {
+    // 步驟模式允許導頁；停在無法錄製的頁面時只是等待，回到一般網頁即繼續。
+    const reason = await unrecordableReason(tab.url);
+    return reason ? { kind: 'unrecordable', reason } : { kind: 'intact' };
   }
-  return 'intact';
+  if (!isRecordableTabUrl(tab.url)) return { kind: 'tab-gone' };
+  // 恢復的快照流程必須先有持久化底圖，才能接受點擊。
+  const acceptsAnnotations = state.phase === 'recording' || state.phase === 'finishing';
+  if (acceptsAnnotations && !state.groupAnchorId) return { kind: 'anchor-missing' };
+  if (state.groupAnchorId) {
+    const anchor = await getStep(state.groupAnchorId);
+    if (acceptsAnnotations && !anchor?.screenshotBlob) return { kind: 'anchor-missing' };
+    // Snapshot coordinates belong to one immutable document; a restart that
+    // left the tab on any other URL invalidates every further annotation.
+    if (anchor && tab.url !== anchor.url) return { kind: 'tab-gone' };
+  }
+  return { kind: 'intact' };
 }
 
 /** 僅在持久化流程仍相符時，重建 MV3 遺失的復原狀態。 */
@@ -591,7 +655,7 @@ async function handleStartRecording(
     return;
   }
 
-  if (isRestrictedUrl(tab.url)) {
+  if (!isRecordableTabUrl(tab.url)) {
     await control.writeStateForControl(version, (current) =>
       startFailureState(current, message.mode, 'RESTRICTED_PAGE', t().background.restrictedBrowserPage));
     return;
@@ -1116,7 +1180,7 @@ async function createNextSnapshot(
 
   try {
     const tab = await browser.tabs.get(state.tabId!);
-    if (tab.windowId == null || isRestrictedUrl(tab.url)) throw new Error('Snapshot tab cannot be captured.');
+    if (tab.windowId == null || !isRecordableTabUrl(tab.url)) throw new Error('Snapshot tab cannot be captured.');
     return await control.withRecorderReadyGate({
       slot: 'pendingRecorderReady',
       identity: { runId: message.runId, tabId: state.tabId!, controlVersion: version },
@@ -1603,7 +1667,7 @@ async function handleSnapshotClick(
   }
   // This throw message surfaces to the user through setRunError, so it is localized.
   if (anchor.url !== message.url) {
-    throw new Error(t().background.annotationSkippedPageChanged);
+    throw new UserFacingError(t().background.annotationSkippedPageChanged);
   }
   if (expectedControlVersion !== control.controlVersion) {
     throw new StaleCaptureError('Recording control changed while saving the annotation.');
@@ -1729,23 +1793,24 @@ async function handleClick(
         );
       } else if (isMissingTabError(err)) {
         reason = 'tab-closed';
-        await stopRunWithError(
-          message.runId,
-          recordedTabClosedError().message,
-          expectedControlVersion,
-          recordedTabClosedError(),
-        );
+        // Not awaited: this runs inside the click queue, and the lifecycle
+        // queue it enters can be waiting for queued clicks.
+        void handleRecordedTabGone(tabId).catch((error) => {
+          console.error('[stepmark] failed to handle the closed recording tab', error);
+        });
       } else if (err instanceof StaleCaptureError) {
         reason = `stale-capture: ${err.message}`;
       } else {
-        const messageText = describeBrowserError(err, t().background.captureFailed);
-        reason = messageText;
+        const diagnostic = describeBrowserError(err);
+        reason = diagnostic;
         console.error(
           '[stepmark] failed to capture/annotate/save step:',
-          messageText,
+          diagnostic,
           err,
         );
-        await setRunError(message.runId, messageText);
+        // The toolbar shows state.error verbatim: localized copy only, never
+        // the raw browser diagnostic or its "Error: " rendering.
+        await setRunError(message.runId, userFacingErrorMessage(err, t().background.captureFailed));
       }
     } catch (recoveryError) {
       control.acceptingClicks = false;
@@ -1763,8 +1828,13 @@ async function handleClick(
 
 
 export default defineBackground(() => {
-  // Error copy the worker reports back to pages follows the chosen language.
-  void initLocalePreference();
+  // Error copy and step descriptions the worker produces follow the chosen
+  // language. A worker woken by a click must not describe that step before the
+  // stored preference is read, so startup recovery (which every click awaits)
+  // waits for it too.
+  const localeReady = initLocalePreference().catch((error: unknown) => {
+    console.warn('[stepmark] failed to apply the language preference', error);
+  });
   // Registered synchronously so the install event is never missed by a worker
   // still finishing its first run.
   browser.runtime.onInstalled.addListener((details) => {
@@ -1783,6 +1853,7 @@ export default defineBackground(() => {
   // A worker woken by a capture message from a stale persisted run (e.g. a
   // bfcache-restored recorder) must not race recovery: clicks queue behind it.
   const startupRecovery = (async () => {
+    await localeReady;
     await recaptureFlow.recoverInterruptedRecapture();
     await recoverInterruptedRecording();
   })().catch((error) => {
@@ -2053,6 +2124,9 @@ export default defineBackground(() => {
 
   browser.permissions?.onAdded?.addListener((permissions) => {
     if (!permissions.origins?.includes('<all_urls>')) return;
+    void resumeRunWaitingForSiteAccess().catch((error) => {
+      console.error('[stepmark] failed to resume the recording after the permission grant', error);
+    });
     void (async () => {
       const pending = await claimPendingStart();
       if (!pending) return;
@@ -2113,30 +2187,72 @@ export default defineBackground(() => {
     return { state, runId: state.runId };
   };
 
+  /** Puts the run on hold in a page the recorder cannot run on; it resumes
+   * when the tab (or a tab it follows into) shows a recordable page again. */
+  const markRunWaiting = (runId: string, reason: RecordingWaitReason, expectedControlVersion: number) =>
+    updateRunState(runId, (current) => markRecordingWait(current, reason), expectedControlVersion);
+
+  /** Lifts a hold once the recorder runs again; a write only when one is set,
+   * so ordinary in-run navigations cost no state churn. */
+  const clearRunWaiting = (runId: string, expectedControlVersion: number) =>
+    control.writeStateIf(
+      expectedControlVersion,
+      (current) =>
+        current.isRecording &&
+        current.operation === 'recording' &&
+        current.runId === runId &&
+        isRecordingWaitError(current.recoverableError),
+      clearRecordingWait,
+    );
+
   /** 重新注入所有可存取 frame；注入失敗的結束方式由呼叫端決定。 */
   const reinjectRecorder = async (
     tabId: number,
-    runId: string,
-    expectedControlVersion: number,
     failureLog: string,
-  ): Promise<'injected' | 'tab-closed' | 'failed'> => {
+  ): Promise<'injected' | 'tab-closed' | 'error-page' | 'failed'> => {
     try {
       await recorderRuntime.injectRecorder(tabId, true);
       return 'injected';
     } catch (err) {
-      if (isMissingTabError(err)) {
-        await stopRunWithError(
-          runId,
-          recordedTabClosedError().message,
-          expectedControlVersion,
-          recordedTabClosedError(),
-        );
-        return 'tab-closed';
-      }
+      // Tab closure is owned by handleRecordedTabGone (fed by tabs.onRemoved),
+      // which may hand the run to another tab: never end the run from here.
+      if (isMissingTabError(err)) return 'tab-closed';
       console.error(failureLog, describeBrowserError(err), err);
-      return 'failed';
+      return isErrorPageError(err) ? 'error-page' : 'failed';
     }
   };
+
+  /** The <all_urls> grant arrived while a run waits for site access in its
+   * tab: that page may be recordable now, so the run resumes there. */
+  async function resumeRunWaitingForSiteAccess(): Promise<void> {
+    const expectedControlVersion = control.controlVersion;
+    const state = await getRecordingState();
+    if (
+      !state.isRecording ||
+      state.operation !== 'recording' ||
+      !state.runId ||
+      state.tabId == null ||
+      !isWaitingForSiteAccess(state)
+    ) {
+      return;
+    }
+    const { runId, tabId } = state;
+    let url: string | undefined;
+    try {
+      url = (await browser.tabs.get(tabId)).url;
+    } catch {
+      return; // Gone: tabs.onRemoved owns what happens to the run.
+    }
+    const waitReason = await unrecordableReason(url);
+    if (waitReason) {
+      await markRunWaiting(runId, waitReason, expectedControlVersion);
+      return;
+    }
+    // Cleared before injecting so the fresh toolbar never flashes the old notice.
+    await clearRunWaiting(runId, expectedControlVersion);
+    const resumed = await reinjectRecorder(tabId, '[stepmark] failed to resume the recorder after the permission grant:');
+    if (resumed === 'error-page') await markRunWaiting(runId, 'page-failed', expectedControlVersion);
+  }
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     void (async () => {
@@ -2146,22 +2262,31 @@ export default defineBackground(() => {
       if (await recaptureFlow.handleSourceTabUpdated(tabId, changeInfo)) return;
       const expectedControlVersion = control.controlVersion;
       const active = await readActiveRunForTab(tabId, expectedControlVersion);
-      if (!active) return;
+      if (!active) {
+        // Another tab finished loading a web page while the user is on it (a
+        // blank tab they typed a URL into): the run may follow it now.
+        if (changeInfo.status === 'complete' && tab.active && isRecordableTabUrl(tab.url)) {
+          followMode.scheduleFollowForLoadedTab(tabId);
+        }
+        return;
+      }
       const { state, runId } = active;
 
       if (state.mode === 'snapshot' && state.phase === 'preparing-next') {
         if (changeInfo.status !== 'complete') return;
-        if (isRestrictedUrl(tab.url)) {
-          await setRunError(runId, t().background.snapshotUnavailableHere);
+        const waitReason = await unrecordableReason(tab.url);
+        if (waitReason) {
+          await setRunError(
+            runId,
+            waitReason === 'site-access' ? recordingWaitError(waitReason).message : t().background.snapshotUnavailableHere,
+          );
           return;
         }
         const restored = await reinjectRecorder(
           tabId,
-          runId,
-          expectedControlVersion,
           '[stepmark] failed to restore snapshot preparation toolbar after navigation:',
         );
-        if (restored === 'failed') {
+        if (restored === 'failed' || restored === 'error-page') {
           await setRunError(runId, t().background.controlsUnavailableHere);
         }
         return;
@@ -2176,21 +2301,23 @@ export default defineBackground(() => {
       }
       if (updateAction !== 'reinject') return;
 
-      if (isRestrictedUrl(tab.url)) {
-        await stopRunWithError(
-          runId,
-          t().background.stoppedRestrictedPage,
-          expectedControlVersion,
-        );
+      // A steps run waits out a page it cannot record (a browser page, a site
+      // without access, a failed load) exactly like follow mode waits out an
+      // ineligible tab: nothing is lost, and the next recordable page resumes it.
+      const waitReason = await unrecordableReason(tab.url);
+      if (waitReason) {
+        await markRunWaiting(runId, waitReason, expectedControlVersion);
         return;
       }
+      // Cleared before injecting so the fresh toolbar never flashes the old notice.
+      await clearRunWaiting(runId, expectedControlVersion);
       const reinjected = await reinjectRecorder(
         tabId,
-        runId,
-        expectedControlVersion,
         '[stepmark] failed to re-inject recorder after navigation:',
       );
-      if (reinjected === 'failed') {
+      if (reinjected === 'error-page') {
+        await markRunWaiting(runId, 'page-failed', expectedControlVersion);
+      } else if (reinjected === 'failed') {
         await stopRunWithError(
           runId,
           t().background.stoppedRecorderUnavailable,
@@ -2223,15 +2350,7 @@ export default defineBackground(() => {
       // that later opens reuse, whatever else this removal means.
       await forgetClosedExtensionPage(tabId);
       if (await recaptureFlow.handleSourceTabRemoved(tabId)) return;
-      const expectedControlVersion = control.controlVersion;
-      const active = await readActiveRunForTab(tabId, expectedControlVersion);
-      if (!active) return;
-      await stopRunWithError(
-        active.runId,
-        recordedTabClosedError().message,
-        expectedControlVersion,
-        recordedTabClosedError(),
-      );
+      await handleRecordedTabGone(tabId);
     })().catch((error) => {
       console.error('[stepmark] failed to handle recorded tab removal', error);
     });

@@ -8,6 +8,7 @@ import {
   type Step,
 } from './models';
 import type { StepRecaptureTarget } from './recording-state';
+import { assertStorableScreenshots } from './screenshot-rules';
 import {
   refreshProjectSummary,
   requireWritableProject,
@@ -27,6 +28,7 @@ export async function addStep(step: Step): Promise<void> {
 export async function addStepsAfter(steps: readonly Step[], afterStepId: string | null): Promise<void> {
   if (steps.length === 0) return;
   assertMutationItems(steps, 'Added steps');
+  await assertStorableScreenshots(steps.map((step) => step.screenshotBlob));
   const { sessionId, runId } = steps[0];
   let latestTimestamp = steps[0].timestamp;
   await runProjectStepsWrite(async (tx) => {
@@ -56,6 +58,7 @@ export async function addStepsAfter(steps: readonly Step[], afterStepId: string 
 export async function addSteps(steps: readonly Step[]): Promise<void> {
   if (steps.length === 0) return;
   assertMutationItems(steps, 'Added steps');
+  await assertStorableScreenshots(steps.map((step) => step.screenshotBlob));
   const sessionId = steps[0].sessionId;
   let latestTimestamp = steps[0].timestamp;
   await runProjectStepsWrite(async (tx) => {
@@ -115,9 +118,13 @@ export interface StepUpdate {
   changes: Partial<Step>;
   /** Optional compare-and-set guard for privacy-sensitive edits. */
   expectedCaptureRevision?: number;
+  /** Optional compare-and-set guard on `imageEditRevision`: the image editor's
+   * masks, drawings and crop must be written over the copy it loaded. */
+  expectedImageEditRevision?: number;
 }
 
-class StepUpdateConflictError extends Error {
+/** The screenshot was retaken before the edit was saved. */
+export class StepUpdateConflictError extends Error {
   constructor(
     public readonly stepId: string,
     public readonly expectedCaptureRevision: number,
@@ -152,14 +159,45 @@ export class StepDescriptionConflictError extends Error {
   }
 }
 
+/** Another write (usually another editor tab) changed the image's masks,
+ * drawings or crop after this editor loaded them. Saving the stale copy would
+ * silently delete that write, so it is refused. */
+export class StepImageEditConflictError extends Error {
+  constructor(
+    public readonly stepId: string,
+    public readonly expectedImageEditRevision: number,
+    public readonly actualImageEditRevision: number,
+  ) {
+    super('This image was edited elsewhere before the edit was saved.');
+    this.name = 'StepImageEditConflictError';
+  }
+}
+
+const IMAGE_EDIT_FIELDS = ['redactions', 'imageEdits', 'crop'] as const;
+
+/** The revision is owned by storage: callers cannot set it, and any write that
+ * touches a per-image edit field moves it forward. */
 function applyStepChanges(existing: Step, changes: Partial<Step>): Step {
-  const { id: _id, sessionId: _sessionId, order: _order, ...mutableChanges } = changes;
-  return sanitizeStepForStorage({ ...existing, ...mutableChanges });
+  const { id: _id, sessionId: _sessionId, order: _order, imageEditRevision: _revision, ...mutableChanges } = changes;
+  const touchesImageEdits = IMAGE_EDIT_FIELDS.some((field) => Object.hasOwn(mutableChanges, field));
+  return sanitizeStepForStorage({
+    ...existing,
+    ...mutableChanges,
+    ...(touchesImageEdits ? { imageEditRevision: (existing.imageEditRevision ?? 0) + 1 } : {}),
+  });
+}
+
+/** Whether a recaptured image must have its masks re-checked: the old masks
+ * were placed over the old pixels, so the new picture may show what they hid. */
+function hadPrivacyMasks(step: Step): boolean {
+  return step.redactionReviewRequired === true
+    || (Array.isArray(step.redactions) ? step.redactions.length > 0 : step.redactions !== undefined);
 }
 
 export async function updateStepsAtomically(sessionId: string, updates: StepUpdate[]): Promise<void> {
   assertMutationItems(updates, 'Step updates');
   if (updates.length === 0) return;
+  await assertStorableScreenshots(updates.map((update) => update.changes.screenshotBlob));
   await runProjectStepsWrite(async (tx) => {
     const project = await requireWritableProject(tx, sessionId);
     for (const update of updates) {
@@ -177,6 +215,16 @@ export async function updateStepsAtomically(sessionId: string, updates: StepUpda
           existing.captureRevision ?? 0,
         );
       }
+      if (
+        update.expectedImageEditRevision !== undefined &&
+        (existing.imageEditRevision ?? 0) !== update.expectedImageEditRevision
+      ) {
+        throw new StepImageEditConflictError(
+          update.id,
+          update.expectedImageEditRevision,
+          existing.imageEditRevision ?? 0,
+        );
+      }
       await tx.objectStore('steps').put(applyStepChanges(existing, update.changes));
     }
     await refreshProjectSummary(tx, project);
@@ -190,6 +238,7 @@ export async function replaceStepCaptureAtomically(
   capture: CaptureReplacement,
   recaptureRunId: string,
 ): Promise<{ entryId: string; captureRevision: number }> {
+  await assertStorableScreenshots([capture.screenshotBlob]);
   return runProjectStepsWrite(async (tx) => {
     const project = await requireWritableProject(tx, sessionId);
     if (target.kind === 'single') {
@@ -208,8 +257,9 @@ export async function replaceStepCaptureAtomically(
         redactions: [],
         imageEdits: [],
         crop: null,
-        redactionReviewRequired: false,
+        redactionReviewRequired: hadPrivacyMasks(step),
         captureRevision,
+        imageEditRevision: (step.imageEditRevision ?? 0) + 1,
         lastCaptureRunId: recaptureRunId,
       }));
       await refreshProjectSummary(tx, project, capture.timestamp);
@@ -250,8 +300,9 @@ export async function replaceStepCaptureAtomically(
       redactions: [],
       imageEdits: [],
       crop: null,
-      redactionReviewRequired: false,
+      redactionReviewRequired: hadPrivacyMasks(anchor),
       captureRevision,
+      imageEditRevision: (anchor.imageEditRevision ?? 0) + 1,
       lastCaptureRunId: recaptureRunId,
     }));
     await tx.objectStore('steps').put(sanitizeStepForStorage({
@@ -273,6 +324,7 @@ export async function replaceStepCaptureAtomically(
  * update as durably committed and drop their local draft journal, so a
  * swallowed not-found would destroy the user's only remaining copy. */
 export async function updateStep(id: string, changes: Partial<Step>): Promise<void> {
+  await assertStorableScreenshots([changes.screenshotBlob]);
   await runProjectStepsWrite(async (tx) => {
     const existing = await tx.objectStore('steps').get(id);
     if (!existing) throw new StepNotFoundError(id);
@@ -287,21 +339,26 @@ export async function updateStep(id: string, changes: Partial<Step>): Promise<vo
  * every unrelated edit; a description save only conflicts when the same row's
  * description itself diverged from what this editor last observed, so the CAS
  * guards exactly that value. Conflicts surface as StepDescriptionConflictError
- * (with the winning value) instead of last-write-wins. */
+ * (with the winning value) instead of last-write-wins.
+ *
+ * Resolves with the description as stored (normalized by the stored-text
+ * rule), which is the value the caller must compare against from now on. */
 export async function saveStepDescription(
   id: string,
   description: string,
   expectedDescription: string,
-): Promise<void> {
-  await runProjectStepsWrite(async (tx) => {
+): Promise<string> {
+  return runProjectStepsWrite(async (tx) => {
     const existing = await tx.objectStore('steps').get(id);
     if (!existing) throw new StepNotFoundError(id);
     if (existing.description !== expectedDescription) {
       throw new StepDescriptionConflictError(id, expectedDescription, existing.description);
     }
     const project = await requireWritableProject(tx, existing.sessionId);
-    await tx.objectStore('steps').put(applyStepChanges(existing, { description }));
+    const stored = applyStepChanges(existing, { description });
+    await tx.objectStore('steps').put(stored);
     await refreshProjectSummary(tx, project);
+    return stored.description;
   });
 }
 

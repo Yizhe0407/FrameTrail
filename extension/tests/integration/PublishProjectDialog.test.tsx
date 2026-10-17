@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { silenceIntentionalErrorLogs } from '../setup/silence-intentional-logs';
 import PublishProjectDialog from '@/components/editor/PublishProjectDialog';
+import { DownloadFailedError, RedactionReviewRequiredError, StepImageError } from '@/lib/export/export-errors';
 import { type StepEntry } from '@/lib/storage/models';
 
 const mocks = vi.hoisted(() => ({
@@ -150,6 +151,65 @@ describe('PublishProjectDialog', () => {
 
     expect(screen.getByText('「未命名專案」')).toBeTruthy();
     expect(screen.queryByText(/登入與初始設定/)).toBeNull();
+  });
+
+  it('downloads the HTML Blob as generated, without copying it into a string', async () => {
+    const htmlBlob = new Blob(['<!doctype html>'], { type: 'text/html;charset=utf-8' });
+    mocks.generateProjectHtml.mockResolvedValue(htmlBlob);
+    mocks.downloadBlobViaBrowser.mockResolvedValue(undefined);
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 HTML 網頁/ }));
+
+    await waitFor(() => expect(mocks.downloadBlobViaBrowser).toHaveBeenCalledOnce());
+    expect(mocks.downloadBlobViaBrowser.mock.calls[0][0]).toBe(htmlBlob);
+    expect((await screen.findByRole('status')).textContent).toContain('HTML 網頁已開始下載。');
+  });
+
+  it('names the step whose image could not be read instead of blaming the masks', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.generateProjectHtml.mockRejectedValue(new StepImageError(7, new Error('InvalidStateError')));
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 HTML 網頁/ }));
+
+    const alert = (await screen.findByRole('alert')).textContent ?? '';
+    expect(alert).toContain('第 7 步的圖片無法讀取');
+    expect(alert).not.toContain('遮罩後再試一次');
+    expect(mocks.downloadBlobViaBrowser).not.toHaveBeenCalled();
+  });
+
+  it('lists the steps whose masks still need review', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.generateProjectPdf.mockRejectedValue(new RedactionReviewRequiredError([2, 5]));
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 PDF/ }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('敏感資訊遮罩尚待檢查，匯出已中止：2, 5。');
+  });
+
+  it('reports a rejected browser download with its own message', async () => {
+    silenceIntentionalErrorLogs();
+    mocks.generateProjectPdf.mockResolvedValue(new Blob(['pdf']));
+    mocks.downloadBlobViaBrowser.mockRejectedValue(new DownloadFailedError(new Error('Invalid filename')));
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: /下載 PDF/ }));
+
+    const alert = (await screen.findByRole('alert')).textContent ?? '';
+    expect(alert).toContain('瀏覽器無法開始下載檔案');
+    expect(alert).not.toContain('敏感資訊遮罩');
+  });
+
+  it('tells the user nothing was exported when the image ZIP has no images', async () => {
+    renderDialog({ onExportImages: vi.fn().mockResolvedValue(null) });
+
+    fireEvent.click(screen.getByRole('button', { name: /下載圖片/ }));
+
+    const status = (await screen.findByRole('status')).textContent ?? '';
+    expect(status).toContain('沒有可匯出的圖片');
+    expect(status).not.toContain('已開始下載');
   });
 
   it('reports a failed export when the provider resolves no entries', async () => {

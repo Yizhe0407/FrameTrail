@@ -102,6 +102,12 @@ export function escapeProjectMarkdown(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/[[\]()<>`*_#!+\-|{}~=]/g, '\\$&')
+    // GFM turns `http://…`, `www.…` and `user@host` into links, and the
+    // backslashes above would end up inside the link target. Break the
+    // trigger itself so the text stays plain text with no stray backslash in a URL.
+    .replace(/:(?=\/\/)/g, '\\:')
+    .replace(/\bwww\./gi, (match) => `${match.slice(0, 3)}\\.`)
+    .replace(/@/g, '\\@')
     .replace(/\r\n?/g, '\n')
     // `1.` at a line start (up to three spaces of indent) would begin a real
     // ordered list - CommonMark even lets it interrupt a paragraph.
@@ -109,20 +115,51 @@ export function escapeProjectMarkdown(value: string): string {
     .replace(/\n/g, '  \n');
 }
 
+/** Longest stem in UTF-8 bytes. File systems cap a name at 255 bytes (not
+ * characters), so this leaves room for an extension and for callers that
+ * append a suffix (backup filenames add an id and `.stepmark`). */
+const FILENAME_STEM_MAX_BYTES = 200;
+
+/** Device names Windows refuses as a file's base name (with any extension). */
+const WINDOWS_RESERVED_NAMES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
+
+function utf8Length(codePoint: string): number {
+  const value = codePoint.codePointAt(0) ?? 0;
+  return value < 0x80 ? 1 : value < 0x800 ? 2 : value < 0x10000 ? 3 : 4;
+}
+
 function filenameStem(metadata: ProjectExportMetadata): string {
   const source = textValue(metadata.filename) || textValue(metadata.title);
   const stem = source
     .normalize('NFKD')
+    // Latin accents are dropped on purpose (café -> cafe). Other combining
+    // marks (kana voicing, Indic vowel signs, ...) are part of the letter.
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    // Keep every Unicode letter and digit so CJK titles survive as filenames;
-    // everything else (separators, punctuation, path and filesystem-unsafe
-    // characters, control characters) folds into single dashes.
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    // Keep every Unicode letter, digit and combining mark so CJK titles
+    // survive as filenames; everything else (separators, punctuation, path and
+    // filesystem-unsafe characters, control characters) folds into single dashes.
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, '-')
+    // Recompose what NFKD split apart (voiced kana, Hangul syllables).
+    .normalize('NFC')
     .replace(/^-+|-+$/g, '');
-  // Bound by code points so truncation can never leave a lone surrogate.
-  const bounded = [...stem].slice(0, 96).join('').replace(/-+$/, '');
-  return bounded || DEFAULT_FILENAME;
+
+  // Bound by UTF-8 bytes, a code point at a time so truncation can never leave
+  // a lone surrogate, and never strand a combining mark away from its base.
+  const codePoints = [...stem];
+  let bytes = 0;
+  let end = 0;
+  while (end < codePoints.length && bytes + utf8Length(codePoints[end]) <= FILENAME_STEM_MAX_BYTES) {
+    bytes += utf8Length(codePoints[end]);
+    end += 1;
+  }
+  while (end < codePoints.length && end > 0 && /^\p{M}$/u.test(codePoints[end])) end -= 1;
+  const bounded = codePoints.slice(0, end).join('').replace(/-+$/, '');
+
+  if (!bounded) return DEFAULT_FILENAME;
+  // `con.md` is invalid on Windows exactly like `con`; keep the name readable
+  // but no longer a device name.
+  return WINDOWS_RESERVED_NAMES.test(bounded) ? `${bounded}-${DEFAULT_FILENAME}` : bounded;
 }
 
 /** 時間戳缺少或無效時回傳空字串。 */

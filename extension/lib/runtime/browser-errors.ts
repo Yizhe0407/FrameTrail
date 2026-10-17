@@ -15,6 +15,12 @@ export function describeBrowserError(error: unknown, fallback = 'Unknown browser
     : fallback;
 }
 
+/** The scripting API refused a frame because the browser shows its own error
+ * page there (the navigation failed: offline, DNS, refused connection…). */
+export function isErrorPageError(error: unknown): boolean {
+  return /showing error page|chrome-error:\/\//i.test(describeBrowserError(error, ''));
+}
+
 /** Tab lifecycle events can race async reinjection/capture work. */
 export function isMissingTabError(error: unknown): boolean {
   const message = describeBrowserError(error, '');

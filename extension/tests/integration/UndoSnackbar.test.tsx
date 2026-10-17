@@ -57,4 +57,17 @@ describe('UndoSnackbar', () => {
     act(() => vi.advanceTimersByTime(1));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
+  it('shows, under its own message, that the undo it replaced is now final', () => {
+    render(
+      <UndoSnackbar
+        message="已刪除步驟 2"
+        note="先前的「已刪除步驟 3」已無法還原"
+        onUndo={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status').textContent).toContain('已刪除步驟 2');
+    expect(screen.getByText('先前的「已刪除步驟 3」已無法還原')).toBeTruthy();
+  });
 });
