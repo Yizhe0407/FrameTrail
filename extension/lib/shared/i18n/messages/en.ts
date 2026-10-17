@@ -85,6 +85,8 @@ export const en: Messages = {
     pinTitle: 'Pin Stepmark to the toolbar',
     pinBody: 'Click the puzzle piece at the top right of your browser, then the pin next to Stepmark. After that, you can start recording from the toolbar at any time.',
     pinIllustrationLabel: 'The browser’s extensions menu, with the pin next to Stepmark turned on',
+    pinnedTitle: 'Stepmark is pinned to the toolbar',
+    pinnedBody: 'You can start recording from the Stepmark icon on the toolbar at any time.',
     pinMenuTitle: 'Extensions',
     pinOtherExtension: 'Another extension',
     modesTitle: 'Recording modes',

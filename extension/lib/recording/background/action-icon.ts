@@ -1,16 +1,11 @@
-import { browser } from 'wxt/browser';
 import { actionIconPaths } from '../../shared/brand-icons';
 import type { RecordingState } from '../../storage/recording-state';
 import { getRecordingState, onRecordingStateChange } from '../../storage/storage';
+import { toolbarAction } from '../../runtime/toolbar-action';
 
 /** The toolbar shows the recording dot exactly while a capture run is live. */
 function showsRecordingIcon(state: Pick<RecordingState, 'isRecording'>): boolean {
   return state.isRecording;
-}
-
-// MV3 exposes `action`; Firefox's MV2 build only has `browserAction`.
-function toolbarAction() {
-  return browser.action ?? browser.browserAction;
 }
 
 async function applyActionIcon(recording: boolean): Promise<void> {

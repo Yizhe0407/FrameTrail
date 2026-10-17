@@ -89,6 +89,8 @@ export const zhTW = {
     pinTitle: '將 Stepmark 釘選到工具列',
     pinBody: '點選瀏覽器右上角的拼圖圖示，再點選 Stepmark 旁邊的圖釘。之後隨時點擊工具列上的圖示就能開始錄製。',
     pinIllustrationLabel: '瀏覽器的擴充功能選單：Stepmark 旁邊的圖釘已經按下',
+    pinnedTitle: 'Stepmark 已釘選到工具列',
+    pinnedBody: '之後隨時點擊工具列上的 Stepmark 圖示就能開始錄製。',
     pinMenuTitle: '擴充功能',
     pinOtherExtension: '其他擴充功能',
     modesTitle: '錄製模式',

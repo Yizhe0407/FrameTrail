@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { ArrowRight, Camera, Layers, ListOrdered, Pin, Puzzle, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Camera, Check, Layers, ListOrdered, Pin, Puzzle, ShieldCheck } from 'lucide-react';
 import AppHeader from '@/components/shared/AppHeader';
 import Mascot from '@/components/shared/Mascot';
 import { Button } from '@/components/ui/button';
 import { navigateInPlace } from '@/lib/runtime/page-navigation';
 import { useExtensionPageRegistration } from '@/lib/runtime/use-extension-page-registration';
+import { useToolbarPin } from '@/lib/runtime/use-toolbar-pin';
 import { t } from '@/lib/shared/i18n';
 import { recordingModeCopy } from '@/lib/recording/recording-mode-copy';
 
@@ -44,17 +45,41 @@ function PinIllustration() {
   );
 }
 
-function StepCard({ number, title, children }: { number: number; title: string; children: ReactNode }) {
+function StepCard({ number, title, done = false, children }: { number: number; title: string; done?: boolean; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3 rounded-md border-2 border-border bg-card p-4">
       <h2 className="flex items-center gap-2 text-base font-bold">
         <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-primary text-xs text-primary-foreground" aria-hidden="true">
-          {number}
+          {done ? <Check className="size-3.5" strokeWidth={3} /> : number}
         </span>
         {title}
       </h2>
       {children}
     </section>
+  );
+}
+
+/**
+ * Step 1 follows the browser's own pin state: once Stepmark is on the
+ * toolbar the instructions give way to a confirmation, and they come back if
+ * it is unpinned. A browser that cannot report the state keeps the
+ * instructions. The live region announces the switch either way.
+ */
+function PinStep() {
+  const pinned = useToolbarPin() === 'pinned';
+  return (
+    <StepCard number={1} title={pinned ? t().welcome.pinnedTitle : t().welcome.pinTitle} done={pinned}>
+      <div aria-live="polite" className="flex flex-col gap-3">
+        {pinned ? (
+          <p className="text-sm leading-relaxed text-muted-foreground">{t().welcome.pinnedBody}</p>
+        ) : (
+          <>
+            <PinIllustration />
+            <p className="text-sm leading-relaxed text-muted-foreground">{t().welcome.pinBody}</p>
+          </>
+        )}
+      </div>
+    </StepCard>
   );
 }
 
@@ -82,10 +107,7 @@ export default function App() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-[1.15fr_1fr_1fr]">
-          <StepCard number={1} title={t().welcome.pinTitle}>
-            <PinIllustration />
-            <p className="text-sm leading-relaxed text-muted-foreground">{t().welcome.pinBody}</p>
-          </StepCard>
+          <PinStep />
 
           <StepCard number={2} title={t().welcome.modesTitle}>
             <ul className="flex flex-col gap-3">
